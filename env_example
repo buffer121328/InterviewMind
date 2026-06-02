@@ -1,0 +1,64 @@
+# 心流 API 配置（用于 LLM）
+XINLIU_API_KEY=xxxx
+XINLIU_API_BASE=https://apis.iflow.cn/v1
+XINLIU_API_MODEL=qwen3-coder-plus
+
+# 嵌入模型配置（SiliconFlow）
+EMBEDDING_API_KEY=xxxx
+EMBEDDING_API_BASE=https://api.siliconflow.cn/v1
+EMBEDDING_API_MODEL=BAAI/bge-m3
+
+# 文件服务配置
+UPLOAD_DIR=data/resumes
+MAX_FILE_SIZE_MB=10
+ALLOWED_FILE_EXTENSIONS=pdf,docx,txt
+MAX_RESUME_COUNT=5
+
+# ============================================================================
+# LLM 双通道配置（分级模型支持）
+# ============================================================================
+
+# Fast Channel (Fast & Cheap) - 用于意图识别、简单分类
+# 设置 temperature=0 以保证确定性输出
+FAST_LLM_API_KEY=your_fast_llm_api_key
+FAST_LLM_BASE_URL=https://open.bigmodel.cn/api/paas/v4
+FAST_LLM_MODEL=glm-4-flash
+
+# Smart Channel (High Intelligence) - 用于生成复杂的面试官回复、点评和总结
+# 设置 temperature=0.7 以允许一定的创造性
+SMART_LLM_API_KEY=your_smart_llm_api_key
+SMART_LLM_BASE_URL=https://apis.iflow.cn/v1
+SMART_LLM_MODEL=qwen3-235b-a22b-instruct
+
+# ============================================================================
+# mem0 长期记忆配置
+# ============================================================================
+
+# 启用/禁用 mem0（设为 false 时完全跳过记忆功能）
+MEM0_ENABLED=true
+
+# 向量存储配置（pgvector，复用现有 PostgreSQL）
+MEM0_VECTOR_PROVIDER=pgvector
+MEM0_PGVECTOR_COLLECTION=mem0_memories
+MEM0_PGVECTOR_HOST=localhost
+MEM0_PGVECTOR_PORT=5432
+MEM0_PGVECTOR_DBNAME=agent_interview
+MEM0_PGVECTOR_USER=agent_interview
+MEM0_PGVECTOR_PASSWORD=
+
+# mem0 LLM 配置（用于记忆提取和冲突判断）
+MEM0_LLM_PROVIDER=openai
+MEM0_LLM_MODEL=deepseek-chat
+MEM0_LLM_API_KEY=${DEEPSEEK_API_KEY}
+MEM0_LLM_BASE_URL=https://api.deepseek.com/v1
+
+# mem0 Embedding 配置（用于语义检索）
+MEM0_EMBEDDER_PROVIDER=openai
+MEM0_EMBEDDER_MODEL=text-embedding-3-small
+MEM0_EMBEDDER_API_KEY=${OPENAI_API_KEY}
+MEM0_EMBEDDING_DIMS=1536
+
+# 运行时配置
+MEM0_SEARCH_LIMIT=5
+MEM0_CONTEXT_CHAR_LIMIT=1200
+MEM0_BACKGROUND_WRITE=true

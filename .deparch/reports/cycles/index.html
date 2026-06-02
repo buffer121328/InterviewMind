@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Import Cycle Analysis</title>
+  <link rel="stylesheet" href="../_shared/app.css">
+  <style>
+    .cycle-card {
+      margin-bottom: 14px; padding: 14px 16px; border-radius: 10px;
+      background: var(--panel-soft); border-left: 3px solid var(--accent-3);
+    }
+    .cycle-header { font-weight: 700; margin-bottom: 6px; cursor: pointer; }
+    .cycle-len { font-weight: 400; color: var(--muted); font-size: .85rem; margin-left: 8px; }
+    .cycle-path { font-family: monospace; font-size: .9rem; color: var(--accent); margin-bottom: 8px; word-break: break-all; }
+    .cycle-node { display: flex; gap: 10px; padding: 3px 0; font-size: .85rem; }
+    .cycle-module { font-weight: 600; min-width: 180px; }
+    .cycle-file { color: var(--muted); word-break: break-all; }
+    .metrics-table { width: 100%; border-collapse: collapse; font-size: .88rem; }
+    .metrics-table th, .metrics-table td { padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--border); }
+    .metrics-table th { color: var(--muted); font-weight: 500; }
+    .metrics-table .hot { color: var(--accent-3); font-weight: 700; }
+    .warning-group { margin-bottom: 16px; }
+    .warning-group h3 { font-size: .95rem; color: var(--accent-3); margin-bottom: 8px; }
+    .warning-row { padding: 5px 0; font-size: .88rem; border-bottom: 1px solid var(--border); }
+    .w-module { font-weight: 600; color: var(--accent); }
+    .w-metric { color: var(--accent-3); }
+    .w-threshold { color: var(--muted); }
+    .w-file { color: var(--accent); }
+    .w-msg { color: var(--muted); }
+    .explain-box { margin: 10px 0 14px; padding: 12px 14px; border-radius: 10px; background: var(--panel-soft); color: var(--muted); font-size: .9rem; line-height: 1.65; }
+    .graph-help { margin: 10px 0 14px; padding: 10px 12px; border-radius: 10px; background: var(--panel-soft); color: var(--muted); font-size: .9rem; }
+    .graph-legend { display: flex; flex-wrap: wrap; gap: 12px; margin: 0 0 12px; color: var(--muted); font-size: .86rem; }
+    .legend-dot { display: inline-block; width: 10px; height: 10px; border-radius: 999px; margin-right: 6px; vertical-align: middle; }
+    .legend-dot.cycle { background: var(--accent-3); }
+    .legend-dot.node { background: var(--accent); }
+    .cycle-browser { display: grid; grid-template-columns: minmax(260px, 360px) 1fr; gap: 16px; align-items: stretch; }
+    .cycle-list-panel, .cycle-focus-panel { border-radius: 12px; background: var(--panel-soft); border: 1px solid var(--border); padding: 14px; min-height: 360px; }
+    .cycle-list { display: flex; flex-direction: column; gap: 8px; }
+    .cycle-list button { width: 100%; border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; background: rgba(15, 23, 42, .56); color: var(--text); text-align: left; cursor: pointer; }
+    .cycle-list button:hover, .cycle-list button.active { border-color: var(--accent-3); background: rgba(251,191,36,.1); }
+    .cycle-list .cycle-title { display: block; font-weight: 700; margin-bottom: 4px; }
+    .cycle-list .cycle-meta { display: block; color: var(--muted); font-size: .82rem; }
+    .cycle-focus-panel h3 { margin-top: 0; }
+    .focus-path { padding: 10px 12px; border-radius: 10px; background: rgba(251,191,36,.08); color: var(--accent-3); font-family: monospace; word-break: break-word; margin-bottom: 12px; }
+    .focus-module-row { display: grid; grid-template-columns: minmax(160px, 240px) 1fr; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--border); font-size: .88rem; }
+    .focus-module-row .module { color: var(--accent); font-weight: 700; }
+    .focus-module-row .file { color: var(--muted); word-break: break-all; }
+    @media (max-width: 860px) { .cycle-browser { grid-template-columns: 1fr; } }
+    .status-pill { display: inline-block; padding: 3px 10px; border-radius: 6px; font-weight: 600; font-size: .88rem; }
+    .status-pill.healthy { background: rgba(34,197,94,.15); color: var(--accent-2); }
+    .status-pill.unhealthy { background: rgba(239,68,68,.15); color: #fca5a5; }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header class="hero">
+      <h1>Import Cycle Analysis</h1>
+      <p>内部模块循环依赖检测报告</p>
+      <div class="meta">Command: cycles · Project: /Users/cheng/Downloads/DesktopOrganizer/学习资料/agent_interview</div>
+    </header>
+
+    <nav id="report-nav" role="tablist" aria-label="报告导航">
+      <button id="tab-summary" type="button" role="tab" data-section-target="summary" aria-controls="summary" aria-selected="true">概览</button>
+      <button id="tab-import-graph" type="button" role="tab" data-section-target="import-graph" aria-controls="import-graph" aria-selected="false" tabindex="-1">Import 图</button>
+      <button id="tab-cycles" type="button" role="tab" data-section-target="cycles-detail" aria-controls="cycles-detail" aria-selected="false" tabindex="-1">循环详情</button>
+      <button id="tab-coupling" type="button" role="tab" data-section-target="coupling" aria-controls="coupling" aria-selected="false" tabindex="-1">耦合度</button>
+      <button id="tab-raw-data" type="button" role="tab" data-section-target="raw-data" aria-controls="raw-data" aria-selected="false" tabindex="-1">原始数据</button>
+    </nav>
+
+    <section id="summary" class="report-section" role="tabpanel" aria-labelledby="tab-summary">
+      <div class="summary-grid">
+        <div class="card"><div class="label">循环数</div><div class="value">0</div></div>
+        <div class="card"><div class="label">内部模块</div><div class="value">115</div></div>
+        <div class="card"><div class="label">耦合警告</div><div class="value">2</div></div>
+        <div class="card"><div class="label">解析错误</div><div class="value">0</div></div>
+      </div>
+      <p class="deepest-chain">状态：<span class="status-pill healthy">健康</span></p>
+      <div class="explain-box">
+        <strong>什么是耦合度？</strong><br>
+        这里用两个确定性指标描述模块之间的依赖强度：<strong>fan-in</strong> 表示“有多少内部模块 import 了当前模块”，越高说明它越像公共基础模块，改动影响面越大；<strong>fan-out</strong> 表示“当前模块 import 了多少内部模块”，越高说明它依赖面越广，可能承担了过多职责。当前默认阈值为 <strong>3</strong>：3 及以下正常，超过 3（即 4+）会被标记为高耦合提示。
+      </div>
+    </section>
+
+    <section id="import-graph" class="report-section" role="tabpanel" aria-labelledby="tab-import-graph">
+      <div class="section-head">
+        <div>
+          <h2>Import 图</h2>
+          <p class="section-copy">这里不再画拥挤的全局环形图，而是用竖向列表展示循环。点击左侧某个循环，右侧查看该循环的依赖路径和文件位置。</p>
+        </div>
+      </div>
+      <div class="graph-help">阅读方式：左侧是一组循环依赖；右侧显示选中循环的完整路径。箭头方向表示 import 方向，例如 A → B 表示 A import 了 B。</div>
+      <div class="graph-legend">
+        <span><span class="legend-dot cycle"></span>选中循环</span>
+        <span><span class="legend-dot node"></span>循环模块</span>
+      </div>
+      <div class="cycle-browser">
+        <div class="cycle-list-panel">
+          <h3>循环列表</h3>
+          <p class="section-copy">按循环长度升序排列，优先查看短循环。</p>
+          <div id="cycle-list" class="cycle-list"></div>
+        </div>
+        <div id="cycle-focus" class="cycle-focus-panel">
+          <p class="section-copy">点击左侧循环查看详情。</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="cycles-detail" class="report-section" role="tabpanel" aria-labelledby="tab-cycles">
+      <div class="section-head">
+        <div>
+          <h2>循环详情</h2>
+          <p class="section-copy">检测到的循环依赖路径，按长度升序排列。第一个循环默认展开，其余可按需展开。</p>
+        </div>
+      </div>
+      <p class="section-copy" style="color:var(--accent-2)">未检测到循环依赖，项目结构健康。</p>
+      <div class="warning-group"><h3>高耦合模块</h3>
+<div class="warning-row"><span class="w-module">backend.app.models.base</span> <span class="w-metric">fan_in=6</span> <span class="w-threshold">(阈值 3，超过 3 才告警)</span></div>
+<div class="warning-row"><span class="w-module">backend.app.repositories.session.repo_impl.base</span> <span class="w-metric">fan_in=5</span> <span class="w-threshold">(阈值 3，超过 3 才告警)</span></div>
+</div>
+    </section>
+
+    <section id="coupling" class="report-section" role="tabpanel" aria-labelledby="tab-coupling">
+      <div class="section-head">
+        <div>
+          <h2>耦合度分析</h2>
+          <p class="section-copy">Fan-In 是“被多少模块依赖”，Fan-Out 是“依赖多少模块”。阈值 3 表示超过 3 才告警：4 个及以上会被高亮。</p>
+        </div>
+      </div>
+      <p class="section-copy">阈值说明：fan-in / fan-out ≤ 3 为正常；超过 3（即 4+）代表依赖关系较多，会高亮为高耦合风险。</p><table class="metrics-table"><thead><tr><th>Module</th><th>Fan-In</th><th>Fan-Out</th></tr></thead><tbody><tr><td>backend</td><td>0</td><td>0</td></tr><tr><td>backend.alembic</td><td>0</td><td>0</td></tr><tr><td>backend.alembic.env</td><td>0</td><td>0</td></tr><tr><td>backend.app</td><td>0</td><td>0</td></tr><tr><td>backend.app.api</td><td>0</td><td>0</td></tr><tr><td>backend.app.api.applications</td><td>0</td><td>0</td></tr><tr><td>backend.app.api.chat</td><td>0</td><td>0</td></tr><tr><td>backend.app.api.config</td><td>0</td><td>0</td></tr><tr><td>backend.app.api.deps</td><td>0</td><td>0</td></tr><tr><td>backend.app.api.memory</td><td>0</td><td>0</td></tr><tr><td>backend.app.api.question_bank</td><td>0</td><td>0</td></tr><tr><td>backend.app.api.resume</td><td>0</td><td>0</td></tr><tr><td>backend.app.api.sessions</td><td>0</td><td>0</td></tr><tr><td>backend.app.api.upload</td><td>0</td><td>0</td></tr><tr><td>backend.app.api.voice_chat</td><td>0</td><td>0</td></tr><tr><td>backend.app.db</td><td>0</td><td>0</td></tr><tr><td>backend.app.db.config</td><td>0</td><td>0</td></tr><tr><td>backend.app.models</td><td>0</td><td>0</td></tr><tr><td>backend.app.models.application</td><td>0</td><td>1</td></tr><tr><td>backend.app.models.base</td><td class="hot">6（>3，告警）</td><td>0</td></tr><tr><td>backend.app.models.interview</td><td>0</td><td>1</td></tr><tr><td>backend.app.models.jd</td><td>0</td><td>1</td></tr><tr><td>backend.app.models.rag</td><td>0</td><td>1</td></tr><tr><td>backend.app.models.resume</td><td>0</td><td>1</td></tr><tr><td>backend.app.models.session</td><td>0</td><td>1</td></tr><tr><td>backend.app.repositories</td><td>0</td><td>0</td></tr><tr><td>backend.app.repositories.application</td><td>0</td><td>0</td></tr><tr><td>backend.app.repositories.application.application_event_repo</td><td>0</td><td>0</td></tr><tr><td>backend.app.repositories.application.job_application_repo</td><td>0</td><td>0</td></tr><tr><td>backend.app.repositories.interview</td><td>0</td><td>0</td></tr><tr><td>backend.app.repositories.interview.question_bank_repo</td><td>0</td><td>0</td></tr><tr><td>backend.app.repositories.interview.rag_index_repo</td><td>0</td><td>0</td></tr><tr><td>backend.app.repositories.interview.retrieval_repo</td><td>0</td><td>0</td></tr><tr><td>backend.app.repositories.interview.weakness_report_repo</td><td>0</td><td>0</td></tr><tr><td>backend.app.repositories.resume</td><td>0</td><td>0</td></tr><tr><td>backend.app.repositories.resume.candidate_material_repo</td><td>0</td><td>0</td></tr><tr><td>backend.app.repositories.resume.jd_analysis_repo</td><td>0</td><td>0</td></tr><tr><td>backend.app.repositories.resume.project_rewrite_repo</td><td>0</td><td>0</td></tr><tr><td>backend.app.repositories.resume.resume_generation_repo</td><td>0</td><td>0</td></tr><tr><td>backend.app.repositories.resume.resume_repo</td><td>0</td><td>0</td></tr><tr><td>backend.app.repositories.session</td><td>0</td><td>0</td></tr><tr><td>backend.app.repositories.session.repo_impl</td><td>0</td><td>0</td></tr><tr><td>backend.app.repositories.session.repo_impl.base</td><td class="hot">5（>3，告警）</td><td>0</td></tr><tr><td>backend.app.repositories.session.repo_impl.interview_plan</td><td>0</td><td>1</td></tr><tr><td>backend.app.repositories.session.repo_impl.message_mgmt</td><td>0</td><td>2</td></tr><tr><td>backend.app.repositories.session.repo_impl.profile_mgmt</td><td>0</td><td>1</td></tr><tr><td>backend.app.repositories.session.repo_impl.session_advanced</td><td>0</td><td>2</td></tr><tr><td>backend.app.repositories.session.repo_impl.session_mgmt</td><td>2</td><td>1</td></tr><tr><td>backend.app.repositories.session.session_repo</td><td>0</td><td>0</td></tr><tr><td>backend.app.schemas</td><td>0</td><td>0</td></tr><tr><td>backend.app.schemas.candidate_profile</td><td>0</td><td>0</td></tr><tr><td>backend.app.schemas.jd_schemas</td><td>0</td><td>0</td></tr><tr><td>backend.app.schemas.job_application</td><td>0</td><td>0</td></tr><tr><td>backend.app.schemas.llm_outputs</td><td>0</td><td>0</td></tr><tr><td>backend.app.schemas.project_rewrite_schemas</td><td>0</td><td>0</td></tr><tr><td>backend.app.schemas.question_bank</td><td>0</td><td>0</td></tr><tr><td>backend.app.schemas.resume_schemas</td><td>0</td><td>0</td></tr><tr><td>backend.app.schemas.schemas</td><td>0</td><td>0</td></tr><tr><td>backend.app.schemas.session</td><td>0</td><td>0</td></tr><tr><td>backend.app.schemas.unified_report</td><td>0</td><td>0</td></tr><tr><td>backend.app.schemas.voice</td><td>0</td><td>0</td></tr><tr><td>backend.app.schemas.weakness_report</td><td>0</td><td>0</td></tr><tr><td>backend.app.services</td><td>0</td><td>0</td></tr><tr><td>backend.app.services.agent_memory</td><td>0</td><td>0</td></tr><tr><td>backend.app.services.agent_memory.config</td><td>2</td><td>0</td></tr><tr><td>backend.app.services.agent_memory.filters</td><td>0</td><td>0</td></tr><tr><td>backend.app.services.agent_memory.formatter</td><td>0</td><td>1</td></tr><tr><td>backend.app.services.agent_memory.schemas</td><td>0</td><td>0</td></tr><tr><td>backend.app.services.agent_memory.service</td><td>0</td><td>1</td></tr><tr><td>backend.app.services.analysis</td><td>0</td><td>0</td></tr><tr><td>backend.app.services.analysis.ability_service</td><td>0</td><td>0</td></tr><tr><td>backend.app.services.analysis.analysis_service</td><td>0</td><td>0</td></tr><tr><td>backend.app.services.background_tasks</td><td>0</td><td>0</td></tr><tr><td>backend.app.services.file_service</td><td>0</td><td>0</td></tr><tr><td>backend.app.services.interview</td><td>0</td><td>0</td></tr><tr><td>backend.app.services.interview.interview_analysis</td><td>2</td><td>1</td></tr><tr><td>backend.app.services.interview.interview_graph</td><td>0</td><td>3</td></tr><tr><td>backend.app.services.interview.interview_planner</td><td>2</td><td>0</td></tr><tr><td>backend.app.services.interview.interview_rag</td><td>0</td><td>0</td></tr><tr><td>backend.app.services.interview.mode_strategy</td><td>2</td><td>0</td></tr><tr><td>backend.app.services.interview.voice_interview</td><td>0</td><td>2</td></tr><tr><td>backend.app.services.llm_utils</td><td>0</td><td>0</td></tr><tr><td>backend.app.services.llms</td><td>0</td><td>0</td></tr><tr><td>backend.app.services.memory</td><td>0</td><td>0</td></tr><tr><td>backend.app.services.rag</td><td>0</td><td>0</td></tr><tr><td>backend.app.services.rag.embedding_service</td><td>0</td><td>0</td></tr><tr><td>backend.app.services.rag.rag_indexer</td><td>0</td><td>0</td></tr><tr><td>backend.app.services.resume</td><td>0</td><td>0</td></tr><tr><td>backend.app.services.resume.jd_matcher</td><td>0</td><td>0</td></tr><tr><td>backend.app.services.resume.project_rewriter</td><td>0</td><td>0</td></tr><tr><td>backend.app.services.resume.resume_analyzer_graph</td><td>0</td><td>0</td></tr><tr><td>backend.app.services.resume.resume_assembler</td><td>0</td><td>0</td></tr><tr><td>backend.app.services.resume.resume_generation_graph</td><td>0</td><td>0</td></tr><tr><td>backend.app.services.resume.resume_optimizer_graph</td><td>0</td><td>0</td></tr><tr><td>backend.app.services.security</td><td>0</td><td>0</td></tr><tr><td>backend.app.services.tools</td><td>0</td><td>0</td></tr><tr><td>backend.app.services.tools.interview_tools</td><td>0</td><td>0</td></tr><tr><td>backend.app.services.tools.memory_tools</td><td>0</td><td>0</td></tr><tr><td>backend.app.services.tools.resume_tools</td><td>0</td><td>0</td></tr><tr><td>backend.conftest</td><td>0</td><td>0</td></tr><tr><td>backend.main</td><td>2</td><td>0</td></tr><tr><td>backend.tests</td><td>0</td><td>0</td></tr><tr><td>backend.tests.eval</td><td>0</td><td>0</td></tr><tr><td>backend.tests.eval.conftest</td><td>0</td><td>0</td></tr><tr><td>backend.tests.eval.test_dialogue_quality</td><td>0</td><td>0</td></tr><tr><td>backend.tests.eval.test_interview_planner</td><td>0</td><td>0</td></tr><tr><td>backend.tests.eval.test_regression</td><td>0</td><td>0</td></tr><tr><td>backend.tests.eval.test_resume_optimizer</td><td>0</td><td>0</td></tr><tr><td>backend.tests.eval.test_scoring_accuracy</td><td>0</td><td>0</td></tr><tr><td>backend.tests.eval.test_workflow_correctness</td><td>0</td><td>0</td></tr><tr><td>backend.tests.test_candidate_materials</td><td>0</td><td>1</td></tr><tr><td>backend.tests.test_jd_matcher</td><td>0</td><td>1</td></tr><tr><td>backend.tests.test_rag</td><td>0</td><td>0</td></tr><tr><td>backend.tests.test_rename_to_agent_interview</td><td>0</td><td>0</td></tr><tr><td>config</td><td>0</td><td>0</td></tr></tbody></table>
+    </section>
+
+    <section id="raw-data" class="report-section" role="tabpanel" aria-labelledby="tab-raw-data">
+      <div class="section-head">
+        <div>
+          <h2>原始数据</h2>
+          <p class="section-copy">JSON 格式的完整分析结果，可用于二次处理或调试。</p>
+        </div>
+      </div>
+      <pre id="raw-data-content" class="raw-data"></pre>
+    </section>
+  </div>
+
+  <script id="report-data" type="application/json">{"command": "cycles", "is_healthy": true, "status_message": "No import cycles detected. The project structure is healthy.", "cycles": [], "module_metrics": {"backend": {"module": "backend", "fan_in": 0, "fan_out": 0}, "backend.alembic.env": {"module": "backend.alembic.env", "fan_in": 0, "fan_out": 0}, "backend.app": {"module": "backend.app", "fan_in": 0, "fan_out": 0}, "backend.app.api": {"module": "backend.app.api", "fan_in": 0, "fan_out": 0}, "backend.app.api.applications": {"module": "backend.app.api.applications", "fan_in": 0, "fan_out": 0}, "backend.app.api.chat": {"module": "backend.app.api.chat", "fan_in": 0, "fan_out": 0}, "backend.app.api.config": {"module": "backend.app.api.config", "fan_in": 0, "fan_out": 0}, "backend.app.api.deps": {"module": "backend.app.api.deps", "fan_in": 0, "fan_out": 0}, "backend.app.api.memory": {"module": "backend.app.api.memory", "fan_in": 0, "fan_out": 0}, "backend.app.api.question_bank": {"module": "backend.app.api.question_bank", "fan_in": 0, "fan_out": 0}, "backend.app.api.resume": {"module": "backend.app.api.resume", "fan_in": 0, "fan_out": 0}, "backend.app.api.sessions": {"module": "backend.app.api.sessions", "fan_in": 0, "fan_out": 0}, "backend.app.api.upload": {"module": "backend.app.api.upload", "fan_in": 0, "fan_out": 0}, "backend.app.api.voice_chat": {"module": "backend.app.api.voice_chat", "fan_in": 0, "fan_out": 0}, "backend.app.db": {"module": "backend.app.db", "fan_in": 0, "fan_out": 0}, "backend.app.db.config": {"module": "backend.app.db.config", "fan_in": 0, "fan_out": 0}, "backend.app.models": {"module": "backend.app.models", "fan_in": 0, "fan_out": 0}, "backend.app.models.application": {"module": "backend.app.models.application", "fan_in": 0, "fan_out": 1}, "backend.app.models.base": {"module": "backend.app.models.base", "fan_in": 6, "fan_out": 0}, "backend.app.models.interview": {"module": "backend.app.models.interview", "fan_in": 0, "fan_out": 1}, "backend.app.models.jd": {"module": "backend.app.models.jd", "fan_in": 0, "fan_out": 1}, "backend.app.models.rag": {"module": "backend.app.models.rag", "fan_in": 0, "fan_out": 1}, "backend.app.models.resume": {"module": "backend.app.models.resume", "fan_in": 0, "fan_out": 1}, "backend.app.models.session": {"module": "backend.app.models.session", "fan_in": 0, "fan_out": 1}, "backend.app.repositories": {"module": "backend.app.repositories", "fan_in": 0, "fan_out": 0}, "backend.app.repositories.application": {"module": "backend.app.repositories.application", "fan_in": 0, "fan_out": 0}, "backend.app.repositories.application.application_event_repo": {"module": "backend.app.repositories.application.application_event_repo", "fan_in": 0, "fan_out": 0}, "backend.app.repositories.application.job_application_repo": {"module": "backend.app.repositories.application.job_application_repo", "fan_in": 0, "fan_out": 0}, "backend.app.repositories.interview": {"module": "backend.app.repositories.interview", "fan_in": 0, "fan_out": 0}, "backend.app.repositories.interview.question_bank_repo": {"module": "backend.app.repositories.interview.question_bank_repo", "fan_in": 0, "fan_out": 0}, "backend.app.repositories.interview.rag_index_repo": {"module": "backend.app.repositories.interview.rag_index_repo", "fan_in": 0, "fan_out": 0}, "backend.app.repositories.interview.retrieval_repo": {"module": "backend.app.repositories.interview.retrieval_repo", "fan_in": 0, "fan_out": 0}, "backend.app.repositories.interview.weakness_report_repo": {"module": "backend.app.repositories.interview.weakness_report_repo", "fan_in": 0, "fan_out": 0}, "backend.app.repositories.resume": {"module": "backend.app.repositories.resume", "fan_in": 0, "fan_out": 0}, "backend.app.repositories.resume.candidate_material_repo": {"module": "backend.app.repositories.resume.candidate_material_repo", "fan_in": 0, "fan_out": 0}, "backend.app.repositories.resume.jd_analysis_repo": {"module": "backend.app.repositories.resume.jd_analysis_repo", "fan_in": 0, "fan_out": 0}, "backend.app.repositories.resume.project_rewrite_repo": {"module": "backend.app.repositories.resume.project_rewrite_repo", "fan_in": 0, "fan_out": 0}, "backend.app.repositories.resume.resume_generation_repo": {"module": "backend.app.repositories.resume.resume_generation_repo", "fan_in": 0, "fan_out": 0}, "backend.app.repositories.resume.resume_repo": {"module": "backend.app.repositories.resume.resume_repo", "fan_in": 0, "fan_out": 0}, "backend.app.repositories.session": {"module": "backend.app.repositories.session", "fan_in": 0, "fan_out": 0}, "backend.app.repositories.session.repo_impl": {"module": "backend.app.repositories.session.repo_impl", "fan_in": 0, "fan_out": 0}, "backend.app.repositories.session.repo_impl.base": {"module": "backend.app.repositories.session.repo_impl.base", "fan_in": 5, "fan_out": 0}, "backend.app.repositories.session.repo_impl.interview_plan": {"module": "backend.app.repositories.session.repo_impl.interview_plan", "fan_in": 0, "fan_out": 1}, "backend.app.repositories.session.repo_impl.message_mgmt": {"module": "backend.app.repositories.session.repo_impl.message_mgmt", "fan_in": 0, "fan_out": 2}, "backend.app.repositories.session.repo_impl.profile_mgmt": {"module": "backend.app.repositories.session.repo_impl.profile_mgmt", "fan_in": 0, "fan_out": 1}, "backend.app.repositories.session.repo_impl.session_advanced": {"module": "backend.app.repositories.session.repo_impl.session_advanced", "fan_in": 0, "fan_out": 2}, "backend.app.repositories.session.repo_impl.session_mgmt": {"module": "backend.app.repositories.session.repo_impl.session_mgmt", "fan_in": 2, "fan_out": 1}, "backend.app.repositories.session.session_repo": {"module": "backend.app.repositories.session.session_repo", "fan_in": 0, "fan_out": 0}, "backend.app.schemas": {"module": "backend.app.schemas", "fan_in": 0, "fan_out": 0}, "backend.app.schemas.candidate_profile": {"module": "backend.app.schemas.candidate_profile", "fan_in": 0, "fan_out": 0}, "backend.app.schemas.jd_schemas": {"module": "backend.app.schemas.jd_schemas", "fan_in": 0, "fan_out": 0}, "backend.app.schemas.job_application": {"module": "backend.app.schemas.job_application", "fan_in": 0, "fan_out": 0}, "backend.app.schemas.llm_outputs": {"module": "backend.app.schemas.llm_outputs", "fan_in": 0, "fan_out": 0}, "backend.app.schemas.project_rewrite_schemas": {"module": "backend.app.schemas.project_rewrite_schemas", "fan_in": 0, "fan_out": 0}, "backend.app.schemas.question_bank": {"module": "backend.app.schemas.question_bank", "fan_in": 0, "fan_out": 0}, "backend.app.schemas.resume_schemas": {"module": "backend.app.schemas.resume_schemas", "fan_in": 0, "fan_out": 0}, "backend.app.schemas.schemas": {"module": "backend.app.schemas.schemas", "fan_in": 0, "fan_out": 0}, "backend.app.schemas.session": {"module": "backend.app.schemas.session", "fan_in": 0, "fan_out": 0}, "backend.app.schemas.unified_report": {"module": "backend.app.schemas.unified_report", "fan_in": 0, "fan_out": 0}, "backend.app.schemas.voice": {"module": "backend.app.schemas.voice", "fan_in": 0, "fan_out": 0}, "backend.app.schemas.weakness_report": {"module": "backend.app.schemas.weakness_report", "fan_in": 0, "fan_out": 0}, "backend.app.services": {"module": "backend.app.services", "fan_in": 0, "fan_out": 0}, "backend.app.services.agent_memory": {"module": "backend.app.services.agent_memory", "fan_in": 0, "fan_out": 0}, "backend.app.services.agent_memory.config": {"module": "backend.app.services.agent_memory.config", "fan_in": 2, "fan_out": 0}, "backend.app.services.agent_memory.filters": {"module": "backend.app.services.agent_memory.filters", "fan_in": 0, "fan_out": 0}, "backend.app.services.agent_memory.formatter": {"module": "backend.app.services.agent_memory.formatter", "fan_in": 0, "fan_out": 1}, "backend.app.services.agent_memory.schemas": {"module": "backend.app.services.agent_memory.schemas", "fan_in": 0, "fan_out": 0}, "backend.app.services.agent_memory.service": {"module": "backend.app.services.agent_memory.service", "fan_in": 0, "fan_out": 1}, "backend.app.services.analysis": {"module": "backend.app.services.analysis", "fan_in": 0, "fan_out": 0}, "backend.app.services.analysis.ability_service": {"module": "backend.app.services.analysis.ability_service", "fan_in": 0, "fan_out": 0}, "backend.app.services.analysis.analysis_service": {"module": "backend.app.services.analysis.analysis_service", "fan_in": 0, "fan_out": 0}, "backend.app.services.background_tasks": {"module": "backend.app.services.background_tasks", "fan_in": 0, "fan_out": 0}, "backend.app.services.file_service": {"module": "backend.app.services.file_service", "fan_in": 0, "fan_out": 0}, "backend.app.services.interview": {"module": "backend.app.services.interview", "fan_in": 0, "fan_out": 0}, "backend.app.services.interview.interview_analysis": {"module": "backend.app.services.interview.interview_analysis", "fan_in": 2, "fan_out": 1}, "backend.app.services.interview.interview_graph": {"module": "backend.app.services.interview.interview_graph", "fan_in": 0, "fan_out": 3}, "backend.app.services.interview.interview_planner": {"module": "backend.app.services.interview.interview_planner", "fan_in": 2, "fan_out": 0}, "backend.app.services.interview.interview_rag": {"module": "backend.app.services.interview.interview_rag", "fan_in": 0, "fan_out": 0}, "backend.app.services.interview.mode_strategy": {"module": "backend.app.services.interview.mode_strategy", "fan_in": 2, "fan_out": 0}, "backend.app.services.interview.voice_interview": {"module": "backend.app.services.interview.voice_interview", "fan_in": 0, "fan_out": 2}, "backend.app.services.llm_utils": {"module": "backend.app.services.llm_utils", "fan_in": 0, "fan_out": 0}, "backend.app.services.llms": {"module": "backend.app.services.llms", "fan_in": 0, "fan_out": 0}, "backend.app.services.memory": {"module": "backend.app.services.memory", "fan_in": 0, "fan_out": 0}, "backend.app.services.rag": {"module": "backend.app.services.rag", "fan_in": 0, "fan_out": 0}, "backend.app.services.rag.embedding_service": {"module": "backend.app.services.rag.embedding_service", "fan_in": 0, "fan_out": 0}, "backend.app.services.rag.rag_indexer": {"module": "backend.app.services.rag.rag_indexer", "fan_in": 0, "fan_out": 0}, "backend.app.services.resume": {"module": "backend.app.services.resume", "fan_in": 0, "fan_out": 0}, "backend.app.services.resume.jd_matcher": {"module": "backend.app.services.resume.jd_matcher", "fan_in": 0, "fan_out": 0}, "backend.app.services.resume.project_rewriter": {"module": "backend.app.services.resume.project_rewriter", "fan_in": 0, "fan_out": 0}, "backend.app.services.resume.resume_analyzer_graph": {"module": "backend.app.services.resume.resume_analyzer_graph", "fan_in": 0, "fan_out": 0}, "backend.app.services.resume.resume_assembler": {"module": "backend.app.services.resume.resume_assembler", "fan_in": 0, "fan_out": 0}, "backend.app.services.resume.resume_generation_graph": {"module": "backend.app.services.resume.resume_generation_graph", "fan_in": 0, "fan_out": 0}, "backend.app.services.resume.resume_optimizer_graph": {"module": "backend.app.services.resume.resume_optimizer_graph", "fan_in": 0, "fan_out": 0}, "backend.app.services.security": {"module": "backend.app.services.security", "fan_in": 0, "fan_out": 0}, "backend.app.services.tools": {"module": "backend.app.services.tools", "fan_in": 0, "fan_out": 0}, "backend.app.services.tools.interview_tools": {"module": "backend.app.services.tools.interview_tools", "fan_in": 0, "fan_out": 0}, "backend.app.services.tools.memory_tools": {"module": "backend.app.services.tools.memory_tools", "fan_in": 0, "fan_out": 0}, "backend.app.services.tools.resume_tools": {"module": "backend.app.services.tools.resume_tools", "fan_in": 0, "fan_out": 0}, "backend.conftest": {"module": "backend.conftest", "fan_in": 0, "fan_out": 0}, "backend.main": {"module": "backend.main", "fan_in": 2, "fan_out": 0}, "backend.tests": {"module": "backend.tests", "fan_in": 0, "fan_out": 0}, "backend.tests.eval": {"module": "backend.tests.eval", "fan_in": 0, "fan_out": 0}, "backend.tests.eval.conftest": {"module": "backend.tests.eval.conftest", "fan_in": 0, "fan_out": 0}, "backend.tests.eval.test_dialogue_quality": {"module": "backend.tests.eval.test_dialogue_quality", "fan_in": 0, "fan_out": 0}, "backend.tests.eval.test_interview_planner": {"module": "backend.tests.eval.test_interview_planner", "fan_in": 0, "fan_out": 0}, "backend.tests.eval.test_regression": {"module": "backend.tests.eval.test_regression", "fan_in": 0, "fan_out": 0}, "backend.tests.eval.test_resume_optimizer": {"module": "backend.tests.eval.test_resume_optimizer", "fan_in": 0, "fan_out": 0}, "backend.tests.eval.test_scoring_accuracy": {"module": "backend.tests.eval.test_scoring_accuracy", "fan_in": 0, "fan_out": 0}, "backend.tests.eval.test_workflow_correctness": {"module": "backend.tests.eval.test_workflow_correctness", "fan_in": 0, "fan_out": 0}, "backend.tests.test_candidate_materials": {"module": "backend.tests.test_candidate_materials", "fan_in": 0, "fan_out": 1}, "backend.tests.test_jd_matcher": {"module": "backend.tests.test_jd_matcher", "fan_in": 0, "fan_out": 1}, "backend.tests.test_rag": {"module": "backend.tests.test_rag", "fan_in": 0, "fan_out": 0}, "backend.tests.test_rename_to_agent_interview": {"module": "backend.tests.test_rename_to_agent_interview", "fan_in": 0, "fan_out": 0}, "config": {"module": "config", "fan_in": 0, "fan_out": 0}, "backend.alembic": {"module": "backend.alembic", "fan_in": 0, "fan_out": 0}}, "coupling_warnings": [{"module": "backend.app.models.base", "metric": "fan_in", "value": 6, "threshold": 3}, {"module": "backend.app.repositories.session.repo_impl.base", "metric": "fan_in", "value": 5, "threshold": 3}], "parse_warnings": []}</script>
+  <script src="../_shared/app.js"></script>
+  <script>
+  (function() {
+    var report = null;
+    try { report = JSON.parse(document.getElementById('report-data').textContent); } catch(e) { return; }
+    if (!report) return;
+
+    // Tab navigation (reuse same pattern as scan)
+    var tabs = document.querySelectorAll('#report-nav [role="tab"]');
+    var sections = document.querySelectorAll('.report-section');
+    function showSection(id) {
+      sections.forEach(function(s) { s.hidden = s.id !== id; });
+      tabs.forEach(function(t) {
+        var target = t.getAttribute('data-section-target');
+        t.setAttribute('aria-selected', target === id ? 'true' : 'false');
+        t.tabIndex = target === id ? 0 : -1;
+      });
+    }
+    tabs.forEach(function(t) {
+      t.addEventListener('click', function() { showSection(t.getAttribute('data-section-target')); });
+    });
+    showSection('summary');
+
+    // Raw data
+    var rawEl = document.getElementById('raw-data-content');
+    if (rawEl) rawEl.textContent = JSON.stringify(report, null, 2);
+
+    // Import graph as a readable vertical cycle browser.
+    var cycleList = document.getElementById('cycle-list');
+    var cycleFocus = document.getElementById('cycle-focus');
+    var cycles = report.cycles || [];
+
+    function escapeHtml(value) {
+      return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function shortName(moduleName) {
+      var parts = String(moduleName).split('.');
+      return parts[parts.length - 1] || moduleName;
+    }
+
+    function renderCycleFocus(index) {
+      if (!cycleFocus) return;
+      if (!cycles.length) {
+        cycleFocus.innerHTML = '<h3>没有循环依赖</h3><p class="section-copy">当前项目没有检测到 import cycle。可以查看“耦合度”了解模块之间的依赖强度。</p>';
+        return;
+      }
+      var cycle = cycles[index];
+      var path = cycle.modules.concat([cycle.modules[0]]).join(' → ');
+      var rows = (cycle.entries || []).map(function(entry) {
+        return '<div class="focus-module-row"><span class="module">' + escapeHtml(entry.module) + '</span><span class="file">' + escapeHtml(entry.file_path) + '</span></div>';
+      }).join('');
+      cycleFocus.innerHTML = '<h3>Cycle ' + (index + 1) + '</h3>'
+        + '<p class="section-copy">箭头方向代表 import 方向：左侧模块 import 右侧模块。最后一条边回到起点，所以形成循环。</p>'
+        + '<div class="focus-path">' + escapeHtml(path) + '</div>'
+        + rows;
+    }
+
+    if (cycleList) {
+      if (!cycles.length) {
+        cycleList.innerHTML = '<p class="section-copy">无循环依赖。</p>';
+        renderCycleFocus(0);
+      } else {
+        cycleList.innerHTML = cycles.map(function(cycle, index) {
+          var preview = cycle.modules.slice(0, 4).map(shortName).join(' → ');
+          if (cycle.modules.length > 4) preview += ' → …';
+          return '<button type="button" data-cycle-index="' + index + '"' + (index === 0 ? ' class="active"' : '') + '>'
+            + '<span class="cycle-title">Cycle ' + (index + 1) + '</span>'
+            + '<span class="cycle-meta">' + cycle.modules.length + ' 个模块 · ' + escapeHtml(preview) + '</span>'
+            + '</button>';
+        }).join('');
+        cycleList.querySelectorAll('button[data-cycle-index]').forEach(function(button) {
+          button.addEventListener('click', function() {
+            cycleList.querySelectorAll('button').forEach(function(b) { b.classList.remove('active'); });
+            button.classList.add('active');
+            renderCycleFocus(Number(button.getAttribute('data-cycle-index')) || 0);
+          });
+        });
+        renderCycleFocus(0);
+      }
+    }
+  })();
+  </script>
+</body>
+</html>

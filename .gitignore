@@ -1,0 +1,12 @@
+.vscode
+.chainlit
+__pycache__
+.venv
+data
+.env
+meta-output
+test
+package-lock.json
+web/yarn.lock
+web/build_log.txt
+AGENTS.md
