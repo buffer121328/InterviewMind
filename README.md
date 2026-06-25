@@ -2,6 +2,10 @@
 
 > 基于 AI Agent 的全能求职助手技能包。零环境、零部署——让 codex 直接扮演你的专属职业咨询师。
 
+[![Try 面必过 on Socialistic](https://socialistic.ai/api/embed/shaped-skills-91d17b?lang=zh)](https://socialistic.ai/zh/skill/shaped-skills-91d17b?utm_source=github&utm_medium=readme&utm_campaign=20260624-speech-presentation-sim-builders&utm_content=badge)
+
+没装 codex 也想先看看效果？可以[在线试一下](https://socialistic.ai/zh/skill/shaped-skills-91d17b?utm_source=github&utm_medium=readme&utm_campaign=20260624-speech-presentation-sim-builders&utm_content=hyperlink)：上传简历和 JD 就能跑模拟面试 / 简历优化，无需本地环境。
+
 ## 为什么用这个
 
 传统「面必过」是一个全栈 Web 应用：Docker + PostgreSQL + pgvector + FastAPI + Next.js。对想试一次模拟面试的求职者来说，环境门槛太高。
