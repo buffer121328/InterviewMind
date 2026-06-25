@@ -1,0 +1,41 @@
+"""
+记忆相关工具
+供 create_react_agent 使用的工具集
+"""
+
+import logging
+from typing import List, Dict, Any, Optional
+from langchain_core.tools import tool
+
+logger = logging.getLogger(__name__)
+
+
+@tool
+async def search_memory(query: str, user_id: str = "default_user") -> List[Dict[str, Any]]:
+    """
+    搜索候选人的长期记忆（包括历史面试表现、技能偏好等）。
+    
+    Args:
+        query: 搜索关键词
+        user_id: 用户ID
+        
+    Returns:
+        匹配的记忆列表
+    """
+    try:
+        from app.services.agent_memory.service import get_agent_memory_service
+        service = await get_agent_memory_service()
+        
+        if not service.is_enabled:
+            return [{"message": "记忆服务未启用"}]
+        
+        memories = await service.search_memories(
+            user_id=user_id,
+            query=query,
+            limit=5
+        )
+        
+        return memories
+    except Exception as e:
+        logger.error(f"搜索记忆失败: {e}")
+        return []

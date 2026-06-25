@@ -1,0 +1,83 @@
+
+services:
+  # PostgreSQL 数据库
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: agent_interview_db
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-agent_interview}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cheng123}
+      POSTGRES_DB: ${POSTGRES_DB:-agent_interview}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - agent_interview_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-agent_interview}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # 后端 API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: agent_interview_backend
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-agent_interview}:${POSTGRES_PASSWORD:-cheng123}@postgres:5432/${POSTGRES_DB:-agent_interview}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      - SMART_MODEL=${SMART_MODEL:-gpt-4}
+      - FAST_MODEL=${FAST_MODEL:-gpt-3.5-turbo}
+    networks:
+      - agent_interview_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # 前端
+  frontend:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+      args:
+        - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+    container_name: agent_interview_frontend
+    restart: always
+    depends_on:
+      - backend
+    networks:
+      - agent_interview_network
+
+  # Nginx 反向代理
+  nginx:
+    image: nginx:alpine
+    container_name: agent_interview_nginx
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - ./nginx/logs:/var/log/nginx
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - agent_interview_network
+
+volumes:
+  postgres_data:
+
+networks:
+  agent_interview_network:
+    driver: bridge
