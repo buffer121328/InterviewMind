@@ -1,0 +1,48 @@
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+dist/
+
+# Node
+node_modules/
+.next/
+web/out/
+web/.next/
+
+# Env & secrets
+.env
+*.env.local
+
+# Data & runtime
+data/
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build logs
+*.log
+web/yarn.lock
+package-lock.json
+
+# Misc
+.chainlit/
+meta-output/
+AGENTS.md
+.worktrees/
+.deparch/
+
+# Skills (only on lite branch)
+skills/
+
+# Docs (keep only tracked if needed)
+docs/*
+!docs/配置说明.md
