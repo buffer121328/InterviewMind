@@ -137,6 +137,12 @@ echo "粘贴目标岗位 JD" > jd.md
 
 ---
 
+## Dify DSL 版本（可选）
+
+仓库根目录提供了 Dify 应用 DSL：`面必过chatbot.yml`。它是 lite 技能版的轻量延伸，用可视化管线和结构化输出固定关键流程，不需要关注后端代码。导入、使用、功能说明，以及 Skills 版和 Dify DSL 版的对比见 [DIFY.md](./DIFY.md)。
+
+---
+
 ## 详细用法
 
 ### 1. 简历优化 `interviewmind-resume`
