@@ -2,6 +2,10 @@
 
 基于 LangGraph 的全能求职助手：智能面试模拟 + 简历深度优化
 
+[![Try 面必过 on Socialistic](https://socialistic.ai/api/embed/shaped-skills-91d17b?lang=zh)](https://socialistic.ai/zh/skill/shaped-skills-91d17b?utm_source=github&utm_medium=readme&utm_campaign=20260624-speech-presentation-sim-builders&utm_content=badge)
+
+不想配环境也想先看看效果？可以[在线试一下](https://socialistic.ai/zh/skill/shaped-skills-91d17b?utm_source=github&utm_medium=readme&utm_campaign=20260624-speech-presentation-sim-builders&utm_content=hyperlink)：上传简历和目标岗位 JD 就能直接跑模拟面试 / 简历优化，无需本地环境。
+
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/)
 [![Node.js 20+](https://img.shields.io/badge/Node.js-20+-green.svg)](https://nodejs.org/)
 [![Next.js](https://img.shields.io/badge/Next.js-16-black.svg)](https://nextjs.org/)
