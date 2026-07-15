@@ -4,6 +4,7 @@
 """
 
 import json
+import os
 from pathlib import Path
 from typing import List, Optional, Literal
 from unittest.mock import AsyncMock, patch
@@ -104,7 +105,7 @@ def build_resume_test_state(**overrides) -> dict:
     可通过关键字参数覆盖任意字段。
 
     Returns:
-        dict: 可直接传给简历优化 graph 节点的 state dict。
+        dict: 可直接传给简历优化 graph 节点 / 路由函数的 state dict。
     """
     base = {
         "resume_content": "测试简历内容",
@@ -171,3 +172,16 @@ def golden_resume_cases():
 def scoring_benchmarks():
     """加载 tests/datasets/scoring_benchmarks.json 中的评分基准数据。"""
     return _load_json("scoring_benchmarks.json")
+
+
+def pytest_collection_modifyitems(items):
+    """无评审模型凭据时，只跳过显式标记的 LLM-as-Judge 评测。"""
+    if os.getenv("OPENAI_API_KEY"):
+        return
+
+    skip_llm_eval = pytest.mark.skip(
+        reason="未设置 OPENAI_API_KEY，跳过 LLM-as-Judge 评测"
+    )
+    for item in items:
+        if "llm" in item.keywords and "eval" in item.keywords:
+            item.add_marker(skip_llm_eval)

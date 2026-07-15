@@ -8,16 +8,21 @@
 - 事实核验策略
 """
 
+from contextlib import asynccontextmanager
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+import app.services.resume.resume_orchestrator as orchestrator
 
 from app.services.resume.resume_orchestrator import (
     PipelineState,
+    run_pipeline,
     stage1_jd_analysis,
     stage2_material_selection,
     stage3_custom_rewrite,
     stage4_assemble,
     stage5_fact_check,
+    stage5_quality_judge,
     stage6_confirmation_prep,
     _calc_confidence,
 )
@@ -120,6 +125,7 @@ class TestPipelineState:
         assert state.change_items == []
         assert state.errors == []
         assert state.assembled_resume == ""
+        assert state.trace == []
 
     def test_with_user_id(self):
         state = PipelineState(
@@ -277,6 +283,207 @@ class TestFactCheck:
         )
         # 应该检测到夸大（原简历没有这些数据）
         assert len(result["exaggeration_items"]) > 0 or result["overall_risk"] != "low"
+
+
+class TestQualityJudge:
+    """质量评审测试"""
+
+    @pytest.mark.asyncio
+    async def test_quality_judge_passes_low_risk_result(self):
+        state = PipelineState(resume_content=MOCK_RESUME, job_description=MOCK_JD)
+        state.change_items = [MOCK_CHANGE_ITEMS[0]]
+        state.assembled_resume = "3年Java开发经验，负责电商平台后端开发"
+        state.fact_check_result = {
+            "overall_risk": "low",
+            "risk_flags": [],
+            "keyword_stuffing_risks": [],
+            "fact_inference_items": [],
+            "exaggeration_items": [],
+            "total_risks": 0,
+        }
+
+        state = await stage5_quality_judge(state)
+
+        assert state.judge_result["passed"] is True
+        assert state.judge_result["decision"] == "pass"
+        assert state.judge_result["score"] >= 70
+
+    @pytest.mark.asyncio
+    async def test_quality_judge_builds_retry_guidance(self):
+        state = PipelineState(resume_content=MOCK_RESUME, job_description=MOCK_JD)
+        state.jd_analysis = {"missing_keywords": ["Kubernetes", "Kafka"]}
+        state.change_items = []
+        state.assembled_resume = ""
+        state.fact_check_result = {
+            "overall_risk": "high",
+            "risk_flags": [{}, {}, {}],
+            "keyword_stuffing_risks": [{"keyword": "Kubernetes"}],
+            "fact_inference_items": [{"section_name": "专业技能"}],
+            "exaggeration_items": [{"description": "过度夸大百分比"}],
+            "total_risks": 3,
+        }
+
+        state = await stage5_quality_judge(state)
+
+        assert state.judge_result["passed"] is False
+        assert state.judge_result["decision"] == "retry"
+        assert "硬塞" in state.judge_result["retry_guidance"]
+        assert "夸大" in state.judge_result["retry_guidance"]
+
+
+class TestRunPipelineRetry:
+    """一次定向返工测试"""
+
+    @pytest.mark.asyncio
+    async def test_run_pipeline_retries_once_when_first_judge_fails(self, monkeypatch):
+        rewrite_calls = []
+
+        async def fake_stage1(state):
+            state.jd_analysis = {"match_score": 62, "missing_keywords": ["Kubernetes"]}
+            return state
+
+        async def fake_stage2(state, session_ids=None, include_profile=False):
+            state.material_pool = {"resume": state.resume_content, "interview_conversations": [], "profile": None}
+            return state
+
+        async def fake_stage3(state):
+            rewrite_calls.append(state.retry_count)
+            if state.retry_count == 0:
+                state.change_items = [{
+                    "section_name": "项目经历",
+                    "optimized_text": "主导系统迁移，QPS提升200%",
+                    "change_type": "fact_inference",
+                    "requires_user_confirmation": True,
+                    "confidence": 0.4,
+                }]
+            else:
+                state.change_items = [{
+                    "section_name": "工作经历",
+                    "optimized_text": "负责订单模块后端开发与优化",
+                    "change_type": "polish",
+                    "requires_user_confirmation": False,
+                    "confidence": 0.92,
+                }]
+            return state
+
+        async def fake_stage4(state):
+            state.assembled_resume = (
+                "主导系统迁移，QPS提升200%"
+                if state.retry_count == 0
+                else "负责订单模块后端开发与优化"
+            )
+            return state
+
+        async def fake_stage5(state):
+            if state.retry_count == 0:
+                state.fact_check_result = {
+                    "overall_risk": "high",
+                    "risk_flags": [{}, {}],
+                    "keyword_stuffing_risks": [],
+                    "fact_inference_items": [{"section_name": "项目经历"}],
+                    "exaggeration_items": [{"description": "过度夸大百分比"}],
+                    "total_risks": 2,
+                }
+            else:
+                state.fact_check_result = {
+                    "overall_risk": "low",
+                    "risk_flags": [],
+                    "keyword_stuffing_risks": [],
+                    "fact_inference_items": [],
+                    "exaggeration_items": [],
+                    "total_risks": 0,
+                }
+            return state
+
+        async def fake_stage6(state):
+            state.confirmation_items = []
+            return state
+
+        monkeypatch.setattr(orchestrator, "stage1_jd_analysis", fake_stage1)
+        monkeypatch.setattr(orchestrator, "stage2_material_selection", fake_stage2)
+        monkeypatch.setattr(orchestrator, "stage3_custom_rewrite", fake_stage3)
+        monkeypatch.setattr(orchestrator, "stage4_assemble", fake_stage4)
+        monkeypatch.setattr(orchestrator, "stage5_fact_check", fake_stage5)
+        monkeypatch.setattr(orchestrator, "stage6_confirmation_prep", fake_stage6)
+
+        result = await run_pipeline(
+            resume_content=MOCK_RESUME,
+            job_description=MOCK_JD,
+            user_id="user-1",
+        )
+
+        assert rewrite_calls == [0, 1]
+        assert result["rewrite_attempts"] == 2
+        assert result["judge_result"]["passed"] is True
+        assert any(item["step"] == "stage5_targeted_retry" for item in result["trace"])
+
+    @pytest.mark.asyncio
+    async def test_run_pipeline_creates_resume_root_observation_with_summary_only(self, monkeypatch):
+        observed = []
+
+        class FakeObservation:
+            def set_output(self, output):
+                observed[0]["output"] = output
+
+        @asynccontextmanager
+        async def fake_agent_observation(**kwargs):
+            observed.append(kwargs)
+            yield FakeObservation()
+
+        async def fake_stage1(state):
+            state.jd_analysis = {"match_score": 80}
+            return state
+
+        async def fake_stage2(state, session_ids=None, include_profile=False):
+            state.material_pool = {"resume": state.resume_content}
+            return state
+
+        async def fake_stage3(state):
+            state.change_items = []
+            return state
+
+        async def fake_stage4(state):
+            state.assembled_resume = state.resume_content
+            return state
+
+        async def fake_stage5(state):
+            state.fact_check_result = {"overall_risk": "low", "total_risks": 0}
+            return state
+
+        async def fake_quality_judge(state):
+            state.judge_result = {"passed": True, "decision": "accept"}
+            return state
+
+        async def fake_stage6(state):
+            state.confirmation_items = []
+            return state
+
+        monkeypatch.setattr(orchestrator, "agent_observation", fake_agent_observation, raising=False)
+        monkeypatch.setattr(orchestrator, "stage1_jd_analysis", fake_stage1)
+        monkeypatch.setattr(orchestrator, "stage2_material_selection", fake_stage2)
+        monkeypatch.setattr(orchestrator, "stage3_custom_rewrite", fake_stage3)
+        monkeypatch.setattr(orchestrator, "stage4_assemble", fake_stage4)
+        monkeypatch.setattr(orchestrator, "stage5_fact_check", fake_stage5)
+        monkeypatch.setattr(orchestrator, "stage5_quality_judge", fake_quality_judge)
+        monkeypatch.setattr(orchestrator, "stage6_confirmation_prep", fake_stage6)
+
+        await run_pipeline(MOCK_RESUME, MOCK_JD, "user-1", session_ids=["s-1"])
+
+        assert observed[0]["name"] == "resume-pipeline"
+        assert observed[0]["agent_type"] == "resume"
+        assert observed[0]["user_id"] == "user-1"
+        assert observed[0]["input_payload"] == {
+            "resume_length": len(MOCK_RESUME),
+            "job_description_length": len(MOCK_JD),
+            "session_count": 1,
+            "include_profile": False,
+        }
+        assert observed[0]["output"] == {
+            "changes": 0,
+            "confirmations": 0,
+            "rewrite_attempts": 1,
+            "has_errors": False,
+        }
 
 
 class TestConfirmationKeywords:

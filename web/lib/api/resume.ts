@@ -2,11 +2,14 @@
  * 简历工具 API 接口
  */
 
-import { apiRequest, API_BASE_URL, getUserId } from './config';
+import { apiRequest } from './config';
+import { createResumeOptimizeRun, pollAgentRun, type AgentRun } from './agentRuns';
 
 // ============================================================================
 // 类型定义
 // ============================================================================
+
+export type JsonObject = Record<string, unknown>;
 
 export interface DimensionScore {
     score: number;
@@ -247,23 +250,37 @@ export async function optimizeResume(params: {
 /**
  * 获取历史结果列表
  */
-export async function getResumeResults(resultType?: 'analyze' | 'optimize', limit: number = 20): Promise<{
+export async function getResumeResults(
+    resultType?: 'analyze' | 'optimize',
+    limit: number = 20,
+    offset: number = 0,
+): Promise<{
     success: boolean;
     results: Array<{
         id: number;
-        result_type: string;
+        result_type: 'analyze' | 'optimize';
+        resume_preview: string;
+        job_description: string | null;
+        session_ids: string[];
+        include_profile: boolean;
         created_at: string;
-        result_data: ResumeAnalyzeResult | ResumeOptimizeResult;
     }>;
+    total: number;
+    limit: number;
+    offset: number;
 }> {
     try {
-        const params = new URLSearchParams({ limit: String(limit) });
+        const params = new URLSearchParams({
+            limit: String(limit),
+            offset: String(offset),
+            include_data: 'false',
+        });
         if (resultType) params.append('result_type', resultType);
 
         return await apiRequest(`/api/resume/results?${params}`);
     } catch (error) {
         console.error('获取历史结果失败:', error);
-        return { success: false, results: [] };
+        return { success: false, results: [], total: 0, limit, offset };
     }
 }
 
@@ -287,15 +304,32 @@ export async function deleteResumeResult(resultId: number): Promise<boolean> {
  * GET /api/resume/results/{result_id}
  */
 export async function getResumeResultDetail(resultId: number): Promise<{
-    success: boolean;
     id: number;
-    result_type: string;
+    user_id: string;
+    result_type: 'analyze' | 'optimize';
+    resume_content: string;
     created_at: string;
     result_data: ResumeAnalyzeResult | ResumeOptimizeResult;
-    job_description?: string;
+    job_description: string | null;
+    session_ids: string[];
+    include_profile: boolean;
 } | null> {
     try {
-        return await apiRequest(`/api/resume/results/${resultId}`);
+        const response = await apiRequest<{
+            success: boolean;
+            result: {
+                id: number;
+                user_id: string;
+                result_type: 'analyze' | 'optimize';
+                resume_content: string;
+                created_at: string;
+                result_data: ResumeAnalyzeResult | ResumeOptimizeResult;
+                job_description: string | null;
+                session_ids: string[];
+                include_profile: boolean;
+            };
+        }>(`/api/resume/results/${resultId}`);
+        return response.result;
     } catch (error) {
         console.error('获取结果详情失败:', error);
         return null;
@@ -363,83 +397,53 @@ export async function optimizeResumeStreaming(
     warnings?: Array<{ node: string; message: string }>;
 }> {
     try {
-        const response = await fetch(`${API_BASE_URL}/api/resume/optimize/stream`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-User-ID': getUserId(),
-            },
-            body: JSON.stringify({
-                resume_content: params.resume_content,
-                job_description: params.job_description,
-                session_ids: params.session_ids || [],
-                include_overall_profile: params.include_overall_profile || false,
-                api_config: params.api_config,
-            }),
+        const created = await createResumeOptimizeRun({
+            resume_content: params.resume_content,
+            job_description: params.job_description,
+            session_ids: params.session_ids || [],
+            include_overall_profile: params.include_overall_profile || false,
+            api_config: params.api_config,
         });
-
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
+        let completed: AgentRun | { status: 'succeeded'; result: Record<string, unknown> } = created;
+        if ('run_id' in created) {
+            completed = await pollAgentRun(created.run_id, run => {
+                const runningStep = run.plan.find(step => step.status === 'running');
+                onProgress?.({
+                    type: 'progress',
+                    stage: run.stage,
+                    message: runningStep?.title || (run.status === 'queued' ? '任务正在排队' : run.title),
+                    complete: run.status === 'succeeded',
+                });
+            });
         }
 
-        const reader = response.body?.getReader();
-        if (!reader) {
-            throw new Error('无法读取响应流');
+        if (completed.status !== 'succeeded' || !completed.result) {
+            const errorMessage = 'error_message' in completed ? completed.error_message : null;
+            return { success: false, message: errorMessage || '简历优化任务未完成' };
         }
 
-        const decoder = new TextDecoder();
-        let buffer = '';
-        let finalResult: ResumeOptimizeResult | undefined;
-        let resultId: number | undefined;
-        const warnings: Array<{ node: string; message: string }> = [];
-
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split('\n');
-            buffer = lines.pop() || '';
-
-            for (const line of lines) {
-                if (line.startsWith('data: ')) {
-                    try {
-                        const event = JSON.parse(line.slice(6)) as OptimizeStreamEvent;
-
-                        if (event.type === 'progress' && onProgress) {
-                            onProgress(event);
-                        } else if (event.type === 'warning') {
-                            warnings.push({ node: event.node, message: event.message });
-                            if (onWarning) {
-                                onWarning(event);
-                            }
-                        } else if (event.type === 'result') {
-                            finalResult = event.data;
-                        } else if (event.type === 'done') {
-                            resultId = event.result_id;
-                        } else if (event.type === 'error') {
-                            throw new Error(event.content);
-                        }
-                    } catch (e) {
-                        // 只忽略 JSON 解析错误，其他错误应该抛出
-                        if (e instanceof SyntaxError) {
-                            console.warn('SSE 解析跳过:', line);
-                        } else {
-                            throw e;
-                        }
-                    }
-                }
-            }
-        }
-
-        if (finalResult) {
-            return { success: true, result: finalResult, result_id: resultId, warnings: warnings.length > 0 ? warnings : undefined };
-        } else {
-            return { success: false, message: '未收到优化结果', warnings: warnings.length > 0 ? warnings : undefined };
-        }
+        const taskResult = completed.result as {
+            success?: boolean;
+            result?: ResumeOptimizeResult;
+            result_id?: number;
+            warnings?: Array<{ node?: string; message?: string } | string>;
+        };
+        const warnings = (taskResult.warnings || []).map((warning, index) => (
+            typeof warning === 'string'
+                ? { node: `pipeline-${index + 1}`, message: warning }
+                : { node: warning.node || `pipeline-${index + 1}`, message: warning.message || '节点执行异常' }
+        ));
+        warnings.forEach(warning => onWarning?.({ type: 'warning', ...warning }));
+        return {
+            success: taskResult.success !== false && Boolean(taskResult.result),
+            result: taskResult.result,
+            result_id: taskResult.result_id,
+            warnings: warnings.length > 0 ? warnings : undefined,
+            message: taskResult.result ? undefined : '未收到优化结果',
+        };
 
     } catch (error) {
-        console.error('流式简历优化失败:', error);
+        console.error('可恢复简历优化失败:', error);
         return {
             success: false,
             message: error instanceof Error ? error.message : '优化失败',
@@ -716,7 +720,7 @@ export interface CandidateMaterial {
     material_type: MaterialType;
     title: string;
     content: string;
-    structured_data: Record<string, any>;
+    structured_data: JsonObject;
     tags: string[];
     source_type: 'manual' | 'import' | 'ai_extract';
     source_resume_id: number | null;
@@ -734,7 +738,7 @@ export async function createMaterial(data: {
     material_type: MaterialType;
     title: string;
     content: string;
-    structured_data?: Record<string, any>;
+    structured_data?: JsonObject;
     tags?: string[];
     source_type?: string;
     source_resume_id?: number;
@@ -758,7 +762,7 @@ export async function createMaterial(data: {
  */
 export async function importMaterialsFromResume(
     resumeContent: string,
-    apiConfig: any
+    apiConfig: unknown
 ): Promise<{ success: boolean; material_ids?: number[]; message?: string }> {
     try {
         return await apiRequest('/api/resume/materials/import', {
@@ -822,7 +826,7 @@ export async function updateMaterial(
     data: {
         title?: string;
         content?: string;
-        structured_data?: Record<string, any>;
+        structured_data?: JsonObject;
         tags?: string[];
         importance_score?: number;
         confidence_score?: number;
@@ -869,7 +873,7 @@ export interface AssemblyResult {
     job_description: string;
     selected_material_ids: number[];
     selection_reason: string;
-    assembled_outline: Record<string, any>;
+    assembled_outline: JsonObject;
     assembled_content: string | null;
     generated_resume_id: number | null;
     created_at: string;
@@ -880,7 +884,7 @@ export interface AssemblyResult {
  */
 export async function assembleResume(data: {
     job_description: string;
-    api_config: any;
+    api_config: unknown;
     selected_material_ids?: number[];
     material_type_filter?: MaterialType;
     max_materials?: number;
@@ -889,7 +893,7 @@ export async function assembleResume(data: {
     result_id?: number;
     selected_material_ids?: number[];
     selection_reason?: string;
-    assembled_outline?: Record<string, any>;
+    assembled_outline?: JsonObject;
     assembled_content?: string;
     materials_used?: Array<{ id: number; type: string; title: string }>;
     message?: string;
@@ -1070,4 +1074,3 @@ export async function deleteProjectRewrite(rewriteId: number): Promise<boolean> 
         return false;
     }
 }
-

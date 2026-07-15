@@ -38,6 +38,18 @@ def _pre_mock():
         def __init__(self, *args, **kwargs):
             object.__setattr__(self, "_mock", AsyncMock())
 
+        async def get_session(self, *args, **kwargs):
+            return await self._mock.get_session(*args, **kwargs)
+
+        async def list_sessions(self, *args, **kwargs):
+            return await self._mock.list_sessions(*args, **kwargs)
+
+        async def get_user_profile(self, *args, **kwargs):
+            return await self._mock.get_user_profile(*args, **kwargs)
+
+        async def create_next_round(self, *args, **kwargs):
+            return await self._mock.create_next_round(*args, **kwargs)
+
         def __getattr__(self, name):
             if name == "_mock":
                 raise AttributeError(name)

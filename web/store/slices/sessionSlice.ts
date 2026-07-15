@@ -6,7 +6,7 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import {
-    fetchSessionList,
+    fetchSessionPage,
     getSessionDetail,
     deleteSession as deleteSessionApi,
     updateSessionTitle as updateSessionTitleApi,
@@ -21,12 +21,13 @@ import type { SessionListItem, InterviewSession, Message, InterviewProgress } fr
 
 export interface SessionState {
     sessions: SessionListItem[];
+    sessionsTotal: number;
     currentSession: InterviewSession | null;
     sessionLoading: boolean;
 }
 
 export interface SessionActions {
-    fetchSessions: (status?: 'active' | 'completed' | 'archived', mode?: 'mock' | 'voice') => Promise<void>;
+    fetchSessions: (status?: 'active' | 'completed' | 'archived', mode?: 'mock' | 'voice', append?: boolean) => Promise<void>;
     selectSession: (sessionId: string) => Promise<void>;
     createNewSession: () => void;
     deleteSession: (sessionId: string) => Promise<boolean>;
@@ -55,16 +56,21 @@ type GetState = () => SessionSlice & {
 export const createSessionSlice = (set: SetState, get: GetState): SessionSlice => ({
     // ===== 初始状态 =====
     sessions: [],
+    sessionsTotal: 0,
     currentSession: null,
     sessionLoading: false,
 
     // ===== Actions =====
 
-    fetchSessions: async (status, mode) => {
+    fetchSessions: async (status, mode, append = false) => {
         set({ sessionLoading: true });
         try {
-            const sessions = await fetchSessionList(status, mode);
-            set({ sessions });
+            const current = get().sessions;
+            const response = await fetchSessionPage(status, mode, 50, append ? current.length : 0);
+            const sessions = append
+                ? [...current, ...response.sessions.filter(item => !current.some(existing => existing.session_id === item.session_id))]
+                : response.sessions;
+            set({ sessions, sessionsTotal: response.total });
         } catch (error) {
             console.error('获取会话列表错误:', error);
         } finally {
@@ -128,11 +134,12 @@ export const createSessionSlice = (set: SetState, get: GetState): SessionSlice =
             const success = await deleteSessionApi(sessionId);
             if (!success) throw new Error('删除会话失败');
 
-            const { currentSession, sessions } = get();
+            const { currentSession, sessions, sessionsTotal } = get();
             const isCurrentSession = currentSession?.session_id === sessionId;
 
             set({
                 sessions: sessions.filter(s => s.session_id !== sessionId),
+                sessionsTotal: Math.max(0, sessionsTotal - 1),
             });
 
             if (isCurrentSession) {

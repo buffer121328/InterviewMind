@@ -1,64 +1,142 @@
-# DeepSeek API 配置（用于 LLM）
-DEEPSEEK_API_KEY=xxxx
-DEEPSEEK_API_BASE=https://api.deepseek.com/v1
-DEEPSEEK_API_MODEL=deepseek-chat
-
-# 嵌入模型配置
-EMBEDDING_API_KEY=xxxx
-EMBEDDING_API_BASE=
-EMBEDDING_API_MODEL=
-
-# 文件服务配置
-UPLOAD_DIR=data/resumes
-MAX_FILE_SIZE_MB=10
-ALLOWED_FILE_EXTENSIONS=pdf,docx,txt
-MAX_RESUME_COUNT=5
-
 # ============================================================================
-# LLM 双通道配置（分级模型支持）
+# 面必过全量环境变量模板
+# 复制为 .env 后使用；不要提交真实密码、API Key 或浏览器登录目录。
+# 模型聊天 API Key 与 Fast/Reasoning Pool 在前端「设置 → 模型配置」中维护。
 # ============================================================================
 
-# Fast Channel (Fast & Cheap) - 用于意图识别、简单分类
-# 设置 temperature=0 以保证确定性输出
-FAST_LLM_API_KEY=your_fast_llm_api_key
-FAST_LLM_BASE_URL=
-FAST_LLM_MODEL=
+# ----------------------------------------------------------------------------
+# PostgreSQL
+# ----------------------------------------------------------------------------
+POSTGRES_HOST=localhost
+POSTGRES_PORT=5432
+POSTGRES_USER=agent_interview
+POSTGRES_PASSWORD=change_me
+POSTGRES_DB=agent_interview
+DATABASE_URL=postgresql://agent_interview:change_me@localhost:5432/agent_interview
 
-# Smart Channel (High Intelligence) - 用于生成复杂的面试官回复、点评和总结
-# 设置 temperature=0.7 以允许一定的创造性
-SMART_LLM_API_KEY=your_smart_llm_api_key
-SMART_LLM_BASE_URL=
-SMART_LLM_MODEL=
+# ----------------------------------------------------------------------------
+# Redis、任务队列与单用户运行锁
+# ----------------------------------------------------------------------------
+REDIS_PORT=6379
+REDIS_URL=redis://localhost:6379/0
+# 本地不启动 Redis/Worker 时可设为 false，统一任务改为同步执行。
+TASK_QUEUE_ENABLED=true
+# 使用 Fernet.generate_key() 生成；API 和 Worker 必须完全一致。
+TASK_PAYLOAD_ENCRYPTION_KEY=
+AGENT_RUN_LOCK_TTL_SECONDS=600
+# 用户手动重试与中断恢复共享此上限。
+AGENT_RUN_MAX_ATTEMPTS=3
+# queued/retrying 长时间未领取或 running 无阶段更新时，任务中心会自动重新投递。
+AGENT_RUN_STALE_SECONDS=1800
 
-# ============================================================================
-# mem0 长期记忆配置
-# ============================================================================
+# ----------------------------------------------------------------------------
+# Web/API
+# ----------------------------------------------------------------------------
+HOST=0.0.0.0
+PORT=8000
+DEBUG=false
+NEXT_PUBLIC_API_URL=http://localhost:8000
 
-# 启用/禁用 mem0（设为 false 时完全跳过记忆功能）
-MEM0_ENABLED=true
+# ----------------------------------------------------------------------------
+# LLM 网关、模型池与请求限制
+# 注意：具体模型成员由前端配置，不使用 FAST_LLM_* / SMART_LLM_* 环境变量。
+# ----------------------------------------------------------------------------
+LLM_REQUEST_TIMEOUT_SECONDS=45
+LLM_MAX_TOKENS=8000
+API_CONFIG_VALIDATION_TIMEOUT_SECONDS=10
+# 成员连续失败达到阈值后进入冷却，冷却期间由同池其他模型承接请求。
+LLM_POOL_FAILURE_THRESHOLD=2
+LLM_POOL_COOLDOWN_SECONDS=60
+# 多 API/Worker 共享轮询、冷却和并发计数；Redis 不可用时自动降级到进程内。
+LLM_POOL_REDIS_ENABLED=true
+LLM_POOL_INFLIGHT_TTL_SECONDS=600
 
-# 向量存储配置（pgvector，复用现有 PostgreSQL）
+# ----------------------------------------------------------------------------
+# RAG Embedding（OpenAI-compatible）
+# 未配置时建议将 RAG_VECTOR_ENABLED=false。
+# ----------------------------------------------------------------------------
+OPENAI_API_KEY=
+OPENAI_BASE_URL=https://api.openai.com/v1
+EMBEDDING_MODEL=text-embedding-3-small
+EMBEDDING_DIM=1536
+
+# ----------------------------------------------------------------------------
+# 面试 RAG 与有界 Agentic Retrieval
+# ----------------------------------------------------------------------------
+RAG_VECTOR_ENABLED=true
+# off=关闭；shadow=运行但不替换旧结果；active=仅质量改善时采用。
+RAG_AGENTIC_MODE=shadow
+RAG_AGENTIC_MAX_ROUNDS=2
+RAG_AGENTIC_MAX_QUERIES=4
+RAG_AGENTIC_MIN_SCORE=0.30
+RAG_AGENTIC_MIN_EVIDENCES=2
+RAG_AGENTIC_MIN_SOURCE_TYPES=2
+RAG_WEIGHT_VECTOR=0.45
+RAG_WEIGHT_TEXT=0.25
+RAG_WEIGHT_SOURCE=0.20
+RAG_WEIGHT_FRESHNESS=0.10
+
+# ----------------------------------------------------------------------------
+# 文件解析
+# ----------------------------------------------------------------------------
+FILE_PARSE_TIMEOUT_SECONDS=30
+
+# ----------------------------------------------------------------------------
+# 语音面试运行默认值
+# API Key、Base URL 与模型优先使用前端 Voice 通道。
+# ----------------------------------------------------------------------------
+VOICE_MODEL=qwen3-omni-flash-2025-12-01
+VOICE_NAME=Cherry
+VOICE_INPUT_FORMAT=wav
+VOICE_OUTPUT_FORMAT=wav
+# JSON 对象；仅配置确认需要修正的识别词。
+VOICE_TRANSCRIPT_TERM_FIXES={}
+# 示例：VOICE_TRANSCRIPT_TERM_FIXES={"lang graph":"LangGraph","拉姆达":"Lambda"}
+
+# ----------------------------------------------------------------------------
+# Langfuse Agent 可观测性（可选）
+# ----------------------------------------------------------------------------
+LANGFUSE_ENABLED=false
+LANGFUSE_PUBLIC_KEY=
+LANGFUSE_SECRET_KEY=
+LANGFUSE_BASE_URL=https://cloud.langfuse.com
+
+# ----------------------------------------------------------------------------
+# BOSS 半自动投递（可选）
+# ----------------------------------------------------------------------------
+BOSS_AUTOMATION_SERVICE_URL=http://host.docker.internal:8765
+# 至少 32 字符，API 与宿主机自动化服务必须一致。
+BOSS_AUTOMATION_SERVICE_TOKEN=
+BOSS_AUTOMATION_REQUEST_TIMEOUT_SECONDS=240
+# 仅由宿主机服务读取；留空默认 backend/data/browser_profiles/boss。
+BOSS_BROWSER_PROFILE_DIR=
+BOSS_APPLY_APPROVAL_TTL_SECONDS=300
+
+# ----------------------------------------------------------------------------
+# mem0 长期记忆（可选）
+# 未填写 LLM/Embedding Key 时建议保持 false。
+# ----------------------------------------------------------------------------
+MEM0_ENABLED=false
 MEM0_VECTOR_PROVIDER=pgvector
 MEM0_PGVECTOR_COLLECTION=mem0_memories
 MEM0_PGVECTOR_HOST=localhost
 MEM0_PGVECTOR_PORT=5432
 MEM0_PGVECTOR_DBNAME=agent_interview
 MEM0_PGVECTOR_USER=agent_interview
-MEM0_PGVECTOR_PASSWORD=
+MEM0_PGVECTOR_PASSWORD=change_me
 
-# mem0 LLM 配置（用于记忆提取和冲突判断）
+# mem0 记忆提取模型
 MEM0_LLM_PROVIDER=openai
 MEM0_LLM_MODEL=deepseek-chat
-MEM0_LLM_API_KEY=${DEEPSEEK_API_KEY}
+MEM0_LLM_API_KEY=
 MEM0_LLM_BASE_URL=https://api.deepseek.com/v1
 
-# mem0 Embedding 配置（用于语义检索）
+# mem0 语义检索模型
 MEM0_EMBEDDER_PROVIDER=openai
 MEM0_EMBEDDER_MODEL=text-embedding-3-small
-MEM0_EMBEDDER_API_KEY=${OPENAI_API_KEY}
+MEM0_EMBEDDER_API_KEY=
 MEM0_EMBEDDING_DIMS=1536
 
-# 运行时配置
 MEM0_SEARCH_LIMIT=5
 MEM0_CONTEXT_CHAR_LIMIT=1200
 MEM0_BACKGROUND_WRITE=true

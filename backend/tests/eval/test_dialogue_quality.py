@@ -4,12 +4,17 @@ L3 质量测试：面试对话质量（LLM-as-Judge）
 """
 
 import pytest
+from pydantic import ValidationError
 
 deepeval = pytest.importorskip("deepeval")
 from deepeval import assert_test
 from deepeval.test_case import LLMTestCase
 from deepeval.test_case.llm_test_case import SingleTurnParams
 from deepeval.metrics import GEval
+from app.services.interview.interview_output_contract import (
+    EvaluatingOutput,
+    InterviewerAction,
+)
 
 
 # ============================================================================
@@ -51,126 +56,29 @@ _CRITERIA = {
 
 
 # ============================================================================
-# _classify_responder_action 非 LLM 测试（快速）
+# 结构化 action 非 LLM 测试（快速）
 # ============================================================================
 
-class TestClassifyResponderAction:
-    """测试面试官回复分类函数（纯逻辑，不消耗 tokens）。"""
+@pytest.mark.fast
+class TestStructuredResponderAction:
+    """验证状态机使用显式 action，而不是根据文本猜测流程。"""
 
-    def _get_classify_fn(self):
-        from app.services.interview.interview_graph import _classify_responder_action
-        return _classify_responder_action
-
-    def test_classify_follow_up_with_why(self):
-        """包含「为什么」的回复应分类为 follow_up。"""
-        classify = self._get_classify_fn()
-        result = classify(
-            "你说用了 Redis 缓存，那为什么选择 Redis 而不是 Memcached？",
-            "请介绍一下你做过的性能优化项目",
-            "请描述一次你解决复杂技术问题的经历",
+    def test_advance_action_is_explicit(self):
+        output = EvaluatingOutput(
+            evaluation_notes="当前回答完整",
+            action=InterviewerAction.ADVANCE,
+            content="回答很完整，我们进入下一题。",
         )
-        assert result == "follow_up"
 
-    def test_classify_follow_up_with_detail(self):
-        """请求详细说明的回复应分类为 follow_up。"""
-        classify = self._get_classify_fn()
-        result = classify(
-            "你说到了分布式锁，能否详细说说你是怎么实现的？",
-            "请介绍一下你做过的性能优化项目",
-            "请描述一次你解决复杂技术问题的经历",
-        )
-        assert result == "follow_up"
+        assert output.action is InterviewerAction.ADVANCE
 
-    def test_classify_follow_up_with_example(self):
-        """请求举例子的回复应分类为 follow_up。"""
-        classify = self._get_classify_fn()
-        result = classify(
-            "能举个具体的例子说明你是怎么处理并发冲突的吗？",
-            "请介绍一下你做过的性能优化项目",
-            "请描述一次你解决复杂技术问题的经历",
-        )
-        assert result == "follow_up"
-
-    def test_classify_follow_up_with_question_mark(self):
-        """含有问号但不含下一题内容的回复应分类为 follow_up。"""
-        classify = self._get_classify_fn()
-        result = classify(
-            "这个方案的性能瓶颈在哪里？",
-            "请介绍一下你做过的性能优化项目",
-            "请描述一次你解决复杂技术问题的经历",
-        )
-        assert result == "follow_up"
-
-    def test_classify_next_question_when_contains_next(self):
-        """明确包含下一题内容的回复应分类为 next_question。"""
-        classify = self._get_classify_fn()
-        next_q = "请描述一次你解决复杂技术问题的经历"
-        result = classify(
-            f"你的回答不错。好的，接下来我们进入下一题：{next_q}",
-            "请介绍一下你做过的性能优化项目",
-            next_q,
-        )
-        assert result == "next_question"
-
-    def test_classify_next_question_transition_only(self):
-        """不含问号和追问标记的过渡性回复应分类为 next_question。"""
-        classify = self._get_classify_fn()
-        result = classify(
-            "好的，我们继续下一道题目。",
-            "请介绍一下你做过的性能优化项目",
-            "请描述一次你解决复杂技术问题的经历",
-        )
-        assert result == "next_question"
-
-    def test_classify_empty_response_defaults_to_next(self):
-        """空回复应默认分类为 next_question。"""
-        classify = self._get_classify_fn()
-        result = classify(
-            "",
-            "请介绍一下你做过的性能优化项目",
-            "请描述一次你解决复杂技术问题的经历",
-        )
-        assert result == "next_question"
-
-    def test_classify_none_response_defaults_to_next(self):
-        """None 回复应默认分类为 next_question。"""
-        classify = self._get_classify_fn()
-        result = classify(
-            None,
-            "请介绍一下你做过的性能优化项目",
-            "请描述一次你解决复杂技术问题的经历",
-        )
-        assert result == "next_question"
-
-    def test_classify_punctuation_only_defaults_to_next(self):
-        """只有标点符号的回复应默认分类为 next_question。"""
-        classify = self._get_classify_fn()
-        result = classify(
-            "。。。？！",
-            "请介绍一下你做过的性能优化项目",
-            "请描述一次你解决复杂技术问题的经历",
-        )
-        assert result == "next_question"
-
-    def test_classify_follow_up_with_how(self):
-        """包含「怎么做」的回复应分类为 follow_up。"""
-        classify = self._get_classify_fn()
-        result = classify(
-            "你是怎么做负载均衡的？具体用了什么策略？",
-            "请介绍一下你做过的性能优化项目",
-            "请描述一次你解决复杂技术问题的经历",
-        )
-        assert result == "follow_up"
-
-    def test_classify_follow_up_with_expand(self):
-        """包含「展开」的回复应分类为 follow_up。"""
-        classify = self._get_classify_fn()
-        result = classify(
-            "请展开说说你在这个项目中遇到的最大挑战是什么？",
-            "请介绍一下你做过的性能优化项目",
-            "请描述一次你解决复杂技术问题的经历",
-        )
-        assert result == "follow_up"
+    def test_rejects_retired_text_action(self):
+        with pytest.raises(ValidationError):
+            EvaluatingOutput(
+                evaluation_notes="继续面试",
+                action="next_question",
+                content="请进入下一题",
+            )
 
 
 # ============================================================================

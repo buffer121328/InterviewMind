@@ -1,9 +1,8 @@
-import React, { useState, useRef } from 'react';
+import React, { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import rehypeHighlight from 'rehype-highlight';
 import 'highlight.js/styles/atom-one-dark.css';
 import { cn } from "@/lib/utils";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 // 聊天消息组件属性接口
 interface ChatMessageProps {
@@ -18,11 +17,11 @@ interface ChatMessageProps {
 
 import { motion } from "framer-motion";
 
-import { User, Bot, Copy, Pencil, Check, X, RefreshCw, Volume2, Mic } from 'lucide-react';
+import { Bot, Copy, Pencil, Check, X, RefreshCw, Mic } from 'lucide-react';
 import { Button } from './ui/button';
 import { Textarea } from './ui/textarea';
 
-export function ChatMessage({ role, content, timestamp, isStreaming, onEdit, onCancelEdit, onRegenerate }: ChatMessageProps) {
+export function ChatMessage({ role, content, isStreaming, onEdit, onCancelEdit, onRegenerate }: ChatMessageProps) {
     const isUser = role === 'user';
     const [isCopied, setIsCopied] = useState(false);
     const [isEditing, setIsEditing] = useState(false);
@@ -132,7 +131,7 @@ export function ChatMessage({ role, content, timestamp, isStreaming, onEdit, onC
                                             },
                                             // 自定义 code 标签
                                             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                                            code({ node, inline, className, children, ...props }: any) {
+                                            code({ inline, className, children, ...props }: any) {
                                                 // 内联代码
                                                 if (inline) {
                                                     return (

@@ -1,6 +1,7 @@
-import { ResumeResultItem, JDMatchResultItem } from '../types';
+import { ResumeResultItem, ResumeResultSummary } from '../types';
 import {
     getResumeResults,
+    getResumeResultDetail,
     deleteResumeResult,
     getCompletedSessionsForResume,
     CompletedSession,
@@ -20,6 +21,8 @@ import {
     getAssemblyResult,
     deleteAssemblyResult,
     ProjectRewriteHistoryItem,
+    MaterialType,
+    ProjectRewriteMode,
     getProjectRewriteHistory,
     deleteProjectRewrite,
 } from '@/lib/api/resume';
@@ -29,7 +32,8 @@ import {
 // ============================================================================
 
 export interface ResumeState {
-    resumeResults: ResumeResultItem[];
+    resumeResults: ResumeResultSummary[];
+    resumeResultsTotal: number;
     currentResumeResult: ResumeResultItem | null;
     resumeResultLoading: boolean;
     // 已完成会话列表（用于简历工具选择）
@@ -63,8 +67,8 @@ export interface ResumeState {
 }
 
 export interface ResumeActions {
-    fetchResumeResults: (resultType?: 'analyze' | 'optimize') => Promise<void>;
-    selectResumeResult: (resultId: number) => void;
+    fetchResumeResults: (resultType?: 'analyze' | 'optimize', append?: boolean) => Promise<void>;
+    selectResumeResult: (resultId: number) => Promise<void>;
     deleteResumeResult: (resultId: number) => Promise<boolean>;
     clearResumeResult: () => void;
     fetchCompletedSessions: (force?: boolean) => Promise<void>;
@@ -81,7 +85,7 @@ export interface ResumeActions {
     clearJDMatchResult: () => void;
 
     // 候选人素材库 Actions
-    fetchCandidateMaterials: (materialType?: string, isVerified?: boolean) => Promise<void>;
+    fetchCandidateMaterials: (materialType?: MaterialType, isVerified?: boolean) => Promise<void>;
     selectMaterial: (materialId: number) => void;
     deleteMaterial: (materialId: number) => Promise<boolean>;
     clearMaterial: () => void;
@@ -93,7 +97,7 @@ export interface ResumeActions {
     clearAssemblyResult: () => void;
 
     // 项目经历重写 Actions
-    fetchProjectRewriteHistory: (rewriteMode?: string) => Promise<void>;
+    fetchProjectRewriteHistory: (rewriteMode?: ProjectRewriteMode) => Promise<void>;
     deleteProjectRewriteRecord: (rewriteId: number) => Promise<boolean>;
 }
 
@@ -109,6 +113,7 @@ type GetState = () => ResumeSlice;
 export const createResumeSlice = (set: SetState, get: GetState): ResumeSlice => ({
     // ===== 初始状态 =====
     resumeResults: [],
+    resumeResultsTotal: 0,
     currentResumeResult: null,
     resumeResultLoading: false,
     completedSessions: [],
@@ -139,17 +144,16 @@ export const createResumeSlice = (set: SetState, get: GetState): ResumeSlice => 
     projectRewriteHistoryLoading: false,
 
     // ===== Actions =====
-    fetchResumeResults: async (resultType) => {
+    fetchResumeResults: async (resultType, append = false) => {
         set({ resumeResultLoading: true });
         try {
-            const response = await getResumeResults(resultType);
+            const current = get().resumeResults;
+            const response = await getResumeResults(resultType, 20, append ? current.length : 0);
             if (response.success) {
-                // 确保类型转换
-                const results = response.results.map(r => ({
-                    ...r,
-                    result_data: r.result_data as any
-                })) as ResumeResultItem[];
-                set({ resumeResults: results });
+                const resumeResults = append
+                    ? [...current, ...response.results.filter(item => !current.some(existing => existing.id === item.id))]
+                    : response.results;
+                set({ resumeResults, resumeResultsTotal: response.total });
             }
         } catch (error) {
             console.error('获取简历历史记录失败:', error);
@@ -158,11 +162,15 @@ export const createResumeSlice = (set: SetState, get: GetState): ResumeSlice => 
         }
     },
 
-    selectResumeResult: (resultId: number) => {
-        const { resumeResults } = get();
-        const result = resumeResults.find(r => r.id === resultId);
-        if (result) {
-            set({ currentResumeResult: result });
+    selectResumeResult: async (resultId: number) => {
+        set({ resumeResultLoading: true, currentResumeResult: null });
+        try {
+            const result = await getResumeResultDetail(resultId);
+            if (result) set({ currentResumeResult: result as ResumeResultItem });
+        } catch (error) {
+            console.error('获取简历历史详情失败:', error);
+        } finally {
+            set({ resumeResultLoading: false });
         }
     },
 
@@ -170,9 +178,10 @@ export const createResumeSlice = (set: SetState, get: GetState): ResumeSlice => 
         try {
             const success = await deleteResumeResult(resultId);
             if (success) {
-                const { resumeResults, currentResumeResult } = get();
+                const { resumeResults, resumeResultsTotal, currentResumeResult } = get();
                 set({
                     resumeResults: resumeResults.filter(r => r.id !== resultId),
+                    resumeResultsTotal: Math.max(0, resumeResultsTotal - 1),
                     currentResumeResult: currentResumeResult?.id === resultId ? null : currentResumeResult
                 });
                 return true;
@@ -313,13 +322,10 @@ export const createResumeSlice = (set: SetState, get: GetState): ResumeSlice => 
     },
 
     // ===== 候选人素材库 Actions =====
-    fetchCandidateMaterials: async (materialType?: string, isVerified?: boolean) => {
+    fetchCandidateMaterials: async (materialType?: MaterialType, isVerified?: boolean) => {
         set({ candidateMaterialsLoading: true });
         try {
-            const response = await getMaterials(
-                materialType as any,
-                isVerified
-            );
+            const response = await getMaterials(materialType, isVerified);
             if (response.success) {
                 set({ candidateMaterials: response.materials });
             }
@@ -409,10 +415,10 @@ export const createResumeSlice = (set: SetState, get: GetState): ResumeSlice => 
     },
 
     // ===== 项目经历重写 Actions =====
-    fetchProjectRewriteHistory: async (rewriteMode?: string) => {
+    fetchProjectRewriteHistory: async (rewriteMode?: ProjectRewriteMode) => {
         set({ projectRewriteHistoryLoading: true });
         try {
-            const response = await getProjectRewriteHistory(rewriteMode as any);
+            const response = await getProjectRewriteHistory(rewriteMode);
             if (response.success) {
                 set({ projectRewriteHistory: response.records });
             }

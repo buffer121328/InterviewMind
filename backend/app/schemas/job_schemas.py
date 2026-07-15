@@ -139,6 +139,7 @@ class ApplyPreviewRequest(BaseModel):
     """投递预览请求"""
     job_id: int = Field(description="岗位 ID")
     greeting_index: int = Field(default=0, description="选择的打招呼文案索引 (0-2)")
+    greeting_text: str = Field(min_length=1, max_length=500, description="用户选定并将要发送的文案")
     resume_id: Optional[int] = Field(default=None, description="定制简历 ID")
 
 
@@ -146,8 +147,10 @@ class ApplySendRequest(BaseModel):
     """确认发送请求"""
     job_id: int
     greeting_index: int = 0
+    greeting_text: str = Field(min_length=1, max_length=500)
     resume_id: Optional[int] = None
-    confirmed: bool = Field(default=True, description="用户已确认")
+    approval_token: str = Field(min_length=20, description="预览接口签发的一次性许可")
+    confirmed: bool = Field(default=False, description="用户已明确确认当前预览")
 
 
 class ApplyResponse(BaseModel):
@@ -155,7 +158,11 @@ class ApplyResponse(BaseModel):
     success: bool = True
     message: Optional[str] = None
     screenshot_path: Optional[str] = None
-    send_status: str = "pending"  # pending/sent/failed/manual_takeover
+    screenshot_base64: Optional[str] = None
+    send_status: str = "pending"  # pending/sent/failed/manual_takeover/login_required/unavailable
+    send_ready: bool = False
+    approval_token: Optional[str] = None
+    approval_expires_in: Optional[int] = None
     error: Optional[str] = None
 
 
@@ -184,6 +191,8 @@ class CapturedJobSummary(BaseModel):
     custom_resume_id: Optional[int] = Field(default=None, description="定制简历 ID")
     greetings: List[Dict[str, Any]] = Field(default_factory=list, description="3 条打招呼文案")
     risk_flags: List[str] = Field(default_factory=list, description="风险标记")
+    asset_run_id: Optional[str] = Field(default=None, description="统一任务中心中的资产任务 ID")
+    asset_status: Optional[str] = Field(default=None, description="资产任务状态")
 
 
 class CaptureRecommendationsResponse(BaseModel):

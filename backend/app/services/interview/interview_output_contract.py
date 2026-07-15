@@ -11,7 +11,7 @@
 """
 
 from enum import Enum
-from typing import Optional
+from typing import Any, Dict, Optional
 from pydantic import BaseModel, Field
 
 
@@ -99,6 +99,10 @@ class EvaluatingOutput(BaseModel):
     action: InterviewerAction = Field(description="下一步动作决策")
     content: str = Field(description="对候选人说的内容")
     follow_up_count: int = Field(default=0)
+    need_tool: bool = Field(default=False, description="是否需要先调用一个参考工具再决策")
+    tool_name: Optional[str] = Field(default=None, description="请求调用的工具名")
+    tool_args: Dict[str, Any] = Field(default_factory=dict, description="工具参数")
+    tool_reason: Optional[str] = Field(default=None, description="请求工具的原因说明")
 
 
 class EndRoundOutput(BaseModel):

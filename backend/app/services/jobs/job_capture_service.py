@@ -9,11 +9,14 @@
 """
 
 import asyncio
+from hashlib import sha256
 import platform as _platform
 
 import logging
 from typing import Dict, Any, Optional
 from datetime import datetime
+
+from app.services.security import safe_error_message
 
 from .job_normalizer import (
     normalize_company_name,
@@ -339,66 +342,32 @@ async def _fetch_page_text_browser(
     url: str,
     cookies: Optional[list] = None,
     headless: bool = True,
+    manual_wait_seconds: int = 90,
 ) -> str:
     """
-    通过浏览器抓取页面文本。优先级：
-    1. 连接用户已打开的 Chrome（macOS AppleScript），绕过反爬
-    2. 启动 Playwright 浏览器（支持 cookies / 有头等模式）
+    通过宿主机 BOSS 服务的持久化 Playwright profile 抓取页面文本。
 
     Args:
         url: 岗位页面 URL
-        cookies: 用户登录 Cookies（List[Playwright Cookie Dict]）
-        headless: 是否无头模式。无 cookies 时建议 False，让用户在弹出窗口中
-                  完成验证码/登录，完成后浏览器自动读取页面内容。
+        cookies: 兼容旧调用；不会经 RPC 传输，宿主机统一使用持久化 profile。
+        headless: 是否无头模式。False 时可在宿主机窗口完成验证码/登录。
     """
-    # 优先尝试连接用户已打开的 Chrome（绕过反爬最有效）
-    text = await _fetch_via_existing_chrome(url)
-    if text:
-        logger.info(f"[JobCapture] 通过已打开的 Chrome 抓取成功, {len(text)} 字符")
-        return text
-
-    # 降级到 Playwright
     try:
-        from app.services.jobs.browser_runner import start_browser, open_job_page, scrape_page_text
+        from app.services.jobs.boss_automation_client import get_boss_automation_client
 
-        pw, browser, context = await start_browser(headless=headless)
-        try:
-            # 注入用户 cookies（如果提供）
-            if cookies:
-                await context.add_cookies(cookies)
-                logger.info(f"[JobCapture] 已注入 {len(cookies)} 条 cookies")
-
-            page = await open_job_page(context, url)
-
-            # 无 cookies 且非 headless 时，等用户完成验证（最多 90 秒）
-            if not cookies and not headless:
-                logger.info("[JobCapture] 等待用户在浏览器中完成验证（最多 90 秒）...")
-                try:
-                    # 等待岗位页面加载（URL 跳回 job_detail 或页面包含 "岗位" 字样）
-                    await page.wait_for_function(
-                        """() => {
-                            const t = document.body.innerText;
-                            return (t.includes('岗位') || t.includes('职位')) && !t.includes('请稍候');
-                        }""",
-                        timeout=90000,
-                    )
-                except Exception:
-                    logger.warning("[JobCapture] 等待用户验证超时")
-
-            text = await scrape_page_text(page)
-            await page.close()
-            if text:
-                logger.info(f"[JobCapture] 浏览器抓取成功, {len(text)} 字符")
-            return text
-        finally:
-            await context.close()
-            await browser.close()
-            await pw.stop()
-    except ImportError:
-        logger.warning("[JobCapture] Playwright 未安装，无法使用浏览器模式")
-        return ""
+        if cookies:
+            logger.warning("[JobCapture] 远程 BOSS 服务不接收 Cookie，改用宿主机持久化 profile")
+        result = await get_boss_automation_client().scrape(
+            url,
+            headless=headless,
+            manual_wait_seconds=manual_wait_seconds,
+        )
+        text = result.get("text", "") if result.get("success") else ""
+        if text:
+            logger.info("[JobCapture] 宿主机浏览器抓取成功, %s 字符", len(text))
+        return text
     except Exception as e:
-        logger.warning(f"[JobCapture] 浏览器抓取失败: {e}")
+        logger.warning("[JobCapture] 宿主机浏览器抓取失败: %s", safe_error_message(e))
         return ""
 
 
@@ -775,15 +744,13 @@ async def capture_from_recommendations(
     Returns:
         {"success": bool, "jobs": List[dict], "total": int, "message": str}
     """
-    from app.services.jobs.job_asset_orchestrator import generate_assets
-
     if not api_config:
         return {
             "success": False, "total": 0, "jobs": [],
             "message": "未检测到 API 配置。请在请求中传入 api_config。",
         }
 
-    # Step 1: 构造 BOSS 搜索页 URL 并通过 AppleScript 在 Chrome 新开 tab
+    # Step 1: 构造 BOSS 搜索页 URL，并使用与预览/发送相同的持久化会话。
     # 搜索页 URL: https://www.zhipin.com/web/geek/job?query=xxx&city=100010000
     # city 不传时 BOSS 会按 IP 自动定位
     from urllib.parse import quote_plus
@@ -795,24 +762,23 @@ async def capture_from_recommendations(
         search_url += f"&city={quote_plus(city)}"
 
     logger.info(f"[JobCapture] 批量采集启动: user={user_id}, query={query!r}, top_n={top_n}, url={search_url}")
-    page_text = await _open_and_read_in_chrome(
+    page_text = await _fetch_page_text_browser(
         search_url,
-        wait_seconds=8,
-        wait_for_user_captcha=True,   # 检测到反爬页 → 等用户手动完成验证
-        captcha_timeout=180,           # 最长等 3 分钟
+        headless=False,
+        manual_wait_seconds=180,
     )
 
     if not page_text:
         return {
             "success": False, "total": 0, "jobs": [],
-            "message": "无法读取 Chrome 页面。请确认：1) Chrome 已打开并登录 BOSS；2) 菜单 查看→开发者→允许 Apple 事件中的 JavaScript 已启用；3) 若弹出安全验证页，请在 Chrome 中手动完成验证（最长等待 3 分钟）。",
+            "message": "无法读取 BOSS 页面。请在项目打开的专用浏览器中完成登录或安全验证后重试（最长等待 3 分钟）。",
         }
 
     # 反爬兜底检测（即使开了 wait_for_user_captcha 也再确认一次）
     if "请稍候" in page_text or "安全验证" in page_text or "verify.html" in page_text:
         return {
             "success": False, "total": 0, "jobs": [],
-            "message": "BOSS 仍处于反爬安全验证页。请确认在 Chrome 中已手动完成滑动验证，然后重新调用本接口。",
+            "message": "BOSS 仍处于安全验证页。请在项目打开的专用浏览器中完成验证后重试。",
         }
 
     # 搜索页内容检测：BOSS 搜索页通常包含「BOSS直聘」「招聘」「综合」「最新」等关键词
@@ -912,7 +878,7 @@ Respond in JSON format."""
     else:
         cards = cards[:top_n]
 
-    # Step 3: 对每张卡片复用 capture_from_text + generate_assets
+    # Step 3: 对每张卡片复用 capture_from_text；资产生成进入统一可恢复任务。
     results: list = []
     failures: list = []
 
@@ -952,30 +918,77 @@ Respond in JSON format."""
         match_score = None
         custom_resume_id = None
         greetings: list = []
+        asset_run_id = None
+        asset_status = None
 
         try:
-            asset_result = await generate_assets(
-                job_id=job_id,
-                user_id=user_id,
-                resume_content=resume_content,
-                api_config=api_config,
+            from app.services.agent_runs.service import (
+                AgentRunService,
+                TASK_TYPE_JOB_ASSETS,
+                task_queue_enabled,
             )
-            if asset_result.get("success") and asset_result.get("assets"):
-                assets_obj = asset_result["assets"]
-                risk_flags = list(assets_obj.risk_flags or [])
-                if assets_obj.jd_analysis:
-                    match_score = assets_obj.jd_analysis.get("overall_match_score")
-                custom_resume_id = assets_obj.custom_resume_id
-                for g in (assets_obj.greetings or []):
-                    greetings.append({
-                        "tone": g.tone,
-                        "message_text": g.message_text,
-                        "highlights_used": g.highlights_used,
-                        "risk_notes": g.risk_notes,
-                    })
+
+            if task_queue_enabled():
+                from app.services.agent_runs.dispatcher import enqueue_agent_run
+
+                run_service = AgentRunService()
+                resume_token = sha256(resume_content.encode()).hexdigest()[:16]
+                run, created = await run_service.create_or_get(
+                    user_id=user_id,
+                    task_type=TASK_TYPE_JOB_ASSETS,
+                    payload={
+                        "job_id": job_id,
+                        "resume_content": resume_content,
+                        "api_config": api_config,
+                        "include_project_rewrite": False,
+                        "template_style": "professional",
+                    },
+                    idempotency_key=f"capture-assets:{job_id}:{resume_token}",
+                )
+                if created:
+                    try:
+                        enqueue_agent_run(run.id)
+                    except Exception:
+                        await run_service.fail(run.id, "岗位资产任务入队失败，请在任务中心重试")
+                        run = await run_service.get(run.id, user_id) or run
+                asset_run_id = run.id
+                asset_status = run.status
+                asset_result = run.result or {}
+                assets_data = asset_result.get("assets") if isinstance(asset_result, dict) else None
+                if isinstance(assets_data, dict):
+                    risk_flags = list(assets_data.get("risk_flags") or [])
+                    jd_analysis = assets_data.get("jd_analysis") or {}
+                    if isinstance(jd_analysis, dict):
+                        match_score = jd_analysis.get("overall_match_score")
+                    custom_resume_id = assets_data.get("custom_resume_id")
+                    greetings = list(assets_data.get("greetings") or [])
+            else:
+                from app.services.jobs.job_asset_orchestrator import generate_assets
+
+                asset_result = await generate_assets(
+                    job_id=job_id,
+                    user_id=user_id,
+                    resume_content=resume_content,
+                    api_config=api_config,
+                )
+                asset_status = "succeeded" if asset_result.get("success") else "failed"
+                if asset_result.get("success") and asset_result.get("assets"):
+                    assets_obj = asset_result["assets"]
+                    risk_flags = list(assets_obj.risk_flags or [])
+                    if assets_obj.jd_analysis:
+                        match_score = assets_obj.jd_analysis.get("overall_match_score")
+                    custom_resume_id = assets_obj.custom_resume_id
+                    for g in (assets_obj.greetings or []):
+                        greetings.append({
+                            "tone": g.tone,
+                            "message_text": g.message_text,
+                            "highlights_used": g.highlights_used,
+                            "risk_notes": g.risk_notes,
+                        })
         except Exception as e:
             logger.warning(f"[JobCapture] 卡片 {idx} 资产生成失败: {e}")
-            risk_flags.append(f"资产生成失败: {e}")
+            asset_status = "failed"
+            risk_flags.append(f"资产生成失败: {safe_error_message(e)}")
 
         results.append({
             "job_id": job_id,
@@ -987,6 +1000,8 @@ Respond in JSON format."""
             "custom_resume_id": custom_resume_id,
             "greetings": greetings,
             "risk_flags": risk_flags,
+            "asset_run_id": asset_run_id,
+            "asset_status": asset_status,
         })
 
     msg = f"共抓取 {len(results)} 个岗位"

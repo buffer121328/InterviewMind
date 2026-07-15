@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Loader2, RefreshCw, Brain, Target, CheckCircle2, Check, AlertCircle } from 'lucide-react';
+import { Loader2, RefreshCw, Brain, Target } from 'lucide-react';
 import { getSessionProfile, type AbilityProfile } from '@/lib/api/profile';
 import { AbilityRadarChart } from './RadarChart';
 import { SkillTags } from './SkillTags';
@@ -24,18 +24,27 @@ interface Props {
 
 type TabType = 'profile' | 'weakness';
 
+const PROFILE_DIMENSIONS: Array<{
+    key: keyof Pick<
+        AbilityProfile,
+        'professional_competence' | 'execution_results' | 'logic_problem_solving' |
+        'communication' | 'growth_potential' | 'collaboration'
+    >;
+    label: string;
+}> = [
+    { key: 'professional_competence', label: '专业能力' },
+    { key: 'execution_results', label: '执行与结果导向' },
+    { key: 'logic_problem_solving', label: '逻辑与问题解决' },
+    { key: 'communication', label: '沟通表达力' },
+    { key: 'growth_potential', label: '成长潜力' },
+    { key: 'collaboration', label: '协作能力' },
+];
+
 export function SessionProfileDialog({ sessionId, open, onOpenChange, defaultTab = 'profile' }: Props) {
     const [activeTab, setActiveTab] = useState<TabType>(defaultTab);
     const [profile, setProfile] = useState<AbilityProfile | null>(null);
     const [loading, setLoading] = useState(true);
     const [generating, setGenerating] = useState(false);
-
-    useEffect(() => {
-        if (open && sessionId) {
-            loadProfile();
-            setActiveTab(defaultTab);
-        }
-    }, [open, sessionId, defaultTab]);
 
     async function loadProfile() {
         setLoading(true);
@@ -50,6 +59,28 @@ export function SessionProfileDialog({ sessionId, open, onOpenChange, defaultTab
         }
         setLoading(false);
     }
+
+    useEffect(() => {
+        if (!open || !sessionId) return;
+
+        let active = true;
+        void getSessionProfile(sessionId).then((response) => {
+            if (!active) return;
+
+            if (response.success && response.profile) {
+                setProfile(response.profile);
+                setGenerating(false);
+            } else {
+                setProfile(null);
+                setGenerating(true);
+            }
+            setLoading(false);
+        });
+
+        return () => {
+            active = false;
+        };
+    }, [open, sessionId]);
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
@@ -185,16 +216,8 @@ export function SessionProfileDialog({ sessionId, open, onOpenChange, defaultTab
                                     <div className="bg-white rounded-xl border border-gray-200 p-4">
                                         <h3 className="text-base font-semibold text-gray-900 mb-3">评分详情</h3>
                                         <div className="space-y-3">
-                                            {[
-                                                { key: 'professional_competence', label: '专业能力' },
-                                                { key: 'execution_results', label: '执行与结果导向' },
-                                                { key: 'logic_problem_solving', label: '逻辑与问题解决' },
-                                                { key: 'communication', label: '沟通表达力' },
-                                                { key: 'growth_potential', label: '成长潜力' },
-                                                { key: 'collaboration', label: '协作能力' },
-                                            ].map(({ key, label }) => {
-                                                const dim = profile[key as keyof typeof profile] as any;
-                                                if (!dim || typeof dim !== 'object') return null;
+                                            {PROFILE_DIMENSIONS.map(({ key, label }) => {
+                                                const dim = profile[key];
                                                 return (
                                                     <div key={key} className="border border-gray-100 rounded-lg p-3">
                                                         <div className="flex items-center justify-between mb-1">

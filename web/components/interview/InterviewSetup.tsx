@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Upload, FileText, Loader2, RefreshCw, AlertCircle, BrainCircuit, Maximize2, MessageSquare, Headphones } from "lucide-react";
+import { Upload, FileText, Loader2, AlertCircle, BrainCircuit, Maximize2, MessageSquare, Headphones, Link2, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
@@ -25,6 +25,9 @@ interface InterviewSetupProps {
     onCompanyInfoChange: (value: string) => void;
     maxQuestions: number;
     onMaxQuestionsChange: (value: number) => void;
+    questionBankCount: number;
+    onQuestionBankCountChange: (value: number) => void;
+    experienceQuestionCount?: number;
     isLoading: boolean;
     hasApiConfig: boolean;
     onStartInterview: (mode: InterviewMode) => Promise<void>;
@@ -41,6 +44,9 @@ export function InterviewSetup({
     onCompanyInfoChange,
     maxQuestions,
     onMaxQuestionsChange,
+    questionBankCount,
+    onQuestionBankCountChange,
+    experienceQuestionCount = 0,
     isLoading,
     hasApiConfig,
     onStartInterview,
@@ -188,6 +194,31 @@ export function InterviewSetup({
                     </p>
                 </div>
 
+                <div className="space-y-3">
+                    <label className="text-sm font-medium text-gray-700">
+                        从个人题库抽取（0-{maxQuestions}）
+                    </label>
+                    <div className="flex items-center gap-4">
+                        <input
+                            type="range"
+                            min="0"
+                            max={maxQuestions}
+                            step="1"
+                            value={Math.min(questionBankCount, maxQuestions)}
+                            onChange={(e) => onQuestionBankCountChange(parseInt(e.target.value))}
+                            className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-orange-600"
+                        />
+                        <div className="w-12 h-10 flex items-center justify-center bg-orange-50 border border-orange-100 rounded-lg text-orange-700 font-semibold">
+                            {Math.min(questionBankCount, maxQuestions)}
+                        </div>
+                    </div>
+                    <p className="text-xs text-gray-400">
+                        {experienceQuestionCount > 0
+                            ? `另有 ${experienceQuestionCount} 道已选面经题优先用于本次面试，剩余题目由模型补足。`
+                            : "题库题优先使用，剩余题目由模型补足，可减少规划等待。"}
+                    </p>
+                </div>
+
                 {/* 4. 面试模式选择 */}
                 <div className="space-y-3">
                     <label className="text-sm font-medium text-gray-700 flex items-center gap-2">
@@ -285,6 +316,38 @@ export function InterviewSetup({
                     </div>
                 </div>
 
+                {/* 本次面试共享上下文 */}
+                <div className="rounded-xl border border-orange-100 bg-orange-50/50 p-4">
+                    <div className="mb-3 flex items-center gap-2">
+                        <Link2 className="h-4 w-4 text-orange-600" />
+                        <div>
+                            <p className="text-sm font-medium text-gray-800">本次面试上下文</p>
+                            <p className="text-xs text-gray-500">以下信息会一起用于定制问题</p>
+                        </div>
+                    </div>
+                    <div className="grid gap-2 sm:grid-cols-3">
+                        {[
+                            { label: "简历", value: resume ? resume.original_name : "待上传", ready: Boolean(resume) },
+                            { label: "目标岗位", value: jobDescription.trim() ? "已设置" : "待填写", ready: Boolean(jobDescription.trim()) },
+                            {
+                                label: "个性化题目",
+                                value: experienceQuestionCount + questionBankCount > 0
+                                    ? `面经 ${experienceQuestionCount} · 题库 ${questionBankCount}`
+                                    : "由模型生成",
+                                ready: true,
+                            },
+                        ].map((item) => (
+                            <div key={item.label} className="rounded-lg border border-orange-100 bg-white px-3 py-2">
+                                <div className="flex items-center gap-1.5 text-xs text-gray-500">
+                                    <CheckCircle2 className={cn("h-3.5 w-3.5", item.ready ? "text-emerald-500" : "text-gray-300")} />
+                                    {item.label}
+                                </div>
+                                <p className="mt-1 truncate text-sm font-medium text-gray-700">{item.value}</p>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+
                 {/* API 配置提示 */}
                 {!hasApiConfig && (
                     <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 flex items-start gap-3">
@@ -362,4 +425,3 @@ export function InterviewSetup({
         </>
     );
 }
-

@@ -18,12 +18,24 @@
 """
 
 import json
+import hashlib
 import logging
-from typing import Dict, Any, List, Optional, TypedDict
+import hashlib
+import json
+import operator
+import uuid
+from datetime import datetime, timezone
+from typing import Annotated, Dict, Any, List, Mapping, Optional, TypedDict
 from dataclasses import dataclass, field
 
-from app.schemas.llm_outputs import ChangeItem, MatchAnalysisOutput, ContentSuggestionsOutput
+from langgraph.cache.memory import InMemoryCache
+from langgraph.graph import END, START, StateGraph
+from langgraph.runtime import Runtime
+from langgraph.types import CachePolicy
+
+from app.schemas.llm_outputs import ChangeItem, ContentSuggestionsOutput
 from app.services.llm_utils import invoke_structured
+from app.services.observability import agent_observation
 
 logger = logging.getLogger(__name__)
 
@@ -48,9 +60,44 @@ class PipelineState:
     assembled_resume: str = ""                     # 阶段4
     fact_check_result: Optional[dict] = None       # 阶段5
     confirmation_items: List[dict] = field(default_factory=list)  # 阶段6
+    judge_result: Optional[dict] = None           # 阶段5.5
+    retry_guidance: str = ""
+    retry_count: int = 0
+    trace: List[dict] = field(default_factory=list)
     
     # 元数据
     errors: List[str] = field(default_factory=list)
+
+
+class ResumeGraphState(TypedDict, total=False):
+    """可持久化的图状态；密钥和请求选项不得放在这里。"""
+
+    resume_content: str
+    job_description: str
+    user_id: str
+    jd_analysis: Optional[dict]
+    material_pool: Optional[dict]
+    change_items: List[dict]
+    assembled_resume: str
+    fact_check_result: Optional[dict]
+    confirmation_items: List[dict]
+    judge_result: Optional[dict]
+    retry_guidance: str
+    retry_count: int
+    trace: Annotated[List[dict], operator.add]
+    errors: Annotated[List[str], operator.add]
+
+
+@dataclass(frozen=True, slots=True)
+class ResumeRuntimeContext:
+    """不进入 checkpoint 的可信请求上下文。"""
+
+    api_config: Optional[Mapping[str, Any]] = None
+    session_ids: tuple[str, ...] = ()
+    include_profile: bool = False
+
+
+_resume_node_cache = InMemoryCache()
 
 
 # ============================================================================
@@ -62,7 +109,7 @@ async def run_pipeline(
     job_description: str,
     user_id: str = "default_user",
     api_config: Optional[dict] = None,
-    session_ids: List[str] = [],
+    session_ids: Optional[List[str]] = None,
     include_profile: bool = False,
 ) -> Dict[str, Any]:
     """
@@ -79,34 +126,83 @@ async def run_pipeline(
     Returns:
         完整的流水线产出，包含所有阶段的产物
     """
-    state = PipelineState(
-        resume_content=resume_content,
-        job_description=job_description,
+    session_ids = session_ids or []
+    async with agent_observation(
+        name="resume-pipeline",
+        agent_type="resume",
         user_id=user_id,
-        api_config=api_config,
+        session_id=session_ids[0] if session_ids else None,
+        input_payload={
+            "resume_length": len(resume_content),
+            "job_description_length": len(job_description),
+            "session_count": len(session_ids),
+            "include_profile": include_profile,
+        },
+    ) as observation:
+        result = await _run_pipeline(
+            resume_content=resume_content,
+            job_description=job_description,
+            user_id=user_id,
+            api_config=api_config,
+            session_ids=session_ids,
+            include_profile=include_profile,
+        )
+        observation.set_output({
+            "changes": len(result["change_items"]),
+            "confirmations": len(result["confirmation_items"]),
+            "rewrite_attempts": result["rewrite_attempts"],
+            "has_errors": bool(result["errors"]),
+        })
+        return result
+
+
+async def _run_pipeline(
+    resume_content: str,
+    job_description: str,
+    user_id: str,
+    api_config: Optional[dict],
+    session_ids: List[str],
+    include_profile: bool,
+) -> Dict[str, Any]:
+    """执行不含观测上下文的流水线主体。"""
+    from app.services.memory import get_checkpointer
+
+    initial = PipelineState(resume_content=resume_content, job_description=job_description, user_id=user_id)
+    _append_trace(
+        initial,
+        step="pipeline_start",
+        phase="pipeline",
+        status="started",
+        input_summary=f"resume_len={len(resume_content)}, jd_len={len(job_description)}",
     )
     
     logger.info(f"[ResumePipeline] 开始 6 阶段流水线 (user_id={user_id})")
     
-    # 阶段1: JD 分析
-    state = await stage1_jd_analysis(state)
-    
-    # 阶段2: 素材选择
-    state = await stage2_material_selection(state, session_ids, include_profile)
-    
-    # 阶段3: 定制改写
-    state = await stage3_custom_rewrite(state)
-    
-    # 阶段4: 简历组装
-    state = await stage4_assemble(state)
-    
-    # 阶段5: 事实核验
-    state = await stage5_fact_check(state)
-    
-    # 阶段6: 用户确认准备
-    state = await stage6_confirmation_prep(state)
+    workflow = _build_resume_graph()
+    graph = workflow.compile(
+        checkpointer=await get_checkpointer(),
+        cache=_resume_node_cache,
+        name="resume-optimization-pipeline",
+    )
+    result = await graph.ainvoke(
+        _graph_values(initial),
+        context=ResumeRuntimeContext(
+            api_config=api_config,
+            session_ids=tuple(session_ids),
+            include_profile=include_profile,
+        ),
+        config={"configurable": {"thread_id": f"resume_{user_id}_{uuid.uuid4().hex}"}},
+    )
+    state = _pipeline_state(result)
     
     logger.info(f"[ResumePipeline] 流水线完成, {len(state.change_items)} 条改写, {len(state.confirmation_items)} 条需确认")
+    _append_trace(
+        state,
+        step="pipeline_finish",
+        phase="pipeline",
+        status="completed",
+        output_summary=f"changes={len(state.change_items)}, confirmations={len(state.confirmation_items)}, retry_count={state.retry_count}",
+    )
     
     return {
         "jd_analysis": state.jd_analysis,
@@ -115,10 +211,162 @@ async def run_pipeline(
         "assembled_resume": state.assembled_resume,
         "fact_check": state.fact_check_result,
         "confirmation_items": state.confirmation_items,
+        "judge_result": state.judge_result,
         "errors": state.errors,
         "overall_confidence": _calc_confidence(state.change_items),
         "requires_user_review": len(state.confirmation_items) > 0,
+        "rewrite_attempts": 1 + state.retry_count,
+        "trace": state.trace,
     }
+
+
+def _pipeline_state(values: Mapping[str, Any], *, api_config: Optional[Mapping[str, Any]] = None) -> PipelineState:
+    """把可持久化图状态转为旧阶段函数所需对象。"""
+    return PipelineState(
+        resume_content=values["resume_content"],
+        job_description=values["job_description"],
+        user_id=values.get("user_id", "default_user"),
+        api_config=dict(api_config) if api_config else None,
+        jd_analysis=values.get("jd_analysis"),
+        material_pool=values.get("material_pool"),
+        change_items=list(values.get("change_items", [])),
+        assembled_resume=values.get("assembled_resume", ""),
+        fact_check_result=values.get("fact_check_result"),
+        confirmation_items=list(values.get("confirmation_items", [])),
+        judge_result=values.get("judge_result"),
+        retry_guidance=values.get("retry_guidance", ""),
+        retry_count=values.get("retry_count", 0),
+        trace=list(values.get("trace", [])),
+        errors=list(values.get("errors", [])),
+    )
+
+
+def _graph_values(state: PipelineState, *fields: str) -> dict:
+    """提取节点产物；故意排除 api_config。"""
+    names = fields or (
+        "resume_content", "job_description", "user_id", "jd_analysis", "material_pool",
+        "change_items", "assembled_resume", "fact_check_result", "confirmation_items",
+        "judge_result", "retry_guidance", "retry_count", "trace", "errors",
+    )
+    return {name: getattr(state, name) for name in names}
+
+
+def _node_result(state: PipelineState, *fields: str) -> dict:
+    """节点只返回本次新增的 trace/errors，避免 reducer 重复累加。"""
+    result = _graph_values(state, *fields)
+    result["trace"] = state.trace
+    result["errors"] = state.errors
+    return result
+
+
+def _cache_key(stage_name: str, function: Any, values: Mapping[str, Any], fields: tuple[str, ...]) -> str:
+    """缓存键只包含确定性输入；函数 id 使 monkeypatch 测试互不污染。"""
+    payload = {field: values.get(field) for field in fields}
+    serialized = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)
+    digest = hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+    return f"{stage_name}:{id(function)}:{digest}"
+
+
+def _build_resume_graph() -> StateGraph:
+    """构造固定 DAG：Stage1/2 并行，质量路由最多返工一次。"""
+
+    def temporary_state(values: ResumeGraphState, runtime: Runtime[ResumeRuntimeContext]) -> PipelineState:
+        state = _pipeline_state(values, api_config=runtime.context.api_config)
+        state.trace = []
+        state.errors = []
+        return state
+
+    async def run_stage1(values: ResumeGraphState, runtime: Runtime[ResumeRuntimeContext]) -> dict:
+        state = await stage1_jd_analysis(temporary_state(values, runtime))
+        return _node_result(state, "jd_analysis")
+
+    async def run_stage2(values: ResumeGraphState, runtime: Runtime[ResumeRuntimeContext]) -> dict:
+        state = temporary_state(values, runtime)
+        state = await stage2_material_selection(
+            state, list(runtime.context.session_ids), runtime.context.include_profile
+        )
+        return _node_result(state, "material_pool")
+
+    async def run_stage3(values: ResumeGraphState, runtime: Runtime[ResumeRuntimeContext]) -> dict:
+        state = await stage3_custom_rewrite(temporary_state(values, runtime))
+        return _node_result(state, "change_items")
+
+    async def run_stage4(values: ResumeGraphState, runtime: Runtime[ResumeRuntimeContext]) -> dict:
+        state = await stage4_assemble(temporary_state(values, runtime))
+        return _node_result(state, "assembled_resume")
+
+    async def run_fact_check(values: ResumeGraphState, runtime: Runtime[ResumeRuntimeContext]) -> dict:
+        state = await stage5_fact_check(temporary_state(values, runtime))
+        return _node_result(state, "fact_check_result")
+
+    async def run_quality_judge(values: ResumeGraphState, runtime: Runtime[ResumeRuntimeContext]) -> dict:
+        state = await stage5_quality_judge(temporary_state(values, runtime))
+        return _node_result(state, "judge_result")
+
+    async def run_retry(values: ResumeGraphState, runtime: Runtime[ResumeRuntimeContext]) -> dict:
+        state = await stage5_targeted_retry(temporary_state(values, runtime))
+        return _node_result(state, "change_items", "retry_guidance", "retry_count")
+
+    async def run_confirmation(values: ResumeGraphState, runtime: Runtime[ResumeRuntimeContext]) -> dict:
+        state = await stage6_confirmation_prep(temporary_state(values, runtime))
+        return _node_result(state, "confirmation_items")
+
+    def after_judge(values: ResumeGraphState) -> str:
+        return "retry" if _should_retry_pipeline(_pipeline_state(values)) else "confirm"
+
+    workflow = StateGraph(ResumeGraphState, context_schema=ResumeRuntimeContext)
+    workflow.add_node(
+        "stage1_jd_analysis",
+        run_stage1,
+        cache_policy=CachePolicy(
+            key_func=lambda values: _cache_key(
+                "stage1", stage1_jd_analysis, values, ("resume_content", "job_description")
+            ),
+            ttl=900,
+        ),
+    )
+    workflow.add_node("stage2_material_selection", run_stage2)
+    workflow.add_node("stage3_custom_rewrite", run_stage3)
+    workflow.add_node("stage4_assemble", run_stage4)
+    workflow.add_node(
+        "stage5_fact_check",
+        run_fact_check,
+        cache_policy=CachePolicy(
+            key_func=lambda values: _cache_key(
+                "fact", stage5_fact_check, values,
+                ("resume_content", "job_description", "change_items", "assembled_resume"),
+            ),
+            ttl=900,
+        ),
+    )
+    workflow.add_node(
+        "stage5_quality_judge",
+        run_quality_judge,
+        cache_policy=CachePolicy(
+            key_func=lambda values: _cache_key(
+                "judge", stage5_quality_judge, values,
+                ("resume_content", "change_items", "assembled_resume", "fact_check_result", "retry_count"),
+            ),
+            ttl=900,
+        ),
+    )
+    workflow.add_node("stage5_targeted_retry", run_retry)
+    workflow.add_node("stage6_confirmation_prep", run_confirmation)
+
+    workflow.add_edge(START, "stage1_jd_analysis")
+    workflow.add_edge(START, "stage2_material_selection")
+    workflow.add_edge(["stage1_jd_analysis", "stage2_material_selection"], "stage3_custom_rewrite")
+    workflow.add_edge("stage3_custom_rewrite", "stage4_assemble")
+    workflow.add_edge("stage4_assemble", "stage5_fact_check")
+    workflow.add_edge("stage5_fact_check", "stage5_quality_judge")
+    workflow.add_conditional_edges(
+        "stage5_quality_judge",
+        after_judge,
+        {"retry": "stage5_targeted_retry", "confirm": "stage6_confirmation_prep"},
+    )
+    workflow.add_edge("stage5_targeted_retry", "stage4_assemble")
+    workflow.add_edge("stage6_confirmation_prep", END)
+    return workflow
 
 
 # ============================================================================
@@ -136,42 +384,49 @@ async def stage1_jd_analysis(state: PipelineState) -> PipelineState:
     - 优先改写点（按重要性排序）
     - 适合强调的项目和经历
     """
+    _append_trace(
+        state,
+        step="stage1_jd_analysis",
+        phase="jd_analysis",
+        status="started",
+        input_summary=f"jd_len={len(state.job_description or '')}",
+    )
     if not state.job_description:
         state.jd_analysis = {"match_score": 0, "note": "无 JD 提供"}
+        _append_trace(
+            state,
+            step="stage1_jd_analysis",
+            phase="jd_analysis",
+            status="completed",
+            output_summary="skip_without_jd",
+        )
         return state
     
-    prompt = f"""你是一位专业的「JD匹配分析师」。请分析以下简历与职位描述的匹配情况。
-
-【职位描述】：
-{state.job_description}
-
-【简历内容】：
-{state.resume_content[:2000]}
-
-请完成以下分析，输出 JSON：
-{{
-    "jd_keywords": ["关键词1", "关键词2", ...],
-    "matched_keywords": ["匹配的关键词1", ...],
-    "missing_keywords": ["缺失的关键词1", ...],
-    "bonus_items": ["加分项1", ...],
-    "match_score": 75,
-    "priority_rewrite_points": [
-        {{"area": "工作经历", "action": "添加量化数据", "priority": 1}},
-        ...
-    ],
-    "emphasis_areas": ["应强调的项目方向1", ...],
-    "analysis_summary": "总体匹配度分析..."
-}}
-"""
-    
     try:
-        result = await invoke_structured(prompt, MatchAnalysisOutput, state.api_config, channel="match_analyst")
-        state.jd_analysis = result.model_dump()
+        from app.services.tools.resume_tools import analyze_jd_keyword_match
+
+        state.jd_analysis = await analyze_jd_keyword_match(
+            state.job_description, state.resume_content
+        )
         logger.info(f"[Stage1] JD分析完成: 匹配度 {state.jd_analysis.get('match_score', 0)}%")
+        _append_trace(
+            state,
+            step="stage1_jd_analysis",
+            phase="jd_analysis",
+            status="completed",
+            output_summary=f"match_score={state.jd_analysis.get('match_score', 0)}",
+        )
     except Exception as e:
         logger.error(f"[Stage1] JD分析失败: {e}")
         state.jd_analysis = {"error": str(e), "match_score": 0}
         state.errors.append(f"Stage1: {e}")
+        _append_trace(
+            state,
+            step="stage1_jd_analysis",
+            phase="jd_analysis",
+            status="failed",
+            error=str(e),
+        )
     
     return state
 
@@ -182,7 +437,7 @@ async def stage1_jd_analysis(state: PipelineState) -> PipelineState:
 
 async def stage2_material_selection(
     state: PipelineState,
-    session_ids: List[str] = [],
+    session_ids: Optional[List[str]] = None,
     include_profile: bool = False,
 ) -> PipelineState:
     """
@@ -199,6 +454,13 @@ async def stage2_material_selection(
     - 每条经历的证据来源
     - 允许推断范围 vs 必须用户确认的字段
     """
+    _append_trace(
+        state,
+        step="stage2_material_selection",
+        phase="material_selection",
+        status="started",
+        input_summary=f"sessions={len(session_ids or [])}, include_profile={include_profile}",
+    )
     material_pool = {
         "resume": state.resume_content,
         "interview_conversations": [],
@@ -236,6 +498,16 @@ async def stage2_material_selection(
     
     state.material_pool = material_pool
     logger.info(f"[Stage2] 素材池构建完成: {len(material_pool['interview_conversations'])} 个QA对")
+    _append_trace(
+        state,
+        step="stage2_material_selection",
+        phase="material_selection",
+        status="completed",
+        output_summary=(
+            f"interview_conversations={len(material_pool['interview_conversations'])}, "
+            f"profile={'yes' if material_pool.get('profile') else 'no'}"
+        ),
+    )
     
     return state
 
@@ -257,8 +529,22 @@ async def stage3_custom_rewrite(state: PipelineState) -> PipelineState:
     
     每条 ChangeItem 必须包含：evidence_source, requires_user_confirmation, confidence
     """
+    _append_trace(
+        state,
+        step="stage3_custom_rewrite",
+        phase="custom_rewrite",
+        status="started",
+        input_summary=f"retry_count={state.retry_count}",
+    )
     if not state.job_description:
         state.change_items = []
+        _append_trace(
+            state,
+            step="stage3_custom_rewrite",
+            phase="custom_rewrite",
+            status="completed",
+            output_summary="skip_without_jd",
+        )
         return state
     
     jd_analysis = state.jd_analysis or {}
@@ -274,6 +560,7 @@ async def stage3_custom_rewrite(state: PipelineState) -> PipelineState:
             a = qa.get('answer', '') if isinstance(qa, dict) else getattr(qa, 'answer', '')
             qa_texts.append(f"Q: {q}\nA: {str(a)[:150]}...")
         interview_section = "\n\n【面试对话参考】：\n" + "\n".join(qa_texts)
+    retry_guidance_section = f"\n\n【本轮返工要求】：\n{state.retry_guidance}" if state.retry_guidance else ""
     
     prompt = f"""你是一位「简历内容优化师」。请为以下简历提供具体的优化建议。
 
@@ -286,7 +573,7 @@ async def stage3_custom_rewrite(state: PipelineState) -> PipelineState:
 【JD分析结果】：
 匹配度: {jd_analysis.get('match_score', 'N/A')}%
 缺失关键词: {json.dumps(jd_analysis.get('missing_keywords', [])[:10], ensure_ascii=False)}
-{interview_section}
+{interview_section}{retry_guidance_section}
 
 请按模块输出具体的 ChangeItem 列表。每条改写必须包含完整的追踪信息。
 
@@ -327,10 +614,24 @@ async def stage3_custom_rewrite(state: PipelineState) -> PipelineState:
         items = content.get("change_items", [])
         state.change_items = items
         logger.info(f"[Stage3] 定制改写完成: {len(items)} 条 ChangeItem")
+        _append_trace(
+            state,
+            step="stage3_custom_rewrite",
+            phase="custom_rewrite",
+            status="completed",
+            output_summary=f"change_items={len(items)}",
+        )
     except Exception as e:
         logger.error(f"[Stage3] 定制改写失败: {e}")
         state.change_items = []
         state.errors.append(f"Stage3: {e}")
+        _append_trace(
+            state,
+            step="stage3_custom_rewrite",
+            phase="custom_rewrite",
+            status="failed",
+            error=str(e),
+        )
     
     return state
 
@@ -346,9 +647,23 @@ async def stage4_assemble(state: PipelineState) -> PipelineState:
     把阶段3的模块产物组装成完整简历（Markdown）。
     不在这一步新增事实。
     """
+    _append_trace(
+        state,
+        step="stage4_assemble",
+        phase="assemble",
+        status="started",
+        input_summary=f"change_items={len(state.change_items)}",
+    )
     # 如果没有改写项，返回原始简历
     if not state.change_items:
         state.assembled_resume = state.resume_content
+        _append_trace(
+            state,
+            step="stage4_assemble",
+            phase="assemble",
+            status="completed",
+            output_summary="fallback_to_original_resume",
+        )
         return state
     
     # 基于 ChangeItems 和原始简历进行组装
@@ -392,10 +707,24 @@ async def stage4_assemble(state: PipelineState) -> PipelineState:
         
         state.assembled_resume = assembled
         logger.info(f"[Stage4] 简历组装完成: {len(assembled)} 字符")
+        _append_trace(
+            state,
+            step="stage4_assemble",
+            phase="assemble",
+            status="completed",
+            output_summary=f"assembled_len={len(assembled)}",
+        )
     except Exception as e:
         logger.error(f"[Stage4] 简历组装失败: {e}")
         state.assembled_resume = state.resume_content
         state.errors.append(f"Stage4: {e}")
+        _append_trace(
+            state,
+            step="stage4_assemble",
+            phase="assemble",
+            status="failed",
+            error=str(e),
+        )
     
     return state
 
@@ -416,6 +745,13 @@ async def stage5_fact_check(state: PipelineState) -> PipelineState:
     
     对每条 fact_inference 类型的改写做强制复核。
     """
+    _append_trace(
+        state,
+        step="stage5_fact_check",
+        phase="fact_check",
+        status="started",
+        input_summary=f"change_items={len(state.change_items)}",
+    )
     from .resume_fact_policy import validate_change_items
     
     # 使用事实核验策略验证所有 ChangeItem
@@ -439,7 +775,129 @@ async def stage5_fact_check(state: PipelineState) -> PipelineState:
         f"高风险 {len(risky_items)} 条, "
         f"风险标记 {len(fact_result.get('risk_flags', []))} 个"
     )
+    _append_trace(
+        state,
+        step="stage5_fact_check",
+        phase="fact_check",
+        status="completed",
+        output_summary=(
+            f"overall_risk={fact_result.get('overall_risk', 'unknown')}, "
+            f"total_risks={fact_result.get('total_risks', 0)}"
+        ),
+    )
     
+    return state
+
+
+async def stage5_quality_judge(state: PipelineState) -> PipelineState:
+    """阶段5.5: 基于确定性规则评审改写质量，决定是否需要一次定向重写。"""
+    _append_trace(
+        state,
+        step="stage5_quality_judge",
+        phase="quality_judge",
+        status="started",
+        input_summary=f"retry_count={state.retry_count}",
+    )
+
+    fact_result = state.fact_check_result or {}
+    total_changes = len(state.change_items)
+    total_risks = int(fact_result.get("total_risks", 0) or 0)
+    overall_risk = str(fact_result.get("overall_risk", "low") or "low")
+    fact_inference_count = len(fact_result.get("fact_inference_items", []))
+    keyword_risk_count = len(fact_result.get("keyword_stuffing_risks", []))
+    exaggeration_count = len(fact_result.get("exaggeration_items", []))
+
+    issues: List[str] = []
+    score = 100
+
+    if total_changes == 0:
+        score -= 40
+        issues.append("没有产出有效改写项")
+
+    if not state.assembled_resume.strip():
+        score -= 30
+        issues.append("未生成可用的组装简历")
+
+    if state.assembled_resume.strip() == state.resume_content.strip() and total_changes > 0:
+        score -= 15
+        issues.append("改写项未真正落到最终简历")
+
+    if overall_risk == "medium":
+        score -= 20
+        issues.append("事实核验存在中风险项")
+    elif overall_risk == "high":
+        score -= 40
+        issues.append("事实核验存在高风险项")
+
+    if fact_inference_count:
+        score -= min(20, fact_inference_count * 5)
+        issues.append(f"推断性改写过多（{fact_inference_count} 条）")
+
+    if keyword_risk_count:
+        score -= min(15, keyword_risk_count * 5)
+        issues.append(f"存在 JD 关键词硬塞风险（{keyword_risk_count} 处）")
+
+    if exaggeration_count:
+        score -= min(25, exaggeration_count * 10)
+        issues.append(f"存在夸大表述风险（{exaggeration_count} 处）")
+
+    score = max(0, min(100, score))
+    passed = total_changes > 0 and overall_risk != "high" and score >= 70
+    decision = "pass" if passed else "retry"
+    retry_guidance = "" if passed else _build_retry_guidance(state, issues)
+
+    state.judge_result = {
+        "passed": passed,
+        "decision": decision,
+        "score": score,
+        "summary": "通过质量评审" if passed else "建议做一次定向重写",
+        "issues": issues,
+        "retry_guidance": retry_guidance,
+        "metrics": {
+            "total_changes": total_changes,
+            "total_risks": total_risks,
+            "fact_inference_count": fact_inference_count,
+            "keyword_risk_count": keyword_risk_count,
+            "exaggeration_count": exaggeration_count,
+            "overall_risk": overall_risk,
+        },
+    }
+
+    _append_trace(
+        state,
+        step="stage5_quality_judge",
+        phase="quality_judge",
+        status="completed",
+        output_summary=f"passed={passed}, score={score}, retry={decision == 'retry'}",
+    )
+    return state
+
+
+async def stage5_targeted_retry(state: PipelineState) -> PipelineState:
+    """一次定向返工：追加明确约束后重新执行阶段3。"""
+    state.retry_count += 1
+    state.retry_guidance = _build_retry_guidance(
+        state,
+        (state.judge_result or {}).get("issues", []),
+    )
+    _append_trace(
+        state,
+        step="stage5_targeted_retry",
+        phase="targeted_retry",
+        status="started",
+        input_summary=state.retry_guidance[:200],
+    )
+    logger.info(f"[Stage5.5] 触发第 {state.retry_count} 次定向重写")
+
+    state = await stage3_custom_rewrite(state)
+
+    _append_trace(
+        state,
+        step="stage5_targeted_retry",
+        phase="targeted_retry",
+        status="completed",
+        output_summary=f"retry_count={state.retry_count}, change_items={len(state.change_items)}",
+    )
     return state
 
 
@@ -458,11 +916,18 @@ async def stage6_confirmation_prep(state: PipelineState) -> PipelineState:
     - 涉及「主导/负责/独立完成」的高强度角色表述
     - 所有 requires_user_confirmation=True 的改写项
     """
+    _append_trace(
+        state,
+        step="stage6_confirmation_prep",
+        phase="confirmation_prep",
+        status="started",
+        input_summary=f"change_items={len(state.change_items)}",
+    )
     from .resume_fact_policy import REQUIRES_CONFIRMATION_KEYWORDS
     
     confirmation_items = []
     
-    for item in state.change_items:
+    for item_index, item in enumerate(state.change_items):
         needs_confirmation = (
             item.get("requires_user_confirmation", False)
             or item.get("change_type") == "fact_inference"
@@ -471,7 +936,7 @@ async def stage6_confirmation_prep(state: PipelineState) -> PipelineState:
         )
         
         if needs_confirmation:
-            confirmation_items.append({
+            confirmation_item = {
                 "section_name": item.get("section_name", ""),
                 "change_type": item.get("change_type", ""),
                 "original_text": item.get("original_text", ""),
@@ -479,10 +944,24 @@ async def stage6_confirmation_prep(state: PipelineState) -> PipelineState:
                 "reason": item.get("reason", ""),
                 "evidence_source": item.get("evidence_source", ""),
                 "confidence": item.get("confidence", 0.8),
-            })
+            }
+            canonical = json.dumps(
+                {"index": item_index, "item": confirmation_item},
+                ensure_ascii=False,
+                sort_keys=True,
+            )
+            confirmation_item["item_id"] = hashlib.sha256(canonical.encode()).hexdigest()[:24]
+            confirmation_items.append(confirmation_item)
     
     state.confirmation_items = confirmation_items
     logger.info(f"[Stage6] 确认准备完成: {len(confirmation_items)} 项需要用户确认")
+    _append_trace(
+        state,
+        step="stage6_confirmation_prep",
+        phase="confirmation_prep",
+        status="completed",
+        output_summary=f"confirmation_items={len(confirmation_items)}",
+    )
     
     return state
 
@@ -497,3 +976,60 @@ def _calc_confidence(change_items: List[dict]) -> float:
         return 1.0
     confidences = [item.get("confidence", 0.8) for item in change_items]
     return round(sum(confidences) / len(confidences), 2)
+
+
+def _should_retry_pipeline(state: PipelineState) -> bool:
+    """只允许一次定向返工。"""
+    return bool(state.judge_result and not state.judge_result.get("passed") and state.retry_count < 1)
+
+
+def _build_retry_guidance(state: PipelineState, issues: Optional[List[str]] = None) -> str:
+    """把质量问题转成下一轮改写约束。"""
+    fact_result = state.fact_check_result or {}
+    lines = ["请只保留有证据支撑的改写，优先基于原简历做 polish/restructure。"]
+
+    issues = issues or []
+    if issues:
+        lines.append("本轮主要问题：" + "；".join(issues[:4]))
+
+    if len(state.change_items) == 0:
+        lines.append("至少产出 3 条有效改写，且不要返回空列表。")
+
+    if fact_result.get("fact_inference_items"):
+        lines.append("无法证实的新事实不要直接写进简历；如必须保留，改成 suggest_addition 或显式要求用户确认。")
+
+    if fact_result.get("keyword_stuffing_risks"):
+        lines.append("不要为了贴 JD 硬塞技能关键词，没有证据时删除或改成更弱表述。")
+
+    if fact_result.get("exaggeration_items"):
+        lines.append("删除无依据的夸大指标、极端百分比和高强度角色措辞。")
+
+    if not fact_result.get("risk_flags") and state.jd_analysis:
+        missing_keywords = (state.jd_analysis or {}).get("missing_keywords", [])
+        if missing_keywords:
+            lines.append("可优先强化与 JD 直接相关、且原简历已出现的经验表述，不要生造缺失技能。")
+
+    return "\n".join(f"- {line}" for line in lines)
+
+
+def _append_trace(
+    state: PipelineState,
+    step: str,
+    phase: str,
+    status: str,
+    input_summary: Optional[str] = None,
+    output_summary: Optional[str] = None,
+    error: Optional[str] = None,
+) -> None:
+    """统一记录流水线 trace。"""
+    now = datetime.now(timezone.utc).isoformat()
+    state.trace.append({
+        "step": step,
+        "phase": phase,
+        "status": status,
+        "input_summary": input_summary,
+        "output_summary": output_summary,
+        "error": error,
+        "started_at": now,
+        "finished_at": now,
+    })

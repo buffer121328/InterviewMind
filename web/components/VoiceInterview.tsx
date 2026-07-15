@@ -1,17 +1,22 @@
-import { useState, useEffect, useRef } from 'react';
-import { Mic, MicOff, PhoneOff, Disc, Play, Pause, Loader2 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { useState, useEffect, useEffectEvent, useRef } from 'react';
+import { Mic, MicOff, PhoneOff, SendHorizontal, Loader2 } from 'lucide-react';
 import { useVoiceChat } from '@/hooks/useVoiceChat';
 import { toast } from 'sonner';
 import { useInterviewStore } from '@/store/useInterviewStore';
 import { getUserId } from '@/hooks/useUserIdentity';
-import { saveAudioLocally, getAudioUrl } from '@/lib/audioStorage';
+import { saveAudioLocally } from '@/lib/audioStorage';
 import { cn } from '@/lib/utils';
 import { PreparingInterview } from './interview/PreparingInterview';
+import { type ApiConfig } from '@/lib/api/resume';
+import { type Message } from '@/store/types';
 
 interface VoiceInterviewProps {
     sessionId: string;
     onEnd: () => void;
+}
+
+function isAbortError(error: unknown): boolean {
+    return error instanceof Error && error.name === 'AbortError';
 }
 
 export function VoiceInterview({ sessionId, onEnd }: VoiceInterviewProps) {
@@ -20,11 +25,8 @@ export function VoiceInterview({ sessionId, onEnd }: VoiceInterviewProps) {
 
     // 使用 Zustand store 管理语音面试状态
     const voiceHistory = useInterviewStore(state => state.voiceHistory);
-    const voiceSystemPrompt = useInterviewStore(state => state.voiceSystemPrompt);
     const setVoiceHistory = useInterviewStore(state => state.setVoiceHistory);
-    const appendVoiceMessage = useInterviewStore(state => state.appendVoiceMessage);
     const updateLastVoiceMessage = useInterviewStore(state => state.updateLastVoiceMessage);
-    const setVoiceSystemPrompt = useInterviewStore(state => state.setVoiceSystemPrompt);
     const setInitializing = useInterviewStore((state) => state.setInitializing);
     const fetchSessions = useInterviewStore((state) => state.fetchSessions);
 
@@ -37,11 +39,11 @@ export function VoiceInterview({ sessionId, onEnd }: VoiceInterviewProps) {
 
     // 1. Hook
     const {
-        isRecording,
         audioLevel,
+        liveTranscript,
         startRecording,
+        finishCurrentTurn,
         stopRecording,
-        playAudio,
         playPcmData,
         resetPcmState,
         setStreamEnded
@@ -102,8 +104,108 @@ export function VoiceInterview({ sessionId, onEnd }: VoiceInterviewProps) {
         }
     };
 
-    useEffect(() => {
-        const initSession = async () => {
+    // 专门用于开场白的流式生成（在初始化时调用）
+    async function sendToOmniForGreeting(
+        apiConfig: ApiConfig,
+        prompt: string,
+        greetingText: string
+    ) {
+        setStatus('processing');
+        resetPcmState();
+
+        try {
+            // 获取当前已恢复的历史记录（不要重置它！）
+            const currentHistory = useInterviewStore.getState().voiceHistory;
+            const newHistory = [...currentHistory, { role: 'assistant' as const, content: '', timestamp: new Date().toISOString() }];
+            setVoiceHistory(newHistory);
+
+            if (abortControllerRef.current) abortControllerRef.current.abort();
+            abortControllerRef.current = new AbortController();
+
+            const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/voice/chat`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                signal: abortControllerRef.current.signal,
+                body: JSON.stringify({
+                    session_id: sessionId,
+                    api_config: apiConfig,
+                    system_prompt: prompt,
+                    history: [],  // 开场白没有历史记录
+                    audio: null,
+                    message: greetingText,  // 使用开场白文本作为输入
+                    is_greeting: true  // 告诉后端这是开场白模式，直接 TTS
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error('开场白生成失败');
+            }
+
+            const reader = response.body?.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            let fullText = '';
+
+            if (!reader) {
+                throw new Error('无法读取响应流');
+            }
+
+            console.log('[VoiceInterview] 开始流式生成开场白...');
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                const textChunk = decoder.decode(value, { stream: true });
+                buffer += textChunk;
+
+                // 处理完整的 SSE 消息
+                while (true) {
+                    const newlineIndex = buffer.indexOf('\n\n');
+                    if (newlineIndex === -1) break;
+
+                    const messageBlock = buffer.slice(0, newlineIndex);
+                    buffer = buffer.slice(newlineIndex + 2);
+
+                    const lines = messageBlock.split('\n');
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            try {
+                                const jsonStr = line.slice(6);
+                                const data = JSON.parse(jsonStr);
+
+                                if (data.type === 'text') {
+                                    fullText += data.content;
+                                    setVoiceHistory([{ role: 'assistant', content: fullText, timestamp: new Date().toISOString() }]);
+                                } else if (data.type === 'audio') {
+                                    playPcmData(data.content);
+                                    setStatus(prev => prev !== 'idle' ? 'idle' : prev);
+                                } else if (data.type === 'done') {
+                                    console.log('[VoiceInterview] 开场白生成完成, text:', fullText.length);
+                                    setStreamEnded();
+                                } else if (data.type === 'error') {
+                                    console.error('[VoiceInterview] 开场白生成错误:', data.message);
+                                    toast.error(data.message || '开场白生成失败');
+                                    setStatus('listening');
+                                }
+                            } catch (parseError) {
+                                console.warn('解析 SSE 数据失败:', parseError);
+                            }
+                        }
+                    }
+                }
+            }
+
+        } catch (error) {
+            if (isAbortError(error)) return;
+            console.error(error);
+            toast.error('开场白生成失败');
+            setStatus('listening');
+        }
+    }
+
+    const initializeSession = useEffectEvent(async () => {
+            if (status !== 'initializing') return;
             if (hasInitialized.current) return;
             hasInitialized.current = true;
 
@@ -136,7 +238,12 @@ export function VoiceInterview({ sessionId, onEnd }: VoiceInterviewProps) {
                         resume_filename: useInterviewStore.getState().resume?.filename,
                         job_description: useInterviewStore.getState().jobDescription,
                         company_info: useInterviewStore.getState().companyInfo,
-                        max_questions: useInterviewStore.getState().maxQuestions
+                        max_questions: useInterviewStore.getState().maxQuestions,
+                        question_bank_count: useInterviewStore.getState().questionBankCount,
+                        experience_questions: useInterviewStore.getState().experienceQuestions.slice(
+                            0,
+                            useInterviewStore.getState().maxQuestions,
+                        ),
                     })
                 });
 
@@ -172,6 +279,7 @@ export function VoiceInterview({ sessionId, onEnd }: VoiceInterviewProps) {
                 }
 
                 // 初始化完成，关闭全局加载状态（在开始生成开场白之前就切换界面）
+                useInterviewStore.getState().setExperienceQuestions([]);
                 setInitializing(false);
 
                 // 刷新侧边栏会话列表，让新创建的会话立即显示
@@ -202,20 +310,18 @@ export function VoiceInterview({ sessionId, onEnd }: VoiceInterviewProps) {
                     setStatus('listening');
                 }
 
-            } catch (error: any) {
-                if (error.name === 'AbortError') return;
+            } catch (error) {
+                if (isAbortError(error)) return;
                 console.error(error);
                 toast.error('无法启动语音面试');
                 hasInitialized.current = false;
                 setInitializing(false); // 发生错误也要重置状态
                 handleHangUp();
             }
-        };
+    });
 
-        if (status === 'initializing') {
-            initSession();
-        }
-
+    useEffect(() => {
+        void Promise.resolve().then(() => initializeSession());
         // 清理函数：组件卸载时中断所有进行中的网络请求
         return () => {
             console.log('[VoiceInterview] 组件卸载，清理资源...');
@@ -233,9 +339,9 @@ export function VoiceInterview({ sessionId, onEnd }: VoiceInterviewProps) {
 
     // 3. 发送音频/文本给 Omni (SSE 流式接收)
     async function sendToOmni(
-        apiConfig: any,
+        apiConfig: ApiConfig,
         prompt: string,
-        chatHistory: any[],
+        chatHistory: Message[],
         audioBlob: Blob | null,
         textMessage: string | null = null
     ) {
@@ -375,110 +481,10 @@ export function VoiceInterview({ sessionId, onEnd }: VoiceInterviewProps) {
                 }
             }
 
-        } catch (error: any) {
-            if (error.name === 'AbortError') return;
+        } catch (error) {
+            if (isAbortError(error)) return;
             console.error(error);
             toast.error('发送失败，请重试');
-            setStatus('listening');
-        }
-    }
-
-    // 专门用于开场白的流式生成（在初始化时调用）
-    async function sendToOmniForGreeting(
-        apiConfig: any,
-        prompt: string,
-        greetingText: string
-    ) {
-        setStatus('processing');
-        resetPcmState();
-
-        try {
-            // 获取当前已恢复的历史记录（不要重置它！）
-            const currentHistory = useInterviewStore.getState().voiceHistory;
-            const newHistory = [...currentHistory, { role: 'assistant' as const, content: '', timestamp: new Date().toISOString() }];
-            setVoiceHistory(newHistory);
-
-            if (abortControllerRef.current) abortControllerRef.current.abort();
-            abortControllerRef.current = new AbortController();
-
-            const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/voice/chat`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                signal: abortControllerRef.current.signal,
-                body: JSON.stringify({
-                    session_id: sessionId,
-                    api_config: apiConfig,
-                    system_prompt: prompt,
-                    history: [],  // 开场白没有历史记录
-                    audio: null,
-                    message: greetingText,  // 使用开场白文本作为输入
-                    is_greeting: true  // 告诉后端这是开场白模式，直接 TTS
-                })
-            });
-
-            if (!response.ok) {
-                throw new Error('开场白生成失败');
-            }
-
-            const reader = response.body?.getReader();
-            const decoder = new TextDecoder();
-            let buffer = '';
-            let fullText = '';
-
-            if (!reader) {
-                throw new Error('无法读取响应流');
-            }
-
-            console.log('[VoiceInterview] 开始流式生成开场白...');
-
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-
-                const textChunk = decoder.decode(value, { stream: true });
-                buffer += textChunk;
-
-                // 处理完整的 SSE 消息
-                while (true) {
-                    const newlineIndex = buffer.indexOf('\n\n');
-                    if (newlineIndex === -1) break;
-
-                    const messageBlock = buffer.slice(0, newlineIndex);
-                    buffer = buffer.slice(newlineIndex + 2);
-
-                    const lines = messageBlock.split('\n');
-                    for (const line of lines) {
-                        if (line.startsWith('data: ')) {
-                            try {
-                                const jsonStr = line.slice(6);
-                                const data = JSON.parse(jsonStr);
-
-                                if (data.type === 'text') {
-                                    fullText += data.content;
-                                    setVoiceHistory([{ role: 'assistant', content: fullText, timestamp: new Date().toISOString() }]);
-                                } else if (data.type === 'audio') {
-                                    playPcmData(data.content);
-                                    setStatus(prev => prev !== 'idle' ? 'idle' : prev);
-                                } else if (data.type === 'done') {
-                                    console.log('[VoiceInterview] 开场白生成完成, text:', fullText.length);
-                                    setStreamEnded();
-                                } else if (data.type === 'error') {
-                                    console.error('[VoiceInterview] 开场白生成错误:', data.message);
-                                    toast.error(data.message || '开场白生成失败');
-                                    setStatus('listening');
-                                }
-                            } catch (parseError) {
-                                console.warn('解析 SSE 数据失败:', parseError);
-                            }
-                        }
-                    }
-                }
-            }
-
-        } catch (error: any) {
-            if (error.name === 'AbortError') return;
-            console.error(error);
-            toast.error('开场白生成失败');
             setStatus('listening');
         }
     }
@@ -519,68 +525,6 @@ export function VoiceInterview({ sessionId, onEnd }: VoiceInterviewProps) {
         'speaking': '你正在说话...',
         'processing': '面试官正在思考...',
         'idle': '...'
-    };
-
-    // 控制哪些用户语音消息显示文字记录
-    const [expandedMessages, setExpandedMessages] = useState<Set<number>>(new Set());
-    const toggleMessageExpansion = (idx: number) => {
-        setExpandedMessages(prev => {
-            const next = new Set(prev);
-            if (next.has(idx)) next.delete(idx);
-            else next.add(idx);
-            return next;
-        });
-    };
-
-    // 音频播放相关
-    const [playingAudioId, setPlayingAudioId] = useState<string | null>(null);
-    const [isLoadingAudio, setIsLoadingAudio] = useState(false);
-    const userAudioRef = useRef<HTMLAudioElement | null>(null);
-
-    const handlePlayUserAudio = async (e: React.MouseEvent, audioId?: string) => {
-        e.stopPropagation();
-        if (!audioId) return;
-
-        if (playingAudioId === audioId && userAudioRef.current) {
-            userAudioRef.current.pause();
-            setPlayingAudioId(null);
-            return;
-        }
-
-        setIsLoadingAudio(true);
-        try {
-            const url = await getAudioUrl(audioId);
-            if (!url) {
-                toast.error('找不到音频文件');
-                setIsLoadingAudio(false);
-                return;
-            }
-
-            if (userAudioRef.current) {
-                userAudioRef.current.pause();
-            }
-
-            const audio = new Audio(url);
-            userAudioRef.current = audio;
-            setPlayingAudioId(audioId);
-
-            audio.onplay = () => setIsLoadingAudio(false);
-            audio.onended = () => {
-                setPlayingAudioId(null);
-                URL.revokeObjectURL(url);
-            };
-            audio.onerror = () => {
-                setPlayingAudioId(null);
-                setIsLoadingAudio(false);
-                toast.error('播放失败');
-            };
-
-            await audio.play();
-        } catch (err) {
-            console.error('播放用户音频失败:', err);
-            setIsLoadingAudio(false);
-            setPlayingAudioId(null);
-        }
     };
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -729,7 +673,9 @@ export function VoiceInterview({ sessionId, onEnd }: VoiceInterviewProps) {
                                 "text-base md:text-lg font-normal leading-loose text-white/90 tracking-wide transition-all duration-500 drop-shadow-sm",
                                 status === 'processing' ? "opacity-30 blur-[0.5px]" : "opacity-100 blur-0"
                             )}>
-                                {voiceHistory.length > 0 && voiceHistory[voiceHistory.length - 1].role === 'assistant'
+                                {status === 'speaking' && liveTranscript
+                                    ? `我：${liveTranscript}`
+                                    : voiceHistory.length > 0 && voiceHistory[voiceHistory.length - 1].role === 'assistant'
                                     ? voiceHistory[voiceHistory.length - 1].content
                                     : voiceHistory.length > 1 && voiceHistory[voiceHistory.length - 2].role === 'assistant'
                                         ? voiceHistory[voiceHistory.length - 2].content
@@ -774,17 +720,15 @@ export function VoiceInterview({ sessionId, onEnd }: VoiceInterviewProps) {
                     </button>
 
                     <button
-                        className="group flex flex-col items-center gap-1.5 text-white/20 hover:text-white transition-all outline-none"
-                        onClick={() => {
-                            // 快捷查看对话记录 (逻辑可后续增强)
-                            toast.info("正在录制您的面试过程...");
-                        }}
+                        disabled={status !== 'speaking'}
+                        className="group flex flex-col items-center gap-1.5 text-white/60 hover:text-white transition-all outline-none disabled:cursor-not-allowed disabled:text-white/20"
+                        onClick={finishCurrentTurn}
                     >
                         <div className="w-12 h-12 rounded-full flex items-center justify-center group-hover:bg-white/5 transition-all">
-                            <Disc className={cn("w-5 h-5", status === 'processing' && "animate-spin-slow")} />
+                            <SendHorizontal className="w-5 h-5" />
                         </div>
                         <span className="text-[10px] uppercase font-bold tracking-tighter">
-                            录制中
+                            结束回答
                         </span>
                     </button>
                 </div>

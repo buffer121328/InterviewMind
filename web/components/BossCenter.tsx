@@ -5,7 +5,7 @@
  *
  * 功能：
  * 1. 一键批量抓取 BOSS 推荐页/搜索页前 N 个匹配度最高的岗位
- * 2. 自动生成每个岗位的投递资产（匹配度分析 + 定制简历 + 3 条打招呼文案）
+ * 2. 通过统一任务中心生成每个岗位的投递资产
  * 3. 显示已采集岗位列表 / 删除单个岗位
  *
  * 依赖：
@@ -117,7 +117,12 @@ export function BossCenter() {
             });
             if (resp.success && resp.jobs.length > 0) {
                 setResults(resp.jobs);
-                toast.success(`抓取成功，共 ${resp.total} 个岗位，已生成投递资产`);
+                const queuedCount = resp.jobs.filter(job => ['queued', 'retrying', 'running'].includes(job.asset_status || '')).length;
+                toast.success(
+                    queuedCount > 0
+                        ? `抓取成功，共 ${resp.total} 个岗位；${queuedCount} 个资产任务已进入任务中心`
+                        : `抓取成功，共 ${resp.total} 个岗位，投递资产已生成`,
+                );
                 refreshJobs();
             } else {
                 toast.warning(resp.message || "抓取失败或未匹配到岗位");
@@ -166,6 +171,12 @@ export function BossCenter() {
                         {j.city && <span className="inline-flex items-center gap-1"><MapPin size={12} />{j.city}</span>}
                         {j.greetings?.length > 0 && <Badge variant="outline">{j.greetings.length} 条打招呼</Badge>}
                         {j.custom_resume_id && <Badge variant="outline">简历 ID: {j.custom_resume_id}</Badge>}
+                        {['queued', 'retrying', 'running'].includes(j.asset_status || '') && (
+                            <Badge variant="outline" className="text-orange-600">资产后台生成中</Badge>
+                        )}
+                        {j.asset_status === 'failed' && (
+                            <Badge variant="outline" className="text-red-600">资产生成失败，可在任务中心重试</Badge>
+                        )}
                     </div>
 
                     {topGreeting && (
@@ -208,7 +219,7 @@ export function BossCenter() {
                 <Briefcase size={20} className="text-orange-600" />
                 <h2 className="text-lg font-semibold">BOSS 半自动化</h2>
                 <span className="text-xs text-muted-foreground ml-2">
-                    搜索页抓取 → 匹配度排序 → 生成投递资产
+                    搜索页抓取 → 匹配度排序 → 后台生成投递资产
                 </span>
             </div>
 

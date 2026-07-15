@@ -2,9 +2,7 @@
 BOSS 直聘 ReAct Agent 工具集
 """
 
-import asyncio
 import logging
-import platform as _platform
 from typing import Optional, Dict, Any, List
 from urllib.parse import quote_plus
 
@@ -13,49 +11,24 @@ logger = logging.getLogger(__name__)
 
 async def open_boss_search_page(query: str, city: str = "", wait_seconds: int = 8,
                                 wait_for_captcha: bool = True, captcha_timeout: int = 180) -> str:
-    """通过 Chrome 打开 BOSS 直聘搜索页并读取页面文本"""
-    if _platform.system() != "Darwin":
-        return "ERROR: 此功能仅支持 macOS"
+    """通过统一的持久化 Playwright 会话读取 BOSS 搜索页。"""
     search_url = f"https://www.zhipin.com/web/geek/job?query={quote_plus(query)}"
     if city:
         search_url += f"&city={quote_plus(city)}"
     logger.info(f"[BossTool] 打开 BOSS 搜索页: query={query!r}")
 
-    def _run_script(script: str, timeout: int) -> str:
-        async def _inner():
-            proc = await asyncio.create_subprocess_exec(
-                "osascript", "-e", script,
-                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-            return stdout.decode("utf-8", errors="ignore").strip()
-        try:
-            return asyncio.get_event_loop().run_until_complete(_inner())
-        except Exception as e:
-            logger.warning(f"[BossTool] AppleScript 失败: {e}")
-            return ""
+    from .job_capture_service import _fetch_page_text_browser
 
-    open_script = f'''
-    on run
-        tell application "Google Chrome"
-            if (count of windows) = 0 then make new window
-            tell window 1
-                set newTab to make new tab with properties {{URL:"{search_url}"}}
-            end tell
-            delay {wait_seconds}
-            try
-                tell newTab to execute javascript "document.body.innerText"
-                return result
-            on error
-                return ""
-            end try
-        end tell
-    end run
-    '''
-    text = _run_script(open_script, wait_seconds + 20)
+    manual_wait_seconds = captcha_timeout if wait_for_captcha else max(wait_seconds, 1)
+    text = await _fetch_page_text_browser(
+        search_url,
+        headless=False,
+        manual_wait_seconds=manual_wait_seconds,
+    )
     if not text:
-        return "ERROR: 无法连接 Chrome"
+        return "ERROR: 无法读取 BOSS 页面，请在项目专用浏览器中完成登录后重试"
     if "请稍候" in text or "安全验证" in text or len(text) < 200:
-        return "CAPTCHA: 需要反爬验证，请在 Chrome 中手动完成滑动验证后重试"
+        return "CAPTCHA: 需要反爬验证，请在项目专用浏览器中手动完成后重试"
     logger.info(f"[BossTool] 抓取成功: {len(text)} 字符")
     return text
 
@@ -170,16 +143,13 @@ async def generate_job_assets(job_id: int, user_id: str, resume_content: str,
 
 async def check_environment() -> str:
     """检测当前环境是否支持 BOSS 自动化"""
-    if _platform.system() != "Darwin":
-        return "环境问题:\n❌ 非 macOS 系统"
     try:
-        proc = await asyncio.create_subprocess_exec(
-            "osascript", "-e",
-            'tell application "Google Chrome" to return name of window 1',
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5)
-        if not stdout.decode().strip():
-            return "环境问题:\n⚠️ Chrome 未运行"
-    except Exception:
-        return "环境问题:\n⚠️ 无法检测 Chrome"
-    return "✅ 环境正常"
+        from .boss_automation_client import get_boss_automation_client
+
+        health = await get_boss_automation_client().health()
+        if not health.get("playwright_available"):
+            return "环境问题:\n❌ 宿主机 Playwright 未安装"
+    except Exception as exc:
+        logger.warning("[BossTool] 宿主机服务检查失败: %s", exc)
+        return "环境问题:\n⚠️ 无法连接 BOSS 宿主机服务"
+    return "✅ 环境正常（宿主机 Playwright 持久化会话）"

@@ -12,11 +12,18 @@ from .resume import (
     ResumeAssemblyResultModel,
     ProjectRewriteRecordModel,
 )
-from .interview import WeaknessReportModel, QuestionBankItemModel, QuestionBankImportModel
+from .interview import (
+    WeaknessReportModel,
+    QuestionBankItemModel,
+    QuestionBankImportModel,
+    QuestionBankFollowupModel,
+    InterviewQuestionAttemptModel,
+)
 from .rag import RagChunkModel
 from .application import JobApplicationModel, ApplicationEventModel
 from .jd import JdAnalysisResultModel
 from .job_capture import CapturedJobModel
+from .agent_run import AgentRunModel
 
 __all__ = [
     # base
@@ -28,6 +35,7 @@ __all__ = [
     "ResumeAssemblyResultModel", "ProjectRewriteRecordModel",
     # interview
     "WeaknessReportModel", "QuestionBankItemModel", "QuestionBankImportModel",
+    "QuestionBankFollowupModel", "InterviewQuestionAttemptModel",
     # rag
     "RagChunkModel",
     # application
@@ -36,4 +44,6 @@ __all__ = [
     "JdAnalysisResultModel",
     # job capture
     "CapturedJobModel",
+    # agent runs
+    "AgentRunModel",
 ]

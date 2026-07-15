@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { Loader2, Wand2, CheckCircle, AlertCircle } from "lucide-react";
+import { useState, useEffect, useEffectEvent } from "react";
+import { Loader2, Wand2, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
@@ -10,8 +10,7 @@ import {
     initResumeGeneration,
     submitGenerationAnswers,
     ApiConfig,
-    ResumeOptimizeResult,
-    ResumeGenerateInitResponse
+    ResumeOptimizeResult
 } from "@/lib/api/resume";
 
 interface ResumeGenerationDialogProps {
@@ -44,19 +43,7 @@ export function ResumeGenerationDialog({
     const [answers, setAnswers] = useState<Record<string, string>>({});
     const [error, setError] = useState<string | null>(null);
 
-    // 重置状态
-    useEffect(() => {
-        if (isOpen) {
-            setStep("init");
-            setSessionId("");
-            setQuestions([]);
-            setAnswers({});
-            setError(null);
-            handleInit();
-        }
-    }, [isOpen]);
-
-    const handleInit = async () => {
+    async function handleInit() {
         setIsLoading(true);
         setError(null);
         try {
@@ -88,12 +75,18 @@ export function ResumeGenerationDialog({
             } else {
                 setError(response.message || "初始化失败");
             }
-        } catch (err) {
+        } catch {
             setError("网络请求失败");
         } finally {
             setIsLoading(false);
         }
-    };
+    }
+
+    const initializeOnMount = useEffectEvent(() => handleInit());
+
+    useEffect(() => {
+        void Promise.resolve().then(() => initializeOnMount());
+    }, []);
 
     const handleSubmitAnswers = async () => {
         // 检查回答是否完整
@@ -119,7 +112,7 @@ export function ResumeGenerationDialog({
                 setError(response.message || "生成失败");
                 setStep("question"); // 回退以便重试
             }
-        } catch (err) {
+        } catch {
             setError("提交失败，请重试");
             setStep("question");
         } finally {

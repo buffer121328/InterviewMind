@@ -19,6 +19,8 @@ export function InterviewArea({ children }: InterviewAreaProps) {
     const currentSession = useInterviewStore((state) => state.currentSession);
     const threadId = useInterviewStore((state) => state.threadId);
     const isInitializing = useInterviewStore((state) => state.isInitializing);
+    const initializationStage = useInterviewStore((state) => state.initializationStage);
+    const executionPlan = useInterviewStore((state) => state.executionPlan);
     const fetchSessions = useInterviewStore((state) => state.fetchSessions);
     const selectSession = useInterviewStore((state) => state.selectSession);
     const maxQuestions = useInterviewStore((state) => state.maxQuestions);
@@ -44,7 +46,7 @@ export function InterviewArea({ children }: InterviewAreaProps) {
                 {/* 初始化时显示准备界面 */}
                 {isInitializing && (
                     <div className="flex-1 flex flex-col h-full items-center justify-center bg-gradient-to-b from-white to-gray-50">
-                        <PreparingInterview />
+                        <PreparingInterview stage={initializationStage} plan={executionPlan} />
                     </div>
                 )}
             </>
@@ -263,11 +265,13 @@ export function InterviewArea({ children }: InterviewAreaProps) {
                     </div>
                 </div>
 
-                <SessionProfileDialog
-                    sessionId={currentSession.session_id}
-                    open={showSessionProfileDialog}
-                    onOpenChange={setShowSessionProfileDialog}
-                />
+                {showSessionProfileDialog && (
+                    <SessionProfileDialog
+                        sessionId={currentSession.session_id}
+                        open={showSessionProfileDialog}
+                        onOpenChange={setShowSessionProfileDialog}
+                    />
+                )}
             </div>
         );
     }

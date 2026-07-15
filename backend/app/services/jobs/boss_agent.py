@@ -1,125 +1,190 @@
-"""
-BOSS 直聘 ReAct Agent — 基于 LangGraph create_react_agent 实现
-"""
+"""BOSS 直聘确定性工作流。模型只负责结构化提取和语义评分。"""
 
+import asyncio
 import logging
-from typing import Optional, Dict, Any, List
+from typing import Any, Dict, List, Optional, TypedDict
 
-from langchain_core.messages import HumanMessage
-from langchain_core.tools import tool
-from langgraph.prebuilt import create_react_agent
+from langgraph.graph import END, START, StateGraph
 
-from app.services import llms
-from app.services.jobs import boss_tools as _tools
+from app.agent_runtime.context import AgentContext
+from app.agent_runtime.tools import ToolExecutionGuard, ToolExecutionPolicy
+from app.services.jobs import boss_tools
 
 logger = logging.getLogger(__name__)
 
-BOSS_AGENT_SYSTEM_PROMPT = """你是一个 BOSS 直聘求职助手 Agent。帮用户搜索岗位、提取信息、保存岗位、生成投递资产。
-
-## 可用工具
-**check_environment** — 检测环境是否支持自动化（先调用）
-**open_boss_search_page(query, city)** — 打开 BOSS 搜索页读取内容
-**extract_job_cards(page_text, top_n, query_filter)** — 从搜索页提取岗位卡片列表
-**score_jobs(cards)** — 对岗位列表做匹配度打分排序
-**save_job(card_data)** — 保存岗位到数据库（含去重）
-**generate_assets(job_id)** — 为岗位生成投递资产
-
-## 标准工作流
-1. check_environment
-2. open_boss_search_page
-3. extract_job_cards
-4. score_jobs
-5. 对前 N 个岗位逐个 save_job + generate_assets
-6. 汇总结果
-
-## 异常处理
-- CAPTCHA → 告知用户需手动验证
-- ERROR → 告知具体错误
-- 空列表 → 建议调整搜索词
-- is_duplicate → 跳过
-- generate_assets 失败 → 记录但继续
-
-最终回复需包含清晰摘要：搜索到多少、成功处理多少、Top3 岗位名和匹配度。全程使用中文。"""
+BOSS_AGENT_SYSTEM_PROMPT = """BOSS 求职工作流按固定步骤执行：环境检查、页面读取、岗位提取、匹配评分、保存和资产生成。"""
 
 
-def _make_tools(user_id: str, api_config: Optional[dict], resume_content: str) -> list:
-    @tool
-    async def open_boss_search_page(query: str, city: str = "") -> str:
-        """打开 BOSS 直聘搜索页，返回页面文本"""
-        return await _tools.open_boss_search_page(query=query, city=city)
-
-    @tool
-    async def extract_job_cards(page_text: str, top_n: int = 10, query_filter: str = "") -> list:
-        """从搜索页文本中提取岗位卡片列表"""
-        return await _tools.extract_job_cards_from_page(page_text=page_text, top_n=top_n,
-                                                        query_filter=query_filter, api_config=api_config)
-
-    @tool
-    async def score_jobs(cards: List[Dict[str, Any]]) -> list:
-        """对岗位列表做匹配度打分，按分数降序排列"""
-        return await _tools.score_jobs_by_match(cards=cards, resume_content=resume_content,
-                                                api_config=api_config)
-
-    @tool
-    async def save_job(card_data: Dict[str, Any]) -> Dict[str, Any]:
-        """保存单个岗位到数据库"""
-        return await _tools.save_job_to_database(raw_data=card_data, user_id=user_id, platform="boss")
-
-    @tool
-    async def generate_assets(job_id: int) -> Dict[str, Any]:
-        """为岗位生成投递资产"""
-        return await _tools.generate_job_assets(job_id=job_id, user_id=user_id,
-                                                resume_content=resume_content, api_config=api_config)
-
-    @tool
-    async def check_environment() -> str:
-        """检测当前环境"""
-        return await _tools.check_environment()
-
-    return [check_environment, open_boss_search_page, extract_job_cards, score_jobs, save_job, generate_assets]
+class BossSearchState(TypedDict, total=False):
+    query: str
+    city: str
+    top_n: int
+    environment: str
+    cards: List[Dict[str, Any]]
+    processed: List[Dict[str, Any]]
+    error: str
 
 
-async def run_boss_search(user_id: str, query: str, resume_content: str,
-                          api_config: Optional[dict] = None, top_n: int = 5,
-                          city: str = "") -> Dict[str, Any]:
-    """运行 BOSS 直聘 Agent 搜索 — ReAct 版本"""
+def _build_boss_graph(
+    *, user_id: str, resume_content: str, api_config: dict, guard: ToolExecutionGuard
+):
+    """构造一次请求专用的图；密钥留在闭包中，不进入 state/checkpoint。"""
+    context = AgentContext(
+        user_id=user_id,
+        permissions=frozenset({"jobs:automate"}),
+    )
+
+    async def check_environment(state: BossSearchState) -> dict:
+        result = await guard.execute(
+            boss_tools.check_environment,
+            context=context,
+            effect="read",
+        )
+        error = "" if result.startswith("✅") else result
+        return {"environment": result, "error": error}
+
+    def after_environment(state: BossSearchState) -> str:
+        return "finish" if state.get("error") else "open_page"
+
+    async def acquire_cards(state: BossSearchState) -> dict:
+        page_text = await guard.execute(
+            boss_tools.open_boss_search_page,
+            state["query"],
+            state.get("city", ""),
+            context=context,
+            effect="external",
+            required_permissions={"jobs:automate"},
+            requires_confirmation=True,
+            confirmed=True,  # 调用此接口即确认本次搜索，不授权投递或发消息。
+        )
+        error = page_text if page_text.startswith(("ERROR:", "CAPTCHA:")) else ""
+        if error:
+            return {"cards": [], "error": error}
+        cards = await guard.execute(
+            boss_tools.extract_job_cards_from_page,
+            page_text,
+            top_n=15,
+            query_filter=state["query"],
+            api_config=api_config,
+            context=context,
+            effect="read",
+        )
+        return {"cards": cards, "error": "" if cards else "未提取到岗位"}
+
+    def after_acquire(state: BossSearchState) -> str:
+        return "finish" if state.get("error") else "score"
+
+    async def score(state: BossSearchState) -> dict:
+        cards = await guard.execute(
+            boss_tools.score_jobs_by_match,
+            state["cards"],
+            resume_content,
+            query=state["query"],
+            api_config=api_config,
+            context=context,
+            effect="read",
+        )
+        return {"cards": cards[: state["top_n"]]}
+
+    async def _process_card(card: Dict[str, Any]) -> Dict[str, Any]:
+        saved = await guard.execute(
+            boss_tools.save_job_to_database,
+            card,
+            user_id,
+            context=context,
+            effect="write",
+            required_permissions={"jobs:automate"},
+        )
+        result = {"card": card, "save": saved}
+        job_id = saved.get("job_id")
+        if saved.get("success") and job_id and not saved.get("is_duplicate"):
+            result["assets"] = await guard.execute(
+                boss_tools.generate_job_assets,
+                job_id,
+                user_id,
+                resume_content,
+                api_config,
+                context=context,
+                effect="write",
+                required_permissions={"jobs:automate"},
+            )
+        return result
+
+    async def persist(state: BossSearchState) -> dict:
+        processed = await asyncio.gather(*(_process_card(card) for card in state["cards"]))
+        return {"processed": processed}
+
+    async def finish(state: BossSearchState) -> dict:
+        return {}
+
+    workflow = StateGraph(BossSearchState)
+    workflow.add_node("check_environment", check_environment)
+    workflow.add_node("acquire_cards", acquire_cards)
+    workflow.add_node("score", score)
+    workflow.add_node("persist", persist)
+    workflow.add_node("finish", finish)
+    workflow.add_edge(START, "check_environment")
+    workflow.add_conditional_edges(
+        "check_environment", after_environment, {"open_page": "acquire_cards", "finish": "finish"}
+    )
+    workflow.add_conditional_edges(
+        "acquire_cards", after_acquire, {"score": "score", "finish": "finish"}
+    )
+    workflow.add_edge("score", "persist")
+    workflow.add_edge("persist", "finish")
+    workflow.add_edge("finish", END)
+    return workflow
+
+
+async def run_boss_search(
+    user_id: str,
+    query: str,
+    resume_content: str,
+    api_config: Optional[dict] = None,
+    top_n: int = 5,
+    city: str = "",
+) -> Dict[str, Any]:
+    """执行固定 BOSS 搜索流程，保持原 API 返回结构。"""
     if not api_config:
         return {"success": False, "total": 0, "jobs": [], "message": "未配置 API"}
 
-    city_hint = f"，城市：{city}" if city else "（城市不限）"
-    user_message = f"请帮我在 BOSS 直聘上搜索「{query}」岗位{city_hint}。提取前15个卡片，匹配度排序后为前{top_n}个生成投递资产。跳过重复岗位。\n我的简历：\n{resume_content[:500]}"
+    from app.services.memory import get_checkpointer
 
+    guard = ToolExecutionGuard(
+        ToolExecutionPolicy(timeout_seconds=240, max_calls=4 + max(0, top_n) * 2, max_retries=1)
+    )
+    workflow = _build_boss_graph(
+        user_id=user_id,
+        resume_content=resume_content,
+        api_config=api_config,
+        guard=guard,
+    )
+    graph = workflow.compile(checkpointer=await get_checkpointer())
     try:
-        agent_llm = llms.get_llm_for_request(api_config, channel="smart")
-        agent_llm.max_tokens = 4000
-        tools = _make_tools(user_id=user_id, api_config=api_config, resume_content=resume_content)
-        agent = create_react_agent(model=agent_llm, tools=tools, prompt=BOSS_AGENT_SYSTEM_PROMPT)
-        logger.info(f"[BossAgent] 开始搜索: query={query!r}")
-
-        messages = [HumanMessage(content=user_message)]
-        result = await agent.ainvoke({"messages": messages},
-                                     config={"configurable": {"thread_id": f"boss_{user_id}"}})
-
-        agent_messages = result.get("messages", [])
-        agent_response = ""
-        for msg in reversed(agent_messages):
-            content = getattr(msg, "content", "") if hasattr(msg, "content") else str(msg)
-            if content and not isinstance(msg, HumanMessage):
-                agent_response = content
-                break
-
-        from app.repositories.jobs.job_capture_repo import get_job_capture_repo
-        repo = get_job_capture_repo()
-        recent_jobs = await repo.list_jobs(user_id=user_id, platform="boss", limit=top_n * 2)
-        jobs = [{"job_id": j.get("id"), "company_name": j.get("company_name", ""),
-                 "job_title": j.get("job_title", ""), "salary_text": j.get("salary_text", ""),
-                 "city": j.get("city", ""), "status": j.get("status", "pending")}
-                for j in (recent_jobs or [])[:top_n]]
-
-        logger.info(f"[BossAgent] 完成: {len(jobs)} 岗位")
-        return {"success": True, "total": len(jobs), "jobs": jobs,
-                "message": agent_response[:1000] if agent_response else "搜索完成",
-                "agent_response": agent_response}
-    except Exception as e:
-        logger.error(f"[BossAgent] 失败: {e}", exc_info=True)
-        return {"success": False, "total": 0, "jobs": [], "message": f"Agent 执行失败: {e}"}
+        result = await graph.ainvoke(
+            {"query": query, "city": city, "top_n": max(1, min(top_n, 10))},
+            config={"configurable": {"thread_id": f"boss_{user_id}"}},
+        )
+        processed = result.get("processed", [])
+        jobs = [
+            {
+                "job_id": item.get("save", {}).get("job_id"),
+                "company_name": item["card"].get("company_name", ""),
+                "job_title": item["card"].get("job_title", ""),
+                "salary_text": item["card"].get("salary_text", ""),
+                "city": item["card"].get("city", ""),
+                "status": "pending",
+            }
+            for item in processed
+            if item.get("save", {}).get("success")
+        ]
+        error = result.get("error", "")
+        return {
+            "success": not error,
+            "total": len(jobs),
+            "jobs": jobs,
+            "message": error or f"搜索完成，处理 {len(jobs)} 个岗位",
+        }
+    except Exception as exc:
+        logger.error("[BossGraph] 执行失败: %s", exc, exc_info=True)
+        return {"success": False, "total": 0, "jobs": [], "message": f"Agent 执行失败: {exc}"}

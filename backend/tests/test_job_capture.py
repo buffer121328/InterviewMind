@@ -5,7 +5,11 @@
 """
 
 import pytest
+from datetime import datetime
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch, MagicMock
+
+from app.models.agent_run import AgentRunModel
 
 
 MOCK_JD_TEXT = """
@@ -142,7 +146,8 @@ class TestJobCaptureService:
         from app.services.jobs.job_capture_service import capture_from_text
 
         with patch(
-            "app.services.jobs.job_capture_service.invoke_structured"
+            "app.services.llm_utils.invoke_structured",
+            new=AsyncMock(),
         ) as mock_llm:
             mock_llm.return_value = MagicMock()
             mock_llm.return_value.model_dump.return_value = {
@@ -175,7 +180,8 @@ class TestJobCaptureService:
         from app.services.jobs.job_capture_service import capture_from_text
 
         with patch(
-            "app.services.jobs.job_capture_service.invoke_structured"
+            "app.services.llm_utils.invoke_structured",
+            new=AsyncMock(),
         ) as mock_llm:
             mock_llm.return_value = MagicMock()
             mock_llm.return_value.model_dump.return_value = {
@@ -199,3 +205,104 @@ class TestJobCaptureService:
                 )
 
                 assert result["is_duplicate"] is True
+
+    @pytest.mark.asyncio
+    async def test_browser_capture_uses_host_service(self):
+        from app.services.jobs.job_capture_service import _fetch_page_text_browser
+
+        client = MagicMock()
+        client.scrape = AsyncMock(
+            return_value={"success": True, "text": "BOSS直聘 Python 招聘岗位" * 20}
+        )
+
+        with patch(
+            "app.services.jobs.boss_automation_client.get_boss_automation_client",
+            return_value=client,
+        ):
+            text = await _fetch_page_text_browser(
+                "https://www.zhipin.com/web/geek/job",
+                headless=False,
+            )
+
+        assert "BOSS直聘" in text
+        client.scrape.assert_awaited_once_with(
+            "https://www.zhipin.com/web/geek/job",
+            headless=False,
+            manual_wait_seconds=90,
+        )
+
+    @pytest.mark.asyncio
+    async def test_recommendation_capture_no_longer_uses_applescript(self):
+        from app.services.jobs.job_capture_service import capture_from_recommendations
+
+        with (
+            patch(
+                "app.services.jobs.job_capture_service._fetch_page_text_browser",
+                new=AsyncMock(return_value=""),
+            ) as shared_capture,
+            patch(
+                "app.services.jobs.job_capture_service._open_and_read_in_chrome",
+                new=AsyncMock(side_effect=AssertionError("不应调用 AppleScript")),
+            ),
+        ):
+            result = await capture_from_recommendations(
+                user_id="user-1",
+                query="Python",
+                resume_content="resume",
+                api_config={"smart": {"model": "mock"}},
+            )
+
+        assert result["success"] is False
+        shared_capture.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_recommendation_capture_enqueues_recoverable_asset_task(self, monkeypatch):
+        from app.services.jobs.job_capture_service import capture_from_recommendations
+        from app.services.agent_runs import service as run_service_module
+        from app.services.agent_runs import dispatcher
+
+        card = SimpleNamespace(model_dump=lambda: {
+            "company_name": "示例公司",
+            "job_title": "Python 工程师",
+            "salary_text": "20-30K",
+            "city": "上海",
+            "title_summary": "本科 3-5年",
+            "job_description": "负责 Python 服务开发",
+        })
+        now = datetime.now()
+        run = AgentRunModel(
+            id="asset-run-1", user_id="user-1", task_type="job_assets", status="queued", stage="queued",
+            idempotency_key="asset-key", payload_encrypted="encrypted", result=None, error_message=None,
+            attempts=0, created_at=now, updated_at=now, started_at=None, finished_at=None,
+        )
+        create_or_get = AsyncMock(return_value=(run, True))
+        monkeypatch.setattr(run_service_module, "task_queue_enabled", lambda: True)
+        monkeypatch.setattr(run_service_module.AgentRunService, "create_or_get", create_or_get)
+        monkeypatch.setattr(dispatcher, "enqueue_agent_run", MagicMock())
+
+        with (
+            patch(
+                "app.services.jobs.job_capture_service._fetch_page_text_browser",
+                new=AsyncMock(return_value="BOSS直聘 Python 招聘 综合排序"),
+            ),
+            patch(
+                "app.services.llm_utils.invoke_structured",
+                new=AsyncMock(return_value=SimpleNamespace(cards=[card])),
+            ),
+            patch(
+                "app.services.jobs.job_capture_service.capture_from_text",
+                new=AsyncMock(return_value={"success": True, "job_id": 7}),
+            ),
+        ):
+            result = await capture_from_recommendations(
+                user_id="user-1",
+                query="Python",
+                resume_content="候选人简历",
+                api_config={"smart": {"model": "mock"}},
+                top_n=1,
+            )
+
+        assert result["success"] is True
+        assert result["jobs"][0]["asset_run_id"] == "asset-run-1"
+        assert result["jobs"][0]["asset_status"] == "queued"
+        create_or_get.assert_awaited_once()

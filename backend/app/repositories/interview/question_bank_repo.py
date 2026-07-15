@@ -177,7 +177,25 @@ class QuestionBankRepo:
                 .values(usage_count=QuestionBankItemModel.usage_count + 1, updated_at=datetime.now())
             )
             await db.commit()
-    
+
+    async def select_for_interview(self, user_id: str, limit: int) -> List[Dict[str, Any]]:
+        """优先抽取使用次数较少的题，避免重复轰炸同一用户。"""
+        if limit <= 0:
+            return []
+        async with async_session() as db:
+            stmt = (
+                select(QuestionBankItemModel)
+                .where(QuestionBankItemModel.user_id == user_id)
+                .order_by(
+                    QuestionBankItemModel.usage_count.asc(),
+                    QuestionBankItemModel.is_verified.desc(),
+                    QuestionBankItemModel.updated_at.desc(),
+                )
+                .limit(limit)
+            )
+            rows = (await db.execute(stmt)).scalars().all()
+            return [self._row_to_dict(row) for row in rows]
+
     async def get_items_by_skill(
         self,
         user_id: str,

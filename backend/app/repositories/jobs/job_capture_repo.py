@@ -6,7 +6,7 @@ import logging
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 
-from sqlalchemy import select, delete, func, and_
+from sqlalchemy import select, delete, func, and_, update
 from app.models.base import async_session
 from app.models.job_capture import CapturedJobModel
 
@@ -173,6 +173,21 @@ class JobCaptureRepo:
                 await db.commit()
                 return True
             return False
+
+    async def claim_for_application(self, job_id: int, user_id: str) -> bool:
+        """原子占用岗位发送权，防止多请求重复点击。"""
+        async with async_session() as db:
+            result = await db.execute(
+                update(CapturedJobModel)
+                .where(
+                    CapturedJobModel.id == job_id,
+                    CapturedJobModel.user_id == user_id,
+                    CapturedJobModel.status.notin_(["applied", "applying", "manual_takeover"]),
+                )
+                .values(status="applying", updated_at=datetime.now())
+            )
+            await db.commit()
+            return result.rowcount == 1
 
 
 # 全局单例

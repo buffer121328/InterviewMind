@@ -1,61 +1,50 @@
 """
 面试相关工具
-供 create_react_agent 使用的工具集
+
+本模块区分两层能力：
+1. 显式上下文函数：适合 runtime / service 直接调用
+2. tool factory：适合 LangChain / agent 场景
 """
 
 import logging
-from typing import List, Dict, Any, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional
+
 from langchain_core.tools import tool
 
 logger = logging.getLogger(__name__)
 
 
-@tool
-async def search_question_bank(query: str, difficulty: str = "medium") -> List[Dict[str, Any]]:
-    """
-    从题库中搜索与查询相关的面试问题。
-    
-    Args:
-        query: 搜索关键词或主题
-        difficulty: 难度级别 (easy/medium/hard)
-        
-    Returns:
-        匹配的面试问题列表
-    """
+async def search_question_bank(
+    user_id: str,
+    query: str,
+    difficulty: str = "medium",
+    limit: int = 5,
+) -> List[Dict[str, Any]]:
+    """从题库中搜索与查询相关的面试问题。"""
     try:
         from app.repositories.interview.question_bank_repo import get_question_bank_repo
+
         repo = get_question_bank_repo()
-        
-        # 搜索题库
         results = await repo.search_items(
-            user_id="default_user",
+            user_id=user_id,
             query=query,
-            limit=5
+            limit=limit,
         )
-        
-        # 按难度过滤
+
         if difficulty:
-            results = [r for r in results if r.get("difficulty") == difficulty]
-        
-        return results[:5]
+            results = [item for item in results if item.get("difficulty") == difficulty]
+
+        return results[:limit]
     except Exception as e:
         logger.error(f"搜索题库失败: {e}")
         return []
 
 
-@tool
-async def get_candidate_profile(user_id: str = "default_user") -> Dict[str, Any]:
-    """
-    获取候选人的历史能力画像。
-    
-    Args:
-        user_id: 用户ID
-        
-    Returns:
-        候选人能力画像数据
-    """
+async def get_candidate_profile(user_id: str) -> Dict[str, Any]:
+    """获取候选人的历史能力画像。"""
     try:
         from app.repositories.session.session_repo import SessionRepo
+
         repo = SessionRepo()
         profile = await repo.get_user_profile(user_id)
         return profile or {"message": "暂无画像数据"}
@@ -64,22 +53,87 @@ async def get_candidate_profile(user_id: str = "default_user") -> Dict[str, Any]
         return {"error": str(e)}
 
 
-@tool
-async def get_interview_history(session_id: str) -> List[Dict[str, Any]]:
-    """
-    获取面试历史记录。
-    
-    Args:
-        session_id: 会话ID
-        
-    Returns:
-        面试问答历史列表
-    """
+async def get_interview_history(user_id: str, session_id: str) -> List[Dict[str, Any]]:
+    """获取当前会话的面试历史记录。"""
     try:
         from app.repositories.session.session_repo import SessionRepo
+
         repo = SessionRepo()
-        conversations = await repo.get_session_conversations(session_id, "default_user")
+        conversations = await repo.get_session_conversations(session_id, user_id)
         return conversations or []
     except Exception as e:
         logger.error(f"获取面试历史失败: {e}")
         return []
+
+
+def make_interview_tools(user_id: str, session_id: Optional[str] = None) -> List[Any]:
+    """构造绑定用户上下文的面试工具集合。"""
+
+    @tool
+    async def search_question_bank(query: str, difficulty: str = "medium") -> List[Dict[str, Any]]:
+        """从题库中搜索与当前问题相关的面试题。"""
+        return await globals()["search_question_bank"](
+            user_id=user_id,
+            query=query,
+            difficulty=difficulty,
+        )
+
+    @tool
+    async def get_candidate_profile() -> Dict[str, Any]:
+        """获取候选人的综合能力画像。"""
+        return await globals()["get_candidate_profile"](user_id=user_id)
+
+    @tool
+    async def get_interview_history() -> List[Dict[str, Any]]:
+        """获取当前面试会话的历史问答。"""
+        if not session_id:
+            return []
+        return await globals()["get_interview_history"](user_id=user_id, session_id=session_id)
+
+    from .memory_tools import make_memory_tools
+
+    return [search_question_bank, get_candidate_profile, get_interview_history, *make_memory_tools(user_id=user_id)]
+
+
+def make_interview_tool_executor(
+    user_id: str,
+    session_id: Optional[str] = None,
+) -> Callable[..., Awaitable[Any]]:
+    """构造绑定上下文的工具执行器，供 InterviewRuntime 使用。"""
+
+    async def execute(tool_name: str, **kwargs: Any) -> Any:
+        if tool_name == "search_question_bank":
+            query = str(kwargs.get("query", "")).strip()
+            if not query:
+                return {"error": "query is required"}
+            return await search_question_bank(
+                user_id=user_id,
+                query=query,
+                difficulty=str(kwargs.get("difficulty", "medium") or "medium"),
+                limit=int(kwargs.get("limit", 5) or 5),
+            )
+
+        if tool_name == "get_candidate_profile":
+            return await get_candidate_profile(user_id=user_id)
+
+        if tool_name == "get_interview_history":
+            current_session_id = str(kwargs.get("session_id") or session_id or "").strip()
+            if not current_session_id:
+                return {"error": "session_id is required"}
+            return await get_interview_history(user_id=user_id, session_id=current_session_id)
+
+        if tool_name == "search_memory":
+            from .memory_tools import search_memory
+
+            query = str(kwargs.get("query", "")).strip()
+            if not query:
+                return {"error": "query is required"}
+            return await search_memory(
+                user_id=user_id,
+                query=query,
+                limit=int(kwargs.get("limit", 5) or 5),
+            )
+
+        return {"error": f"Unknown tool: {tool_name}"}
+
+    return execute

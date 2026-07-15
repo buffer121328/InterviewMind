@@ -11,10 +11,26 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-agent_interview}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     networks:
       - agent_interview_network
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-agent_interview}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: agent_interview_redis
+    restart: always
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    networks:
+      - agent_interview_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -26,22 +42,81 @@ services:
       dockerfile: Dockerfile
     container_name: agent_interview_backend
     restart: always
+    env_file:
+      - .env
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     environment:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-agent_interview}:${POSTGRES_PASSWORD:-cheng123}@postgres:5432/${POSTGRES_DB:-agent_interview}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.openai.com/v1}
-      - SMART_MODEL=${SMART_MODEL:-gpt-4}
-      - FAST_MODEL=${FAST_MODEL:-gpt-3.5-turbo}
+      - TASK_QUEUE_ENABLED=true
+      - REDIS_URL=redis://redis:6379/0
+      - TASK_PAYLOAD_ENCRYPTION_KEY=${TASK_PAYLOAD_ENCRYPTION_KEY:-}
+      - LLM_REQUEST_TIMEOUT_SECONDS=${LLM_REQUEST_TIMEOUT_SECONDS:-45}
+      - AGENT_RUN_LOCK_TTL_SECONDS=${AGENT_RUN_LOCK_TTL_SECONDS:-600}
+      - AGENT_RUN_MAX_ATTEMPTS=${AGENT_RUN_MAX_ATTEMPTS:-3}
+      - AGENT_RUN_STALE_SECONDS=${AGENT_RUN_STALE_SECONDS:-1800}
+      - LLM_POOL_REDIS_ENABLED=${LLM_POOL_REDIS_ENABLED:-true}
+      - LLM_POOL_INFLIGHT_TTL_SECONDS=${LLM_POOL_INFLIGHT_TTL_SECONDS:-600}
+      - BOSS_AUTOMATION_SERVICE_URL=${BOSS_AUTOMATION_SERVICE_URL:-http://host.docker.internal:8765}
+      - BOSS_AUTOMATION_SERVICE_TOKEN=${BOSS_AUTOMATION_SERVICE_TOKEN:-}
+      - BOSS_AUTOMATION_REQUEST_TIMEOUT_SECONDS=${BOSS_AUTOMATION_REQUEST_TIMEOUT_SECONDS:-240}
+      - MEM0_PGVECTOR_HOST=postgres
+      - MEM0_PGVECTOR_PORT=5432
+      - MEM0_PGVECTOR_DBNAME=${POSTGRES_DB:-agent_interview}
+      - MEM0_PGVECTOR_USER=${POSTGRES_USER:-agent_interview}
+      - MEM0_PGVECTOR_PASSWORD=${POSTGRES_PASSWORD:-cheng123}
     networks:
       - agent_interview_network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: agent_interview_worker
+    restart: always
+    env_file:
+      - .env
+    command: ["dramatiq", "app.services.agent_runs.worker", "--processes", "1", "--threads", "1"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-agent_interview}:${POSTGRES_PASSWORD:-cheng123}@postgres:5432/${POSTGRES_DB:-agent_interview}
+      - TASK_QUEUE_ENABLED=true
+      - REDIS_URL=redis://redis:6379/0
+      - TASK_PAYLOAD_ENCRYPTION_KEY=${TASK_PAYLOAD_ENCRYPTION_KEY:-}
+      - LLM_REQUEST_TIMEOUT_SECONDS=${LLM_REQUEST_TIMEOUT_SECONDS:-45}
+      - AGENT_RUN_LOCK_TTL_SECONDS=${AGENT_RUN_LOCK_TTL_SECONDS:-600}
+      - AGENT_RUN_MAX_ATTEMPTS=${AGENT_RUN_MAX_ATTEMPTS:-3}
+      - AGENT_RUN_STALE_SECONDS=${AGENT_RUN_STALE_SECONDS:-1800}
+      - LLM_POOL_REDIS_ENABLED=${LLM_POOL_REDIS_ENABLED:-true}
+      - LLM_POOL_INFLIGHT_TTL_SECONDS=${LLM_POOL_INFLIGHT_TTL_SECONDS:-600}
+      - BOSS_AUTOMATION_SERVICE_URL=${BOSS_AUTOMATION_SERVICE_URL:-http://host.docker.internal:8765}
+      - BOSS_AUTOMATION_SERVICE_TOKEN=${BOSS_AUTOMATION_SERVICE_TOKEN:-}
+      - BOSS_AUTOMATION_REQUEST_TIMEOUT_SECONDS=${BOSS_AUTOMATION_REQUEST_TIMEOUT_SECONDS:-240}
+      - MEM0_PGVECTOR_HOST=postgres
+      - MEM0_PGVECTOR_PORT=5432
+      - MEM0_PGVECTOR_DBNAME=${POSTGRES_DB:-agent_interview}
+      - MEM0_PGVECTOR_USER=${POSTGRES_USER:-agent_interview}
+      - MEM0_PGVECTOR_PASSWORD=${POSTGRES_PASSWORD:-cheng123}
+    networks:
+      - agent_interview_network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   # 前端
   frontend:

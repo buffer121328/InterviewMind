@@ -4,7 +4,7 @@
  * 所有 store 相关的类型定义和常量配置
  */
 
-import { ResumeAnalyzeResult, ResumeOptimizeResult } from '@/lib/api/resume';
+import { JsonObject, ResumeAnalyzeResult, ResumeOptimizeResult } from '@/lib/api/resume';
 
 // ============================================================================
 // 类型定义
@@ -71,6 +71,8 @@ export interface ApiConfig {
     models: ModelConfig[];
     smartModelId: string;
     fastModelId: string;
+    reasoningPoolModelIds: string[];
+    fastPoolModelIds: string[];
     // 简历工具专家模型
     generalModelId: string;        // 通用任务（简历分析 + 主持人）
     matchAnalystModelId: string;   // 匹配分析师
@@ -85,6 +87,14 @@ export interface InterviewProgress {
     total: number;
 }
 
+export type ExecutionPlanStepStatus = 'pending' | 'running' | 'completed' | 'failed';
+
+export interface ExecutionPlanStep {
+    id: string;
+    title: string;
+    status: ExecutionPlanStepStatus;
+}
+
 export interface ResumeResultItem {
     id: number;
     user_id: string;
@@ -94,6 +104,16 @@ export interface ResumeResultItem {
     session_ids: string[];
     include_profile: boolean;
     result_data: ResumeAnalyzeResult | ResumeOptimizeResult;
+    created_at: string;
+}
+
+export interface ResumeResultSummary {
+    id: number;
+    result_type: 'analyze' | 'optimize';
+    resume_preview: string;
+    job_description: string | null;
+    session_ids: string[];
+    include_profile: boolean;
     created_at: string;
 }
 
@@ -143,7 +163,7 @@ export interface CandidateMaterialItem {
     material_type: 'tech_stack' | 'project' | 'internship' | 'work_experience' | 'education' | 'certificate' | 'highlight';
     title: string;
     content: string;
-    structured_data: Record<string, any>;
+    structured_data: JsonObject;
     tags: string[];
     source_type: 'manual' | 'import' | 'ai_extract';
     source_resume_id: number | null;
@@ -165,7 +185,7 @@ export interface ResumeAssemblyResultItem {
     job_description: string;
     selected_material_ids: number[];
     selection_reason: string;
-    assembled_outline: Record<string, any>;
+    assembled_outline: JsonObject;
     generated_resume_id: number | null;
     created_at: string;
 }
@@ -257,7 +277,7 @@ export interface ApplicationEventItem {
     application_id: number;
     event_type: 'applied' | 'phone_screen' | 'technical' | 'behavioral' | 'final' | 'offer' | 'rejected' | 'accepted' | 'note';
     event_time: string;
-    event_data: Record<string, any>;
+    event_data: JsonObject;
     created_at: string;
 }
 
@@ -323,6 +343,8 @@ export const DEFAULT_API_CONFIG: ApiConfig = {
     models: [],
     smartModelId: '',
     fastModelId: '',
+    reasoningPoolModelIds: [],
+    fastPoolModelIds: [],
     generalModelId: '',
     matchAnalystModelId: '',
     contentWriterModelId: '',

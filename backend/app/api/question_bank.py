@@ -3,9 +3,10 @@
 提供题库条目的 CRUD、检索、导入功能
 """
 
+import hashlib
 import logging
 from typing import Optional
-from fastapi import APIRouter, HTTPException, Query, Depends
+from fastapi import APIRouter, HTTPException, Query, Depends, File, UploadFile
 
 from app.schemas.question_bank import (
     QuestionBankItem,
@@ -13,6 +14,8 @@ from app.schemas.question_bank import (
     QuestionBankListResponse,
     QuestionBankImportRequest,
     QuestionBankImportResponse,
+    QuestionFileCandidate,
+    QuestionFilePreviewResponse,
 )
 from app.repositories.interview.question_bank_repo import get_question_bank_repo
 from app.api.deps import get_current_user_id
@@ -20,6 +23,30 @@ from app.api.deps import get_current_user_id
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/question-bank", tags=["题库"])
+
+
+@router.post("/import-file/preview", response_model=QuestionFilePreviewResponse)
+async def preview_question_file(
+    file: UploadFile = File(...),
+    user_id: str = Depends(get_current_user_id),
+):
+    """解析 PDF/Markdown 并返回候选题；此步骤不写入题库。"""
+    from app.services.file_service import FileServiceError, file_service
+    from app.services.question_bank import parse_question_document
+
+    filename = (file.filename or "questions").strip()[:255]
+    try:
+        content = await file_service.process_fastapi_file(file)
+        source_id = hashlib.sha256(f"{user_id}\0{filename}\0{content}".encode("utf-8")).hexdigest()[:32]
+        questions = parse_question_document(content=content, filename=filename, source_id=source_id)
+        return QuestionFilePreviewResponse(
+            success=True,
+            filename=filename,
+            questions=[QuestionFileCandidate(**question) for question in questions],
+            message=f"解析出 {len(questions)} 道候选题",
+        )
+    except FileServiceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/items", response_model=dict)
@@ -184,7 +211,8 @@ async def import_questions(
                     difficulty=q.get("difficulty", "medium"),
                     target_skill=q.get("target_skill"),
                     question_type=q.get("question_type", "tech"),
-                    source_type=request.import_source
+                    source_type=q.get("source_type", request.import_source),
+                    source_id=q.get("source_id"),
                 )
                 success_count += 1
             except Exception as e:

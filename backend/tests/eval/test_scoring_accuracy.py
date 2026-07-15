@@ -61,6 +61,7 @@ _PARAMS = {
 # 评分基准测试（LLM-as-Judge）
 # ============================================================================
 
+@pytest.mark.llm
 @pytest.mark.eval
 class TestScoringAccuracy:
     """基于标注基准的评分准确性测试。"""

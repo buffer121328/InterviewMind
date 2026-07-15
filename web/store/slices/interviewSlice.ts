@@ -6,8 +6,9 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { getUserId } from '@/hooks/useUserIdentity';
-import type { Message, ResumeInfo, InterviewProgress, InterviewSession } from '../types';
+import type { Message, ResumeInfo, InterviewProgress, InterviewSession, ExecutionPlanStep } from '../types';
 import { API_BASE_URL } from '../types';
+import type { ExperienceQuestionCandidate } from '@/lib/api/interviewExperience';
 
 // ============================================================================
 // 类型定义
@@ -23,6 +24,8 @@ export interface InterviewFlowState {
     companyInfo: string;
     interviewProgress: InterviewProgress | null;
     maxQuestions: number;
+    questionBankCount: number;
+    experienceQuestions: ExperienceQuestionCandidate[];
     showAbilityProfile: boolean;
     apiError: string | null;
     isVoiceMode: boolean;
@@ -32,12 +35,16 @@ export interface InterviewFlowState {
     voiceSystemPrompt: string;
     voiceSessionId: string | null;
     isInitializing: boolean;
+    initializationStage: string | null;
+    executionPlan: ExecutionPlanStep[];
 }
 
 export interface InterviewFlowActions {
     setJobDescription: (jobDescription: string) => void;
     setCompanyInfo: (companyInfo: string) => void;
     setMaxQuestions: (maxQuestions: number) => void;
+    setQuestionBankCount: (count: number) => void;
+    setExperienceQuestions: (questions: ExperienceQuestionCandidate[]) => void;
     uploadResume: (file: File) => Promise<void>;
     startInterview: (mode?: 'mock' | 'voice') => Promise<void>;
     sendMessage: (content: string) => Promise<void>;
@@ -84,11 +91,15 @@ export const createInterviewSlice = (set: SetState, get: GetState): InterviewFlo
     companyInfo: '',
     interviewProgress: null,
     maxQuestions: 5,
+    questionBankCount: 0,
+    experienceQuestions: [],
     showAbilityProfile: false,
     apiError: null,
     isVoiceMode: false,
     _abortController: null,
     isInitializing: false,
+    initializationStage: null,
+    executionPlan: [],
     // 语音面试初始状态
     voiceHistory: [],
     voiceSystemPrompt: '',
@@ -99,6 +110,12 @@ export const createInterviewSlice = (set: SetState, get: GetState): InterviewFlo
     setJobDescription: (jobDescription: string) => set({ jobDescription }),
     setCompanyInfo: (companyInfo: string) => set({ companyInfo }),
     setMaxQuestions: (maxQuestions: number) => set({ maxQuestions }),
+    setQuestionBankCount: (count: number) => set((state) => ({
+        questionBankCount: Math.max(0, Math.min(count, state.maxQuestions)),
+    })),
+    setExperienceQuestions: (questions: ExperienceQuestionCandidate[]) => set({
+        experienceQuestions: questions.slice(0, 20),
+    }),
 
     uploadResume: async (file: File) => {
         set({ isLoading: true });
@@ -131,7 +148,10 @@ export const createInterviewSlice = (set: SetState, get: GetState): InterviewFlo
     },
 
     startInterview: async (mode: 'mock' | 'voice' = 'mock') => {
-        const { resume, jobDescription, companyInfo, maxQuestions, getApiConfigForRequest } = get();
+        const {
+            resume, jobDescription, companyInfo, maxQuestions, questionBankCount,
+            experienceQuestions, getApiConfigForRequest,
+        } = get();
 
         if (!resume) {
             throw new Error('请先上传简历');
@@ -146,6 +166,12 @@ export const createInterviewSlice = (set: SetState, get: GetState): InterviewFlo
         set({
             isLoading: true,
             isInitializing: true, // 新增：显式标记正在初始化
+            initializationStage: 'queued',
+            executionPlan: [
+                { id: 'queued', title: '等待执行资源', status: 'running' },
+                { id: 'loading_context', title: '读取简历与面试上下文', status: 'pending' },
+                { id: 'generating_question', title: '规划面试并生成首题', status: 'pending' },
+            ],
             messages: [],
             voiceHistory: [],
             voiceSystemPrompt: '',
@@ -199,15 +225,18 @@ export const createInterviewSlice = (set: SetState, get: GetState): InterviewFlo
             company_info: companyInfo || '未知',
             mode: 'mock',
             max_questions: maxQuestions,
+            question_bank_count: Math.min(questionBankCount, maxQuestions),
+            experience_questions: experienceQuestions.slice(0, maxQuestions),
             api_config: apiConfig,
         };
 
         try {
-            const response = await fetch(`${API_BASE_URL}/api/chat/start`, {
+            const response = await fetch(`${API_BASE_URL}/api/agent-runs/interview-start`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'X-User-ID': getUserId()
+                    'X-User-ID': getUserId(),
+                    'Idempotency-Key': newThreadId,
                 },
                 body: JSON.stringify(requestBody),
                 signal: abortController.signal,
@@ -219,125 +248,46 @@ export const createInterviewSlice = (set: SetState, get: GetState): InterviewFlo
                 throw new Error(`启动面试失败: ${response.status} - ${errorText}`);
             }
 
-            set({ isStreaming: true, isLoading: false });
+            const startData = await response.json();
+            if (Array.isArray(startData.plan)) {
+                set({ executionPlan: startData.plan });
+            }
+            let result = startData.result;
+            let runId = startData.run_id as string | undefined;
+            let runStatus = startData.status as string | undefined;
 
-            // 处理流式响应
-            const reader = response.body?.getReader();
-            if (!reader) {
-                console.error('无法获取响应流 reader');
-                throw new Error('无法读取响应流');
+            // 队列启用时轮询持久化状态；本地关闭队列时兼容同步结果。
+            while (runStatus !== 'succeeded') {
+                if (!runId) throw new Error('启动面试失败：未返回任务 ID');
+                if (abortController.signal.aborted) {
+                    throw new DOMException('请求已取消', 'AbortError');
+                }
+                await new Promise(resolve => setTimeout(resolve, 1200));
+                const runResponse = await fetch(`${API_BASE_URL}/api/agent-runs/${runId}`, {
+                    headers: { 'X-User-ID': getUserId() },
+                    signal: abortController.signal,
+                });
+                if (!runResponse.ok) throw new Error('读取面试任务状态失败');
+                const run = await runResponse.json();
+                set({
+                    initializationStage: run.stage || 'queued',
+                    executionPlan: Array.isArray(run.plan) ? run.plan : get().executionPlan,
+                });
+                runStatus = run.status;
+                if (runStatus === 'failed' || runStatus === 'cancelled') {
+                    throw new Error(run.error_message || '面试任务未完成');
+                }
+                result = run.result;
+                runId = run.run_id;
             }
 
-            const decoder = new TextDecoder();
-            let buffer = '';
-            let currentAiMessage = '';
-
-            while (true) {
-                const { done, value } = await reader.read();
-
-                if (done) {
-                    // 处理 buffer 中剩余的数据
-                    if (buffer.trim()) {
-                        try {
-                            const data = JSON.parse(buffer);
-                            if (data.first_question) {
-                                set({
-                                    messages: [{
-                                        role: 'assistant',
-                                        content: data.first_question,
-                                        timestamp: new Date().toISOString(),
-                                    }],
-                                    isStreaming: false,
-                                    isLoading: false,
-                                });
-                            }
-                        } catch {
-                            if (buffer.startsWith('data: ')) {
-                                try {
-                                    const data = JSON.parse(buffer.slice(6));
-                                    if (data.type === 'token' || data.type === 'content') {
-                                        currentAiMessage += data.content || '';
-                                        set(state => {
-                                            const messages = [...state.messages];
-                                            const lastMsg = messages[messages.length - 1];
-                                            if (lastMsg && lastMsg.role === 'assistant') {
-                                                lastMsg.content = currentAiMessage;
-                                            } else {
-                                                messages.push({
-                                                    role: 'assistant',
-                                                    content: currentAiMessage,
-                                                    timestamp: new Date().toISOString(),
-                                                });
-                                            }
-                                            return { messages };
-                                        });
-                                    }
-                                } catch {
-                                    // Ignore parse errors
-                                }
-                            }
-                        }
-                    }
-                    break;
-                }
-
-                buffer += decoder.decode(value, { stream: true });
-                const lines = buffer.split('\n');
-                buffer = lines.pop() || '';
-
-                for (const line of lines) {
-                    if (line.startsWith('data: ')) {
-                        try {
-                            const data = JSON.parse(line.slice(6));
-                            if (data.type === 'token' || data.type === 'content') {
-                                currentAiMessage += data.content || '';
-                                set(state => {
-                                    const messages = [...state.messages];
-                                    const lastMsg = messages[messages.length - 1];
-                                    if (lastMsg && lastMsg.role === 'assistant') {
-                                        lastMsg.content = currentAiMessage;
-                                    } else {
-                                        messages.push({
-                                            role: 'assistant',
-                                            content: currentAiMessage,
-                                            timestamp: new Date().toISOString(),
-                                        });
-                                    }
-                                    return { messages };
-                                });
-                            } else if (data.type === 'state_update') {
-                                try {
-                                    const stateData = JSON.parse(data.content);
-                                    if (stateData.question_count !== undefined) {
-                                        set({
-                                            interviewProgress: {
-                                                current: stateData.question_count,
-                                                total: stateData.max_questions || get().maxQuestions,
-                                            },
-                                        });
-                                    }
-                                } catch {
-                                    // Ignore parse errors
-                                }
-                            } else if (data.type === 'error') {
-                                console.error('收到 SSE 错误:', data.content);
-                                let errorMessage = data.content || 'AI 响应失败';
-                                if (errorMessage.includes('401') || errorMessage.toLowerCase().includes('unauthorized')) {
-                                    errorMessage = 'API Key 无效，请检查配置';
-                                } else if (errorMessage.includes('404')) {
-                                    errorMessage = '模型不存在或 API 地址错误';
-                                }
-                                set({ apiError: errorMessage });
-                            }
-                        } catch {
-                            // Ignore parse errors
-                        }
-                    }
-                }
-            }
-
-            // 刷新会话列表
-            // 刷新会话列表，保持与页面初始化一致的过滤条件（获取所有状态的 mock/voice 会话）
+            if (!result?.first_question) throw new Error('面试初始化未生成首题');
+            set({
+                messages: [{ role: 'assistant', content: result.first_question, timestamp: new Date().toISOString() }],
+                isStreaming: false,
+                isLoading: false,
+                experienceQuestions: [],
+            });
             await get().fetchSessions(undefined);
 
         } catch (error) {
@@ -362,7 +312,7 @@ export const createInterviewSlice = (set: SetState, get: GetState): InterviewFlo
                 throw error;
             }
         } finally {
-            set({ isStreaming: false, isLoading: false, isInitializing: false, _abortController: null });
+            set({ isStreaming: false, isLoading: false, isInitializing: false, initializationStage: null, _abortController: null });
         }
     },
 
@@ -383,7 +333,7 @@ export const createInterviewSlice = (set: SetState, get: GetState): InterviewFlo
         set({ messages: [...messages, userMessage] });
 
         const abortController = new AbortController();
-        set({ _abortController: abortController, isStreaming: true });
+        set({ _abortController: abortController, isStreaming: true, executionPlan: [] });
 
         try {
             const response = await fetch(`${API_BASE_URL}/api/chat/stream`, {
@@ -428,7 +378,17 @@ export const createInterviewSlice = (set: SetState, get: GetState): InterviewFlo
                         try {
                             const data = JSON.parse(line.slice(6));
 
-                            if (data.type === 'token' || data.type === 'content') {
+                            if (data.type === 'plan') {
+                                const plan = JSON.parse(data.content || '[]');
+                                if (Array.isArray(plan)) set({ executionPlan: plan });
+                            } else if (data.type === 'step_update') {
+                                const update = JSON.parse(data.content || '{}');
+                                set(state => ({
+                                    executionPlan: state.executionPlan.map(step => (
+                                        step.id === update.id ? { ...step, status: update.status } : step
+                                    )),
+                                }));
+                            } else if (data.type === 'token' || data.type === 'content') {
                                 currentAiMessage += data.content || '';
                                 set(state => {
                                     const messages = [...state.messages];

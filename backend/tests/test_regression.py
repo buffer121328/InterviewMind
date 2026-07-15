@@ -82,7 +82,7 @@ class TestInterviewGraphRoute:
     def test_route_after_responder_continue(self):
         """题目未完时路由到 END（等待用户）"""
         from app.services.interview.interview_graph import route_after_responder
-        from langgraph.graph import END
+        from app.services.interview.interview_graph import END
 
         state = {
             "interview_plan": [{"id": 1}, {"id": 2}, {"id": 3}],

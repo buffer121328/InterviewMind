@@ -1,6 +1,7 @@
 import os
 import asyncio
 import logging
+import zipfile
 from typing import List
 from fastapi import UploadFile
 import fitz # pymupdf
@@ -32,13 +33,13 @@ class FileService:
     支持的文件格式：
     - PDF (.pdf)
     - Word (.docx)
-    - 纯文本 (.txt)
+    - 纯文本/Markdown (.txt/.md)
     """
 
     def __init__(self, max_file_size_mb: int = 10):
         """初始化文件服务"""
         self.max_file_size_bytes = max_file_size_mb * 1024 * 1024
-        self.allowed_extensions = ['pdf', 'docx', 'txt']
+        self.allowed_extensions = ['pdf', 'docx', 'txt', 'md']
         logger.info(f"文件服务初始化成功，最大文件大小: {max_file_size_mb}MB")
     
     def _validate_file_type(self, filename: str) -> bool:
@@ -60,9 +61,29 @@ class FileService:
             return header.startswith(b"%PDF")
         if ext == "docx":
             return header.startswith(b"PK\x03\x04") or header.startswith(b"PK\x05\x06") or header.startswith(b"PK\x07\x08")
-        if ext == "txt":
+        if ext in {"txt", "md"}:
             return b"\x00" not in header
         return False
+
+    def _validate_docx_archive(self, file_path: str) -> None:
+        """拒绝加密、超大或异常压缩比的 DOCX，降低解压炸弹风险。"""
+        try:
+            with zipfile.ZipFile(file_path) as archive:
+                entries = archive.infolist()
+                if len(entries) > 2_000:
+                    raise FileServiceError("DOCX 文件条目过多")
+                total_size = sum(item.file_size for item in entries)
+                compressed_size = sum(max(item.compress_size, 1) for item in entries)
+                if total_size > 50 * 1024 * 1024:
+                    raise FileServiceError("DOCX 解压后内容过大")
+                if total_size / max(compressed_size, 1) > 100:
+                    raise FileServiceError("DOCX 压缩比异常")
+                if any(item.flag_bits & 0x1 for item in entries):
+                    raise FileServiceError("不支持加密 DOCX")
+                if "word/document.xml" not in archive.namelist():
+                    raise FileServiceError("DOCX 缺少正文结构")
+        except zipfile.BadZipFile as exc:
+            raise FileServiceError("DOCX 文件结构损坏") from exc
     
     def extract_text_from_pdf(self, file_path: str) -> str:
         """解析 PDF 文件（使用 PyMuPDF）"""
@@ -140,7 +161,7 @@ class FileService:
             return self.extract_text_from_pdf(file_path)
         elif file_ext == '.docx':
             return self.extract_text_from_docx(file_path)
-        elif file_ext == '.txt':
+        elif file_ext in {'.txt', '.md'}:
             return self.extract_text_from_txt(file_path)
         else:
             raise UnsupportedFileTypeError(f"不支持的文件类型: {file_ext}")
@@ -196,10 +217,23 @@ class FileService:
             # 4. 基于魔数再次验证文件类型
             if not self._validate_file_signature(temp_path, file_ext):
                 raise UnsupportedFileTypeError(f"文件内容与扩展名不匹配: {upload_file.filename}")
+            if file_ext.lower() == ".docx":
+                self._validate_docx_archive(temp_path)
 
             # 5. 提取文本（PDF/DOCX 解析为同步 IO/CPU 操作，放入线程避免阻塞事件循环）
             try:
-                text_content = await asyncio.to_thread(self.extract_text, temp_path)
+                try:
+                    configured_timeout = int(os.getenv("FILE_PARSE_TIMEOUT_SECONDS", "30"))
+                except ValueError:
+                    configured_timeout = 30
+                timeout_seconds = min(max(configured_timeout, 5), 120)
+                try:
+                    text_content = await asyncio.wait_for(
+                        asyncio.to_thread(self.extract_text, temp_path),
+                        timeout=timeout_seconds,
+                    )
+                except TimeoutError as exc:
+                    raise FileServiceError("文件解析超时") from exc
                 
                 # 6. 验证内容有效性
                 if not text_content or not text_content.strip():

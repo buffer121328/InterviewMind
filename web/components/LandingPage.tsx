@@ -1,8 +1,8 @@
 "use client";
 
-import { Bot, FileText, Stethoscope, Wand2, ArrowRight, CheckCircle2, TrendingUp, Calendar, Zap, Star, Download, Copy, X } from "lucide-react";
+import Image from "next/image";
+import { Bot, FileText, Stethoscope, Wand2, ArrowRight, CheckCircle2, TrendingUp, Zap, Star, Download, Copy, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 
 interface LandingPageProps {
     onNavigate: (page: "interview" | "resume" | "guide" | "applications" | "questionbank" | "boss") => void;
@@ -22,7 +22,7 @@ export function LandingPage({ onNavigate }: LandingPageProps) {
             <header className="fixed top-0 left-0 right-0 z-50 bg-white/80 backdrop-blur-md border-b border-gray-100">
                 <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
                     <div className="flex items-center gap-2 font-bold text-xl text-gray-900">
-                        <img src="/logo.png" alt="Logo" className="w-8 h-8 rounded-lg shadow-lg shadow-orange-200" />
+                        <Image src="/logo.png" alt="Logo" width={32} height={32} className="w-8 h-8 rounded-lg shadow-lg shadow-orange-200" />
                         <span>面面-AI求职助手</span>
                     </div>
 
@@ -203,7 +203,7 @@ export function LandingPage({ onNavigate }: LandingPageProps) {
                                         <div className="flex-1">
                                             <h4 className="font-bold text-gray-900 text-sm">STAR 法则应用建议</h4>
                                             <div className="mt-1 text-xs text-gray-500 line-clamp-1">
-                                                建议将"负责前端开发"修改为"主导..."
+                                                建议将“负责前端开发”修改为“主导...”
                                             </div>
                                         </div>
                                         <Button size="icon" variant="ghost" className="rounded-full bg-gray-50 group-hover:bg-orange-600 group-hover:text-white transition-all">
@@ -493,7 +493,7 @@ export function LandingPage({ onNavigate }: LandingPageProps) {
                                             <span className="text-xs font-bold text-white">产品经验真实性</span>
                                         </div>
                                         <div className="text-[12px] text-gray-400 line-clamp-2">
-                                            建议将"产品负责人"修改为"承担产品接口人角色"，避免夸大。
+                                            建议将“产品负责人”修改为“承担产品接口人角色”，避免夸大。
                                         </div>
                                     </div>
 
@@ -630,8 +630,8 @@ export function LandingPage({ onNavigate }: LandingPageProps) {
                                                     <h1 className="text-2xl font-bold text-gray-900 mb-3">张三</h1>
 
                                                     <div className="bg-slate-50 py-3 px-4 rounded-lg text-[10px] text-gray-600 leading-relaxed border border-gray-100">
-                                                        "138-xxxx-xxxx | zhangsan@email.com <br />
-                                                        高级产品经理 | 期望薪资：25-35K | 期望城市：上海"
+                                                        “138-xxxx-xxxx | zhangsan@email.com <br />
+                                                        高级产品经理 | 期望薪资：25-35K | 期望城市：上海”
                                                     </div>
                                                 </div>
 
@@ -705,4 +705,3 @@ export function LandingPage({ onNavigate }: LandingPageProps) {
         </div >
     );
 }
-

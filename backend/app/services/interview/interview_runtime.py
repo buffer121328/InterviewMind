@@ -21,6 +21,7 @@
 """
 
 import logging
+from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional, Callable, Awaitable
 
 from .interview_output_contract import (
@@ -31,6 +32,7 @@ from .interview_output_contract import (
     EvaluatingOutput,
     EndRoundOutput,
 )
+from app.services.observability import agent_observation
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +75,9 @@ class InterviewRuntime:
         self.round_type: str = state.get("round_type", "tech_initial")
         self.messages: List = state.get("messages", [])
         self.memory_context: str = state.get("memory_context", "")
+        self.trace: List[Dict[str, Any]] = list(state.get("trace", []))
+        self.max_tool_rounds: int = 1
+        self.tool_round_count: int = 0
         
         # 当前阶段
         self.phase: InterviewPhase = (
@@ -89,7 +94,36 @@ class InterviewRuntime:
 
     async def run(self) -> Dict[str, Any]:
         """执行状态机主循环，返回更新后的 state 字段"""
-        
+        async with agent_observation(
+            name="interview-runtime",
+            agent_type="interview",
+            user_id=self.state.get("user_id"),
+            session_id=self.state.get("session_id"),
+            input_payload={
+                "question_count": len(self.plan),
+                "current_question_index": self.current_idx,
+                "round_index": self.round_index,
+                "round_type": self.round_type,
+                "turn_phase": self.turn_phase,
+            },
+        ) as observation:
+            result = await self._run()
+            observation.set_output({
+                "message_count": len(result.get("messages", [])),
+                "next_turn_phase": result.get("turn_phase"),
+                "trace_steps": len(result.get("trace", [])),
+            })
+            return result
+
+    async def _run(self) -> Dict[str, Any]:
+        """执行实际状态分发，保持 run 的可观测性边界单一。"""
+        self._add_trace(
+            step="runtime_start",
+            phase=self.phase.value,
+            status="started",
+            input_summary=f"idx={self.current_idx}, follow_up={self.follow_up_count}",
+        )
+
         # 根据当前阶段分发到对应状态处理
         if self.phase == InterviewPhase.OPENING:
             return await self._handle_opening()
@@ -106,6 +140,7 @@ class InterviewRuntime:
     async def _handle_opening(self) -> Dict[str, Any]:
         """opening 状态：生成问候语 + 首题"""
         logger.info(f"[Runtime] 进入 opening 状态, round={self.round_index}/{self.round_type}")
+        self._add_trace(step="opening_prompt", phase=InterviewPhase.OPENING.value, status="started")
         
         prompt = self._build_opening_prompt()
         
@@ -116,14 +151,20 @@ class InterviewRuntime:
             return self._default_response("你好！欢迎参加今天的面试。让我们开始吧。请问你能做一个简短的自我介绍吗？")
         
         self.phase = InterviewPhase.ASKING
+        self._add_trace(
+            step="opening_prompt",
+            phase=InterviewPhase.OPENING.value,
+            status="completed",
+            output_summary=output.greeting[:120],
+        )
         
-        return {
+        return self._with_trace({
             "messages": [{"role": "assistant", "content": output.greeting}],
             "turn_phase": "feedback",
             "current_question_index": 0,
             "follow_up_count": 0,
             "current_sub_question": None,
-        }
+        })
 
     async def _handle_awaiting_reply(self) -> Dict[str, Any]:
         """awaiting_reply 状态：已收到用户回答，进入 evaluating"""
@@ -141,18 +182,56 @@ class InterviewRuntime:
             f"[Runtime] evaluating: idx={self.current_idx}/{len(self.plan)}, "
             f"follow_up={self.follow_up_count}/{self.max_follow_ups}"
         )
+        self._add_trace(
+            step="evaluating",
+            phase=InterviewPhase.EVALUATING.value,
+            status="started",
+            input_summary=f"idx={self.current_idx}, follow_up={self.follow_up_count}, tool_rounds={self.tool_round_count}",
+        )
         
         # 构建评估 prompt（注入工具结果）
         tool_context = self._format_tool_results()
-        prompt = self._build_evaluating_prompt(user_answer, current_q, next_q, tool_context)
+        prompt = self._build_evaluating_prompt(
+            user_answer,
+            current_q,
+            next_q,
+            tool_context,
+            allow_tool_request=bool(self.tool_executor and self.tool_round_count < self.max_tool_rounds and not self.tool_results),
+        )
         
         try:
             output: EvaluatingOutput = await self.llm_invoker(prompt, EvaluatingOutput)
         except Exception as e:
             logger.error(f"[Runtime] evaluating LLM 调用失败: {e}")
             return self._handle_fallback(user_answer, current_q, next_q)
+
+        if self._should_execute_tool(output):
+            await self.execute_tools([{
+                "tool_name": output.tool_name,
+                "tool_args": output.tool_args,
+                "tool_reason": output.tool_reason,
+            }])
+            tool_context = self._format_tool_results()
+            prompt = self._build_evaluating_prompt(
+                user_answer,
+                current_q,
+                next_q,
+                tool_context,
+                allow_tool_request=False,
+            )
+            try:
+                output = await self.llm_invoker(prompt, EvaluatingOutput)
+            except Exception as e:
+                logger.error(f"[Runtime] evaluating 二次 LLM 调用失败: {e}")
+                return self._handle_fallback(user_answer, current_q, next_q)
         
         logger.info(f"[Runtime] evaluating 决策: action={output.action}")
+        self._add_trace(
+            step="evaluating",
+            phase=InterviewPhase.EVALUATING.value,
+            status="completed",
+            output_summary=f"action={output.action}, need_tool={output.need_tool}",
+        )
         
         # 根据 action 分发
         if output.action == InterviewerAction.FOLLOW_UP:
@@ -176,14 +255,20 @@ class InterviewRuntime:
         
         self.phase = InterviewPhase.FOLLOW_UP
         logger.info(f"[Runtime] 追问 #{new_count}: {output.content[:50]}...")
+        self._add_trace(
+            step="decision",
+            phase=InterviewPhase.FOLLOW_UP.value,
+            status="completed",
+            output_summary=f"follow_up#{new_count}: {output.content[:120]}",
+        )
         
-        return {
+        return self._with_trace({
             "messages": [{"role": "assistant", "content": output.content}],
             "follow_up_count": new_count,
             "current_sub_question": output.content,
             "turn_phase": "feedback",
             "current_question_index": self.current_idx,  # 保持当前题
-        }
+        })
 
     def _handle_advance_action(self, output: EvaluatingOutput) -> Dict[str, Any]:
         """处理进入下一题动作"""
@@ -196,15 +281,21 @@ class InterviewRuntime:
         self.phase = InterviewPhase.ADVANCING
         next_q = self._get_next_question()
         logger.info(f"[Runtime] 进入第 {next_idx + 1} 题: {next_q[:50] if next_q else 'N/A'}...")
+        self._add_trace(
+            step="decision",
+            phase=InterviewPhase.ADVANCING.value,
+            status="completed",
+            output_summary=f"advance_to={next_idx}: {output.content[:120]}",
+        )
         
-        return {
+        return self._with_trace({
             "messages": [{"role": "assistant", "content": output.content}],
             "current_question_index": next_idx,
             "question_count": next_idx,
             "follow_up_count": 0,
             "current_sub_question": None,
             "turn_phase": "feedback",
-        }
+        })
 
     def _handle_end_round_action(self, output) -> Dict[str, Any]:
         """处理本轮结束动作"""
@@ -212,15 +303,21 @@ class InterviewRuntime:
         logger.info(f"[Runtime] 本轮面试结束, round={self.round_index}")
         
         content = getattr(output, 'content', '本轮面试到此结束，感谢你的参与！')
+        self._add_trace(
+            step="decision",
+            phase=InterviewPhase.END_ROUND.value,
+            status="completed",
+            output_summary=content[:120],
+        )
         
-        return {
+        return self._with_trace({
             "messages": [{"role": "assistant", "content": content}],
             "current_question_index": len(self.plan),  # 标记为已全部完成
             "question_count": len(self.plan),
             "follow_up_count": 0,
             "current_sub_question": None,
             "turn_phase": "feedback",
-        }
+        })
 
     # ------------------------------------------------------------------
     # 兜底逻辑
@@ -245,13 +342,19 @@ class InterviewRuntime:
 
     def _default_response(self, content: str) -> Dict[str, Any]:
         """生成默认响应"""
-        return {
+        self._add_trace(
+            step="default_response",
+            phase=self.phase.value,
+            status="completed",
+            output_summary=content[:120],
+        )
+        return self._with_trace({
             "messages": [{"role": "assistant", "content": content}],
             "turn_phase": "feedback",
             "current_question_index": self.current_idx,
             "follow_up_count": self.follow_up_count,
             "current_sub_question": None,
-        }
+        })
 
     # ------------------------------------------------------------------
     # Prompt 构建
@@ -280,7 +383,12 @@ class InterviewRuntime:
         return prompt
 
     def _build_evaluating_prompt(
-        self, user_answer: str, current_q: str, next_q: str, tool_context: str
+        self,
+        user_answer: str,
+        current_q: str,
+        next_q: str,
+        tool_context: str,
+        allow_tool_request: bool = False,
     ) -> str:
         """构建评估 prompt"""
         
@@ -313,6 +421,8 @@ class InterviewRuntime:
 - 进入下一题时必须完整复述新题原文
 - 如果是最后一题且回答充分，选择 end_round
 
+{self._build_tool_instruction(allow_tool_request)}
+
 {memo_hint(self.memory_context)}"""
         return prompt
 
@@ -320,11 +430,11 @@ class InterviewRuntime:
     # 工具调用
     # ------------------------------------------------------------------
 
-    async def execute_tools(self, tool_names: List[str]) -> Dict[str, Any]:
+    async def execute_tools(self, tool_requests: List[Any]) -> Dict[str, Any]:
         """在 evaluating 状态显式执行工具调用（不做 Agent 自主决策）
         
         Args:
-            tool_names: 要执行的工具名称列表
+            tool_requests: 工具请求列表，支持字符串名称或 {"tool_name", "tool_args"} 结构
             
         Returns:
             工具执行结果字典
@@ -334,15 +444,49 @@ class InterviewRuntime:
         if not self.tool_executor:
             return results
         
-        for name in tool_names:
+        for request in tool_requests:
+            if isinstance(request, str):
+                name = request
+                tool_args = {}
+                tool_reason = None
+            else:
+                name = str(request.get("tool_name", "")).strip()
+                tool_args = request.get("tool_args", {}) or {}
+                tool_reason = request.get("tool_reason")
             try:
-                result = await self.tool_executor(name, state=self.state)
+                self._add_trace(
+                    step="tool_call",
+                    phase=InterviewPhase.EVALUATING.value,
+                    tool_name=name,
+                    status="started",
+                    input_summary=str(tool_args)[:200],
+                )
+                result = await self.tool_executor(name, **tool_args)
                 results[name] = result
                 self.tool_results[name] = result
+                self.tool_round_count += 1
                 logger.info(f"[Runtime] 工具 {name} 执行完成")
+                self._add_trace(
+                    step="tool_call",
+                    phase=InterviewPhase.EVALUATING.value,
+                    tool_name=name,
+                    status="completed",
+                    input_summary=(tool_reason or str(tool_args))[:200],
+                    output_summary=str(result)[:300],
+                )
             except Exception as e:
                 logger.warning(f"[Runtime] 工具 {name} 执行失败: {e}")
                 results[name] = {"error": str(e)}
+                self.tool_results[name] = {"error": str(e)}
+                self.tool_round_count += 1
+                self._add_trace(
+                    step="tool_call",
+                    phase=InterviewPhase.EVALUATING.value,
+                    tool_name=name,
+                    status="failed",
+                    input_summary=str(tool_args)[:200],
+                    error=str(e),
+                )
         
         return results
 
@@ -386,6 +530,64 @@ class InterviewRuntime:
         if 0 <= next_idx < len(self.plan):
             return self.plan[next_idx].get("content", "")
         return ""
+
+    def _should_execute_tool(self, output: EvaluatingOutput) -> bool:
+        """判断是否需要执行工具。"""
+        return bool(
+            self.tool_executor
+            and self.tool_round_count < self.max_tool_rounds
+            and not self.tool_results
+            and output.need_tool
+            and output.tool_name
+        )
+
+    def _build_tool_instruction(self, allow_tool_request: bool) -> str:
+        """构建工具使用规则提示。"""
+        if not allow_tool_request:
+            return """【工具规则】：
+- 已有参考信息或本轮不允许继续查工具
+- 请直接给出最终 action / content
+- need_tool 必须为 false"""
+
+        return f"""【可用参考工具】（如确实需要补充信息，只能请求 1 个）：
+- search_question_bank: 查询相关面试题，tool_args 示例 {{"query": "Java并发", "difficulty": "medium"}}
+- get_candidate_profile: 查询候选人综合画像，tool_args 为空对象
+- get_interview_history: 查询当前会话历史，tool_args 为空对象
+- search_memory: 查询长期记忆，tool_args 示例 {{"query": "项目经验/薄弱项"}}
+
+【工具请求规则】：
+- 如果当前回答已经足够判断，need_tool=false
+- 如果需要额外背景再做决策，need_tool=true，并准确填写 tool_name / tool_args
+- 本轮最多请求 1 个工具
+- 工具只用于补充参考，不要把工具结果原样念给候选人"""
+
+    def _with_trace(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """为返回结果附带 trace。"""
+        return {**payload, "trace": list(self.trace)}
+
+    def _add_trace(
+        self,
+        step: str,
+        phase: str,
+        status: str,
+        tool_name: Optional[str] = None,
+        input_summary: Optional[str] = None,
+        output_summary: Optional[str] = None,
+        error: Optional[str] = None,
+    ) -> None:
+        """记录统一 trace 事件。"""
+        now = datetime.now(timezone.utc).isoformat()
+        self.trace.append({
+            "step": step,
+            "phase": phase,
+            "tool_name": tool_name,
+            "input_summary": input_summary,
+            "output_summary": output_summary,
+            "status": status,
+            "started_at": now,
+            "finished_at": now,
+            "error": error,
+        })
 
 
 def memo_hint(memory_context: str) -> str:

@@ -110,6 +110,8 @@ export interface CapturedJobSummary {
     custom_resume_id?: number | null;
     greetings: GreetingItem[];
     risk_flags: string[];
+    asset_run_id?: string | null;
+    asset_status?: 'queued' | 'retrying' | 'running' | 'succeeded' | 'failed' | 'cancelled' | null;
 }
 
 export interface CaptureRecommendationsRequest {

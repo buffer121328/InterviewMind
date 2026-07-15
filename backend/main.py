@@ -14,10 +14,11 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api import chat, upload, sessions, config, resume, voice_chat, applications
+from app.api import agent_runs, chat, upload, sessions, config, resume, voice_chat, applications
 from app.api.question_bank import router as question_bank_router
 from app.api.memory import router as memory_router
 from app.api.jobs import router as jobs_router
+from app.api.interview_experience import router as interview_experience_router
 from app.schemas.schemas import ErrorResponse
 from app.services.security import redact_secrets, safe_error_message
 
@@ -36,6 +37,10 @@ async def lifespan(app: FastAPI):
     """
     # 启动时执行
     logger.info("AI 面试助手后端服务启动中...")
+
+    from app.services.observability import configure_observability
+    if configure_observability():
+        logger.info("Langfuse Agent 观测已启用")
     
     # 初始化数据库（SQLAlchemy ORM 表结构同步）
     from app.models import init_db
@@ -77,6 +82,13 @@ async def cleanup_resources():
     清理所有资源，including数据库连接和图实例
     """
     logger.info("正在清理资源...")
+
+    try:
+        from app.services.observability import shutdown_observability
+        shutdown_observability()
+        logger.info("Langfuse 观测客户端已关闭")
+    except Exception as e:
+        logger.error(f"关闭 Langfuse 观测客户端时出错: {e}")
 
     # 等待/取消应用级后台任务
     try:
@@ -237,6 +249,7 @@ from fastapi.staticfiles import StaticFiles
 
 # 注册路由
 app.include_router(chat.router)
+app.include_router(agent_runs.router)
 app.include_router(upload.router)
 app.include_router(sessions.router)
 app.include_router(config.router)
@@ -246,6 +259,7 @@ app.include_router(applications.router)
 app.include_router(question_bank_router)
 app.include_router(memory_router)
 app.include_router(jobs_router)
+app.include_router(interview_experience_router)
 
 # 挂载静态文件目录
 static_dir = os.path.join(os.getcwd(), "static")

@@ -22,6 +22,8 @@ export interface ApiConfigActions {
     deleteModel: (id: string) => boolean;
     setSmartModel: (id: string) => boolean;
     setFastModel: (id: string) => boolean;
+    toggleReasoningPoolModel: (id: string) => boolean;
+    toggleFastPoolModel: (id: string) => boolean;
     getSmartModel: () => ModelConfig | null;
     getFastModel: () => ModelConfig | null;
     // 简历工具专家模型
@@ -48,6 +50,8 @@ export interface ApiConfigActions {
         hr_reviewer: { api_key: string; base_url: string; model: string };
         reflector: { api_key: string; base_url: string; model: string };
         voice: { api_key: string; base_url: string; model: string } | null;
+        reasoning_pool: Array<{ api_key: string; base_url: string; model: string; name: string; weight: number }>;
+        fast_pool: Array<{ api_key: string; base_url: string; model: string; name: string; weight: number }>;
     } | null;
 }
 
@@ -114,6 +118,8 @@ export const createApiConfigSlice = (set: SetState, get: GetState): ApiConfigSli
             models: apiConfig.models.filter(m => m.id !== id),
             smartModelId: apiConfig.smartModelId === id ? '' : apiConfig.smartModelId,
             fastModelId: apiConfig.fastModelId === id ? '' : apiConfig.fastModelId,
+            reasoningPoolModelIds: (apiConfig.reasoningPoolModelIds || []).filter(modelId => modelId !== id),
+            fastPoolModelIds: (apiConfig.fastPoolModelIds || []).filter(modelId => modelId !== id),
             generalModelId: apiConfig.generalModelId === id ? '' : apiConfig.generalModelId,
             matchAnalystModelId: apiConfig.matchAnalystModelId === id ? '' : apiConfig.matchAnalystModelId,
             contentWriterModelId: apiConfig.contentWriterModelId === id ? '' : apiConfig.contentWriterModelId,
@@ -137,6 +143,28 @@ export const createApiConfigSlice = (set: SetState, get: GetState): ApiConfigSli
         const { apiConfig } = get();
         if (!apiConfig.models.find(m => m.id === id)) return false;
         set({ apiConfig: { ...apiConfig, fastModelId: id } });
+        return true;
+    },
+
+    toggleReasoningPoolModel: (id) => {
+        const { apiConfig } = get();
+        if (!apiConfig.models.find(m => m.id === id)) return false;
+        const current = apiConfig.reasoningPoolModelIds || [];
+        const reasoningPoolModelIds = current.includes(id)
+            ? current.filter(modelId => modelId !== id)
+            : [...current, id];
+        set({ apiConfig: { ...apiConfig, reasoningPoolModelIds } });
+        return true;
+    },
+
+    toggleFastPoolModel: (id) => {
+        const { apiConfig } = get();
+        if (!apiConfig.models.find(m => m.id === id)) return false;
+        const current = apiConfig.fastPoolModelIds || [];
+        const fastPoolModelIds = current.includes(id)
+            ? current.filter(modelId => modelId !== id)
+            : [...current, id];
+        set({ apiConfig: { ...apiConfig, fastPoolModelIds } });
         return true;
     },
 
@@ -253,6 +281,18 @@ export const createApiConfigSlice = (set: SetState, get: GetState): ApiConfigSli
             };
         };
 
+        const getPoolConfig = (ids: string[] | undefined, fallback: ModelConfig) => {
+            const selected = (ids || [])
+                .map(id => get().apiConfig.models.find(model => model.id === id))
+                .filter((model): model is ModelConfig => Boolean(model?.apiKey));
+            const members = selected.length > 0 ? selected : [fallback];
+            return members.map(model => ({
+                ...getModelConfig(model),
+                name: model.name,
+                weight: 1,
+            }));
+        };
+
         return {
             smart: getModelConfig(smartModel),
             fast: getModelConfig(fastModel),
@@ -262,7 +302,8 @@ export const createApiConfigSlice = (set: SetState, get: GetState): ApiConfigSli
             hr_reviewer: getModelConfig(hrReviewerModel),
             reflector: getModelConfig(reflectorModel),
             voice: voiceModel ? getModelConfig(voiceModel) : null,
+            reasoning_pool: getPoolConfig(get().apiConfig.reasoningPoolModelIds, smartModel),
+            fast_pool: getPoolConfig(get().apiConfig.fastPoolModelIds, fastModel),
         };
     },
 });
-

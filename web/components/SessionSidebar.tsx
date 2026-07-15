@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import Image from 'next/image';
 import { motion, AnimatePresence } from 'framer-motion';
-import { PanelLeftClose, Plus, Settings, User, Bot, FileText, MessageCircle, Target, Trash2, MoreHorizontal, Briefcase, BookOpen } from 'lucide-react';
+import { PanelLeftClose, Plus, Settings, User, FileText, MessageCircle, Target, Trash2, MoreHorizontal, Briefcase, BookOpen, ListTodo } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { SessionList } from './SessionList';
@@ -9,10 +9,11 @@ import { ResumeHistoryList } from './ResumeHistoryList';
 import { GeneratedResumeList } from './GeneratedResumeList';
 import { ResumePreviewDialog } from './ResumePreviewDialog';
 import { cn } from '@/lib/utils';
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Avatar } from "@/components/ui/avatar";
 import { useInterviewStore } from '@/store/useInterviewStore';
 import { updateGeneratedResume } from '@/lib/api/resume';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { TaskCenterDialog } from './TaskCenterDialog';
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -36,6 +37,7 @@ interface SessionSidebarProps {
     onOpenSettings: () => void;
     currentView: 'interview' | 'resume' | 'applications' | 'questionbank' | 'boss';
     onViewChange: (view: 'interview' | 'resume' | 'applications' | 'questionbank' | 'boss') => void;
+    onViewSessionDetail?: (sessionId: string) => void;
 }
 
 export function SessionSidebar({
@@ -43,13 +45,16 @@ export function SessionSidebar({
     onClose,
     onOpenSettings,
     currentView,
-    onViewChange
+    onViewChange,
+    onViewSessionDetail,
 }: SessionSidebarProps) {
     const {
         // Interview Sessions
         sessions,
+        sessionsTotal,
         currentSession,
         sessionLoading,
+        fetchSessions,
         selectSession,
         createNewSession,
         deleteSession,
@@ -61,6 +66,7 @@ export function SessionSidebar({
         currentResumeResult,
         resumeResultLoading,
         fetchResumeResults,
+        resumeResultsTotal,
         selectResumeResult,
         deleteResumeResult,
         clearResumeResult,
@@ -88,6 +94,7 @@ export function SessionSidebar({
     const [resumeSubTab, setResumeSubTab] = useState<'analysis' | 'generated' | 'jd-match'>('analysis');
     const [showPreview, setShowPreview] = useState(false);
     const [jdMatchDeleteId, setJDMatchDeleteId] = useState<number | null>(null);
+    const [showTaskCenter, setShowTaskCenter] = useState(false);
 
     // 当切换到简历模式时，加载历史记录
     useEffect(() => {
@@ -105,8 +112,15 @@ export function SessionSidebar({
         }
     };
 
-    const handleResumeSelect = (resultId: number) => {
-        selectResumeResult(resultId);
+    const handleSessionDetail = (sessionId: string) => {
+        onViewSessionDetail?.(sessionId);
+        if (window.innerWidth < 768) {
+            onClose();
+        }
+    };
+
+    const handleResumeSelect = async (resultId: number) => {
+        await selectResumeResult(resultId);
         if (window.innerWidth < 768) {
             onClose();
         }
@@ -239,8 +253,11 @@ export function SessionSidebar({
                                     onDeleteSession={deleteSession}
                                     onEditSession={updateSessionTitle}
                                     onTogglePin={togglePinSession}
+                                    onViewDetails={onViewSessionDetail ? handleSessionDetail : undefined}
                                     currentSessionId={currentSession?.session_id}
                                     loading={sessionLoading}
+                                    hasMore={sessions.length < sessionsTotal}
+                                    onLoadMore={() => void fetchSessions(undefined, undefined, true)}
                                 />
                             ) : (
                                 <div className="h-full flex flex-col">
@@ -283,6 +300,8 @@ export function SessionSidebar({
                                                 onDelete={deleteResumeResult}
                                                 currentResultId={currentResumeResult?.id}
                                                 loading={resumeResultLoading}
+                                                hasMore={resumeResults.length < resumeResultsTotal}
+                                                onLoadMore={() => void fetchResumeResults(undefined, true)}
                                             />
                                         ) : resumeSubTab === 'jd-match' ? (
                                             <JDMatchHistoryList
@@ -317,7 +336,7 @@ export function SessionSidebar({
                                         : "text-gray-600 hover:text-gray-900 hover:bg-gray-100"
                                 )}
                                 onClick={() => {
-                                    onViewChange('questionbank' as any);
+                                    onViewChange('questionbank');
                                     if (window.innerWidth < 768) onClose();
                                 }}
                             >
@@ -353,7 +372,7 @@ export function SessionSidebar({
                                         : "text-gray-600 hover:text-gray-900 hover:bg-gray-100"
                                 )}
                                 onClick={() => {
-                                    onViewChange('boss' as any);
+                                    onViewChange('boss');
                                     if (window.innerWidth < 768) onClose();
                                 }}
                             >
@@ -375,6 +394,16 @@ export function SessionSidebar({
                                     <span className="text-sm font-medium">综合能力画像</span>
                                 </Button>
                             )}
+
+                            {/* 设置入口 */}
+                            <Button
+                                variant="ghost"
+                                className="w-full justify-start gap-3 h-10 text-gray-600 hover:text-gray-900 hover:bg-gray-100"
+                                onClick={() => setShowTaskCenter(true)}
+                            >
+                                <ListTodo className="w-4 h-4" />
+                                <span className="text-sm font-medium">任务中心</span>
+                            </Button>
 
                             {/* 设置入口 */}
                             <Button
@@ -414,6 +443,7 @@ export function SessionSidebar({
                     }
                 }}
             />
+            <TaskCenterDialog open={showTaskCenter} onOpenChange={setShowTaskCenter} />
 
             {/* JD 匹配删除确认 */}
             <AlertDialog open={jdMatchDeleteId !== null} onOpenChange={() => setJDMatchDeleteId(null)}>

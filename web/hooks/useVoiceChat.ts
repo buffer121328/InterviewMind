@@ -1,5 +1,11 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { toast } from 'sonner';
+import {
+    BrowserSpeechRecognition,
+    BrowserSpeechRecognitionEvent,
+    getAudioContextConstructor,
+    getSpeechRecognitionConstructor,
+} from '@/lib/browserSpeech';
 
 interface UseVoiceChatProps {
     onAudioInput?: (audioBlob: Blob, transcript?: string) => void;
@@ -9,9 +15,61 @@ interface UseVoiceChatProps {
     isMuted?: boolean;
 }
 
+function exportWAV(audioData: Float32Array[], sampleRate: number) {
+    const buffer = mergeBuffers(audioData);
+    const dataview = encodeWAV(buffer, sampleRate);
+    return new Blob([dataview], { type: 'audio/wav' });
+}
+
+function mergeBuffers(audioData: Float32Array[]) {
+    let length = 0;
+    audioData.forEach(chunk => length += chunk.length);
+    const result = new Float32Array(length);
+    let offset = 0;
+    audioData.forEach(chunk => {
+        result.set(chunk, offset);
+        offset += chunk.length;
+    });
+    return result;
+}
+
+function encodeWAV(samples: Float32Array, sampleRate: number) {
+    const buffer = new ArrayBuffer(44 + samples.length * 2);
+    const view = new DataView(buffer);
+    writeString(view, 0, 'RIFF');
+    view.setUint32(4, 36 + samples.length * 2, true);
+    writeString(view, 8, 'WAVE');
+    writeString(view, 12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, 1, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * 2, true);
+    view.setUint16(32, 2, true);
+    view.setUint16(34, 16, true);
+    writeString(view, 36, 'data');
+    view.setUint32(40, samples.length * 2, true);
+    floatTo16BitPCM(view, 44, samples);
+    return view;
+}
+
+function floatTo16BitPCM(output: DataView, offset: number, input: Float32Array) {
+    for (let i = 0; i < input.length; i++, offset += 2) {
+        const sample = Math.max(-1, Math.min(1, input[i]));
+        output.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7FFF, true);
+    }
+}
+
+function writeString(view: DataView, offset: number, value: string) {
+    for (let i = 0; i < value.length; i++) {
+        view.setUint8(offset + i, value.charCodeAt(i));
+    }
+}
+
 export function useVoiceChat({ onAudioInput, onVADStatusChange, onPlaybackComplete, isProcessing = false, isMuted = false }: UseVoiceChatProps) {
     const [isRecording, setIsRecording] = useState(false);
     const [audioLevel, setAudioLevel] = useState(0); // 0-100
+    const [liveTranscript, setLiveTranscript] = useState('');
 
     // 使用 Refs 来避免 event handler 中的 stale closure
     const onAudioInputRef = useRef(onAudioInput);
@@ -19,6 +77,7 @@ export function useVoiceChat({ onAudioInput, onVADStatusChange, onPlaybackComple
     const onPlaybackCompleteRef = useRef(onPlaybackComplete);
     const isMutedRef = useRef(isMuted);
     const internalProcessingRef = useRef(isProcessing);
+    const isRecordingRef = useRef(false);
 
     useEffect(() => { onAudioInputRef.current = onAudioInput; }, [onAudioInput]);
     useEffect(() => { onVADStatusChangeRef.current = onVADStatusChange; }, [onVADStatusChange]);
@@ -33,7 +92,7 @@ export function useVoiceChat({ onAudioInput, onVADStatusChange, onPlaybackComple
     const scriptProcessorRef = useRef<ScriptProcessorNode | null>(null);
 
     // Speech Recognition Refs
-    const recognitionRef = useRef<any>(null);
+    const recognitionRef = useRef<BrowserSpeechRecognition | null>(null);
     const transcriptBufferRef = useRef<string>('');  // 累积的 final transcript
     const interimTranscriptRef = useRef<string>(''); // 当前的 interim transcript（尚未确认）
 
@@ -52,13 +111,8 @@ export function useVoiceChat({ onAudioInput, onVADStatusChange, onPlaybackComple
     const pcmNextStartTimeRef = useRef<number>(0);
     const pcmActiveCountRef = useRef<number>(0);
     const streamEndedRef = useRef(false);
-
-    // 卸载时清理所有资源
-    useEffect(() => {
-        return () => {
-            stopRecording();
-        };
-    }, []);
+    const stopRecordingAndSendRef = useRef<() => void>(() => { });
+    const processQueueRef = useRef<() => void>(() => { });
 
     // Constants
     const VAD_THRESHOLD = 0.02;
@@ -70,9 +124,10 @@ export function useVoiceChat({ onAudioInput, onVADStatusChange, onPlaybackComple
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             mediaStreamRef.current = stream;
+            isRecordingRef.current = true;
 
             // AudioContext Setup
-            const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+            const AudioContextClass = getAudioContextConstructor();
             const audioContext = new AudioContextClass();
             audioContextRef.current = audioContext;
 
@@ -89,14 +144,14 @@ export function useVoiceChat({ onAudioInput, onVADStatusChange, onPlaybackComple
             processor.connect(audioContext.destination);
 
             // Speech Recognition Setup
-            const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+            const SpeechRecognition = getSpeechRecognitionConstructor();
             if (SpeechRecognition) {
                 const recognition = new SpeechRecognition();
                 recognition.continuous = true;
                 recognition.interimResults = true;
                 recognition.lang = 'zh-CN'; // Default to Chinese
 
-                recognition.onresult = (event: any) => {
+                recognition.onresult = (event: BrowserSpeechRecognitionEvent) => {
                     // 如果静音，忽略识别结果
                     if (isMutedRef.current) return;
 
@@ -117,21 +172,23 @@ export function useVoiceChat({ onAudioInput, onVADStatusChange, onPlaybackComple
 
                     // 更新 interim ref（这是当前正在说的、还没确认的部分）
                     interimTranscriptRef.current = currentInterim;
+                    setLiveTranscript((transcriptBufferRef.current + currentInterim).trim());
                 };
 
                 // Handle errors or stops
-                recognition.onerror = (event: any) => {
+                recognition.onerror = () => {
                     // console.warn('Speech recognition error', event.error);
                 };
 
                 recognition.onend = () => {
-                    if (isRecording && !isStoppingRef.current) {
-                        try { recognition.start(); } catch (e) { }
+                    if (isRecordingRef.current && !isStoppingRef.current) {
+                        try { recognition.start(); } catch { }
                     }
                 };
 
                 transcriptBufferRef.current = '';
                 interimTranscriptRef.current = '';  // 重置 interim transcript
+                setLiveTranscript('');
                 recognition.start();
                 recognitionRef.current = recognition;
             }
@@ -171,7 +228,7 @@ export function useVoiceChat({ onAudioInput, onVADStatusChange, onPlaybackComple
                         if (silenceStartRef.current === null) {
                             silenceStartRef.current = Date.now();
                         } else if (Date.now() - silenceStartRef.current > SILENCE_DURATION) {
-                            stopRecordingAndSend();
+                            stopRecordingAndSendRef.current();
                             return;
                         }
                     }
@@ -186,10 +243,11 @@ export function useVoiceChat({ onAudioInput, onVADStatusChange, onPlaybackComple
             onVADStatusChangeRef.current?.('listening');
 
         } catch (error) {
+            isRecordingRef.current = false;
             console.error('无法启动录音:', error);
             toast.error('无法访问麦克风，请检查权限');
         }
-    }, [isRecording]); // 移除 onVADStatusChange 依赖，改用 ref
+    }, []); // 使用 ref 读取录音和回调状态，避免闭包过期
 
     const stopRecordingAndSend = useCallback(async () => {
         // 静音防御：再次确认
@@ -213,6 +271,7 @@ export function useVoiceChat({ onAudioInput, onVADStatusChange, onPlaybackComple
         // 重置缓冲区
         transcriptBufferRef.current = '';
         interimTranscriptRef.current = '';
+        setLiveTranscript('');
 
         console.log('[useVoiceChat] 发送 transcript:', { finalPart, interimPart, combined: transcript });
 
@@ -223,9 +282,14 @@ export function useVoiceChat({ onAudioInput, onVADStatusChange, onPlaybackComple
         audioChunksRef.current = [];
     }, []);
 
+    useEffect(() => {
+        stopRecordingAndSendRef.current = stopRecordingAndSend;
+    }, [stopRecordingAndSend]);
+
     const stopRecording = useCallback(() => {
         // 立即标记正在停止，防止 VAD 或播放回调重新触发逻辑
         isStoppingRef.current = true;
+        isRecordingRef.current = false;
 
         console.log('[useVoiceChat] 正在停止录音并清理资源...');
 
@@ -285,17 +349,25 @@ export function useVoiceChat({ onAudioInput, onVADStatusChange, onPlaybackComple
         audioChunksRef.current = [];
         transcriptBufferRef.current = '';
         interimTranscriptRef.current = '';
+        setLiveTranscript('');
         internalProcessingRef.current = false;
 
         setIsRecording(false);
         onVADStatusChangeRef.current?.('idle');
     }, []);
 
+    // 卸载时清理所有资源
+    useEffect(() => {
+        return () => {
+            stopRecording();
+        };
+    }, [stopRecording]);
+
     // WAV Audio Player
     const playAudio = useCallback((base64Audio: string) => {
         if (isStoppingRef.current) return;
         audioQueueRef.current.push(base64Audio);
-        processQueue();
+        processQueueRef.current();
     }, []);
 
     const processQueue = useCallback(() => {
@@ -312,7 +384,7 @@ export function useVoiceChat({ onAudioInput, onVADStatusChange, onPlaybackComple
         audio.onended = () => {
             isPlayingRef.current = false;
             currentAudioRef.current = null;
-            processQueue();
+            processQueueRef.current();
             if (audioQueueRef.current.length === 0 && isRecording) {
                 onVADStatusChangeRef.current?.('listening');
             }
@@ -322,14 +394,18 @@ export function useVoiceChat({ onAudioInput, onVADStatusChange, onPlaybackComple
             if (!isStoppingRef.current) console.error('Audio error:', e);
             isPlayingRef.current = false;
             currentAudioRef.current = null;
-            if (!isStoppingRef.current) processQueue();
+            if (!isStoppingRef.current) processQueueRef.current();
         };
 
         audio.play().catch(() => {
             isPlayingRef.current = false;
-            processQueue();
+            processQueueRef.current();
         });
     }, [isRecording]);
+
+    useEffect(() => {
+        processQueueRef.current = processQueue;
+    }, [processQueue]);
 
     // PCM Chunk Player
     const playPcmData = useCallback((base64Chunk: string) => {
@@ -340,7 +416,7 @@ export function useVoiceChat({ onAudioInput, onVADStatusChange, onPlaybackComple
 
         // 如果没有 AudioContext，创建一个专门用于播放的
         if (!audioContextRef.current) {
-            const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+            const AudioContextClass = getAudioContextConstructor();
             audioContextRef.current = new AudioContextClass();
             console.log('[useVoiceChat] 为播放创建了新的 AudioContext');
         }
@@ -398,7 +474,7 @@ export function useVoiceChat({ onAudioInput, onVADStatusChange, onPlaybackComple
                     if (recognitionRef.current) {
                         try {
                             recognitionRef.current.start();
-                        } catch (e) { /* ignore - may already be running */ }
+                        } catch { /* ignore - may already be running */ }
                     }
 
                     onVADStatusChangeRef.current?.('listening');
@@ -424,7 +500,7 @@ export function useVoiceChat({ onAudioInput, onVADStatusChange, onPlaybackComple
         if (recognitionRef.current) {
             try {
                 recognitionRef.current.stop();
-            } catch (e) { /* ignore */ }
+            } catch { /* ignore */ }
         }
         transcriptBufferRef.current = '';
         interimTranscriptRef.current = '';
@@ -441,7 +517,7 @@ export function useVoiceChat({ onAudioInput, onVADStatusChange, onPlaybackComple
             if (recognitionRef.current) {
                 try {
                     recognitionRef.current.start();
-                } catch (e) { /* ignore - may already be running */ }
+                } catch { /* ignore - may already be running */ }
             }
 
             onVADStatusChangeRef.current?.('listening');
@@ -449,58 +525,12 @@ export function useVoiceChat({ onAudioInput, onVADStatusChange, onPlaybackComple
         }
     }, []);
 
-    // WAV Helper functions
-    function exportWAV(audioData: Float32Array[], sampleRate: number) {
-        const buffer = mergeBuffers(audioData);
-        const dataview = encodeWAV(buffer, sampleRate);
-        return new Blob([dataview], { type: 'audio/wav' });
-    }
-    function mergeBuffers(audioData: Float32Array[]) {
-        let length = 0;
-        audioData.forEach(chunk => length += chunk.length);
-        const result = new Float32Array(length);
-        let offset = 0;
-        audioData.forEach(chunk => {
-            result.set(chunk, offset);
-            offset += chunk.length;
-        });
-        return result;
-    }
-    function encodeWAV(samples: Float32Array, sampleRate: number) {
-        const buffer = new ArrayBuffer(44 + samples.length * 2);
-        const view = new DataView(buffer);
-        writeString(view, 0, 'RIFF');
-        view.setUint32(4, 36 + samples.length * 2, true);
-        writeString(view, 8, 'WAVE');
-        writeString(view, 12, 'fmt ');
-        view.setUint32(16, 16, true);
-        view.setUint16(20, 1, true);
-        view.setUint16(22, 1, true);
-        view.setUint32(24, sampleRate, true);
-        view.setUint32(28, sampleRate * 2, true);
-        view.setUint16(32, 2, true);
-        view.setUint16(34, 16, true);
-        writeString(view, 36, 'data');
-        view.setUint32(40, samples.length * 2, true);
-        floatTo16BitPCM(view, 44, samples);
-        return view;
-    }
-    function floatTo16BitPCM(output: DataView, offset: number, input: Float32Array) {
-        for (let i = 0; i < input.length; i++, offset += 2) {
-            const s = Math.max(-1, Math.min(1, input[i]));
-            output.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
-        }
-    }
-    function writeString(view: DataView, offset: number, string: string) {
-        for (let i = 0; i < string.length; i++) {
-            view.setUint8(offset + i, string.charCodeAt(i));
-        }
-    }
-
     return {
         isRecording,
         audioLevel,
+        liveTranscript,
         startRecording,
+        finishCurrentTurn: stopRecordingAndSend,
         stopRecording,
         playAudio,
         playPcmData,

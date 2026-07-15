@@ -250,3 +250,18 @@ class TestRecommendation:
         }
         result = _generate_recommendation([profile], [])
         assert result == "reject"
+
+    def test_invalid_recommendation_falls_back_to_scores(self):
+        profile = {
+            "professional_competence": {"score": 9},
+            "execution_results": {"score": 8},
+            "logic_problem_solving": {"score": 8},
+            "communication": {"score": 8},
+            "growth_potential": {"score": 8},
+            "collaboration": {"score": 8},
+            "recommendation": "unknown",
+        }
+
+        result = _generate_recommendation([profile], [])
+
+        assert result == "hire"

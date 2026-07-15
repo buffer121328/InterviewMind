@@ -40,8 +40,8 @@ class TestGreetingGenerator:
         }
 
         with patch(
-            "app.services.jobs.greeting_generator.invoke_structured",
-            return_value=mock_output,
+            "app.services.llm_utils.invoke_structured",
+            new=AsyncMock(return_value=mock_output),
         ):
             greetings = await generate_greetings(
                 company_name="字节跳动",
@@ -85,8 +85,8 @@ class TestGreetingGenerator:
         }
 
         with patch(
-            "app.services.jobs.greeting_generator.invoke_structured",
-            return_value=mock_output,
+            "app.services.llm_utils.invoke_structured",
+            new=AsyncMock(return_value=mock_output),
         ):
             greetings = await generate_greetings(
                 company_name="字节跳动",
@@ -103,8 +103,8 @@ class TestGreetingGenerator:
         from app.services.jobs.greeting_generator import generate_greetings
 
         with patch(
-            "app.services.jobs.greeting_generator.invoke_structured",
-            side_effect=Exception("LLM unavailable"),
+            "app.services.llm_utils.invoke_structured",
+            new=AsyncMock(side_effect=Exception("LLM unavailable")),
         ):
             greetings = await generate_greetings(
                 company_name="字节跳动",

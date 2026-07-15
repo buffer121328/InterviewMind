@@ -8,12 +8,16 @@ import json
 
 import pytest
 from langgraph.graph import END
+from pydantic import ValidationError
 
-# 被测模块 ─ 路由 & 分类
+# 被测模块 ─ 路由
 from app.services.interview.interview_graph import (
     route_entry,
     route_after_responder,
-    _classify_responder_action,
+)
+from app.services.interview.interview_output_contract import (
+    EvaluatingOutput,
+    InterviewerAction,
 )
 # 被测模块 ─ 规划器
 from app.services.interview.interview_planner import (
@@ -108,61 +112,28 @@ class TestRouteAfterResponder:
 
 
 # ============================================================================
-# _classify_responder_action
+# 结构化 action 协议
 # ============================================================================
 
 @pytest.mark.fast
-class TestClassifyResponderAction:
+class TestStructuredResponderAction:
 
-    def test_empty_response_returns_next_question(self):
-        assert _classify_responder_action("", "当前题", "下一题") == "next_question"
+    def test_follow_up_action_is_explicit(self):
+        output = EvaluatingOutput(
+            evaluation_notes="回答缺少具体实现细节",
+            action=InterviewerAction.FOLLOW_UP,
+            content="能具体说明你的实现方案吗？",
+        )
 
-    def test_none_response_returns_next_question(self):
-        assert _classify_responder_action(None, "当前题", "下一题") == "next_question"
+        assert output.action is InterviewerAction.FOLLOW_UP
 
-    def test_whitespace_only_returns_next_question(self):
-        assert _classify_responder_action("   ", "当前题", "下一题") == "next_question"
-
-    def test_next_question_in_response_returns_next_question(self):
-        current = "你的项目经历是什么？"
-        next_q = "请介绍一下你的技术栈"
-        response = f"很好，接下来{next_q}"
-        assert _classify_responder_action(response, current, next_q) == "next_question"
-
-    def test_chinese_question_mark_triggers_follow_up(self):
-        response = "你说的这个方案，具体是怎么实现的？"
-        assert _classify_responder_action(response, "Q1", "Q2") == "follow_up"
-
-    def test_english_question_mark_triggers_follow_up(self):
-        response = "Can you explain why you chose this approach?"
-        assert _classify_responder_action(response, "Q1", "Q2") == "follow_up"
-
-    @pytest.mark.parametrize("marker", [
-        "追问", "详细说说", "再解释", "展开", "为什么",
-        "具体", "举个例子", "能否", "可以说说", "怎么做",
-        "如何", "哪一步", "什么原因",
-    ])
-    def test_follow_up_markers_trigger_follow_up(self, marker):
-        response = f"你能{marker}一下这个问题吗"
-        assert _classify_responder_action(response, "Q1", "Q2") == "follow_up"
-
-    def test_plain_statement_returns_next_question(self):
-        response = "好的，我了解了你的情况。"
-        assert _classify_responder_action(response, "Q1", "Q2") == "next_question"
-
-    def test_empty_next_question_with_question_mark_returns_follow_up(self):
-        response = "你能具体说说吗？"
-        # next_question is empty — should still detect follow_up via markers
-        assert _classify_responder_action(response, "Q1", "") == "follow_up"
-
-    def test_next_question_in_response_even_with_question_mark(self):
-        """
-        如果回复中明确包含下一题文本，即使有问号也应判定为 next_question。
-        （next_question 匹配优先于问号/标记检测。）
-        """
-        next_q = "请介绍一下你的技术栈"
-        response = f"好的，{next_q}？"
-        assert _classify_responder_action(response, "Q1", next_q) == "next_question"
+    def test_rejects_retired_text_action(self):
+        with pytest.raises(ValidationError):
+            EvaluatingOutput(
+                evaluation_notes="继续面试",
+                action="next_question",
+                content="请进入下一题",
+            )
 
 
 # ============================================================================
