@@ -28,6 +28,9 @@ AGENT_RUN_LOCK_TTL_SECONDS=600
 AGENT_RUN_MAX_ATTEMPTS=3
 # queued/retrying 长时间未领取或 running 无阶段更新时，任务中心会自动重新投递。
 AGENT_RUN_STALE_SECONDS=1800
+AGENT_RUN_HEARTBEAT_SECONDS=30
+# 交互式简历生成会话在 PostgreSQL 中保留的时间。
+RESUME_GENERATION_SESSION_TTL_HOURS=24
 
 # ----------------------------------------------------------------------------
 # Web/API
@@ -50,6 +53,8 @@ LLM_POOL_COOLDOWN_SECONDS=60
 # 多 API/Worker 共享轮询、冷却和并发计数；Redis 不可用时自动降级到进程内。
 LLM_POOL_REDIS_ENABLED=true
 LLM_POOL_INFLIGHT_TTL_SECONDS=600
+# 个人本地模式允许 Ollama/vLLM/LM Studio；公开部署时应设为 false。
+ALLOW_PRIVATE_MODEL_BASE_URLS=true
 
 # ----------------------------------------------------------------------------
 # RAG Embedding（OpenAI-compatible）
@@ -108,6 +113,8 @@ BOSS_AUTOMATION_SERVICE_URL=http://host.docker.internal:8765
 # 至少 32 字符，API 与宿主机自动化服务必须一致。
 BOSS_AUTOMATION_SERVICE_TOKEN=
 BOSS_AUTOMATION_REQUEST_TIMEOUT_SECONDS=240
+# 岗位 URL HTTP 抓取最大响应体，超过后中止。
+JOB_CAPTURE_MAX_RESPONSE_BYTES=2097152
 # 仅由宿主机服务读取；留空默认 backend/data/browser_profiles/boss。
 BOSS_BROWSER_PROFILE_DIR=
 BOSS_APPLY_APPROVAL_TTL_SECONDS=300

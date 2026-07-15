@@ -49,6 +49,7 @@
 - SSE 流式输出面试官回答与即时反馈
 - 自动生成面试总结；面试完成后自动创建可恢复的本轮能力画像与短板报告任务
 - 首题、简历优化、面试报告和岗位资产统一使用 Redis + Dramatiq 持久化任务；支持进度、取消、失败重试和中断恢复
+- 长任务同时维护 Redis 锁续租和数据库心跳，避免锁过期或被错误恢复为重复任务
 - LLM 单次请求有超时、模型池 fallback 与默认题兜底，避免长时间无响应
 - 题库、面经、历史作答与长期记忆统一检索；低置信度时可触发有轮次上限的 Agentic Retrieval
 
@@ -57,11 +58,13 @@
 - **Fast Pool**：可组合 DeepSeek Chat/Flash、GLM Flash 和本地 OpenAI-compatible 小模型
 - **Reasoning Pool**：可组合 DeepSeek Reasoner、GLM 推理模型和企业模型接口
 - 同池请求采用加权轮询；Redis 跨 API/Worker 共享游标、失败冷却和 in-flight，并优先选择当前并发更少的成员
+- 模型池回调遵循 LangChain CallbackHandler 协议；模型地址执行出站 URL 校验，本地模型可通过配置开关保留
 - 保留 Smart/Fast 单模型配置，旧浏览器配置自动兼容为单成员池
 - 普通面试回答通过 SSE 逐 token 返回，前端同步展示执行计划和步骤状态
 - 首题异步任务显示排队、上下文加载和首题生成进度
 - 历史面试支持统一详情页，可查看会话概览、完整问答、面试总结、能力画像和短板报告，并可加载更多
 - 投递记录提供分页列表、详情抽屉和事件流水；简历分析/优化历史采用轻量列表 + 完整详情接口和加载更多
+- 交互式简历生成会话持久化到 PostgreSQL，刷新页面或重启后端后仍可继续
 - 前端任务中心统一展示四类任务的步骤、尝试次数、失败原因、取消与重试
 
 ```text
@@ -101,6 +104,8 @@ LangGraph → SSE(plan / step_update / token / state_update / done)
 Langfuse 可关联 Agent、工具和模型调用；DeepEval 提供离线工具正确性检查与可选的 LLM-as-Judge 质量评测。两者均可按环境变量和测试标记按需启用，不影响核心业务链路。
 
 > 面试评分、能力画像和改进建议用于个人练习与复盘，不代表真实招聘结论，也不替代人工判断。
+>
+> 当前默认仍是个人本地模式，不包含账号登录系统；请不要直接暴露到公网。
 
 ---
 
@@ -222,7 +227,7 @@ uv run alembic upgrade head
 uv run python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-> 当前 Alembic 从 `20260712_01` 开始记录增量变更。全新开发库应先启动一次后端，让 `create_all`
+> 当前 Alembic 从 `20260712_01` 开始记录增量变更，最新 head 为 `20260716_03`。全新开发库应先启动一次后端，让 `create_all`
 > 创建完整 schema；停止后端后执行 `uv run alembic stamp head`，再正常启动。已有库则应在启动新代码前执行 `upgrade head`。
 
 后端将在 `http://localhost:8000` 启动，API 文档访问 `http://localhost:8000/docs`

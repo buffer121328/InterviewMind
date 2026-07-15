@@ -11,6 +11,7 @@ from .resume import (
     CandidateMaterialModel,
     ResumeAssemblyResultModel,
     ProjectRewriteRecordModel,
+    ResumeGenerationSessionModel,
 )
 from .interview import (
     WeaknessReportModel,
@@ -33,6 +34,7 @@ __all__ = [
     # resume
     "ResumeResultModel", "GeneratedResumeModel", "CandidateMaterialModel",
     "ResumeAssemblyResultModel", "ProjectRewriteRecordModel",
+    "ResumeGenerationSessionModel",
     # interview
     "WeaknessReportModel", "QuestionBankItemModel", "QuestionBankImportModel",
     "QuestionBankFollowupModel", "InterviewQuestionAttemptModel",

@@ -123,3 +123,34 @@ async def test_resume_generation_cannot_bypass_pending_review():
 
     assert exc_info.value.status_code == 409
     start_generation.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_resume_generation_submit_and_status_are_user_scoped(monkeypatch):
+    from types import SimpleNamespace
+    from app.api import resume as resume_api
+
+    submit_calls = []
+    status_calls = []
+
+    async def fake_submit(**kwargs):
+        submit_calls.append(kwargs)
+        return {"resume_id": 1, "title": "简历", "content": "内容"}
+
+    async def fake_status(session_id, user_id):
+        status_calls.append((session_id, user_id))
+        return {"status": "awaiting_input"}
+
+    monkeypatch.setattr(resume_api, "submit_user_answers", fake_submit)
+    monkeypatch.setattr(resume_api, "get_session_status", fake_status)
+    request = SimpleNamespace(
+        session_id="session-1",
+        answers={"问题": "回答"},
+        api_config=SimpleNamespace(model_dump=lambda: {"smart": {"api_key": "x"}}),
+    )
+
+    await resume_api.submit_generation_answers(request, user_id="user-1")
+    await resume_api.get_generation_session_status("session-1", user_id="user-1")
+
+    assert submit_calls[0]["user_id"] == "user-1"
+    assert status_calls == [("session-1", "user-1")]

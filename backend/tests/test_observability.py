@@ -158,6 +158,7 @@ def test_llm_factory_attaches_langfuse_callback_only_when_active(monkeypatch):
 
     monkeypatch.setattr(llms, "ChatOpenAI", FakeChatOpenAI)
     monkeypatch.setattr(llms, "get_langchain_callbacks", lambda: ["langfuse-callback"])
+    monkeypatch.setattr(llms, "validate_outbound_url", lambda *_args, **_kwargs: None)
 
     llms.create_llm_from_config(
         api_key="test-key",

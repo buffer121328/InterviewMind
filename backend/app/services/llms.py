@@ -9,9 +9,11 @@ from time import monotonic, time
 from typing import Any, Optional
 
 from langchain_openai import ChatOpenAI
+from langchain_core.callbacks.base import BaseCallbackHandler
 
 from app.config import get_settings
 from app.services.observability import get_langchain_callbacks
+from app.services.url_security import validate_outbound_url
 
 
 # ============================================================================
@@ -29,6 +31,7 @@ def create_llm_from_config(
 ) -> ChatOpenAI:
     """根据用户提供的 OpenAI-compatible 配置创建 LLM 实例。"""
     settings = get_settings()
+    validate_outbound_url(base_url, allow_private=settings.allow_private_model_base_urls)
     options = {
         "temperature": temperature,
         "max_tokens": max_tokens or settings.llm_max_tokens,
@@ -263,7 +266,7 @@ class ModelPoolScheduler:
             self._inflight.clear()
 
 
-class _ModelPoolCallback:
+class _ModelPoolCallback(BaseCallbackHandler):
     """覆盖真实 LangChain 调用的全局健康与 in-flight 统计。"""
 
     def __init__(self, scheduler: ModelPoolScheduler, identity: str) -> None:

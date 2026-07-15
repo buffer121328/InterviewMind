@@ -20,6 +20,7 @@ class AppSettings(BaseSettings):
     llm_pool_cooldown_seconds: int = Field(default=60, ge=1, le=3600)
     llm_pool_redis_enabled: bool = True
     llm_pool_inflight_ttl_seconds: int = Field(default=600, ge=30, le=3600)
+    allow_private_model_base_urls: bool = True
     api_config_validation_timeout_seconds: int = Field(default=10, ge=1, le=60)
 
     boss_automation_service_url: str = ""

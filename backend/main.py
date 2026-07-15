@@ -195,6 +195,11 @@ app.add_middleware(
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request, exc):
     """HTTP 异常处理"""
+    if exc.status_code >= 500:
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"error": "InternalServerError", "message": "服务器内部错误，请稍后重试"},
+        )
     return JSONResponse(
         status_code=exc.status_code,
         content=redact_secrets(exc.detail) if isinstance(exc.detail, dict) else {

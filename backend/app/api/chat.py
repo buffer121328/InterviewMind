@@ -847,6 +847,8 @@ async def get_session_profile(
             "profile": profile
         }
         
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"获取会话画像失败: {str(e)}")
         raise HTTPException(

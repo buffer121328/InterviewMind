@@ -1,6 +1,8 @@
 """单用户 LLM 运行门禁。Redis 可用时跨 API/Worker 进程共享，否则仅本进程生效。"""
 
 import asyncio
+import contextlib
+import logging
 import os
 import secrets
 from dataclasses import dataclass
@@ -8,6 +10,7 @@ from typing import Protocol
 
 
 LOCK_KEY = "agent_interview:single_user:llm_active"
+logger = logging.getLogger(__name__)
 
 
 class _Lease(Protocol):
@@ -38,15 +41,47 @@ class LocalRunGate:
 class RedisLease:
     client: object
     token: str
+    ttl: int
+    renew_task: asyncio.Task | None = None
+
+    def start_renewal(self) -> None:
+        self.renew_task = asyncio.create_task(self._renew_loop(), name="agent-run-lock-renewal")
+
+    async def _renew_loop(self) -> None:
+        interval = max(1, self.ttl // 3)
+        while True:
+            await asyncio.sleep(interval)
+            try:
+                renewed = await self.client.eval(
+                    "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('expire', KEYS[1], ARGV[2]) end return 0",
+                    1,
+                    LOCK_KEY,
+                    self.token,
+                    self.ttl,
+                )
+                if not renewed:
+                    logger.error("Agent 运行锁已丢失，无法继续续租")
+                    return
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.warning("Agent 运行锁续租失败，将继续重试: %s", type(exc).__name__)
 
     async def release(self) -> None:
+        if self.renew_task is not None:
+            self.renew_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self.renew_task
         # 只删除自己持有的锁，避免 TTL 到期后误删下一次运行的锁。
-        await self.client.eval(
-            "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) end return 0",
-            1,
-            LOCK_KEY,
-            self.token,
-        )
+        try:
+            await self.client.eval(
+                "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) end return 0",
+                1,
+                LOCK_KEY,
+                self.token,
+            )
+        except Exception as exc:
+            logger.warning("Agent 运行锁释放失败，等待 TTL 自动过期: %s", type(exc).__name__)
 
 
 class RedisRunGate:
@@ -59,7 +94,11 @@ class RedisRunGate:
     async def acquire(self) -> _Lease | None:
         token = secrets.token_urlsafe(16)
         acquired = await self._client.set(LOCK_KEY, token, nx=True, ex=self._ttl)
-        return RedisLease(self._client, token) if acquired else None
+        if not acquired:
+            return None
+        lease = RedisLease(self._client, token, self._ttl)
+        lease.start_renewal()
+        return lease
 
 
 _local_gate = LocalRunGate()

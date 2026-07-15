@@ -24,6 +24,18 @@ async def execute_resume_optimize(payload: dict, user_id: str, progress: Progres
     from app.services.resume.resume_review import initialize_review
 
     await progress("preparing")
+    agent_run_id = payload.get("_agent_run_id")
+    resume_repo = get_resume_repo()
+    if agent_run_id:
+        existing = await resume_repo.get_result_by_agent_run_id(agent_run_id, user_id)
+        if existing:
+            public_result = pipeline_to_optimize_result(existing["result_data"])
+            return {
+                "success": True,
+                "result_id": existing["id"],
+                "result": public_result.model_dump(),
+                "warnings": existing["result_data"].get("errors") or [],
+            }
     session_ids = payload.get("session_ids") or []
     if len(session_ids) > 3:
         raise ValueError("最多只能选择 3 个面试记录")
@@ -38,7 +50,7 @@ async def execute_resume_optimize(payload: dict, user_id: str, progress: Progres
     )
     result = initialize_review(result)
     await progress("saving_result")
-    result_id = await get_resume_repo().save_result(
+    result_id = await resume_repo.save_result(
         user_id=user_id,
         result_type="optimize",
         resume_content=payload["resume_content"],
@@ -46,6 +58,7 @@ async def execute_resume_optimize(payload: dict, user_id: str, progress: Progres
         job_description=payload.get("job_description"),
         session_ids=session_ids,
         include_profile=bool(payload.get("include_overall_profile", False)),
+        agent_run_id=agent_run_id,
     )
     public_result = pipeline_to_optimize_result(result)
     return {
@@ -115,6 +128,7 @@ async def execute_job_assets(payload: dict, user_id: str, progress: ProgressCall
         api_config=payload.get("api_config"),
         include_project_rewrite=bool(payload.get("include_project_rewrite", False)),
         template_style=payload.get("template_style", "professional"),
+        agent_run_id=payload.get("_agent_run_id"),
     )
     if not result.get("success"):
         raise RuntimeError(result.get("message") or "岗位资产生成失败")

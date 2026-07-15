@@ -5,7 +5,7 @@
 """
 
 from datetime import datetime
-from sqlalchemy import String, Text, Integer, Boolean, Float, ForeignKey, DateTime, Index
+from sqlalchemy import String, Text, Integer, Boolean, Float, ForeignKey, DateTime, Index, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 from .base import Base
@@ -22,11 +22,13 @@ class ResumeResultModel(Base):
     session_ids: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     include_profile: Mapped[bool] = mapped_column(Boolean, default=False)
     result_data: Mapped[dict] = mapped_column(JSONB)
+    agent_run_id: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime)
 
     __table_args__ = (
         Index("idx_resume_results_user", "user_id", "created_at"),
         Index("idx_resume_results_type", "result_type"),
+        UniqueConstraint("agent_run_id", name="uq_resume_results_agent_run"),
     )
 
 
@@ -39,10 +41,41 @@ class GeneratedResumeModel(Base):
     optimization_result_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     job_description: Mapped[str | None] = mapped_column(Text, nullable=True)
     content: Mapped[str] = mapped_column(Text)
+    generation_session_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    agent_run_id: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime)
 
     __table_args__ = (
         Index("idx_generated_resumes_user", "user_id", "created_at"),
+        UniqueConstraint("generation_session_id", name="uq_generated_resumes_generation_session"),
+        UniqueConstraint("agent_run_id", name="uq_generated_resumes_agent_run"),
+    )
+
+
+class ResumeGenerationSessionModel(Base):
+    __tablename__ = "resume_generation_sessions"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    user_id: Mapped[str] = mapped_column(String, index=True)
+    resume_content: Mapped[str] = mapped_column(Text)
+    job_description: Mapped[str] = mapped_column(Text)
+    optimization_result: Mapped[dict] = mapped_column(JSONB, default=dict)
+    template_style: Mapped[str] = mapped_column(String, default="professional")
+    questions: Mapped[list] = mapped_column(JSONB, default=list)
+    user_answers: Mapped[dict] = mapped_column(JSONB, default=dict)
+    review_result: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    iteration_count: Mapped[int] = mapped_column(Integer, default=0)
+    draft_content: Mapped[str] = mapped_column(Text, default="")
+    final_markdown: Mapped[str] = mapped_column(Text, default="")
+    generated_resume_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    agent_run_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    status: Mapped[str] = mapped_column(String, default="pending")
+    created_at: Mapped[datetime] = mapped_column(DateTime)
+    updated_at: Mapped[datetime] = mapped_column(DateTime)
+
+    __table_args__ = (
+        Index("idx_resume_generation_sessions_user", "user_id", "updated_at"),
+        Index("idx_resume_generation_sessions_status", "status", "updated_at"),
     )
 
 

@@ -547,6 +547,7 @@ async def submit_generation_answers(
         result = await submit_user_answers(
             session_id=request.session_id,
             answers=request.answers,
+            user_id=user_id,
             api_config=request.api_config.model_dump() if request.api_config else None
         )
         
@@ -565,11 +566,14 @@ async def submit_generation_answers(
 
 
 @router.get("/generation/session/{session_id}")
-async def get_generation_session_status(session_id: str):
+async def get_generation_session_status(
+    session_id: str,
+    user_id: str = Depends(get_current_user_id),
+):
     """
     获取生成会话状态（用于页面刷新后恢复）
     """
-    status = await get_session_status(session_id)
+    status = await get_session_status(session_id, user_id)
     
     if not status:
         raise HTTPException(status_code=404, detail="会话不存在或已过期")

@@ -34,6 +34,7 @@ class ResumeGenerationState(TypedDict):
     template_style: str
     api_config: Optional[dict]
     user_id: str
+    agent_run_id: Optional[str]
     
     # 中间状态
     missing_info_analysis: Optional[dict]
@@ -669,21 +670,22 @@ async def init_generation_session(
     optimization_result: dict,
     user_id: str,
     template_style: str = "professional",
-    api_config: Optional[dict] = None
+    api_config: Optional[dict] = None,
+    agent_run_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     初始化简历生成会话
     """
     session_id = str(uuid.uuid4())
     
-    # 创建内存会话
-    session = session_store.create(
+    await session_store.create(
         session_id=session_id,
         user_id=user_id,
         resume_content=resume_content,
         job_description=job_description,
         optimization_result=optimization_result,
-        template_style=template_style
+        template_style=template_style,
+        agent_run_id=agent_run_id,
     )
     
     # 初始化状态
@@ -694,6 +696,7 @@ async def init_generation_session(
         "template_style": template_style,
         "api_config": api_config,
         "user_id": user_id,
+        "agent_run_id": agent_run_id,
         "missing_info_analysis": None,
         "questions": [],
         "user_answers": {},
@@ -717,8 +720,9 @@ async def init_generation_session(
     
     if has_gaps and questions:
         # 需要用户输入
-        session_store.update(
+        await session_store.update(
             session_id,
+            user_id=user_id,
             status="awaiting_input",
             questions=questions
         )
@@ -740,18 +744,28 @@ async def init_generation_session(
 async def submit_user_answers(
     session_id: str,
     answers: Dict[str, str],
+    user_id: str,
     api_config: Optional[dict] = None
 ) -> Dict[str, Any]:
     """
     提交用户回答并继续生成
     """
-    session = session_store.get(session_id)
+    session = await session_store.get(session_id, user_id=user_id)
     if not session:
         raise ValueError(f"会话不存在或已过期: {session_id}")
+    if session.status == "completed" and session.generated_resume_id:
+        existing = await get_generation_repo().get_generated_resume(session.generated_resume_id, user_id)
+        if existing:
+            return {
+                "resume_id": existing["id"],
+                "title": existing["title"],
+                "content": existing["content"],
+            }
     
     # 更新会话
-    session_store.update(
+    await session_store.update(
         session_id,
+        user_id=user_id,
         user_answers=answers,
         status="generating"
     )
@@ -764,6 +778,7 @@ async def submit_user_answers(
         "template_style": session.template_style,
         "api_config": api_config,
         "user_id": session.user_id,
+        "agent_run_id": session.agent_run_id,
         "missing_info_analysis": None,
         "questions": session.questions,
         "user_answers": answers,
@@ -791,7 +806,7 @@ async def _complete_generation(
     完成生成流程（内部函数）
     流程：初稿生成 -> 初稿优化 -> 风控核查 -> 润色审查
     """
-    session_store.update(session_id, status="generating")
+    await session_store.update(session_id, user_id=state["user_id"], status="generating")
     graph = build_resume_generation_graph()
     final_state = await graph.ainvoke(state)
 
@@ -802,20 +817,24 @@ async def _complete_generation(
     
     # 保存到数据库
     service = get_generation_repo()
-    session = session_store.get(session_id)
+    session = await session_store.get(session_id, user_id=state["user_id"])
     
     resume_id = await service.save_generated_resume(
         user_id=session.user_id if session else final_state["user_id"],
         title=final_state["title"],
         content=final_state["final_markdown"],
-        job_description=final_state.get("job_description")
+        job_description=final_state.get("job_description"),
+        generation_session_id=session_id,
+        agent_run_id=state.get("agent_run_id"),
     )
     
     # 更新会话状态
-    session_store.update(
+    await session_store.update(
         session_id,
+        user_id=state["user_id"],
         status="completed",
-        final_markdown=final_state["final_markdown"]
+        final_markdown=final_state["final_markdown"],
+        generated_resume_id=resume_id,
     )
     
     logger.info(f"生成流程全部完成: resume_id={resume_id}, title={final_state['title']}")
@@ -829,11 +848,11 @@ async def _complete_generation(
     }
 
 
-async def get_session_status(session_id: str) -> Optional[Dict[str, Any]]:
+async def get_session_status(session_id: str, user_id: str) -> Optional[Dict[str, Any]]:
     """
     获取会话状态
     """
-    session = session_store.get(session_id)
+    session = await session_store.get(session_id, user_id=user_id)
     if not session:
         return None
     
@@ -842,5 +861,6 @@ async def get_session_status(session_id: str) -> Optional[Dict[str, Any]]:
         "status": session.status,
         "questions": session.questions if session.status == "awaiting_input" else [],
         "user_answers": session.user_answers,
-        "final_markdown": session.final_markdown if session.status == "completed" else None
+        "final_markdown": session.final_markdown if session.status == "completed" else None,
+        "generated_resume_id": session.generated_resume_id,
     }

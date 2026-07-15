@@ -238,3 +238,23 @@ def test_model_pool_callback_deduplicates_start_events_by_run_id():
     callback.on_llm_end(run_id="run-1")
     callback.on_llm_end(run_id="run-1")
     assert scheduler.get_inflight(identity) == 0
+
+
+def test_model_pool_callback_implements_langchain_handler_contract():
+    from langchain_core.callbacks import CallbackManager
+
+    redis = _FakeRedis()
+    scheduler = llms.ModelPoolScheduler(redis_client=redis)
+    identity = llms._identity(_channel("flash-a"))
+    callback = llms._ModelPoolCallback(scheduler, identity)
+
+    manager = CallbackManager.configure([callback])
+    runs = manager.on_chat_model_start(
+        {"name": "test-model"},
+        [[{"role": "user", "content": "hello"}]],
+    )
+
+    assert len(runs) == 1
+    assert scheduler.get_inflight(identity) == 1
+    runs[0].on_llm_end({"generations": []})
+    assert scheduler.get_inflight(identity) == 0

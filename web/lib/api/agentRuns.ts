@@ -98,11 +98,16 @@ export async function pollAgentRun(
         onUpdate?.(run);
         if (['succeeded', 'failed', 'cancelled'].includes(run.status)) return run;
         await new Promise<void>((resolve, reject) => {
-            const timer = window.setTimeout(resolve, 1200);
-            signal?.addEventListener('abort', () => {
+            const onAbort = () => {
                 window.clearTimeout(timer);
+                signal?.removeEventListener('abort', onAbort);
                 reject(new DOMException('任务轮询已取消', 'AbortError'));
-            }, { once: true });
+            };
+            const timer = window.setTimeout(() => {
+                signal?.removeEventListener('abort', onAbort);
+                resolve();
+            }, 1200);
+            signal?.addEventListener('abort', onAbort, { once: true });
         });
     }
 }

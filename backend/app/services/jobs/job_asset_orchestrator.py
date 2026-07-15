@@ -27,6 +27,7 @@ async def generate_assets(
     api_config: Optional[dict] = None,
     include_project_rewrite: bool = False,
     template_style: str = "professional",
+    agent_run_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     为指定岗位生成完整投递资产。
@@ -102,6 +103,7 @@ async def generate_assets(
             user_id=user_id,
             template_style=template_style,
             api_config=api_config,
+            agent_run_id=agent_run_id,
         )
 
         if gen_result.get("needs_input"):
