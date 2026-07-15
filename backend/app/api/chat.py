@@ -16,7 +16,9 @@ from app.services.interview.interview_graph import build_interview_graph
 from app.schemas.schemas import ChatRequest, ChatStreamResponse, InterviewStartRequest, ErrorResponse, RollbackRequest, ProfileGenerateRequest, WeaknessGenerateRequest
 from app.repositories.session.session_repo import SessionRepo
 from app.api.deps import get_current_user_id
+from app.services.interview.interview_context import build_interview_context
 from app.services.security import safe_error_message
+from app.services.runtime_gate import get_run_gate
 
 # 配置日志
 logger = logging.getLogger(__name__)
@@ -156,34 +158,6 @@ async def start_interview(
         # 构建初始状态（新架构）
         api_config = request.api_config.model_dump() if request.api_config else None
         
-        # 检索长期记忆
-        memory_query = f"{request.job_description or ''} {request.company_info or ''} 面试偏好 候选人事实 短板 练习目标"
-        memory_context, memory_items = await get_memory_context(
-            user_id=user_id,
-            query=memory_query,
-            memory_types=["preference", "candidate_fact", "weakness", "practice_goal", "delivery_strategy"]
-        )
-        
-        inputs = {
-            "messages": [],
-            "resume_context": request.resume_context,
-            "job_description": request.job_description,
-            "company_info": getattr(request, "company_info", "未知"),
-            "mode": request.mode,
-            "session_id": request.thread_id,  # 添加 session_id
-            "user_id": user_id,  # 用户ID（用于数据隔离）
-            "run_id": str(uuid.uuid4()),  # 运行追踪ID
-            "interview_plan": [],  # 将由 planner 节点填充
-            "current_question_index": 0,
-            "max_questions": request.max_questions,
-            "question_count": 0,
-            "api_config": api_config,  # 添加用户 API 配置
-            "round_index": 1,
-            "round_type": "tech_initial",
-            "memory_context": memory_context,  # 添加长期记忆上下文
-            "memory_items": memory_items,  # 添加原始记忆列表
-        }
-        
         # 检查会话是否已存在，如果不存在则创建
         session = await session_repo.get_session(request.thread_id, include_resume_content=True, user_id=user_id)
         if session is None:
@@ -203,18 +177,29 @@ async def start_interview(
                 user_id=user_id
             )
             session_created = True  # 标记为新创建
-        else:
-            # 会话已存在（例如：下一轮面试），从数据库加载继承的简历和JD
-            if not request.resume_context and session.metadata.resume_content:
-                inputs["resume_context"] = session.metadata.resume_content
-            if not request.job_description and session.metadata.job_description:
-                inputs["job_description"] = session.metadata.job_description
-            if session.metadata.company_info:
-                inputs["company_info"] = session.metadata.company_info
-            
-            # 重要：从元数据中继承轮次信息
-            inputs["round_index"] = session.metadata.round_index or 1
-            inputs["round_type"] = session.metadata.round_type or "tech_initial"
+
+        context = await build_interview_context(
+            user_id=user_id,
+            resume_context=request.resume_context,
+            job_description=request.job_description,
+            company_info=request.company_info,
+            max_questions=request.max_questions,
+            question_bank_count=request.question_bank_count,
+            experience_questions=request.experience_questions,
+            session_metadata=session.metadata if session else None,
+        )
+        inputs = {
+            "messages": [],
+            **context.graph_fields(),
+            "mode": request.mode,
+            "session_id": request.thread_id,
+            "user_id": user_id,
+            "run_id": str(uuid.uuid4()),
+            "interview_plan": [],
+            "current_question_index": 0,
+            "question_count": 0,
+            "api_config": api_config,
+        }
         
         # 生成并更新会话标题：{JD摘要} - 第 X 轮
         current_r_idx = inputs["round_index"]
@@ -257,7 +242,7 @@ async def start_interview(
             "max_questions": request.max_questions,
             "session_title": title,
             "first_question": first_question,  # 返回第一题
-            "has_memory_context": bool(memory_context),  # 是否有记忆上下文
+            "has_memory_context": bool(context.memory_context),
         }
         
     except Exception as e:
@@ -394,8 +379,16 @@ async def stream_chat(
             "memory_items": memory_items,
         }
         
+        lease = await get_run_gate().acquire()
+        if lease is None:
+            raise HTTPException(
+                status_code=409,
+                detail="当前仍有面试任务在生成，请等待当前回复完成",
+                headers={"Retry-After": "2"},
+            )
+
         return StreamingResponse(
-            event_generator(graph, inputs, config, request.thread_id, request.message, user_id),
+            event_generator(graph, inputs, config, request.thread_id, request.message, user_id, lease),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",
@@ -418,7 +411,7 @@ async def stream_chat(
         )
 
 
-async def event_generator(graph, inputs, config, thread_id: str, user_message: str, user_id: str = "default_user") -> AsyncGenerator[str, None]:
+async def event_generator(graph, inputs, config, thread_id: str, user_message: str, user_id: str = "default_user", lease=None) -> AsyncGenerator[str, None]:
     """
     生成器：将 LangGraph 事件转换为 SSE 格式
     
@@ -435,8 +428,30 @@ async def event_generator(graph, inputs, config, thread_id: str, user_message: s
     """
     ai_response_content = ""
     final_question_index = inputs.get("current_question_index", 0)
+    plan = [
+        {"id": "save_answer", "title": "记录本轮回答", "status": "pending"},
+        {"id": "analyze_answer", "title": "分析回答并决定追问策略", "status": "pending"},
+        {"id": "generate_response", "title": "生成反馈与下一题", "status": "pending"},
+        {"id": "update_progress", "title": "更新面试进度", "status": "pending"},
+    ]
+    emitted_steps: set[tuple[str, str]] = set()
+
+    def stream_event(event_type: str, payload) -> str:
+        content = payload if isinstance(payload, str) else json.dumps(payload, ensure_ascii=False)
+        return f"data: {ChatStreamResponse(type=event_type, content=content).model_dump_json()}\n\n"
+
+    def step_event(step_id: str, status: str) -> str | None:
+        marker = (step_id, status)
+        if marker in emitted_steps:
+            return None
+        emitted_steps.add(marker)
+        return stream_event("step_update", {"id": step_id, "status": status})
     
     try:
+        yield stream_event("plan", plan)
+        event = step_event("save_answer", "running")
+        if event:
+            yield event
         # 保存用户消息到会话
         await session_repo.add_message(
             session_id=thread_id,
@@ -445,6 +460,12 @@ async def event_generator(graph, inputs, config, thread_id: str, user_message: s
             question_index=inputs.get("current_question_index", 0),
             user_id=user_id
         )
+        event = step_event("save_answer", "completed")
+        if event:
+            yield event
+        event = step_event("analyze_answer", "running")
+        if event:
+            yield event
         
         async for event in graph.astream_events(inputs, config=config, version="v1"):
             kind = event["event"]
@@ -459,6 +480,12 @@ async def event_generator(graph, inputs, config, thread_id: str, user_message: s
                 if node_name in ["responder", "summary"]:
                     content = event["data"]["chunk"].content
                     if content:
+                        step = step_event("analyze_answer", "completed")
+                        if step:
+                            yield step
+                        step = step_event("generate_response", "running")
+                        if step:
+                            yield step
                         ai_response_content += content
                         # SSE 格式: data: <json>\n\n
                         response = ChatStreamResponse(
@@ -476,6 +503,12 @@ async def event_generator(graph, inputs, config, thread_id: str, user_message: s
                     
                     # 可以在这里发送状态更新事件
                     if "question_count" in output:
+                        step = step_event("generate_response", "completed")
+                        if step:
+                            yield step
+                        step = step_event("update_progress", "running")
+                        if step:
+                            yield step
                         # 更新会话元数据
                         await session_repo.update_session(
                             session_id=thread_id,
@@ -542,6 +575,16 @@ async def event_generator(graph, inputs, config, thread_id: str, user_message: s
                 # 写入失败只记录日志，不影响响应
                 logger.warning(f"后台记忆写入失败: {e}")
         
+        event = step_event("analyze_answer", "completed")
+        if event:
+            yield event
+        event = step_event("generate_response", "completed")
+        if event:
+            yield event
+        event = step_event("update_progress", "completed")
+        if event:
+            yield event
+
         # 发送结束信号
         response = ChatStreamResponse(
             type="done",
@@ -552,12 +595,21 @@ async def event_generator(graph, inputs, config, thread_id: str, user_message: s
     except Exception as e:
         safe_msg = safe_error_message(e)
         logger.error(f"流式事件生成器错误: {safe_msg}")
+        for step_id in ("save_answer", "analyze_answer", "generate_response", "update_progress"):
+            if (step_id, "running") in emitted_steps and (step_id, "completed") not in emitted_steps:
+                event = step_event(step_id, "failed")
+                if event:
+                    yield event
+                break
         # 发送错误事件
         response = ChatStreamResponse(
             type="error",
             content=safe_msg
         )
         yield f"data: {response.model_dump_json()}\n\n"
+    finally:
+        if lease is not None:
+            await lease.release()
 
 
 @router.get("/status/{thread_id}")

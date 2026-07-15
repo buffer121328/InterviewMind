@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -26,6 +26,7 @@ import {
     rewriteProject,
     ProjectRewriteMode,
     ProjectRewriteResult,
+    type ApiConfig,
     updateMaterial,
     createMaterial,
 } from '@/lib/api/resume';
@@ -60,7 +61,7 @@ interface ProjectRewriteDialogProps {
     projectTitle: string;
     projectContent: string;
     materialId?: number;
-    apiConfig: any;
+    apiConfig: ApiConfig;
     onApply?: (newContent: string) => void;
     onRefreshMaterials?: () => void;
 }
@@ -84,17 +85,6 @@ export function ProjectRewriteDialog({
     // 结果状态
     const [result, setResult] = useState<ProjectRewriteResult | null>(null);
     const [isRewriting, setIsRewriting] = useState(false);
-    const [activeResultTab, setActiveResultTab] = useState('rewritten');
-
-    // 同步外部传入的项目信息
-    useEffect(() => {
-        if (open) {
-            setProjectTitle(initialTitle);
-            setProjectContent(initialContent);
-            setResult(null);
-            setActiveResultTab('rewritten');
-        }
-    }, [open, initialTitle, initialContent]);
 
     // 执行重写
     const handleRewrite = async () => {
@@ -130,12 +120,11 @@ export function ProjectRewriteDialog({
 
             if (response.success && response.result) {
                 setResult(response.result);
-                setActiveResultTab('rewritten');
                 toast.success('重写完成');
             } else {
                 toast.error(response.message || '重写失败');
             }
-        } catch (error) {
+        } catch {
             toast.error('重写失败，请重试');
         } finally {
             setIsRewriting(false);

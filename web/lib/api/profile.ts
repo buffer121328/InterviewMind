@@ -66,7 +66,7 @@ export async function getOverallProfile(): Promise<ProfileResponse> {
 /**
  * 生成综合能力画像（手动触发）
  */
-export async function generateProfile(apiConfig?: any): Promise<ProfileResponse> {
+export async function generateProfile(apiConfig?: unknown): Promise<ProfileResponse> {
     try {
         const response = await fetch(`${API_BASE_URL}/api/chat/profile/generate`, {
             method: 'POST',

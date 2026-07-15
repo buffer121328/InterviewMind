@@ -64,7 +64,7 @@ export interface WeaknessHistoryResponse {
  */
 export async function generateWeaknessReport(
     sessionId: string,
-    apiConfig?: any
+    apiConfig?: unknown
 ): Promise<WeaknessResponse> {
     try {
         const response = await fetch(`${API_BASE_URL}/api/chat/weakness/generate`, {

@@ -8,6 +8,8 @@
 - 兜底逻辑
 """
 
+from contextlib import asynccontextmanager
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from app.services.interview.interview_output_contract import (
@@ -98,6 +100,47 @@ class TestInterviewRuntimeStateMachine:
         assert runtime.phase == InterviewPhase.ASKING
         assert result["turn_phase"] == "feedback"
         assert result["current_question_index"] == 0
+
+    @pytest.mark.asyncio
+    async def test_run_creates_interview_root_observation_with_summary_only(self, monkeypatch):
+        observed = []
+
+        class FakeObservation:
+            def set_output(self, output):
+                observed[0]["output"] = output
+
+        @asynccontextmanager
+        async def fake_agent_observation(**kwargs):
+            observed.append(kwargs)
+            yield FakeObservation()
+
+        mock_llm = AsyncMock(
+            return_value=OpeningOutput(
+                greeting="你好！欢迎参加面试。请做自我介绍。",
+                phase=InterviewPhase.OPENING,
+            )
+        )
+        monkeypatch.setattr(
+            "app.services.interview.interview_runtime.agent_observation",
+            fake_agent_observation,
+            raising=False,
+        )
+        runtime = InterviewRuntime(state=MOCK_STATE, llm_invoker=mock_llm)
+
+        await runtime.run()
+
+        assert observed[0]["name"] == "interview-runtime"
+        assert observed[0]["agent_type"] == "interview"
+        assert observed[0]["user_id"] == "test-user-001"
+        assert observed[0]["session_id"] == "test-session-001"
+        assert observed[0]["input_payload"] == {
+            "question_count": 3,
+            "current_question_index": 0,
+            "round_index": 1,
+            "round_type": "tech_initial",
+            "turn_phase": "opening",
+        }
+        assert observed[0]["output"]["message_count"] == 1
 
     @pytest.mark.asyncio
     async def test_evaluating_follow_up(self):
@@ -216,6 +259,60 @@ class TestFollowUpLimits:
         # 应该强制进入下一题而非继续追问
         assert result["follow_up_count"] == 0  # 重置
         assert result["current_question_index"] == 1  # 进入下一题
+
+
+class TestToolRoundTrip:
+    """工具请求与二次决策测试"""
+
+    @pytest.mark.asyncio
+    async def test_evaluating_executes_tool_then_redecides(self):
+        state = {
+            **MOCK_STATE,
+            "turn_phase": "feedback",
+            "messages": [MagicMock(content="我做过一些并发优化，但细节想不起来了。")],
+        }
+
+        mock_llm = AsyncMock(side_effect=[
+            EvaluatingOutput(
+                evaluation_notes="需要先补充参考题目",
+                action=InterviewerAction.FOLLOW_UP,
+                content="我先看看上下文。",
+                follow_up_count=0,
+                need_tool=True,
+                tool_name="search_question_bank",
+                tool_args={"query": "Java 并发", "difficulty": "hard", "limit": 3},
+                tool_reason="补充并发方向追问角度",
+            ),
+            EvaluatingOutput(
+                evaluation_notes="回答已经足够进入下一题",
+                action=InterviewerAction.ADVANCE,
+                content="很好。接下来：请介绍你最有成就感的项目。",
+                follow_up_count=0,
+            ),
+        ])
+        mock_tool_executor = AsyncMock(return_value=[{"question": "请解释线程池参数设计"}])
+
+        runtime = InterviewRuntime(
+            state=state,
+            llm_invoker=mock_llm,
+            tool_executor=mock_tool_executor,
+        )
+        result = await runtime.run()
+
+        mock_tool_executor.assert_awaited_once_with(
+            "search_question_bank",
+            query="Java 并发",
+            difficulty="hard",
+            limit=3,
+        )
+        assert mock_llm.await_count == 2
+        assert "【可用参考信息】" in mock_llm.await_args_list[1].args[0]
+        assert result["current_question_index"] == 1
+        assert any(
+            item["step"] == "tool_call" and item["status"] == "completed"
+            for item in result["trace"]
+        )
+        assert runtime.tool_results["search_question_bank"][0]["question"] == "请解释线程池参数设计"
 
 
 class TestFallbackLogic:

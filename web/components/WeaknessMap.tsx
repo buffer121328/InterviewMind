@@ -15,12 +15,9 @@ import {
 } from 'lucide-react';
 import {
     getSessionWeaknessReport,
-    generateWeaknessReport,
-    type WeaknessReport,
-    type WeaknessCategory,
-    type QuestionFailure,
-    type ImprovementAction
+    type WeaknessReport
 } from '@/lib/api/weakness';
+import { createInterviewReportRun, pollAgentRun } from '@/lib/api/agentRuns';
 import { useInterviewStore } from '@/store/useInterviewStore';
 import { Button } from './ui/button';
 import { cn } from '@/lib/utils';
@@ -55,23 +52,24 @@ export function WeaknessMap({ sessionId, autoLoad = true }: WeaknessMapProps) {
     const [expandedFailures, setExpandedFailures] = useState<Set<number>>(new Set());
 
     useEffect(() => {
-        if (autoLoad && sessionId) {
-            loadReport();
-        }
+        if (!autoLoad || !sessionId) return;
+
+        let active = true;
+        void getSessionWeaknessReport(sessionId).then((response) => {
+            if (!active) return;
+
+            if (response.success && response.report) {
+                setReport(response.report);
+            } else {
+                setReport(null);
+            }
+            setLoading(false);
+        });
+
+        return () => {
+            active = false;
+        };
     }, [sessionId, autoLoad]);
-
-    async function loadReport() {
-        setLoading(true);
-        setError(null);
-        const response = await getSessionWeaknessReport(sessionId);
-
-        if (response.success && response.report) {
-            setReport(response.report);
-        } else {
-            setReport(null);
-        }
-        setLoading(false);
-    }
 
     async function handleGenerate() {
         setGenerating(true);
@@ -84,14 +82,26 @@ export function WeaknessMap({ sessionId, autoLoad = true }: WeaknessMapProps) {
             return;
         }
 
-        const response = await generateWeaknessReport(sessionId, apiConfig);
-
-        if (response.success && response.report) {
-            setReport(response.report);
-        } else {
-            setError(response.message || '生成失败，请稍后重试');
+        try {
+            const created = await createInterviewReportRun({ session_id: sessionId, api_config: apiConfig });
+            if ('run_id' in created) {
+                const completed = await pollAgentRun(created.run_id);
+                if (completed.status !== 'succeeded') {
+                    setError(completed.error_message || '报告任务执行失败');
+                    return;
+                }
+            }
+            const response = await getSessionWeaknessReport(sessionId);
+            if (response.success && response.report) {
+                setReport(response.report);
+            } else {
+                setError(response.message || '生成失败，请稍后重试');
+            }
+        } catch (cause) {
+            setError(cause instanceof Error ? cause.message : '生成失败，请稍后重试');
+        } finally {
+            setGenerating(false);
         }
-        setGenerating(false);
     }
 
     function toggleFailure(index: number) {

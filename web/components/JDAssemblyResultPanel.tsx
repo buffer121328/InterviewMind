@@ -8,7 +8,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { 
     FileText, 
     CheckCircle, 
@@ -205,11 +204,7 @@ export function JDAssemblyResultPanel({
 
 
 // 组装结果列表组件
-interface AssemblyResultListProps {
-    onSelectResult?: (result: AssemblyResult) => void;
-}
-
-export function AssemblyResultList({ onSelectResult }: AssemblyResultListProps) {
+export function AssemblyResultList() {
     const {
         assemblyResults,
         assemblyResultsLoading,

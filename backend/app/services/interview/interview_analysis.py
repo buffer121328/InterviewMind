@@ -19,7 +19,8 @@ logger = logging.getLogger(__name__)
 async def trigger_background_analysis(
     session_id: str,
     api_config: Optional[Dict[str, Any]] = None,
-    user_id: str = "default_user"
+    user_id: str = "default_user",
+    raise_on_error: bool = False,
 ):
     """
     触发后台画像分析（异步任务）
@@ -79,6 +80,8 @@ async def trigger_background_analysis(
         
     except Exception as e:
         logger.error(f"[AnalysisService] 后台分析触发失败: {str(e)}", exc_info=True)
+        if raise_on_error:
+            raise
 
 
 def build_qa_history(messages: List[Any]) -> List[Dict[str, str]]:
@@ -105,8 +108,8 @@ def build_qa_history(messages: List[Any]) -> List[Dict[str, str]]:
         next_msg = messages[i+1]
         
         # 获取 role（兼容 Pydantic 模型和字典）
-        msg_role = msg.role if hasattr(msg, 'role') else msg.get('role', '')
-        next_role = next_msg.role if hasattr(next_msg, 'role') else next_msg.get('role', '')
+        msg_role = _message_role(msg)
+        next_role = _message_role(next_msg)
         
         # 获取 content
         msg_content = msg.content if hasattr(msg, 'content') else msg.get('content', '')
@@ -124,6 +127,24 @@ def build_qa_history(messages: List[Any]) -> List[Dict[str, str]]:
                 })
     
     return qa_history
+
+
+def _message_role(message: Any) -> str:
+    """兼容 LangChain message / Pydantic / dict 的 role 读取。"""
+    if isinstance(message, dict):
+        return str(message.get("role", ""))
+
+    role = getattr(message, "role", None)
+    if role:
+        return str(role)
+
+    message_type = getattr(message, "type", "")
+    if message_type == "ai":
+        return "assistant"
+    if message_type == "human":
+        return "user"
+
+    return ""
 
 
 # ============================================================================
@@ -162,18 +183,79 @@ async def handle_interview_complete(
             user_id=user_id
         )
         logger.info(f"[InterviewComplete] 会话 {session_id} 状态已更新为 completed (user_id={user_id})")
-        
-        # 触发后台画像分析
-        if trigger_analysis:
-            from app.services.background_tasks import create_background_task
-            create_background_task(
-                trigger_background_analysis(session_id, api_config, user_id=user_id),
-                name=f"interview-analysis:{session_id}"
+
+        # 归档真实问答；失败不阻断完成状态和后续画像分析。
+        try:
+            from app.repositories.interview.question_archive_repo import get_question_archive_repo
+
+            archived = await get_question_archive_repo().archive_session(session_id, user_id)
+            logger.info(f"[InterviewComplete] 问答归档完成: session={session_id}, {archived}")
+        except Exception as archive_error:
+            logger.warning(
+                f"[InterviewComplete] 问答归档失败: session={session_id}, error={archive_error}",
+                exc_info=True,
             )
-            logger.info(f"[InterviewComplete] 已触发会话 {session_id} 的后台画像分析")
+        
+        # 触发可恢复的画像 + 短板报告任务
+        if trigger_analysis:
+            queued = False
+            try:
+                from app.services.agent_runs.dispatcher import enqueue_agent_run
+                from app.services.agent_runs.service import (
+                    AgentRunService,
+                    TASK_TYPE_INTERVIEW_REPORT,
+                    task_queue_enabled,
+                )
+
+                if task_queue_enabled():
+                    run_service = AgentRunService()
+                    run, created = await run_service.create_or_get(
+                        user_id=user_id,
+                        task_type=TASK_TYPE_INTERVIEW_REPORT,
+                        payload={"session_id": session_id, "api_config": api_config},
+                        idempotency_key=f"auto-report:{session_id}",
+                    )
+                    if run.status in {"failed", "cancelled"}:
+                        retried = await run_service.retry(run.id, user_id)
+                        run = retried or run
+                    if created or run.status in {"queued", "retrying"}:
+                        enqueue_agent_run(run.id)
+                    queued = run.status in {"queued", "retrying", "running", "succeeded"}
+                    logger.info("[InterviewComplete] 已创建报告任务: session=%s run=%s", session_id, run.id)
+            except Exception as queue_error:
+                logger.warning("[InterviewComplete] 报告任务入队失败，降级为本地后台任务: %s", queue_error)
+
+            if not queued:
+                from app.services.background_tasks import create_background_task
+                create_background_task(
+                    generate_session_reports(session_id, api_config, user_id=user_id),
+                    name=f"interview-reports:{session_id}",
+                )
         
     except Exception as e:
         logger.error(f"[InterviewComplete] 处理面试完成失败: {e}", exc_info=True)
+
+
+async def generate_session_reports(
+    session_id: str,
+    api_config: Optional[Dict[str, Any]] = None,
+    user_id: str = "default_user",
+    *,
+    raise_on_error: bool = False,
+) -> None:
+    """顺序生成本轮画像和短板，保证短板分析可以复用画像。"""
+    await trigger_background_analysis(
+        session_id,
+        api_config,
+        user_id=user_id,
+        raise_on_error=raise_on_error,
+    )
+    await trigger_weakness_analysis(
+        session_id,
+        api_config,
+        user_id=user_id,
+        raise_on_error=raise_on_error,
+    )
 
 
 # ============================================================================
@@ -309,7 +391,8 @@ async def process_interview_summary(
 async def trigger_weakness_analysis(
     session_id: str,
     api_config: Optional[Dict[str, Any]] = None,
-    user_id: str = "default_user"
+    user_id: str = "default_user",
+    raise_on_error: bool = False,
 ):
     """
     触发后台短板地图分析（异步任务）
@@ -392,3 +475,5 @@ async def trigger_weakness_analysis(
         
     except Exception as e:
         logger.error(f"[WeaknessAnalysis] 短板地图分析触发失败: {str(e)}", exc_info=True)
+        if raise_on_error:
+            raise

@@ -1,4 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import {
+    BrowserSpeechRecognition,
+    BrowserSpeechRecognitionErrorEvent,
+    BrowserSpeechRecognitionEvent,
+    getSpeechRecognitionConstructor,
+} from '@/lib/browserSpeech';
 
 interface UseSpeechToTextProps {
     onTranscript: (text: string) => void;
@@ -8,7 +14,7 @@ interface UseSpeechToTextProps {
 export function useSpeechToText({ onTranscript, lang = 'zh-CN' }: UseSpeechToTextProps) {
     const [isListening, setIsListening] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const recognitionRef = useRef<any>(null);
+    const recognitionRef = useRef<BrowserSpeechRecognition | null>(null);
     const isListeningRef = useRef(false);
 
     const onTranscriptRef = useRef(onTranscript);
@@ -20,7 +26,7 @@ export function useSpeechToText({ onTranscript, lang = 'zh-CN' }: UseSpeechToTex
 
     useEffect(() => {
         if (typeof window !== 'undefined') {
-            const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+            const SpeechRecognition = getSpeechRecognitionConstructor();
             if (SpeechRecognition) {
                 recognitionRef.current = new SpeechRecognition();
                 recognitionRef.current.continuous = true;
@@ -38,7 +44,7 @@ export function useSpeechToText({ onTranscript, lang = 'zh-CN' }: UseSpeechToTex
                     if (isListeningRef.current) {
                         try {
                             recognitionRef.current?.start();
-                        } catch (e) {
+                        } catch {
                             // 如果重启失败，则停止录音
                             setIsListening(false);
                             isListeningRef.current = false;
@@ -48,7 +54,7 @@ export function useSpeechToText({ onTranscript, lang = 'zh-CN' }: UseSpeechToTex
                     }
                 };
 
-                recognitionRef.current.onerror = (event: any) => {
+                recognitionRef.current.onerror = (event: BrowserSpeechRecognitionErrorEvent) => {
                     // 忽略 no-speech 错误（用户暂时没说话）
                     if (event.error === 'no-speech') {
                         // 静默处理，不显示错误
@@ -66,7 +72,7 @@ export function useSpeechToText({ onTranscript, lang = 'zh-CN' }: UseSpeechToTex
                     isListeningRef.current = false;
                 };
 
-                recognitionRef.current.onresult = (event: any) => {
+                recognitionRef.current.onresult = (event: BrowserSpeechRecognitionEvent) => {
                     let finalTranscript = '';
                     for (let i = event.resultIndex; i < event.results.length; ++i) {
                         if (event.results[i].isFinal) {
@@ -77,8 +83,6 @@ export function useSpeechToText({ onTranscript, lang = 'zh-CN' }: UseSpeechToTex
                         onTranscriptRef.current(finalTranscript);
                     }
                 };
-            } else {
-                setError('Browser does not support speech recognition.');
             }
         }
 
@@ -95,8 +99,8 @@ export function useSpeechToText({ onTranscript, lang = 'zh-CN' }: UseSpeechToTex
             isListeningRef.current = true;
             try {
                 recognitionRef.current.start();
-            } catch (e) {
-                console.error("Error starting speech recognition:", e);
+            } catch (error) {
+                console.error("Error starting speech recognition:", error);
                 isListeningRef.current = false;
             }
         }
@@ -123,6 +127,6 @@ export function useSpeechToText({ onTranscript, lang = 'zh-CN' }: UseSpeechToTex
         startListening,
         stopListening,
         toggleListening,
-        isSupported: typeof window !== 'undefined' && !!((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition)
+        isSupported: Boolean(getSpeechRecognitionConstructor())
     };
 }

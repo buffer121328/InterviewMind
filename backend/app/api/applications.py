@@ -58,8 +58,8 @@ async def create_application(
 @router.get("/", response_model=ApplicationListResponse)
 async def list_applications(
     status: Optional[str] = Query(None, description="筛选状态"),
-    limit: int = Query(50, description="返回数量限制"),
-    offset: int = Query(0, description="偏移量"),
+    limit: int = Query(50, ge=1, le=200, description="返回数量限制"),
+    offset: int = Query(0, ge=0, description="偏移量"),
     x_user_id: Optional[str] = Header(None, alias="X-User-ID"),
 ):
     try:
@@ -70,7 +70,13 @@ async def list_applications(
             offset=offset,
         )
         total = await job_application_repo.get_application_count(user_id=x_user_id or "default_user", status=status)
-        return ApplicationListResponse(success=True, applications=applications, total=total)
+        return ApplicationListResponse(
+            success=True,
+            applications=applications,
+            total=total,
+            limit=limit,
+            offset=offset,
+        )
     except HTTPException:
         raise
     except Exception as e:

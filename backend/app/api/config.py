@@ -7,6 +7,7 @@ import logging
 from fastapi import APIRouter, HTTPException
 from langchain_openai import ChatOpenAI
 
+from app.config import get_settings
 from app.schemas.schemas import ApiConfigValidateRequest
 
 logger = logging.getLogger(__name__)
@@ -35,7 +36,7 @@ async def validate_api_config(request: ApiConfigValidateRequest):
             model_name=request.model,
             api_key=request.api_key,
             base_url=request.base_url,
-            timeout=10  # 10秒超时
+            timeout=get_settings().api_config_validation_timeout_seconds,
         )
         
         # 发送测试请求

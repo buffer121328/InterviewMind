@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from 'react';
-import { Trash2, MoreHorizontal, BarChart3, FileText } from 'lucide-react';
-import { ResumeResultItem } from '@/store/types';
+import { useMemo, useState } from 'react';
+import { Trash2, MoreHorizontal, BarChart3, FileText, Eye } from 'lucide-react';
+import { ResumeResultSummary } from '@/store/types';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
@@ -25,11 +25,13 @@ import {
 
 
 interface ResumeHistoryListProps {
-    results: ResumeResultItem[];
+    results: ResumeResultSummary[];
     onSelect: (resultId: number) => void;
     onDelete: (resultId: number) => void;
     currentResultId?: number;
     loading?: boolean;
+    hasMore?: boolean;
+    onLoadMore?: () => void;
 }
 
 export function ResumeHistoryList({
@@ -37,12 +39,14 @@ export function ResumeHistoryList({
     onSelect,
     onDelete,
     currentResultId,
-    loading
+    loading,
+    hasMore,
+    onLoadMore,
 }: ResumeHistoryListProps) {
 
     // 分组逻辑
     const groupedResults = useMemo(() => {
-        const groups: { [key: string]: ResumeResultItem[] } = {
+        const groups: { [key: string]: ResumeResultSummary[] } = {
             '今天': [],
             '昨天': [],
             '过去7天': [],
@@ -110,13 +114,18 @@ export function ResumeHistoryList({
                         </div>
                     )
                 ))}
+                {hasMore && (
+                    <Button variant="outline" size="sm" className="mx-3 w-[calc(100%_-_1.5rem)]" onClick={onLoadMore} disabled={loading}>
+                        {loading ? '加载中...' : '加载更多'}
+                    </Button>
+                )}
             </div>
         </ScrollArea>
     );
 }
 
 interface ResumeHistoryItemProps {
-    result: ResumeResultItem;
+    result: ResumeResultSummary;
     isActive: boolean;
     onSelect: () => void;
     onDelete: () => void;
@@ -141,6 +150,11 @@ function ResumeHistoryItem({ result, isActive, onSelect, onDelete }: ResumeHisto
     const handleConfirmDelete = () => {
         onDelete();
         setIsDeleteDialogOpen(false);
+    };
+
+    const handleViewDetails = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        onSelect();
     };
 
     return (
@@ -185,6 +199,10 @@ function ResumeHistoryItem({ result, isActive, onSelect, onDelete }: ResumeHisto
                         </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="w-36">
+                        <DropdownMenuItem onClick={handleViewDetails}>
+                            <Eye className="w-3.5 h-3.5 mr-2" />
+                            查看详情
+                        </DropdownMenuItem>
                         <DropdownMenuItem
                             className="text-red-600 focus:text-red-600 focus:bg-red-50"
                             onClick={handleDeleteClick}

@@ -1,11 +1,21 @@
 import { Loader2, Bot, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
+import type { ExecutionPlanStep } from "@/store/types";
+import { ExecutionPlanPanel } from "./ExecutionPlanPanel";
 
 interface PreparingInterviewProps {
     variant?: 'light' | 'dark';
+    stage?: string | null;
+    plan?: ExecutionPlanStep[];
 }
 
-export function PreparingInterview({ variant = 'light' }: PreparingInterviewProps) {
+const stageText: Record<string, string> = {
+    queued: '任务已排队，正在等待上一项完成',
+    loading_context: '正在读取简历和面试上下文',
+    generating_question: 'AI 面试官正在生成首题',
+};
+
+export function PreparingInterview({ variant = 'light', stage, plan = [] }: PreparingInterviewProps) {
     const isDark = variant === 'dark';
 
     return (
@@ -56,7 +66,7 @@ export function PreparingInterview({ variant = 'light' }: PreparingInterviewProp
                         "max-w-xs mx-auto leading-relaxed",
                         isDark ? "text-white/60" : "text-gray-500"
                     )}>
-                        AI 面试官正在深度分析您的简历
+                        {stageText[stage || ''] || 'AI 面试官正在深度分析您的简历'}
                     </p>
                     <div className="flex gap-1">
                         <span className={cn("w-1 h-1 rounded-full animate-bounce", isDark ? "bg-indigo-400" : "bg-orange-400")} style={{ animationDelay: '0ms' }} />
@@ -65,6 +75,8 @@ export function PreparingInterview({ variant = 'light' }: PreparingInterviewProp
                     </div>
                 </div>
             </div>
+
+            <ExecutionPlanPanel steps={plan} dark={isDark} className="relative z-10" />
 
             <style jsx>{`
                 @keyframes spin-slow {

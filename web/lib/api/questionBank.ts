@@ -8,7 +8,7 @@ import { API_BASE_URL, getUserId } from './config';
 export interface QuestionBankItem {
     id: number;
     user_id: string;
-    source_type: 'manual' | 'generated' | 'imported';
+    source_type: string;
     source_id?: string;
     origin_session_id?: string;
     question_text: string;
@@ -52,6 +52,8 @@ export interface QuestionBankImportRequest {
         difficulty?: string;
         target_skill?: string;
         question_type?: string;
+        source_type?: string;
+        source_id?: string;
     }>;
     import_source?: string;
 }
@@ -63,6 +65,39 @@ export interface QuestionBankImportResponse {
     total_count: number;
     success_count: number;
     message?: string;
+}
+
+export interface QuestionFileCandidate {
+    question_text: string;
+    reference_answer?: string;
+    tags: string[];
+    difficulty: 'easy' | 'medium' | 'hard';
+    target_skill?: string;
+    question_type: 'intro' | 'tech' | 'behavior' | 'system_design';
+    source_type: string;
+    source_id: string;
+}
+
+export interface QuestionFilePreviewResponse {
+    success: boolean;
+    filename: string;
+    questions: QuestionFileCandidate[];
+    message?: string;
+}
+
+export async function previewQuestionFile(file: File): Promise<QuestionFilePreviewResponse> {
+    const form = new FormData();
+    form.append('file', file);
+    const response = await fetch(`${API_BASE_URL}/api/question-bank/import-file/preview`, {
+        method: 'POST',
+        headers: { 'X-User-ID': getUserId() },
+        body: form,
+    });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.detail ?? `文件解析失败 (${response.status})`);
+    }
+    return response.json();
 }
 
 /**

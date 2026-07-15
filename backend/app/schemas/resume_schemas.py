@@ -2,7 +2,7 @@
 简历工具相关的请求/响应模型
 """
 
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Literal
 from pydantic import BaseModel, Field
 from app.schemas.schemas import ApiConfig
 
@@ -28,6 +28,22 @@ class ResumeAnalyzeRequest(BaseModel):
     session_ids: List[str] = Field(default=[], description="关联的面试 session_id 列表，最多3个")
     user_id: Optional[str] = Field(default=None, description="用户标识")
     api_config: Optional[ApiConfig] = Field(default=None, description="用户自定义 API 配置")
+
+
+class ResumeReviewDecision(BaseModel):
+    item_id: str = Field(..., min_length=1, max_length=64)
+    decision: Literal["approved", "rejected"]
+
+
+class ResumeReviewRequest(BaseModel):
+    expected_version: int = Field(..., ge=1)
+    decisions: List[ResumeReviewDecision] = Field(..., min_length=1, max_length=100)
+
+
+class ResumeReviewResponse(BaseModel):
+    success: bool = True
+    result_id: int
+    review: Dict[str, Any]
 
 
 # ============================================================================
@@ -95,6 +111,47 @@ class ResumeAnalyzeResponse(BaseModel):
     result: Optional[ResumeAnalyzeResult] = Field(default=None, description="分析结果")
     result_id: Optional[int] = Field(default=None, description="结果 ID（用于后续查询）")
     message: Optional[str] = Field(default=None, description="消息")
+
+
+class ResumeHistoryItem(BaseModel):
+    """简历分析/优化历史列表项；result_data 可按需省略。"""
+
+    id: int
+    user_id: Optional[str] = None
+    result_type: Literal["analyze", "optimize"]
+    resume_content: Optional[str] = None
+    resume_preview: str = ""
+    job_description: Optional[str] = None
+    session_ids: List[str] = Field(default_factory=list)
+    include_profile: bool = False
+    result_data: Optional[Dict[str, Any]] = None
+    created_at: str
+
+
+class ResumeHistoryListResponse(BaseModel):
+    success: bool
+    results: List[ResumeHistoryItem] = Field(default_factory=list)
+    total: int = 0
+    limit: int = 20
+    offset: int = 0
+    message: Optional[str] = None
+
+
+class ResumeHistoryDetail(BaseModel):
+    id: int
+    user_id: str
+    result_type: Literal["analyze", "optimize"]
+    resume_content: str
+    job_description: Optional[str] = None
+    session_ids: List[str] = Field(default_factory=list)
+    include_profile: bool = False
+    result_data: Dict[str, Any]
+    created_at: str
+
+
+class ResumeHistoryDetailResponse(BaseModel):
+    success: bool
+    result: ResumeHistoryDetail
 
 
 class CompletedSessionItem(BaseModel):

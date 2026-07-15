@@ -4,9 +4,24 @@ import { useState, useEffect } from 'react';
 import { Loader2, RefreshCw, AlertCircle, CheckCircle2, Check, Brain, Wand2, Lightbulb } from 'lucide-react';
 import { getOverallProfile, generateProfile, type AbilityProfile } from '@/lib/api/profile';
 import { AbilityRadarChart } from './RadarChart';
-import { SkillTags } from './SkillTags';
 import { Button } from './ui/button';
 import { useInterviewStore } from '@/store/useInterviewStore';
+
+const PROFILE_DIMENSIONS: Array<{
+    key: keyof Pick<
+        AbilityProfile,
+        'professional_competence' | 'execution_results' | 'logic_problem_solving' |
+        'communication' | 'growth_potential' | 'collaboration'
+    >;
+    label: string;
+}> = [
+    { key: 'professional_competence', label: '专业能力' },
+    { key: 'execution_results', label: '执行与结果导向' },
+    { key: 'logic_problem_solving', label: '逻辑与问题解决' },
+    { key: 'communication', label: '沟通表达力' },
+    { key: 'growth_potential', label: '成长潜力' },
+    { key: 'collaboration', label: '协作能力' },
+];
 
 export function AbilityProfileView() {
     const [profile, setProfile] = useState<AbilityProfile | null>(null);
@@ -16,23 +31,25 @@ export function AbilityProfileView() {
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
-        loadProfile();
+        let active = true;
+
+        void getOverallProfile().then((response) => {
+            if (!active) return;
+
+            if (response.success && response.profile) {
+                setProfile(response.profile);
+                setGeneratedAt(response.generated_at || null);
+            } else {
+                setProfile(null);
+                setGeneratedAt(null);
+            }
+            setLoading(false);
+        });
+
+        return () => {
+            active = false;
+        };
     }, []);
-
-    async function loadProfile() {
-        setLoading(true);
-        setError(null);
-        const response = await getOverallProfile();
-
-        if (response.success && response.profile) {
-            setProfile(response.profile);
-            setGeneratedAt(response.generated_at || null);
-        } else {
-            setProfile(null);
-            setGeneratedAt(null);
-        }
-        setLoading(false);
-    }
 
     async function handleGenerate() {
         setGenerating(true);
@@ -270,16 +287,8 @@ export function AbilityProfileView() {
                             评分详情
                         </h3>
                         <div className="space-y-4">
-                            {[
-                                { key: 'professional_competence', label: '专业能力' },
-                                { key: 'execution_results', label: '执行与结果导向' },
-                                { key: 'logic_problem_solving', label: '逻辑与问题解决' },
-                                { key: 'communication', label: '沟通表达力' },
-                                { key: 'growth_potential', label: '成长潜力' },
-                                { key: 'collaboration', label: '协作能力' },
-                            ].map(({ key, label }) => {
-                                const dim = profile[key as keyof typeof profile] as any;
-                                if (!dim || typeof dim !== 'object') return null;
+                            {PROFILE_DIMENSIONS.map(({ key, label }) => {
+                                const dim = profile[key];
                                 return (
                                     <div key={key} className="border border-gray-100 rounded-xl p-4 hover:bg-gray-50/50 transition-colors">
                                         <div className="flex items-center justify-between mb-2">

@@ -11,8 +11,8 @@ import struct
 import asyncio
 from typing import Optional, List, Dict, Any, Literal, TypedDict, AsyncGenerator
 
+from app.config import get_settings
 from app.services import llms
-from app.services.llms import get_async_omni_client
 from app.repositories.session.session_repo import SessionRepo
 
 logger = logging.getLogger(__name__)
@@ -77,6 +77,25 @@ def pcm_to_wav(pcm_data: bytes, sample_rate=24000, num_channels=1, bits_per_samp
     return wav_header + pcm_data
 
 
+def normalize_voice_transcript(
+    text: Optional[str],
+    term_fixes: Optional[Dict[str, str]] = None,
+) -> Optional[str]:
+    """整理浏览器转写文本，并应用显式配置的术语纠错。"""
+    if text is None:
+        return None
+
+    normalized = " ".join(text.split())
+    for source, target in sorted(
+        (term_fixes or {}).items(),
+        key=lambda item: len(item[0]),
+        reverse=True,
+    ):
+        if source:
+            normalized = normalized.replace(source, target)
+    return normalized
+
+
 async def save_message_async(
     session_id: str,
     role: str,
@@ -99,10 +118,7 @@ async def save_message_async(
 
 def _get_omni_client(api_config: Dict[str, Any]):
     """获取 Omni 客户端（内部工具函数）"""
-    voice_config = api_config.get("voice")
-    if not voice_config:
-        voice_config = api_config.get("fast")
-    return get_async_omni_client(voice_config)
+    return llms.model_gateway.get_voice_client(api_config)
 
 
 # ============================================================================
@@ -116,7 +132,11 @@ async def node_planner(
     company_info: str,
     max_questions: int,
     api_config: Dict[str, Any],
-    session_id: Optional[str] = None  # 新增：用于多轮面试支持
+    session_id: Optional[str] = None,
+    user_id: str = "default_user",
+    question_bank_count: int = 0,
+    experience_questions: Optional[List[Dict[str, Any]]] = None,
+    memory_context: str = "",
 ) -> Dict[str, Any]:
     """
     规划节点：生成面试计划
@@ -171,21 +191,39 @@ async def node_planner(
         except Exception as e:
             logger.error(f"[Voice] 获取轮次信息失败: {e}")
     
-    # 使用统一的规划模块
-    interview_plan = await interview_planner.generate_interview_plan(
-        resume=resume,
-        job_description=job_description,
-        company_info=company_info,
-        max_questions=max_questions,
-        api_config=api_config,
-        round_type=round_type,
-        round_index=round_index,
-        previous_profile=previous_profile,
-        previous_questions=previous_questions,
-        output_format="simple",  # 语音面试使用简单格式：只有 topic 和 content
-        session_id=session_id,
-        save_to_db=True if session_id else False  # 如果有 session_id 则保存到数据库
-    )
+    from .question_plan import merge_question_plan, prepare_candidates
+
+    bank_items = []
+    bank_count = min(max(question_bank_count, 0), max_questions)
+    if bank_count:
+        try:
+            from app.repositories.interview.question_bank_repo import get_question_bank_repo
+
+            bank_items = await get_question_bank_repo().select_for_interview(user_id, bank_count)
+        except Exception as exc:
+            logger.warning(f"[Voice] 抽取个人题库失败，将由 planner 补足: {exc}")
+    candidates = prepare_candidates(experience_questions or [], bank_items, max_questions)
+    remaining = max_questions - len(candidates)
+    generated = []
+    if remaining > 0:
+        generated = await interview_planner.generate_interview_plan(
+            resume=resume,
+            job_description=job_description,
+            company_info=company_info,
+            max_questions=remaining,
+            api_config=api_config,
+            round_type=round_type,
+            round_index=round_index,
+            previous_profile=previous_profile,
+            previous_questions=previous_questions,
+            output_format="simple",
+            session_id=session_id,
+            save_to_db=False,
+            memory_context=memory_context,
+        )
+    interview_plan = merge_question_plan(candidates, generated, max_questions)
+    if session_id:
+        await SessionRepo().save_interview_plan(session_id, interview_plan)
     
     # 构建 system_prompt
     system_prompt = _build_system_prompt(interview_plan)
@@ -478,12 +516,10 @@ async def node_greeting(state: VoiceInterviewState) -> AsyncGenerator[str, None]
         
         # 调用 Omni 模型
         completion = await client.chat.completions.create(
-            model="qwen3-omni-flash-2025-12-01",
             messages=messages,
-            modalities=["text", "audio"],
-            audio={"voice": "Cherry", "format": "wav"},
             stream=True,
             stream_options={"include_usage": True},
+            **llms.model_gateway.get_voice_request_options(api_config),
         )
         
         # 处理流式响应
@@ -545,7 +581,10 @@ async def node_responder(state: VoiceInterviewState) -> AsyncGenerator[str, None
     session_id = state.get("session_id")
     history = state.get("history", [])
     audio_base64 = state.get("audio_base64")
-    text_message = state.get("text_message")
+    text_message = normalize_voice_transcript(
+        state.get("text_message"),
+        get_settings().voice_transcript_term_fixes,
+    )
     audio_id = state.get("audio_id")
     api_config = state.get("api_config", {})
     user_id = state.get("user_id", "default_user")
@@ -603,7 +642,8 @@ async def node_responder(state: VoiceInterviewState) -> AsyncGenerator[str, None
         
         # 当前用户输入
         if audio_base64:
-            audio_data_url = f"data:audio/wav;base64,{audio_base64}"
+            input_format = llms.model_gateway.get_voice_input_format()
+            audio_data_url = f"data:audio/{input_format};base64,{audio_base64}"
             messages.append({
                 "role": "user",
                 "content": [
@@ -611,7 +651,7 @@ async def node_responder(state: VoiceInterviewState) -> AsyncGenerator[str, None
                         "type": "input_audio",
                         "input_audio": {
                             "data": audio_data_url,
-                            "format": "wav"
+                            "format": input_format,
                         }
                     }
                 ]
@@ -626,12 +666,10 @@ async def node_responder(state: VoiceInterviewState) -> AsyncGenerator[str, None
         
         # 调用 Omni 模型
         completion = await client.chat.completions.create(
-            model="qwen3-omni-flash-2025-12-01",
             messages=messages,
-            modalities=["text", "audio"],
-            audio={"voice": "Cherry", "format": "wav"},
             stream=True,
             stream_options={"include_usage": True},
+            **llms.model_gateway.get_voice_request_options(api_config),
         )
         
         # 处理流式响应
@@ -685,7 +723,8 @@ async def node_responder(state: VoiceInterviewState) -> AsyncGenerator[str, None
             create_background_task(interview_analysis.handle_interview_complete(
                 session_id=session_id,
                 api_config=api_config,
-                trigger_analysis=False  # 画像分析由 /api/voice/summary 统一触发
+                trigger_analysis=False,  # 画像分析由 /api/voice/summary 统一触发
+                user_id=user_id,
             ), name=f"voice-complete:{session_id}")
 
         # 2. 发送完成信号
@@ -840,7 +879,11 @@ async def generate_interview_plan(
     company_info: str,
     max_questions: int,
     api_config: Dict[str, Any],
-    session_id: Optional[str] = None  # 新增：用于多轮面试支持
+    session_id: Optional[str] = None,
+    user_id: str = "default_user",
+    question_bank_count: int = 0,
+    experience_questions: Optional[List[Dict[str, Any]]] = None,
+    memory_context: str = "",
 ) -> List[Dict[str, str]]:
     """
     生成面试计划（对外接口，兼容现有调用）
@@ -856,7 +899,18 @@ async def generate_interview_plan(
     Returns:
         面试问题列表
     """
-    result = await node_planner(resume, job_description, company_info, max_questions, api_config, session_id)
+    result = await node_planner(
+        resume,
+        job_description,
+        company_info,
+        max_questions,
+        api_config,
+        session_id,
+        user_id,
+        question_bank_count,
+        experience_questions,
+        memory_context,
+    )
     return result.get("interview_plan", [])
 
 
@@ -905,12 +959,10 @@ async def generate_greeting_audio(text: str, api_config: Dict[str, Any]) -> tupl
         
         # 使用异步客户端
         completion = await client.chat.completions.create(
-            model="qwen3-omni-flash-2025-12-01",
             messages=messages,
-            modalities=["text", "audio"],
-            audio={"voice": "", "format": "wav"},
             stream=True,
             stream_options={"include_usage": True},
+            **llms.model_gateway.get_voice_request_options(api_config),
         )
         
         audio_chunks = []

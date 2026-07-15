@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Bot, FileText, ArrowLeft, Upload, Settings, MessageSquare, FileOutput, Search, PenTool, UserCheck, Layout, BookOpen } from "lucide-react";
+import { Bot, FileText, ArrowLeft, Upload, Settings, MessageSquare, FileOutput, UserCheck, Layout, BookOpen } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface GuidePageProps {

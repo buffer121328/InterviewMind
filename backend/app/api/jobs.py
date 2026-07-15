@@ -20,6 +20,9 @@ from app.schemas.job_schemas import (
     CaptureRecommendationsRequest,
     CaptureRecommendationsResponse,
     CapturedJobSummary,
+    ApplyPreviewRequest,
+    ApplySendRequest,
+    ApplyResponse,
 )
 from app.api.deps import get_current_user_id
 from app.repositories.jobs.job_capture_repo import get_job_capture_repo
@@ -88,6 +91,39 @@ async def capture_job(
 # ============================================================================
 # 岗位查询
 # ============================================================================
+
+@router.post("/apply/preview", response_model=ApplyResponse)
+async def preview_job_application(
+    request: ApplyPreviewRequest,
+    user_id: str = Depends(get_current_user_id),
+):
+    """生成不会点击发送按钮的投递预览，并签发短期一次性许可。"""
+    from app.services.jobs.boss_apply_service import execute_apply_preview
+
+    return await execute_apply_preview(
+        job_id=request.job_id,
+        user_id=user_id,
+        greeting_text=request.greeting_text,
+        resume_id=request.resume_id,
+    )
+
+
+@router.post("/apply/send", response_model=ApplyResponse)
+async def send_job_application(
+    request: ApplySendRequest,
+    user_id: str = Depends(get_current_user_id),
+):
+    """消费预览许可并执行一次发送；许可与预览内容不一致时拒绝。"""
+    from app.services.jobs.boss_apply_service import execute_apply_send
+
+    return await execute_apply_send(
+        job_id=request.job_id,
+        user_id=user_id,
+        greeting_text=request.greeting_text,
+        resume_id=request.resume_id,
+        approval_token=request.approval_token,
+        confirmed=request.confirmed,
+    )
 
 @router.get("/{job_id}", response_model=JobDetailResponse)
 async def get_job(
@@ -197,12 +233,12 @@ async def capture_recommendations(
     """
     批量抓取 BOSS 推荐页前 N 个岗位 + 为每个岗位生成投递资产。
 
-    前置条件（仅 macOS）：
-    - Chrome 浏览器已打开且已登录 BOSS直聘
-    - 菜单 查看 → 开发者 → 允许 Apple 事件中的 JavaScript 已启用
+    前置条件：
+    - 已安装 Playwright Chromium
+    - 首次使用时在项目打开的专用浏览器中登录 BOSS直聘
 
     流程：
-    1. 通过 AppleScript 在 Chrome 新开 BOSS 首页 tab，读取「精选职位」前 N 个卡片
+    1. 通过持久化 Playwright 会话打开 BOSS 搜索页，读取前 N 个岗位卡片
     2. 对每个卡片：capture_from_text 标准化+入库 → generate_assets 生成 JD分析+定制简历+打招呼
     3. 返回 5 个岗位 + 各自资产
     """
@@ -231,6 +267,8 @@ async def capture_recommendations(
                 custom_resume_id=j.get("custom_resume_id"),
                 greetings=j.get("greetings", []),
                 risk_flags=j.get("risk_flags", []),
+                asset_run_id=j.get("asset_run_id"),
+                asset_status=j.get("asset_status"),
             ))
 
         return CaptureRecommendationsResponse(

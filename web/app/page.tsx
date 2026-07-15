@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useSyncExternalStore } from "react";
 import { PanelLeft, Bot, Loader2, Award, Plus, MessageCircle, FileText, ArrowDown, Square, Lightbulb, X, Mic, Target, Briefcase } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ChatMessage } from "@/components/ChatMessage";
@@ -20,6 +20,8 @@ import { InterviewSetup } from "@/components/interview/InterviewSetup";
 import { GuidePage } from "@/components/GuidePage";
 import { InterviewArea } from "@/components/InterviewArea";
 import { PreparingInterview } from "@/components/interview/PreparingInterview";
+import { ExecutionPlanPanel } from "@/components/interview/ExecutionPlanPanel";
+import { InterviewHistoryDetailDialog } from "@/components/InterviewHistoryDetailDialog";
 import { ApplicationBoard } from "@/components/ApplicationBoard";
 import { ApplicationDetailDrawer } from "@/components/ApplicationDetailDrawer";
 import QuestionBankPage from "@/components/QuestionBankPage";
@@ -28,12 +30,24 @@ import { BossCenter } from "@/components/BossCenter";
 // 定义视图类型，包含 'landing'
 type ViewType = "landing" | "interview" | "resume" | "guide" | "applications" | "questionbank" | "boss";
 
+const subscribeToHydration = () => () => {};
+
+function getSavedMainTab(): ViewType {
+  if (typeof window === "undefined") return "landing";
+
+  const savedTab = localStorage.getItem("activeMainTab") as ViewType | null;
+  return savedTab === "resume" || savedTab === "interview" || savedTab === "landing" ||
+    savedTab === "applications" || savedTab === "questionbank" || savedTab === "boss"
+    ? savedTab
+    : "landing";
+}
+
 export default function InterviewPage() {
   // ===== 局部 UI 状态 =====
   const [showSidebar, setShowSidebar] = useState(true);
   const [showSettingsDialog, setShowSettingsDialog] = useState(false);
   const [input, setInput] = useState("");
-  const [isMounted, setIsMounted] = useState(false);
+  const isMounted = useSyncExternalStore(subscribeToHydration, () => true, () => false);
   // const [isJobDialogOpen, setIsJobDialogOpen] = useState(false); // Moved to InterviewSetup
   // const [tempJobDescription, setTempJobDescription] = useState(""); // Moved to InterviewSetup
 
@@ -41,18 +55,11 @@ export default function InterviewPage() {
   const [autoScrollEnabled, setAutoScrollEnabled] = useState(true);
   const [showSessionProfileDialog, setShowSessionProfileDialog] = useState(false);
   const [sessionProfileDefaultTab, setSessionProfileDefaultTab] = useState<'profile' | 'weakness'>('profile');
-  const [activeMainTab, setActiveMainTab] = useState<ViewType>("landing");
+  const [activeMainTab, setActiveMainTab] = useState<ViewType>(getSavedMainTab);
   const [hintContent, setHintContent] = useState<string | null>(null);
   const [isLoadingHint, setIsLoadingHint] = useState(false);
   const [selectedApplicationId, setSelectedApplicationId] = useState<number | null>(null);
-
-  // 持久化视图状态
-  useEffect(() => {
-    const savedTab = localStorage.getItem("activeMainTab") as ViewType | null;
-    if (savedTab && (savedTab === "resume" || savedTab === "interview" || savedTab === "landing" || savedTab === "applications" || savedTab === "questionbank" || savedTab === "boss")) {
-      setActiveMainTab(savedTab);
-    }
-  }, []);
+  const [historyDetailSessionId, setHistoryDetailSessionId] = useState<string | null>(null);
 
   useEffect(() => {
     localStorage.setItem("activeMainTab", activeMainTab);
@@ -73,32 +80,28 @@ export default function InterviewPage() {
     companyInfo,
     interviewProgress,
     maxQuestions,
+    questionBankCount,
+    experienceQuestions,
     currentSession,
     showAbilityProfile,
     apiConfig, // 订阅 apiConfig 以便配置更新时自动刷新
-    sessions,
-    sessionLoading,
     threadId,
     isInitializing,
+    initializationStage,
+    executionPlan,
 
     // 方法
     fetchSessions,
     selectSession,
-    createNewSession,
-    deleteSession,
-    updateSessionTitle,
-    togglePinSession,
     setJobDescription,
     setCompanyInfo,
     setMaxQuestions,
+    setQuestionBankCount,
     uploadResume,
     startInterview,
     sendMessage,
     stopStreaming,
     rollbackChat,
-    clearMessages,
-    restoreMessages,
-    setInterviewProgress,
     setShowAbilityProfile: setStoreShowAbilityProfile,
     apiError,
     clearApiError,
@@ -108,7 +111,6 @@ export default function InterviewPage() {
 
   // ===== 初始化 =====
   useEffect(() => {
-    setIsMounted(true);
     fetchSessions(undefined);
   }, [fetchSessions]);
 
@@ -144,7 +146,7 @@ export default function InterviewPage() {
   // 检查是否配置了语音模型
   const hasVoiceConfig = useMemo(() => {
     return !!getVoiceModel?.();
-  }, [getVoiceModel, apiConfig]);
+  }, [getVoiceModel]);
 
   const handleStartInterview = async (mode: 'text' | 'voice' = 'text') => {
     try {
@@ -209,22 +211,6 @@ export default function InterviewPage() {
     await rollbackChat(userMessageIndex);
     // 重新发送原有的用户消息
     await sendMessage(userMessage.content);
-  };
-
-  // ===== 会话管理 =====
-  // Note: Sidebar handles session selection.
-  const handleSessionSelect = async (sessionId: string) => {
-    await selectSession(sessionId);
-    setStoreShowAbilityProfile(false);
-    if (typeof window !== 'undefined' && window.innerWidth < 768) {
-      setShowSidebar(false);
-    }
-  };
-
-  const handleNewSession = () => {
-    createNewSession();
-    setStoreShowAbilityProfile(false);
-
   };
 
   const scrollToBottom = () => {
@@ -388,7 +374,12 @@ export default function InterviewPage() {
   }
 
   if (activeMainTab === 'questionbank') {
-    return <QuestionBankPage onBack={() => setActiveMainTab('landing')} />;
+    return (
+      <QuestionBankPage
+        onBack={() => setActiveMainTab('landing')}
+        onStartInterview={() => setActiveMainTab('interview')}
+      />
+    );
   }
 
   // BOSS 半自动化视图
@@ -493,6 +484,7 @@ export default function InterviewPage() {
         onOpenSettings={() => setShowSettingsDialog(true)}
         currentView={activeMainTab as "interview" | "resume" | "applications"}
         onViewChange={(view) => setActiveMainTab(view)}
+        onViewSessionDetail={setHistoryDetailSessionId}
       />
 
       {/* 主内容区域 */}
@@ -543,9 +535,7 @@ export default function InterviewPage() {
               <ResumeTools
                 apiConfig={hasApiConfig ? useInterviewStore.getState().getApiConfigForRequest() : null}
                 resumeContent={resume?.content || ""}
-                onResumeChange={(content) => {
-                  // 可以同步简历内容到 store，但这里简化处理
-                }}
+                onResumeChange={() => undefined}
               />
             </div>
           </div>
@@ -592,6 +582,9 @@ export default function InterviewPage() {
                 onCompanyInfoChange={setCompanyInfo}
                 maxQuestions={maxQuestions}
                 onMaxQuestionsChange={setMaxQuestions}
+                questionBankCount={questionBankCount}
+                onQuestionBankCountChange={setQuestionBankCount}
+                experienceQuestionCount={experienceQuestions.length}
                 isLoading={isLoading}
                 hasApiConfig={hasApiConfig}
                 onStartInterview={handleStartInterview}
@@ -655,7 +648,7 @@ export default function InterviewPage() {
                   <div className="max-w-3xl mx-auto pt-6 pb-2 space-y-6">
                     {/* 初始加载状态：当正在加载或流式传输且没有消息时显示 */}
                     {(isLoading || isStreaming) && messages.length === 0 && (
-                      <PreparingInterview />
+                      <PreparingInterview stage={initializationStage} plan={executionPlan} />
                     )}
 
                     {messages.map((msg, index) => (
@@ -671,9 +664,12 @@ export default function InterviewPage() {
 
                     {/* 后续对话的思考状态：仅在流式传输中且最后一条消息是用户消息时显示 */}
                     {isStreaming && messages.length > 0 && messages[messages.length - 1].role === 'user' && (
-                      <div className="flex items-center gap-2 text-gray-400 text-sm px-4 animate-pulse">
-                        <Bot className="w-4 h-4" />
-                        <span>面试官正在思考...</span>
+                      <div className="space-y-3 px-4">
+                        <div className="flex items-center gap-2 text-gray-400 text-sm animate-pulse">
+                          <Bot className="w-4 h-4" />
+                          <span>面试官正在思考...</span>
+                        </div>
+                        <ExecutionPlanPanel steps={executionPlan} />
                       </div>
                     )}
                     <div ref={messagesEndRef} />
@@ -982,12 +978,24 @@ export default function InterviewPage() {
         )}
 
         <SettingsDialog open={showSettingsDialog} onOpenChange={setShowSettingsDialog} />
-        <SessionProfileDialog
-          open={showSessionProfileDialog}
-          onOpenChange={setShowSessionProfileDialog}
-          sessionId={currentSession?.session_id || ""}
-          defaultTab={sessionProfileDefaultTab}
-        />
+        {historyDetailSessionId && (
+          <InterviewHistoryDetailDialog
+            key={historyDetailSessionId}
+            sessionId={historyDetailSessionId}
+            open={true}
+            onOpenChange={(open) => {
+              if (!open) setHistoryDetailSessionId(null);
+            }}
+          />
+        )}
+        {showSessionProfileDialog && (
+          <SessionProfileDialog
+            open={showSessionProfileDialog}
+            onOpenChange={setShowSessionProfileDialog}
+            sessionId={currentSession?.session_id || ""}
+            defaultTab={sessionProfileDefaultTab}
+          />
+        )}
       </main>
     </div>
   );

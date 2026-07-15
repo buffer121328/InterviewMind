@@ -12,18 +12,23 @@ import { apiRequest, API_BASE_URL, getUserId } from './config';
 export interface SessionMetadata {
     mode: 'mock' | 'voice';
     resume_filename?: string;
+    company_info?: string;
     job_description?: string;
     question_count: number;
     max_questions: number;
     status: 'active' | 'completed' | 'archived';
     pinned?: boolean;
     round_index?: number;
+    round_type?: string;
+    parent_session_id?: string;
 }
 
 export interface Message {
     role: 'user' | "assistant" | 'system';
     content: string;
     timestamp: string;
+    question_index?: number;
+    audio_url?: string;
 }
 
 export interface SessionDetail {
@@ -61,11 +66,22 @@ export async function fetchSessionList(
     mode?: 'mock' | 'voice',
     limit: number = 50
 ): Promise<SessionListItem[]> {
+    const page = await fetchSessionPage(status, mode, limit, 0);
+    return page.sessions;
+}
+
+export async function fetchSessionPage(
+    status?: 'active' | 'completed' | 'archived',
+    mode?: 'mock' | 'voice',
+    limit: number = 50,
+    offset: number = 0,
+): Promise<{ sessions: SessionListItem[]; total: number; limit: number; offset: number }> {
     try {
         const params = new URLSearchParams();
         if (status) params.append('status', status);
         if (mode) params.append('mode', mode);
         params.append('limit', String(limit));
+        params.append('offset', String(offset));
 
         const response = await fetch(`${API_BASE_URL}/api/sessions/?${params}`, {
             headers: { 'X-User-ID': getUserId() }
@@ -74,10 +90,15 @@ export async function fetchSessionList(
         if (!response.ok) throw new Error('获取会话列表失败');
 
         const data = await response.json();
-        return data.sessions || [];
+        return {
+            sessions: data.sessions || [],
+            total: data.total || 0,
+            limit,
+            offset,
+        };
     } catch (error) {
         console.error('获取会话列表失败:', error);
-        return [];
+        return { sessions: [], total: 0, limit, offset };
     }
 }
 
@@ -216,4 +237,3 @@ export async function createNextRound(
         return null;
     }
 }
-

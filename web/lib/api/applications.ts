@@ -3,7 +3,7 @@
  * 统一管理岗位投递记录和事件流水的 API 调用
  */
 
-import { apiRequest, API_BASE_URL, getUserId } from './config';
+import { apiRequest } from './config';
 
 // ============================================================================
 // 类型定义
@@ -14,7 +14,7 @@ export interface ApplicationEvent {
     application_id: number;
     event_type: string;
     event_time: string;
-    event_data: Record<string, any>;
+    event_data: Record<string, unknown>;
     created_at: string;
 }
 
@@ -72,7 +72,7 @@ export interface UpdateApplicationRequest {
 export interface CreateEventRequest {
     event_type: string;
     event_time?: string;
-    event_data?: Record<string, any>;
+    event_data?: Record<string, unknown>;
 }
 
 // ============================================================================
@@ -86,7 +86,7 @@ export async function fetchApplications(
     status?: string,
     limit: number = 50,
     offset: number = 0
-): Promise<{ applications: JobApplicationListItem[]; total: number }> {
+): Promise<{ applications: JobApplicationListItem[]; total: number; limit: number; offset: number }> {
     try {
         const params = new URLSearchParams();
         if (status) params.append('status', status);
@@ -97,15 +97,19 @@ export async function fetchApplications(
             success: boolean;
             applications: JobApplicationListItem[];
             total: number;
+            limit: number;
+            offset: number;
         }>(`/api/applications/?${params}`);
 
         return {
             applications: response.applications || [],
             total: response.total || 0,
+            limit: response.limit ?? limit,
+            offset: response.offset ?? offset,
         };
     } catch (error) {
         console.error('获取投递列表失败:', error);
-        return { applications: [], total: 0 };
+        return { applications: [], total: 0, limit, offset };
     }
 }
 

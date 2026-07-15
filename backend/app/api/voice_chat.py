@@ -16,6 +16,7 @@ from app.schemas.voice import (
 )
 
 from app.repositories.session.session_repo import SessionRepo
+from app.services.interview.interview_context import build_interview_context
 from app.services.interview.voice_interview import (
     generate_interview_plan,
     build_system_prompt,
@@ -107,13 +108,27 @@ async def start_voice_interview(
         interview_plan = await service.get_interview_plan(session_id)
         if not interview_plan:
             logger.info(f"[Voice] 会话 {session_id} 计划为空，正在生成...")
+            context = await build_interview_context(
+                user_id=user_id,
+                resume_context=None,
+                job_description=None,
+                company_info=None,
+                max_questions=None,
+                question_bank_count=request.question_bank_count,
+                experience_questions=request.experience_questions,
+                session_metadata=session.metadata,
+            )
             interview_plan = await generate_interview_plan(
-                resume=session.metadata.resume_content or "",
-                job_description=session.metadata.job_description or "",
-                company_info=session.metadata.company_info or "",
-                max_questions=session.metadata.max_questions or 5,
+                resume=context.resume_context,
+                job_description=context.job_description,
+                company_info=context.company_info,
+                max_questions=context.max_questions,
                 api_config=api_config,
-                session_id=session_id
+                session_id=session_id,
+                user_id=user_id,
+                question_bank_count=context.question_bank_count,
+                experience_questions=list(context.experience_questions),
+                memory_context=context.memory_context,
             )
             await service.save_interview_plan(session_id, interview_plan)
         else:

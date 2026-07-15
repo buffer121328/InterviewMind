@@ -3,17 +3,45 @@
 提供结构化输出、重试、统一调用等能力
 """
 
+import asyncio
 import logging
 from typing import Type, TypeVar, Optional, Dict, Any
 
 from pydantic import BaseModel
 from langchain_openai import ChatOpenAI
 
+from app.config import get_settings
 from app.services import llms
 
 logger = logging.getLogger(__name__)
 
 T = TypeVar('T', bound=BaseModel)
+
+
+async def _invoke_with_fallback(input_value: object, output_model: Type[T], api_config: Optional[dict], channel: str, max_retries: int) -> T:
+    """主通道有限重试后按配置回退，整体超时由环境变量控制。"""
+    timeout = get_settings().llm_request_timeout_seconds
+    last_error: Optional[Exception] = None
+    candidates = llms.model_gateway.get_chat_candidates(api_config, channel)
+    for candidate_index, current_llm in enumerate(candidates):
+        structured_llm = current_llm.with_structured_output(output_model)
+        attempts = max_retries + 1 if candidate_index == 0 else 1
+        for attempt in range(attempts):
+            try:
+                result = await asyncio.wait_for(structured_llm.ainvoke(input_value), timeout=timeout)
+                llms.model_gateway.record_chat_success(current_llm)
+                logger.debug("结构化输出成功: candidate=%s attempt=%s", candidate_index + 1, attempt + 1)
+                return result
+            except Exception as exc:
+                last_error = exc
+                if attempt + 1 < attempts:
+                    logger.warning("结构化输出重试: candidate=%s attempt=%s", candidate_index + 1, attempt + 1)
+        llms.model_gateway.record_chat_failure(current_llm)
+        if candidate_index == 0:
+            logger.warning("主模型通道失败，尝试备用通道")
+    if last_error:
+        raise last_error
+    raise RuntimeError("结构化输出调用失败：没有可用模型通道")
 
 
 def _ensure_json_keyword_in_messages(messages: list) -> None:
@@ -57,30 +85,12 @@ async def invoke_structured(
     Raises:
         Exception: 所有重试都失败后抛出最后一个异常
     """
-    current_llm = llms.get_llm_for_request(api_config, channel=channel)
-    structured_llm = current_llm.with_structured_output(output_model)
-    
     # DashScope API 的 json_object 模式要求 messages 中包含 "json" 字样
     # 参见: https://help.aliyun.com/zh/model-studio/json-mode
     if isinstance(prompt, str) and "json" not in prompt.lower():
         prompt = f"{prompt}\n\nRespond in JSON format."
     
-    last_error: Optional[Exception] = None
-    for attempt in range(max_retries + 1):
-        try:
-            result = await structured_llm.ainvoke(prompt)
-            logger.debug(f"结构化输出成功 (尝试 {attempt + 1}/{max_retries + 1})")
-            return result
-        except Exception as e:
-            last_error = e
-            if attempt < max_retries:
-                logger.warning(f"结构化输出重试 {attempt + 1}/{max_retries}: {e}")
-            else:
-                logger.error(f"结构化输出失败 (所有重试已用尽): {e}")
-    
-    if last_error is not None:
-        raise last_error
-    raise RuntimeError("结构化输出调用失败：未知错误")
+    return await _invoke_with_fallback(prompt, output_model, api_config, channel, max_retries)
 
 
 async def invoke_structured_with_messages(
@@ -103,27 +113,10 @@ async def invoke_structured_with_messages(
     Returns:
         output_model 的实例
     """
-    current_llm = llms.get_llm_for_request(api_config, channel=channel)
-    structured_llm = current_llm.with_structured_output(output_model)
-    
     # DashScope json_object 模式要求 messages 中包含 "json" 字样
     _ensure_json_keyword_in_messages(messages)
     
-    last_error: Optional[Exception] = None
-    for attempt in range(max_retries + 1):
-        try:
-            result = await structured_llm.ainvoke(messages)
-            return result
-        except Exception as e:
-            last_error = e
-            if attempt < max_retries:
-                logger.warning(f"结构化输出重试 {attempt + 1}/{max_retries}: {e}")
-            else:
-                logger.error(f"结构化输出失败: {e}")
-    
-    if last_error is not None:
-        raise last_error
-    raise RuntimeError("结构化输出调用失败：未知错误")
+    return await _invoke_with_fallback(messages, output_model, api_config, channel, max_retries)
 
 
 def get_structured_llm(
@@ -142,7 +135,7 @@ def get_structured_llm(
     Returns:
         绑定了结构化输出的 ChatOpenAI 实例
     """
-    current_llm = llms.get_llm_for_request(api_config, channel=channel)
+    current_llm = llms.model_gateway.get_chat_model(api_config, channel=channel)
     return current_llm.with_structured_output(output_model)
 
 

@@ -2,14 +2,14 @@
 
 import React, { useState, useEffect } from 'react';
 import { useInterviewStore } from '@/store/useInterviewStore';
-import { CandidateMaterial, MaterialType } from '@/lib/api/resume';
+import { CandidateMaterial, MaterialType, type ApiConfig } from '@/lib/api/resume';
 import { ProjectRewriteDialog } from './ProjectRewriteDialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { 
@@ -44,7 +44,7 @@ interface CandidateMaterialLibraryProps {
     onSelectMaterial?: (material: CandidateMaterial) => void;
     selectionMode?: boolean;
     selectedIds?: number[];
-    apiConfig?: any;
+    apiConfig?: ApiConfig;
 }
 
 export function CandidateMaterialLibrary({
@@ -60,7 +60,6 @@ export function CandidateMaterialLibrary({
         fetchCandidateMaterials,
         selectMaterial,
         deleteMaterial,
-        clearMaterial,
     } = useInterviewStore();
 
     const [searchKeyword, setSearchKeyword] = useState('');
@@ -164,7 +163,7 @@ export function CandidateMaterialLibrary({
                         <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
                             <FileText className="h-12 w-12 mb-4" />
                             <p>暂无素材</p>
-                            <p className="text-sm">点击"添加素材"开始创建</p>
+                            <p className="text-sm">点击“添加素材”开始创建</p>
                         </div>
                     ) : (
                         filteredMaterials.map((material) => {
@@ -268,18 +267,20 @@ export function CandidateMaterialLibrary({
             </ScrollArea>
 
             {/* 素材编辑对话框 */}
-            <MaterialEditorDialog
-                open={showEditor}
-                onOpenChange={setShowEditor}
-                material={editingMaterial}
-                onSave={() => {
-                    setShowEditor(false);
-                    fetchCandidateMaterials();
-                }}
-            />
+            {showEditor && (
+                <MaterialEditorDialog
+                    open={showEditor}
+                    onOpenChange={setShowEditor}
+                    material={editingMaterial}
+                    onSave={() => {
+                        setShowEditor(false);
+                        fetchCandidateMaterials();
+                    }}
+                />
+            )}
 
             {/* 项目重写对话框 */}
-            {rewriteMaterial && apiConfig && (
+            {showRewriteDialog && rewriteMaterial && apiConfig && (
                 <ProjectRewriteDialog
                     open={showRewriteDialog}
                     onOpenChange={setShowRewriteDialog}
@@ -302,8 +303,20 @@ interface MaterialEditorDialogProps {
     onSave: () => void;
 }
 
-function MaterialEditorDialog({ open, onOpenChange, material, onSave }: MaterialEditorDialogProps) {
-    const [formData, setFormData] = useState({
+function createMaterialFormData(material: CandidateMaterial | null) {
+    if (material) {
+        return {
+            material_type: material.material_type,
+            title: material.title,
+            content: material.content,
+            tags: material.tags,
+            importance_score: material.importance_score,
+            confidence_score: material.confidence_score,
+            is_verified: material.is_verified,
+        };
+    }
+
+    return {
         material_type: 'project' as MaterialType,
         title: '',
         content: '',
@@ -311,34 +324,13 @@ function MaterialEditorDialog({ open, onOpenChange, material, onSave }: Material
         importance_score: 0.5,
         confidence_score: 0.5,
         is_verified: false,
-    });
+    };
+}
+
+function MaterialEditorDialog({ open, onOpenChange, material, onSave }: MaterialEditorDialogProps) {
+    const [formData, setFormData] = useState(() => createMaterialFormData(material));
     const [tagInput, setTagInput] = useState('');
     const [saving, setSaving] = useState(false);
-
-    // 初始化表单数据
-    useEffect(() => {
-        if (material) {
-            setFormData({
-                material_type: material.material_type,
-                title: material.title,
-                content: material.content,
-                tags: material.tags,
-                importance_score: material.importance_score,
-                confidence_score: material.confidence_score,
-                is_verified: material.is_verified,
-            });
-        } else {
-            setFormData({
-                material_type: 'project',
-                title: '',
-                content: '',
-                tags: [],
-                importance_score: 0.5,
-                confidence_score: 0.5,
-                is_verified: false,
-            });
-        }
-    }, [material]);
 
     // 添加标签
     const handleAddTag = () => {

@@ -18,6 +18,8 @@ import {
 } from "@/lib/api/questionBank";
 import { fetchSessionList, getSessionDetail, type SessionListItem, type SessionDetail } from "@/lib/api/sessions";
 import { ChatMessage } from "@/components/ChatMessage";
+import { InterviewExperiencePanel } from "@/components/InterviewExperiencePanel";
+import { QuestionFileImportPanel } from "@/components/QuestionFileImportPanel";
 
 // =====================================================================
 // Types
@@ -25,9 +27,10 @@ import { ChatMessage } from "@/components/ChatMessage";
 
 interface QuestionBankPageProps {
     onBack: () => void;
+    onStartInterview: () => void;
 }
 
-type TabKey = "bank" | "history";
+type TabKey = "bank" | "experience" | "history";
 
 type DifficultyOption = { label: string; value: string };
 type TypeOption = { label: string; value: string };
@@ -262,7 +265,7 @@ function SessionCard({ session }: { session: SessionListItem }) {
 // Main Component
 // =====================================================================
 
-export default function QuestionBankPage({ onBack }: QuestionBankPageProps) {
+export default function QuestionBankPage({ onBack, onStartInterview }: QuestionBankPageProps) {
     // ---- state ----
     const [tab, setTab] = useState<TabKey>("bank");
     const [questions, setQuestions] = useState<QuestionBankItem[]>([]);
@@ -323,8 +326,15 @@ export default function QuestionBankPage({ onBack }: QuestionBankPageProps) {
     }, []);
 
     useEffect(() => {
-        if (tab === "bank") loadQuestions();
-        else loadSessions();
+        void Promise.resolve().then(() => {
+            if (tab === "bank") {
+                return loadQuestions();
+            }
+            if (tab === "history") {
+                return loadSessions();
+            }
+            return undefined;
+        });
     }, [tab, loadQuestions, loadSessions]);
 
     // ---- handlers ----
@@ -382,7 +392,7 @@ export default function QuestionBankPage({ onBack }: QuestionBankPageProps) {
 
             {/* =================== Tabs =================== */}
             <div className="flex items-center gap-1 border-b border-stone-200 bg-white px-4">
-                {([["bank", "我的题库"], ["history", "面试历史"]] as const).map(([key, label]) => (
+                {([["bank", "我的题库"], ["experience", "面经采集"], ["history", "面试历史"]] as const).map(([key, label]) => (
                     <button
                         key={key}
                         className={cn(
@@ -451,6 +461,8 @@ export default function QuestionBankPage({ onBack }: QuestionBankPageProps) {
                                 </Button>
                             </div>
                         </div>
+
+                        <QuestionFileImportPanel onImported={() => void loadQuestions()} />
 
                         {/* Add‑question form */}
                         <div
@@ -534,6 +546,13 @@ export default function QuestionBankPage({ onBack }: QuestionBankPageProps) {
                             )}
                         </ScrollArea>
                     </div>
+                )}
+
+                {tab === "experience" && (
+                    <InterviewExperiencePanel
+                        onImported={() => void loadQuestions()}
+                        onStartInterview={onStartInterview}
+                    />
                 )}
 
                 {/* ---------- Interview History Tab ---------- */}

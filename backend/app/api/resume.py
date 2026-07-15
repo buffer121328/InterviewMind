@@ -5,8 +5,8 @@
 
 import json
 import logging
-from typing import Optional, AsyncGenerator
-from fastapi import APIRouter, HTTPException, Header, Depends
+from typing import Optional, AsyncGenerator, Literal
+from fastapi import APIRouter, HTTPException, Header, Depends, Query
 from fastapi.responses import StreamingResponse
 
 from app.schemas.resume_schemas import (
@@ -22,7 +22,11 @@ from app.schemas.resume_schemas import (
     ResumeGenerateInitResponse,
     ResumeGenerateSubmitResponse,
     GeneratedResumeItem,
-    GeneratedResumesResponse
+    GeneratedResumesResponse,
+    ResumeReviewRequest,
+    ResumeReviewResponse,
+    ResumeHistoryListResponse,
+    ResumeHistoryDetailResponse,
 )
 from app.schemas.jd_schemas import (
     JDMatchRequest,
@@ -44,6 +48,12 @@ from app.repositories.resume.resume_generation_repo import get_generation_repo
 from app.repositories.resume.jd_analysis_repo import get_jd_analysis_repo
 from app.services.resume.resume_analyzer_graph import analyze_resume
 from app.services.resume.resume_orchestrator import run_pipeline  # 新流水线入口
+from app.services.resume.resume_review import (
+    ReviewConflictError,
+    apply_review_decisions,
+    initialize_review,
+    public_review_state,
+)
 from app.services.resume.resume_optimizer_graph import optimize_resume_streaming  # 保留流式
 from app.services.resume.resume_generation_graph import (
     init_generation_session,
@@ -61,79 +71,7 @@ router = APIRouter(prefix="/api/resume", tags=["简历工具"])
 session_repo = SessionRepo()
 
 
-def _pipeline_to_optimize_result(pipeline_output: dict) -> "ResumeOptimizeResult":
-    """
-    将 run_pipeline 的原始输出转换为 ResumeOptimizeResult。
-    
-    pipeline 输出字段: jd_analysis, material_pool, change_items, assembled_resume,
-                       fact_check, confirmation_items, errors, overall_confidence,
-                       requires_user_review
-    
-    ResumeOptimizeResult 字段: match_score, hr_pass_rate, optimized_sections,
-                                key_improvements, interview_insights, keyword_analysis,
-                                change_items, overall_confidence, requires_user_review
-    """
-    jd = pipeline_output.get("jd_analysis") or {}
-    change_items_raw = pipeline_output.get("change_items") or []
-    
-    # 从 JD 分析中提取匹配度和关键词
-    match_score = float(jd.get("match_score", 0))
-    hr_pass_rate = float(jd.get("hr_pass_rate", round(match_score * 0.85)))
-    keyword_analysis = {
-        "required": jd.get("keywords_required", jd.get("jd_keywords", [])),
-        "preferred": jd.get("keywords_preferred", []),
-        "matched": jd.get("matched_keywords", []),
-        "missing": jd.get("missing_keywords", []),
-    }
-    
-    # 从 change_items 中提取各部分优化建议
-    sections_map: dict = {}
-    key_improvements: list = []
-    for item in change_items_raw:
-        section = item.get("section_name", "综合")
-        if section not in sections_map:
-            sections_map[section] = []
-        sections_map[section].append({
-            "original": item.get("original_text", ""),
-            "optimized": item.get("optimized_text", ""),
-            "reason": item.get("reason", ""),
-        })
-        if item.get("reason"):
-            key_improvements.append(item["reason"])
-    
-    optimized_sections = [
-        {"section": sec, "changes": changes}
-        for sec, changes in sections_map.items()
-    ]
-    
-    # 转换 change_items 为标准 ResumeChangeItem 格式
-    change_items = []
-    for item in change_items_raw:
-        change_items.append({
-            "change_type": item.get("change_type", "polish"),
-            "section_name": item.get("section_name", ""),
-            "original_text": item.get("original_text"),
-            "optimized_text": item.get("optimized_text", ""),
-            "confidence": float(item.get("confidence", 0.8)),
-            "requires_user_confirmation": item.get("requires_user_confirmation", False),
-            "reason": item.get("reason"),
-        })
-    
-    # 面试洞察（来自素材池）
-    material = pipeline_output.get("material_pool") or {}
-    interview_insights = material.get("summary") if isinstance(material, dict) else None
-    
-    return ResumeOptimizeResult(
-        match_score=match_score,
-        hr_pass_rate=hr_pass_rate,
-        optimized_sections=optimized_sections,
-        key_improvements=key_improvements[:10],  # 最多10条
-        interview_insights=interview_insights,
-        keyword_analysis=keyword_analysis if keyword_analysis.get("required") else None,
-        change_items=change_items,
-        overall_confidence=pipeline_output.get("overall_confidence", 0.8),
-        requires_user_review=pipeline_output.get("requires_user_review", False),
-    )
+from app.services.resume.result_mapper import pipeline_to_optimize_result
 
 
 @router.post("/analyze", response_model=ResumeAnalyzeResponse)
@@ -238,6 +176,7 @@ async def optimize_resume_endpoint(
         
         # 保存结果
         resume_service = get_resume_repo()
+        result = initialize_review(result)
         result_id = await resume_service.save_result(
             user_id=user_id,
             result_type="optimize",
@@ -249,7 +188,7 @@ async def optimize_resume_endpoint(
         )
         
         # 将 pipeline 输出映射为 API 响应格式
-        opt_result = _pipeline_to_optimize_result(result)
+        opt_result = pipeline_to_optimize_result(result)
         
         return ResumeOptimizeResponse(
             success=True,
@@ -265,6 +204,51 @@ async def optimize_resume_endpoint(
             status_code=500,
             detail=f"优化失败: {str(e)}"
         )
+
+
+@router.get("/optimize/{result_id}/review", response_model=ResumeReviewResponse)
+async def get_resume_review(
+    result_id: int,
+    user_id: str = Depends(get_current_user_id),
+):
+    resume_service = get_resume_repo()
+    result = await resume_service.get_result(result_id, user_id)
+    if not result or result.get("result_type") != "optimize":
+        raise HTTPException(status_code=404, detail="优化结果不存在")
+    return ResumeReviewResponse(
+        result_id=result_id,
+        review=public_review_state(result["result_data"]),
+    )
+
+
+@router.post("/optimize/{result_id}/review", response_model=ResumeReviewResponse)
+async def submit_resume_review(
+    result_id: int,
+    request: ResumeReviewRequest,
+    user_id: str = Depends(get_current_user_id),
+):
+    resume_service = get_resume_repo()
+    try:
+        updated = await resume_service.update_result_data(
+            result_id,
+            user_id,
+            lambda data: apply_review_decisions(
+                data,
+                decisions=[decision.model_dump() for decision in request.decisions],
+                expected_version=request.expected_version,
+            ),
+            result_type="optimize",
+        )
+    except ReviewConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not updated:
+        raise HTTPException(status_code=404, detail="优化结果不存在")
+    return ResumeReviewResponse(
+        result_id=result_id,
+        review=public_review_state(updated["result_data"]),
+    )
 
 
 @router.post("/optimize/stream")
@@ -387,10 +371,12 @@ async def get_completed_sessions(
         )
 
 
-@router.get("/results")
+@router.get("/results", response_model=ResumeHistoryListResponse)
 async def list_resume_results(
-    result_type: Optional[str] = None,
-    limit: int = 20,
+    result_type: Optional[Literal["analyze", "optimize"]] = Query(default=None),
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    include_data: bool = Query(default=True, description="是否在列表中返回完整简历和结果 JSON"),
     user_id: str = Depends(get_current_user_id)
 ):
     """
@@ -403,24 +389,33 @@ async def list_resume_results(
         results = await resume_service.list_results(
             user_id=user_id,
             result_type=result_type,
-            limit=limit
+            limit=limit,
+            offset=offset,
+            include_data=include_data,
         )
-        
-        return {
-            "success": True,
-            "results": results
-        }
+        total = await resume_service.count_results(user_id=user_id, result_type=result_type)
+
+        return ResumeHistoryListResponse(
+            success=True,
+            results=results,
+            total=total,
+            limit=limit,
+            offset=offset,
+        )
         
     except Exception as e:
         logger.error(f"获取历史记录失败: {e}", exc_info=True)
-        return {
-            "success": False,
-            "results": [],
-            "message": str(e)
-        }
+        return ResumeHistoryListResponse(
+            success=False,
+            results=[],
+            total=0,
+            limit=limit,
+            offset=offset,
+            message=str(e),
+        )
 
 
-@router.get("/results/{result_id}")
+@router.get("/results/{result_id}", response_model=ResumeHistoryDetailResponse)
 async def get_resume_result(
     result_id: int,
     user_id: str = Depends(get_current_user_id)
@@ -437,10 +432,7 @@ async def get_resume_result(
         if not result:
             raise HTTPException(status_code=404, detail="结果不存在")
         
-        return {
-            "success": True,
-            "result": result
-        }
+        return ResumeHistoryDetailResponse(success=True, result=result)
         
     except HTTPException:
         raise
@@ -494,12 +486,32 @@ async def init_resume_generation(
     
     if not request.api_config:
         raise HTTPException(status_code=400, detail="请先配置 API Key")
-    
+
     try:
+        resume_content = request.resume_content
+        job_description = request.job_description
+        optimization_result = request.optimization_result
+        if request.optimization_result_id is not None:
+            stored = await get_resume_repo().get_result(request.optimization_result_id, user_id)
+            if not stored or stored.get("result_type") != "optimize":
+                raise HTTPException(status_code=404, detail="优化结果不存在")
+            stored_data = stored["result_data"]
+            review = public_review_state(stored_data)
+            if review["status"] == "pending":
+                raise HTTPException(status_code=409, detail="请先完成简历人工审阅")
+            resume_content = review.get("resolved_resume") or stored["resume_content"]
+            job_description = stored.get("job_description") or request.job_description
+            optimization_result = _pipeline_to_optimize_result(stored_data).model_dump()
+        elif request.optimization_result.get("requires_user_review"):
+            raise HTTPException(
+                status_code=400,
+                detail="需要人工审阅的优化结果必须提供 optimization_result_id",
+            )
+
         result = await init_generation_session(
-            resume_content=request.resume_content,
-            job_description=request.job_description,
-            optimization_result=request.optimization_result,
+            resume_content=resume_content,
+            job_description=job_description,
+            optimization_result=optimization_result,
             user_id=user_id,
             template_style=request.template_style,
             api_config=request.api_config.model_dump() if request.api_config else None
@@ -513,6 +525,8 @@ async def init_resume_generation(
             result=result.get("result")
         )
         
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"初始化简历生成失败: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))

@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from 'react';
-import { Trash2, MoreHorizontal, GraduationCap, Timer, Edit2, Pin, PinOff, Mic } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { Trash2, MoreHorizontal, Edit2, Pin, PinOff, Mic, Eye } from 'lucide-react';
 import { SessionListItem } from '@/store/useInterviewStore';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -30,8 +30,11 @@ interface SessionListProps {
     onDeleteSession: (sessionId: string) => void;
     onEditSession?: (sessionId: string, newTitle: string) => void;
     onTogglePin?: (sessionId: string, pinned: boolean) => void;
+    onViewDetails?: (sessionId: string) => void;
     currentSessionId?: string;
     loading?: boolean;
+    hasMore?: boolean;
+    onLoadMore?: () => void;
 }
 
 export function SessionList({
@@ -40,8 +43,11 @@ export function SessionList({
     onDeleteSession,
     onEditSession,
     onTogglePin,
+    onViewDetails,
     currentSessionId,
-    loading
+    loading,
+    hasMore,
+    onLoadMore,
 }: SessionListProps) {
 
     const handleDelete = async (sessionId: string) => {
@@ -114,12 +120,18 @@ export function SessionList({
                                         onDelete={() => handleDelete(session.session_id)}
                                         onEdit={onEditSession}
                                         onTogglePin={onTogglePin}
+                                        onViewDetails={onViewDetails}
                                     />
                                 ))}
                             </div>
                         </div>
                     )
                 ))}
+                {hasMore && (
+                    <Button variant="outline" size="sm" className="mx-3 w-[calc(100%_-_1.5rem)]" onClick={onLoadMore} disabled={loading}>
+                        {loading ? '加载中...' : '加载更多'}
+                    </Button>
+                )}
             </div>
         </ScrollArea>
     );
@@ -132,9 +144,10 @@ interface SessionItemProps {
     onDelete: () => void;
     onEdit?: (sessionId: string, newTitle: string) => void;
     onTogglePin?: (sessionId: string, pinned: boolean) => void;
+    onViewDetails?: (sessionId: string) => void;
 }
 
-function SessionItem({ session, isActive, onSelect, onDelete, onEdit, onTogglePin }: SessionItemProps) {
+function SessionItem({ session, isActive, onSelect, onDelete, onEdit, onTogglePin, onViewDetails }: SessionItemProps) {
     const [isEditing, setIsEditing] = useState(false);
     const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
     const [editTitle, setEditTitle] = useState(session.title);
@@ -169,6 +182,11 @@ function SessionItem({ session, isActive, onSelect, onDelete, onEdit, onTogglePi
     const handleDeleteClick = (e: React.MouseEvent) => {
         e.stopPropagation();
         setIsDeleteDialogOpen(true);
+    };
+
+    const handleViewDetails = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        onViewDetails?.(session.session_id);
     };
 
     const handleConfirmDelete = () => {
@@ -225,6 +243,12 @@ function SessionItem({ session, isActive, onSelect, onDelete, onEdit, onTogglePi
                         </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="w-36">
+                        {onViewDetails && (
+                            <DropdownMenuItem onClick={handleViewDetails}>
+                                <Eye className="w-3.5 h-3.5 mr-2" />
+                                查看详情
+                            </DropdownMenuItem>
+                        )}
                         <DropdownMenuItem
                             onClick={handleEdit}
                         >

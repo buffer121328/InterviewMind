@@ -4,7 +4,7 @@
 """
 
 from pydantic import BaseModel, Field
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Literal
 from datetime import datetime
 
 
@@ -73,7 +73,7 @@ class QuestionBankListResponse(BaseModel):
 
 class QuestionBankImportRequest(BaseModel):
     """题库导入请求"""
-    questions: List[Dict[str, Any]] = Field(description="题目列表")
+    questions: List[Dict[str, Any]] = Field(min_length=1, max_length=500, description="题目列表")
     import_source: str = Field(default="manual", description="导入来源")
 
 
@@ -84,3 +84,22 @@ class QuestionBankImportResponse(BaseModel):
     total_count: int = Field(default=0, description="总数")
     success_count: int = Field(default=0, description="成功数")
     message: Optional[str] = Field(default=None, description="消息")
+
+
+class QuestionFileCandidate(BaseModel):
+    """上传文件解析得到、尚未入库的候选题。"""
+    question_text: str = Field(min_length=5, max_length=500)
+    reference_answer: Optional[str] = Field(default=None, max_length=10_000)
+    tags: List[str] = Field(default_factory=list, max_length=10)
+    difficulty: Literal["easy", "medium", "hard"] = "medium"
+    target_skill: Optional[str] = Field(default=None, max_length=100)
+    question_type: Literal["intro", "tech", "behavior", "system_design"] = "tech"
+    source_type: str = Field(default="upload", max_length=100)
+    source_id: str = Field(max_length=200)
+
+
+class QuestionFilePreviewResponse(BaseModel):
+    success: bool
+    filename: str
+    questions: List[QuestionFileCandidate] = Field(default_factory=list)
+    message: Optional[str] = None

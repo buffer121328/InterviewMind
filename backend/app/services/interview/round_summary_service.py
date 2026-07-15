@@ -323,8 +323,7 @@ def _generate_recommendation(profiles: List[Dict], weaknesses: List[Dict]) -> st
     
     # 取最后一轮画像的整体评估
     last_profile = profiles[-1]
-    recommendation = last_profile.get("recommendation", "maybe")
-    confidence = last_profile.get("confidence", 0.5)
+    recommendation = last_profile.get("recommendation")
     
     if recommendation in ("hire", "maybe", "reject"):
         return recommendation

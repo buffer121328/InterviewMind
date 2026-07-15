@@ -11,12 +11,27 @@
 选择器策略按优先级尝试，兼容 BOSS直聘 / 猎聘 / 拉勾 常见 DOM 结构。
 """
 
+import asyncio
 import logging
+import os
+from pathlib import Path
 from typing import Dict, Any, Optional, List, Tuple
 from dataclasses import dataclass
 from datetime import datetime
 
+try:
+    from playwright.async_api import async_playwright
+except ImportError:
+    async_playwright = None
+
 logger = logging.getLogger(__name__)
+
+
+DEFAULT_BOSS_BROWSER_PROFILE_DIR = (
+    Path(__file__).resolve().parents[3] / "data" / "browser_profiles" / "boss"
+)
+_boss_browser_lock: Optional[asyncio.Lock] = None
+_boss_browser_lock_loop = None
 
 
 # ============================================================================
@@ -70,44 +85,108 @@ class BrowserSession:
         self.errors = []
 
 
+@dataclass
+class BossBrowserSessionHandle:
+    """统一管理 BOSS Playwright 会话与 profile 互斥锁。"""
+
+    pw: Any
+    browser: Any
+    context: Any
+    _lock: asyncio.Lock
+    _closed: bool = False
+
+    async def close(self) -> None:
+        if self._closed:
+            return
+        try:
+            await close_browser(self.pw, self.browser)
+        finally:
+            self._closed = True
+            if self._lock.locked():
+                self._lock.release()
+
+
 # ============================================================================
 # 浏览器操作
 # ============================================================================
 
-async def start_browser(headless: bool = False) -> Tuple[Any, Any, Any]:
+async def start_browser(
+    headless: bool = False,
+    profile_dir: Optional[str] = None,
+) -> Tuple[Any, Any, Any]:
     """
     启动浏览器实例。
     
     Returns:
         (playwright_instance, browser, context)
     """
-    try:
-        from playwright.async_api import async_playwright
-
-        pw = await async_playwright().start()
-        browser = await pw.chromium.launch(
-            headless=headless,
-            args=[
-                "--disable-blink-features=AutomationControlled",
-                "--no-sandbox",
-                "--disable-dev-shm-usage",
-            ],
-        )
-        context = await browser.new_context(
-            viewport={"width": 1280, "height": 800},
-            user_agent=(
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/120.0.0.0 Safari/537.36"
-            ),
-        )
-        logger.info("[Browser] 浏览器启动成功")
-        return pw, browser, context
-    except ImportError:
+    if async_playwright is None:
         logger.error("[Browser] Playwright 未安装，请运行: pip install playwright && playwright install chromium")
         raise RuntimeError("Playwright 未安装")
+
+    pw = None
+    try:
+        pw = await async_playwright().start()
+        configured_profile = profile_dir or os.getenv("BOSS_BROWSER_PROFILE_DIR", "").strip()
+        if configured_profile:
+            context = await pw.chromium.launch_persistent_context(
+                user_data_dir=os.path.expanduser(configured_profile),
+                headless=headless,
+                viewport={"width": 1280, "height": 800},
+            )
+            browser = context
+        else:
+            browser = await pw.chromium.launch(headless=headless)
+            context = await browser.new_context(viewport={"width": 1280, "height": 800})
+        logger.info("[Browser] 浏览器启动成功")
+        return pw, browser, context
     except Exception as e:
+        if pw is not None:
+            await pw.stop()
         logger.error(f"[Browser] 启动失败: {e}")
+        raise
+
+
+def resolve_boss_browser_profile_dir(profile_dir: Optional[str] = None) -> Path:
+    """返回 BOSS 专用 profile；未配置时使用后端运行数据目录。"""
+    configured = profile_dir or os.getenv("BOSS_BROWSER_PROFILE_DIR", "").strip()
+    path = Path(configured).expanduser() if configured else DEFAULT_BOSS_BROWSER_PROFILE_DIR
+    return path.resolve()
+
+
+def _get_boss_browser_lock() -> asyncio.Lock:
+    """按事件循环创建锁，兼容测试与开发服务器重载。"""
+    global _boss_browser_lock, _boss_browser_lock_loop
+    loop = asyncio.get_running_loop()
+    if _boss_browser_lock is None or _boss_browser_lock_loop is not loop:
+        _boss_browser_lock = asyncio.Lock()
+        _boss_browser_lock_loop = loop
+    return _boss_browser_lock
+
+
+async def open_boss_browser_session(
+    headless: bool = False,
+    profile_dir: Optional[str] = None,
+) -> BossBrowserSessionHandle:
+    """打开共享登录态的 BOSS 会话，并串行化同一进程内的 profile 访问。"""
+    lock = _get_boss_browser_lock()
+    await lock.acquire()
+    try:
+        resolved_profile = resolve_boss_browser_profile_dir(profile_dir)
+        resolved_profile.mkdir(parents=True, exist_ok=True)
+        pw, browser, context = await start_browser(
+            headless=headless,
+            profile_dir=str(resolved_profile),
+        )
+        logger.info("[Browser] BOSS 持久化会话已启动")
+        return BossBrowserSessionHandle(
+            pw=pw,
+            browser=browser,
+            context=context,
+            _lock=lock,
+        )
+    except Exception:
+        lock.release()
         raise
 
 
@@ -136,6 +215,25 @@ async def scrape_page_text(page: Any) -> str:
     except Exception as e:
         logger.warning(f"[Browser] 提取页面文本失败: {e}")
         return ""
+
+
+async def inspect_page_state(page: Any) -> Dict[str, str]:
+    """识别必须停止自动点击并交给用户处理的页面状态。"""
+    text = (await scrape_page_text(page)).lower()
+    url = str(getattr(page, "url", "")).lower()
+
+    if not text.strip():
+        return {"status": "manual_takeover", "reason": "无法确认页面状态"}
+    if (
+        any(keyword in text for keyword in ("请稍候", "安全验证", "拖动滑块", "访问验证", "验证码"))
+        or "verify" in url
+    ):
+        return {"status": "manual_takeover", "reason": "页面要求安全验证"}
+    if any(keyword in text for keyword in ("登录后继续", "扫码登录", "手机号登录")) or "/login" in url:
+        return {"status": "login_required", "reason": "登录状态已失效"}
+    if any(keyword in text for keyword in ("职位已关闭", "职位不存在", "该职位已下线")):
+        return {"status": "unavailable", "reason": "岗位已失效"}
+    return {"status": "ready", "reason": ""}
 
 
 async def locate_and_fill_greeting(
@@ -207,6 +305,26 @@ async def locate_and_click_send(page: Any) -> Dict[str, Any]:
         "selector_used": "",
         "error": "所有选择器均无法定位发送按钮",
     }
+
+
+async def verify_send_result(page: Any) -> Dict[str, Any]:
+    """点击后保守验证发送结果；无法确认时交给用户复核。"""
+    text = (await scrape_page_text(page)).lower()
+    if any(keyword in text for keyword in ("发送成功", "消息已发送")):
+        return {"verified": True, "evidence": "success_message"}
+
+    for selector in BOSS_SELECTORS["chat_input"]:
+        try:
+            element = await page.query_selector(selector)
+            if not element:
+                continue
+            value = await element.input_value()
+            if not value.strip():
+                return {"verified": True, "evidence": "input_cleared"}
+        except Exception:
+            continue
+
+    return {"verified": False, "evidence": ""}
 
 
 async def take_screenshot(page: Any, label: str = "screenshot") -> str:

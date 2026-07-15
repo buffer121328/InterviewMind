@@ -130,6 +130,8 @@ class ApplicationListResponse(BaseModel):
     success: bool
     applications: List[ApplicationListItem] = Field(default_factory=list)
     total: int = 0
+    limit: int = 50
+    offset: int = 0
 
 
 class ApplicationDetailResponse(BaseModel):

@@ -12,12 +12,7 @@ import {
     DialogTitle,
 } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
-import {
-    ModelConfig,
-    API_PROVIDERS,
-    maskApiKey,
-    useInterviewStore
-} from '@/store/useInterviewStore';
+import { ModelConfig, API_PROVIDERS, useInterviewStore } from '@/store/useInterviewStore';
 import { getUserId } from '@/hooks/useUserIdentity';
 import { toast } from "sonner";
 
@@ -35,58 +30,55 @@ interface ModelFormDialogProps {
     initialValues?: Partial<ModelConfig>;
 }
 
+function getInitialModelFormValues(
+    editingModel?: ModelConfig,
+    initialValues?: Partial<ModelConfig>
+) {
+    if (editingModel) {
+        return {
+            provider: editingModel.provider,
+            apiKey: editingModel.apiKey,
+            baseUrl: editingModel.baseUrl,
+            model: editingModel.model,
+            name: editingModel.name,
+        };
+    }
+
+    if (initialValues) {
+        return {
+            provider: initialValues.provider || '',
+            apiKey: initialValues.apiKey || '',
+            baseUrl: initialValues.baseUrl || '',
+            model: initialValues.model || '',
+            name: '',
+        };
+    }
+
+    const defaultProvider = 'aiping';
+    const providerConfig = API_PROVIDERS.find((item) => item.id === defaultProvider);
+    return {
+        provider: defaultProvider,
+        apiKey: '',
+        baseUrl: providerConfig?.baseUrl || '',
+        model: providerConfig?.models[0] || '',
+        name: '',
+    };
+}
+
 function ModelFormDialog({ open, onClose, onSave, editingModel, initialValues }: ModelFormDialogProps) {
-    const [provider, setProvider] = useState(editingModel?.provider || '');
-    const [apiKey, setApiKey] = useState(editingModel?.apiKey || '');
-    const [baseUrl, setBaseUrl] = useState(editingModel?.baseUrl || '');
-    const [model, setModel] = useState(editingModel?.model || '');
-    const [name, setName] = useState(editingModel?.name || '');
+    const [initialFormValues] = useState(() => getInitialModelFormValues(editingModel, initialValues));
+    const [provider, setProvider] = useState(initialFormValues.provider);
+    const [apiKey, setApiKey] = useState(initialFormValues.apiKey);
+    const [baseUrl, setBaseUrl] = useState(initialFormValues.baseUrl);
+    const [model, setModel] = useState(initialFormValues.model);
+    const [name, setName] = useState(initialFormValues.name);
     const [showApiKey, setShowApiKey] = useState(false);
     const [isTesting, setIsTesting] = useState(false);
     const [showTutorial, setShowTutorial] = useState(false);
     const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
-
-    // 重置表单
-    useEffect(() => {
-        if (open) {
-            if (editingModel) {
-                setProvider(editingModel.provider);
-                setApiKey(editingModel.apiKey);
-                setBaseUrl(editingModel.baseUrl);
-                setModel(editingModel.model);
-                setName(editingModel.name);
-            } else if (initialValues) {
-                setProvider(initialValues.provider || '');
-                setApiKey(initialValues.apiKey || '');
-                setBaseUrl(initialValues.baseUrl || '');
-                setModel(initialValues.model || '');
-                setName(''); // 复制时不复制名称，当作新配置
-            } else {
-                // 默认选中 ai ping
-                const defaultProvider = 'aiping';
-                setProvider(defaultProvider);
-                const providerConfig = API_PROVIDERS.find(p => p.id === defaultProvider);
-                if (providerConfig) {
-                    setBaseUrl(providerConfig.baseUrl);
-                    if (providerConfig.models.length > 0) {
-                        setModel(providerConfig.models[0]);
-                    } else {
-                        setModel('');
-                    }
-                }
-                setApiKey('');
-                setName('');
-            }
-            setShowApiKey(false);
-            setTestResult(null);
-            setShowTutorial(false);
-        }
-    }, [open, editingModel, initialValues]);
-
-    // 监听输入变化，重置测试状态
-    useEffect(() => {
-        if (testResult) setTestResult(null);
-    }, [apiKey, baseUrl, model, provider]);
+    const [testedConfiguration, setTestedConfiguration] = useState<string | null>(null);
+    const configuration = [provider, apiKey, baseUrl, model].join('\u0000');
+    const currentTestResult = testedConfiguration === configuration ? testResult : null;
 
     // 选择提供商
     const handleProviderChange = (providerId: string) => {
@@ -106,11 +98,13 @@ function ModelFormDialog({ open, onClose, onSave, editingModel, initialValues }:
     const handleTestConnection = async () => {
         if (!apiKey || !baseUrl || !model) {
             setTestResult({ success: false, message: '请先填写完整的配置信息' });
+            setTestedConfiguration(configuration);
             return;
         }
 
         setIsTesting(true);
         setTestResult(null);
+        setTestedConfiguration(null);
 
         try {
             const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -133,6 +127,7 @@ function ModelFormDialog({ open, onClose, onSave, editingModel, initialValues }:
                 message: data.message || (data.success ? '连接成功！' : '连接失败')
             };
             setTestResult(result);
+            setTestedConfiguration(configuration);
 
             if (data.success) {
                 toast.success('连接成功！', {
@@ -143,12 +138,13 @@ function ModelFormDialog({ open, onClose, onSave, editingModel, initialValues }:
                     description: result.message
                 });
             }
-        } catch (error) {
+        } catch {
             const message = '无法连接到服务器，请检查网络';
             setTestResult({
                 success: false,
                 message
             });
+            setTestedConfiguration(configuration);
             toast.error('连接错误', {
                 description: message
             });
@@ -335,19 +331,19 @@ function ModelFormDialog({ open, onClose, onSave, editingModel, initialValues }:
                         </div>
 
                         {/* 测试连接结果 - 只在失败时显示 Banner，成功则直接体现在按钮上 */}
-                        {testResult && !testResult.success && (
+                        {currentTestResult && !currentTestResult.success && (
                             <div className={cn(
                                 "flex items-center gap-2 p-3 rounded-lg text-sm bg-red-50 text-red-700 border border-red-200 animate-in fade-in slide-in-from-top-1"
                             )}>
                                 <AlertCircle className="w-4 h-4 flex-shrink-0" />
-                                {testResult.message}
+                                {currentTestResult.message}
                             </div>
                         )}
                     </div>
                 </div>
 
                 <DialogFooter className="p-6 pt-4 border-t bg-gray-50/50 flex-col sm:flex-row gap-2">
-                    {!testResult && (
+                    {!currentTestResult && (
                         <div className="flex items-center gap-2 px-1 pb-2">
                             <span className="relative flex h-2 w-2">
                                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-orange-400 opacity-75"></span>
@@ -362,7 +358,7 @@ function ModelFormDialog({ open, onClose, onSave, editingModel, initialValues }:
                         disabled={isTesting || !canSave}
                         className={cn(
                             "flex-1 sm:flex-none transition-all duration-300",
-                            testResult?.success
+                            currentTestResult?.success
                                 ? "border-green-200 text-green-700 bg-green-50 hover:bg-green-100 hover:text-green-800 hover:border-green-300"
                                 : "border-orange-200 text-orange-700 bg-orange-50 hover:bg-orange-100 hover:text-orange-800 hover:border-orange-300"
                         )}
@@ -372,7 +368,7 @@ function ModelFormDialog({ open, onClose, onSave, editingModel, initialValues }:
                                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                                 测试中...
                             </>
-                        ) : testResult?.success ? (
+                        ) : currentTestResult?.success ? (
                             <>
                                 <Check className="w-4 h-4 mr-2" />
                                 连接成功
@@ -411,6 +407,8 @@ export function SettingsDialog({
         deleteModel: onDeleteModel,
         setSmartModel: onSetSmartModel,
         setFastModel: onSetFastModel,
+        toggleReasoningPoolModel: onToggleReasoningPoolModel,
+        toggleFastPoolModel: onToggleFastPoolModel,
         // 简历工具专家模型
         setGeneralModel: onSetGeneralModel,
         setMatchAnalystModel: onSetMatchAnalystModel,
@@ -426,9 +424,10 @@ export function SettingsDialog({
 
     // 当没有配置任何模型时，默认开启教程
     useEffect(() => {
-        if (open && config.models.length === 0) {
-            setShowTutorial(true);
-        }
+        if (!open || config.models.length !== 0) return;
+
+        const timer = window.setTimeout(() => setShowTutorial(true), 0);
+        return () => window.clearTimeout(timer);
     }, [open, config.models.length]);
 
     // 打开添加模型弹窗
@@ -598,7 +597,6 @@ export function SettingsDialog({
                                 <div className="flex flex-wrap gap-3">
                                     {/* 已配置的模型卡片 */}
                                     {config.models.map((model) => {
-                                        const provider = API_PROVIDERS.find(p => p.id === model.provider);
                                         return (
                                             <div
                                                 key={model.id}
@@ -669,6 +667,35 @@ export function SettingsDialog({
                                                 </select>
                                                 <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
                                             </div>
+                                            <div className="space-y-2 pt-1">
+                                                <div className="text-xs font-medium text-gray-500">Reasoning Pool（空时使用 Smart）</div>
+                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                                    {config.models.map((model) => {
+                                                        const selected = (config.reasoningPoolModelIds || []).includes(model.id);
+                                                        return (
+                                                            <button
+                                                                type="button"
+                                                                key={model.id}
+                                                                onClick={() => onToggleReasoningPoolModel(model.id)}
+                                                                className={cn(
+                                                                    "flex items-center gap-2 rounded-lg border px-3 py-2 text-left text-xs transition-colors",
+                                                                    selected
+                                                                        ? "border-purple-300 bg-purple-50 text-purple-700"
+                                                                        : "border-gray-200 bg-white text-gray-600 hover:border-purple-200"
+                                                                )}
+                                                            >
+                                                                <span className={cn(
+                                                                    "flex h-4 w-4 items-center justify-center rounded border",
+                                                                    selected ? "border-purple-500 bg-purple-500 text-white" : "border-gray-300"
+                                                                )}>
+                                                                    {selected && <Check className="h-3 w-3" />}
+                                                                </span>
+                                                                <span className="truncate">{model.name}</span>
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
                                         </div>
 
                                         {/* Fast 通道选择 */}
@@ -692,6 +719,35 @@ export function SettingsDialog({
                                                     ))}
                                                 </select>
                                                 <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                                            </div>
+                                            <div className="space-y-2 pt-1">
+                                                <div className="text-xs font-medium text-gray-500">Fast Pool（空时使用 Fast）</div>
+                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                                    {config.models.map((model) => {
+                                                        const selected = (config.fastPoolModelIds || []).includes(model.id);
+                                                        return (
+                                                            <button
+                                                                type="button"
+                                                                key={model.id}
+                                                                onClick={() => onToggleFastPoolModel(model.id)}
+                                                                className={cn(
+                                                                    "flex items-center gap-2 rounded-lg border px-3 py-2 text-left text-xs transition-colors",
+                                                                    selected
+                                                                        ? "border-amber-300 bg-amber-50 text-amber-700"
+                                                                        : "border-gray-200 bg-white text-gray-600 hover:border-amber-200"
+                                                                )}
+                                                            >
+                                                                <span className={cn(
+                                                                    "flex h-4 w-4 items-center justify-center rounded border",
+                                                                    selected ? "border-amber-500 bg-amber-500 text-white" : "border-gray-300"
+                                                                )}>
+                                                                    {selected && <Check className="h-3 w-3" />}
+                                                                </span>
+                                                                <span className="truncate">{model.name}</span>
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
@@ -878,17 +934,19 @@ export function SettingsDialog({
             </Dialog>
 
             {/* 添加/编辑模型的二级弹窗 */}
-            <ModelFormDialog
-                open={showModelForm}
-                onClose={() => {
-                    setShowModelForm(false);
-                    setEditingModel(undefined);
-                    setSourceModel(undefined);
-                }}
-                onSave={handleSaveModel}
-                editingModel={editingModel}
-                initialValues={sourceModel}
-            />
+            {showModelForm && (
+                <ModelFormDialog
+                    open={showModelForm}
+                    onClose={() => {
+                        setShowModelForm(false);
+                        setEditingModel(undefined);
+                        setSourceModel(undefined);
+                    }}
+                    onSave={handleSaveModel}
+                    editingModel={editingModel}
+                    initialValues={sourceModel}
+                />
+            )}
         </>
     );
 }

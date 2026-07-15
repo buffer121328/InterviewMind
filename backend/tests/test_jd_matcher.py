@@ -4,22 +4,52 @@ JD 匹配分析 API 测试
 
 import pytest
 from fastapi.testclient import TestClient
-from unittest.mock import AsyncMock, patch, MagicMock
+from unittest.mock import AsyncMock
 
 # 导入主应用
 from backend.main import app
 
 client = TestClient(app)
 
+TEST_API_CONFIG = {
+    "smart": {
+        "api_key": "test-api-key",
+        "base_url": "https://api.example.test/v1",
+        "model": "test-smart-model",
+    },
+    "fast": {
+        "api_key": "test-api-key",
+        "base_url": "https://api.example.test/v1",
+        "model": "test-fast-model",
+    },
+}
+
+
+@pytest.fixture
+def jd_match_dependencies(monkeypatch):
+    """为 API 测试隔离 LLM 与 PostgreSQL 结果仓库。"""
+    from app.api import resume as resume_api
+
+    analyze = AsyncMock()
+    repository = AsyncMock()
+    repository.save_result.return_value = 1
+    repository.list_results.return_value = []
+    repository.get_result.return_value = None
+    repository.delete_result.return_value = False
+
+    monkeypatch.setattr(resume_api, "analyze_jd_match", analyze)
+    monkeypatch.setattr(resume_api, "get_jd_analysis_repo", lambda: repository)
+    return analyze, repository
+
 
 class TestJDMatchAPI:
     """JD 匹配分析 API 测试类"""
     
-    @patch("app.services.jd_matcher.analyze_jd_match")
-    def test_jd_match_success(self, mock_analyze):
+    def test_jd_match_success(self, jd_match_dependencies):
         """测试 JD 匹配分析成功"""
         # 准备 mock 返回值
-        mock_analyze.return_value = {
+        analyze, _ = jd_match_dependencies
+        analyze.return_value = {
             "overall_match_score": 75.5,
             "skill_match_score": 80.0,
             "project_match_score": 70.0,
@@ -41,10 +71,7 @@ class TestJDMatchAPI:
         payload = {
             "resume_content": "我是一名 Python 开发工程师，有 3 年 FastAPI 开发经验",
             "job_description": "招聘 Python 后端开发工程师，要求熟悉 FastAPI 和 PostgreSQL",
-            "api_config": {
-                "smartModelId": "gpt-4",
-                "fastModelId": "gpt-3.5-turbo"
-            }
+            "api_config": TEST_API_CONFIG,
         }
         
         # 执行
@@ -63,16 +90,13 @@ class TestJDMatchAPI:
         assert data["result"]["overall_match_score"] == 75.5
         assert len(data["result"]["matched_keywords"]) == 3
     
-    def test_jd_match_missing_resume(self):
+    def test_jd_match_missing_resume(self, jd_match_dependencies):
         """测试缺少简历内容"""
         # 准备
         payload = {
             "resume_content": "",
             "job_description": "招聘 Python 开发工程师",
-            "api_config": {
-                "smartModelId": "gpt-4",
-                "fastModelId": "gpt-3.5-turbo"
-            }
+            "api_config": TEST_API_CONFIG,
         }
         
         # 执行
@@ -85,19 +109,15 @@ class TestJDMatchAPI:
         # 验证
         assert response.status_code == 400
         data = response.json()
-        assert "detail" in data
-        assert "简历内容" in data["detail"]
+        assert "简历内容" in data["message"]
     
-    def test_jd_match_missing_jd(self):
+    def test_jd_match_missing_jd(self, jd_match_dependencies):
         """测试缺少 JD 内容"""
         # 准备
         payload = {
             "resume_content": "我是一名 Python 开发工程师",
             "job_description": "",
-            "api_config": {
-                "smartModelId": "gpt-4",
-                "fastModelId": "gpt-3.5-turbo"
-            }
+            "api_config": TEST_API_CONFIG,
         }
         
         # 执行
@@ -110,10 +130,9 @@ class TestJDMatchAPI:
         # 验证
         assert response.status_code == 400
         data = response.json()
-        assert "detail" in data
-        assert "职位描述" in data["detail"]
+        assert "职位描述" in data["message"]
     
-    def test_jd_match_missing_api_config(self):
+    def test_jd_match_missing_api_config(self, jd_match_dependencies):
         """测试缺少 API 配置"""
         # 准备
         payload = {
@@ -131,10 +150,9 @@ class TestJDMatchAPI:
         # 验证
         assert response.status_code == 400
         data = response.json()
-        assert "detail" in data
-        assert "API Key" in data["detail"]
+        assert "API Key" in data["message"]
     
-    def test_list_jd_match_results(self):
+    def test_list_jd_match_results(self, jd_match_dependencies):
         """测试获取 JD 匹配分析历史列表"""
         # 执行
         response = client.get(
@@ -149,7 +167,7 @@ class TestJDMatchAPI:
         assert "results" in data
         assert isinstance(data["results"], list)
     
-    def test_get_jd_match_result_not_found(self):
+    def test_get_jd_match_result_not_found(self, jd_match_dependencies):
         """测试获取不存在的分析结果"""
         # 执行
         response = client.get(
@@ -160,7 +178,7 @@ class TestJDMatchAPI:
         # 验证
         assert response.status_code == 404
     
-    def test_delete_jd_match_result_not_found(self):
+    def test_delete_jd_match_result_not_found(self, jd_match_dependencies):
         """测试删除不存在的分析结果"""
         # 执行
         response = client.delete(
@@ -183,7 +201,7 @@ class TestJDMatchModels:
         valid_request = JDMatchRequest(
             resume_content="测试简历",
             job_description="测试 JD",
-            api_config={"smartModelId": "gpt-4", "fastModelId": "gpt-3.5-turbo"}
+            api_config=TEST_API_CONFIG,
         )
         assert valid_request.resume_content == "测试简历"
         assert valid_request.resume_source_type == "manual_input"  # 默认值
@@ -195,7 +213,7 @@ class TestJDMatchModels:
             user_id="custom_user",
             resume_source_type="uploaded_resume",
             resume_source_id=123,
-            api_config={"smartModelId": "gpt-4", "fastModelId": "gpt-3.5-turbo"}
+            api_config=TEST_API_CONFIG,
         )
         assert full_request.user_id == "custom_user"
         assert full_request.resume_source_id == 123

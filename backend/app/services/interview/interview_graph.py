@@ -44,13 +44,20 @@ import uuid
 from typing import Annotated, List, Literal, TypedDict, Optional
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, BaseMessage
 from pydantic import BaseModel, Field
-from langgraph.graph import StateGraph, END
-from langgraph.prebuilt import create_react_agent
-from app.services import llms
+try:
+    from langgraph.graph import StateGraph, END
+except ModuleNotFoundError:  # pragma: no cover - 测试环境可无 langgraph
+    StateGraph = None  # type: ignore[assignment]
+    END = "__end__"
+
 from app.services.memory import get_async_sqlite_saver
-from app.services.tools.interview_tools import search_question_bank, get_candidate_profile, get_interview_history
+from app.services.tools.interview_tools import (
+    search_question_bank,
+    get_candidate_profile,
+    get_interview_history,
+    make_interview_tool_executor,
+)
 from app.services.tools.memory_tools import search_memory
-from .mode_strategy import ModeStrategyFactory
 
 logger = logging.getLogger(__name__)
 
@@ -118,6 +125,8 @@ class InterviewState(TypedDict):
     interview_plan: List[dict]  # 存储问题清单
     current_question_index: int
     max_questions: int
+    question_bank_count: int
+    experience_questions: List[dict]
 
     # 统计信息
     question_count: int  # 已完成的问题数（不含追问）
@@ -140,6 +149,7 @@ class InterviewState(TypedDict):
     # 长期记忆上下文（来自 mem0）
     memory_context: str  # 格式化后的记忆上下文，注入到 prompt
     memory_items: List[dict]  # 原始记忆列表，用于日志和调试
+    trace: List[dict]  # agent 运行 trace
 
 
 # ============================================================================
@@ -173,6 +183,24 @@ async def node_planner(state: InterviewState):
     
     # 获取长期记忆上下文
     memory_context = state.get("memory_context", "")
+
+    # 明确选中的面经与题库题优先，剩余数量才交给模型规划。
+    from .question_plan import merge_question_plan, prepare_candidates
+    bank_items = []
+    bank_count = min(max(int(state.get("question_bank_count", 0) or 0), 0), max_q)
+    if bank_count:
+        try:
+            from app.repositories.interview.question_bank_repo import get_question_bank_repo
+
+            bank_items = await get_question_bank_repo().select_for_interview(user_id, bank_count)
+        except Exception as e:
+            logger.warning(f"抽取个人题库失败，将由 planner 补足: {e}")
+    candidates = prepare_candidates(
+        state.get("experience_questions", []),
+        bank_items,
+        max_q,
+    )
+    remaining_questions = max_q - len(candidates)
     
     # 获取轮次信息
     round_index = 1
@@ -225,40 +253,48 @@ async def node_planner(state: InterviewState):
         except Exception as e:
             logger.error(f"获取轮次信息失败: {e}")
 
-    # 检索上下文（RAG 编排：rag_chunks + pgvector，降级到直接查询）
+    # 仅在仍需模型生成题目时检索上下文。
     retrieval_context = None
-    try:
-        from app.repositories.interview.retrieval_repo import get_retrieval_repo
-        retrieval_svc = get_retrieval_repo()
-        retrieval_context = await retrieval_svc.retrieve_for_question_generation(
-            user_id=user_id,  # 使用从 state 读取的 user_id
-            job_description=job_desc,
-            session_id=session_id,
-            round_type=round_type,
-            weakness_report=weakness_report,
-        )
-    except Exception as e:
-        logger.warning(f"RAG 检索失败，使用默认 planner: {e}")
-    
+    if remaining_questions > 0:
+        try:
+            from app.repositories.interview.retrieval_repo import get_retrieval_repo
+            retrieval_svc = get_retrieval_repo()
+            retrieval_context = await retrieval_svc.retrieve_for_question_generation(
+                user_id=user_id,
+                job_description=job_desc,
+                session_id=session_id,
+                round_type=round_type,
+                weakness_report=weakness_report,
+            )
+        except Exception as e:
+            logger.warning(f"RAG 检索失败，使用默认 planner: {e}")
+
     # 使用统一的规划模块
-    interview_plan = await interview_planner.generate_interview_plan(
-        resume=resume,
-        job_description=job_desc,
-        company_info=company_info,
-        max_questions=max_q,
-        api_config=api_config,
-        round_type=round_type,
-        round_index=round_index,
-        previous_profile=previous_profile,
-        previous_questions=previous_questions,
-        output_format="full",
-        session_id=session_id,
-        save_to_db=True,
-        generate_hints=True,
-        weakness_report=weakness_report,
-        retrieval_context=retrieval_context,
-        memory_context=memory_context,  # 传递长期记忆上下文
-    )
+    generated_plan = []
+    if remaining_questions > 0:
+        generated_plan = await interview_planner.generate_interview_plan(
+            resume=resume,
+            job_description=job_desc,
+            company_info=company_info,
+            max_questions=remaining_questions,
+            api_config=api_config,
+            round_type=round_type,
+            round_index=round_index,
+            previous_profile=previous_profile,
+            previous_questions=previous_questions,
+            output_format="full",
+            session_id=session_id,
+            save_to_db=False,
+            generate_hints=True,
+            weakness_report=weakness_report,
+            retrieval_context=retrieval_context,
+            memory_context=memory_context,
+        )
+    interview_plan = merge_question_plan(candidates, generated_plan, max_q)
+    if session_id:
+        from app.repositories.session.session_repo import SessionRepo
+
+        await SessionRepo().save_interview_plan(session_id, interview_plan)
     
     logger.info(f"[Planner] run_id={run_id} user_id={user_id} round={round_index}/{round_type} 生成 {len(interview_plan)} 题")
     
@@ -309,17 +345,10 @@ async def node_responder(state: InterviewState):
         )
     
     # 构建工具执行器（状态机在 evaluating 状态时显式调用）
-    async def tool_executor(tool_name: str, **kwargs):
-        tool_map = {
-            "search_question_bank": search_question_bank,
-            "get_candidate_profile": get_candidate_profile,
-            "get_interview_history": get_interview_history,
-            "search_memory": search_memory,
-        }
-        tool_fn = tool_map.get(tool_name)
-        if tool_fn:
-            return await tool_fn(**kwargs)
-        return {"error": f"Unknown tool: {tool_name}"}
+    tool_executor = make_interview_tool_executor(
+        user_id=state.get("user_id", ""),
+        session_id=state.get("session_id"),
+    )
     
     # 创建状态机
     runtime = InterviewRuntime(
@@ -426,6 +455,9 @@ async def build_interview_graph(mode: str = "mock"):
     """
     构建面试图谱
     """
+    if StateGraph is None:
+        raise ModuleNotFoundError("langgraph is required to build interview graph")
+
     workflow = StateGraph(InterviewState)
     
     # 添加节点

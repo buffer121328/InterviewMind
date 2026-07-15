@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
     Loader2,
     Plus,
@@ -53,14 +53,16 @@ export function QuestionBankPanel() {
         question_type: 'tech'
     });
 
-    useEffect(() => { loadItems(); }, [filterType, filterDifficulty]);
-
-    async function loadItems() {
+    const loadItems = useCallback(async () => {
         setLoading(true);
         const response = await listQuestionBank({ question_type: filterType || undefined, difficulty: filterDifficulty || undefined, limit: 100 });
         if (response.success) setItems(response.items);
         setLoading(false);
-    }
+    }, [filterDifficulty, filterType]);
+
+    useEffect(() => {
+        void Promise.resolve().then(() => loadItems());
+    }, [loadItems]);
 
     async function handleSearch() {
         if (!searchQuery.trim()) return loadItems();
@@ -91,7 +93,15 @@ export function QuestionBankPanel() {
     }
 
     function toggleExpanded(itemId: number) {
-        setExpandedItems(prev => { const next = new Set(prev); next.has(itemId) ? next.delete(itemId) : next.add(itemId); return next; });
+        setExpandedItems(prev => {
+            const next = new Set(prev);
+            if (next.has(itemId)) {
+                next.delete(itemId);
+            } else {
+                next.add(itemId);
+            }
+            return next;
+        });
     }
 
     return (

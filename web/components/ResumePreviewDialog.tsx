@@ -1,4 +1,5 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback } from "react";
+import Image from "next/image";
 
 import ReactMarkdown from 'react-markdown';
 import rehypeHighlight from 'rehype-highlight';
@@ -32,12 +33,6 @@ export function ResumePreviewDialog({
     const [hasChanges, setHasChanges] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
-    // 当 content prop 变化时，同步更新 editableContent
-    useEffect(() => {
-        setEditableContent(content);
-        setHasChanges(false);
-    }, [content]);
-
     const handleContentChange = useCallback((value: string) => {
         setEditableContent(value);
         setHasChanges(value !== content);
@@ -57,7 +52,7 @@ export function ResumePreviewDialog({
             setIsCopied(true);
             toast.success("简历内容已复制");
             setTimeout(() => setIsCopied(false), 2000);
-        } catch (err) {
+        } catch {
             toast.error("复制失败");
         }
     };
@@ -422,9 +417,12 @@ export function ResumePreviewDialog({
                         {photo && (
                             <div className="absolute top-10 right-10 md:top-14 md:right-14 z-10">
                                 <div className="relative group">
-                                    <img
+                                    <Image
                                         src={photo}
                                         alt="简历照片"
+                                        width={80}
+                                        height={96}
+                                        unoptimized
                                         className="w-20 h-24 object-cover rounded-sm"
                                     />
                                     <button

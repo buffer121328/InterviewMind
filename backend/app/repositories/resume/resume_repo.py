@@ -4,10 +4,10 @@
 """
 
 import logging
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Callable
 from datetime import datetime
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 
 from app.models import async_session
 from app.models.resume import ResumeResultModel
@@ -94,12 +94,39 @@ class ResumeRepo:
                 return None
             
             return self._row_to_dict(obj)
+
+    async def update_result_data(
+        self,
+        result_id: int,
+        user_id: str,
+        mutator: Callable[[dict], dict],
+        result_type: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """在行锁中更新结果 JSON，避免并发人审相互覆盖。"""
+        async with async_session() as db:
+            stmt = select(ResumeResultModel).where(
+                ResumeResultModel.id == result_id,
+                ResumeResultModel.user_id == user_id,
+            )
+            if result_type:
+                stmt = stmt.where(ResumeResultModel.result_type == result_type)
+            stmt = stmt.with_for_update()
+            row = await db.execute(stmt)
+            obj = row.scalar_one_or_none()
+            if not obj:
+                return None
+            obj.result_data = mutator(obj.result_data)
+            await db.commit()
+            await db.refresh(obj)
+            return self._row_to_dict(obj)
     
     async def list_results(
         self,
         user_id: str,
         result_type: Optional[str] = None,
-        limit: int = 20
+        limit: int = 20,
+        offset: int = 0,
+        include_data: bool = True,
     ) -> List[Dict[str, Any]]:
         """
         获取用户的历史结果列表
@@ -116,9 +143,17 @@ class ResumeRepo:
             stmt = select(ResumeResultModel).where(ResumeResultModel.user_id == user_id)
             if result_type:
                 stmt = stmt.where(ResumeResultModel.result_type == result_type)
-            stmt = stmt.order_by(ResumeResultModel.created_at.desc()).limit(limit)
+            stmt = stmt.order_by(ResumeResultModel.created_at.desc()).limit(limit).offset(offset)
             rows = await db.execute(stmt)
-            return [self._row_to_dict(row) for row in rows.scalars().all()]
+            return [self._row_to_history_item(row, include_data=include_data) for row in rows.scalars().all()]
+
+    async def count_results(self, user_id: str, result_type: Optional[str] = None) -> int:
+        """获取用户简历历史总数，用于分页。"""
+        async with async_session() as db:
+            stmt = select(func.count(ResumeResultModel.id)).where(ResumeResultModel.user_id == user_id)
+            if result_type:
+                stmt = stmt.where(ResumeResultModel.result_type == result_type)
+            return int((await db.scalar(stmt)) or 0)
     
     async def delete_result(self, result_id: int, user_id: str) -> bool:
         """
@@ -162,6 +197,16 @@ class ResumeRepo:
             'result_data': row.result_data,
             'created_at': row.created_at.isoformat() if isinstance(row.created_at, datetime) else row.created_at
         }
+
+    def _row_to_history_item(self, row: ResumeResultModel, *, include_data: bool) -> Dict[str, Any]:
+        """列表项按需携带大字段，默认行为仍兼容旧客户端。"""
+        item = self._row_to_dict(row)
+        item['resume_preview'] = (row.resume_content or '')[:240]
+        if not include_data:
+            item['resume_content'] = None
+            item['result_data'] = None
+            item.pop('user_id', None)
+        return item
 
 
 # 全局单例

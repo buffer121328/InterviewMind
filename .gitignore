@@ -22,6 +22,8 @@ web/.next/
 
 # Data & runtime
 data/
+/backend/data/browser_profiles/
+backend/.deepeval/
 logs/
 
 # OS
@@ -45,4 +47,9 @@ skills/
 
 # Docs (keep only tracked if needed)
 docs/*
+!docs/learning/
+!docs/learning/framework-audit.md
 !docs/配置说明.md
+!docs/Langfuse与DeepEval接入实施计划.md
+!docs/单用户任务队列与Fallback实施计划.md
+!docs/求职者端配置启动与功能验收指南.md

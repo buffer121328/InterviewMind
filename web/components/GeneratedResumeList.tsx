@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Trash2, MoreHorizontal, FileCheck, FileOutput } from 'lucide-react';
+import { Trash2, MoreHorizontal, FileOutput } from 'lucide-react';
 import { GeneratedResumeItem } from '@/lib/api/resume';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';

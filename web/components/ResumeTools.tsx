@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
-import { FileText, BarChart3, Loader2, CheckCircle, AlertCircle, ChevronDown, ChevronUp, Upload, Target, Zap, Shield, TrendingUp } from "lucide-react";
+import { useState, useEffect, useRef, startTransition } from "react";
+import { FileText, BarChart3, Loader2, CheckCircle, AlertCircle, ChevronDown, ChevronUp, Upload, Target, Shield, TrendingUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,7 +19,6 @@ import { ResumeProcessingView } from "./ResumeProcessingView";
 import {
     analyzeResume,
     optimizeResumeStreaming,
-    CompletedSession,
     ResumeAnalyzeResult,
     ResumeOptimizeResult,
     ApiConfig,
@@ -83,54 +82,59 @@ export function ResumeTools({ apiConfig, resumeContent, onResumeChange }: Resume
         completedSessions: storeCompletedSessions,
         completedSessionsLoading: isLoadingSessions,
         currentJDMatchDetail,
-        clearJDMatchResult,
     } = useInterviewStore();
 
     // 监听历史记录选择
     useEffect(() => {
-        if (currentResumeResult) {
-            // 填充数据
-            setLocalResume(currentResumeResult.resume_content);
-            setJobDescription(currentResumeResult.job_description || "");
-            setSelectedSessions(currentResumeResult.session_ids || []);
-            setIncludeProfile(currentResumeResult.include_profile || false);
+        startTransition(() => {
+            if (currentResumeResult) {
+                // 填充数据
+                setLocalResume(currentResumeResult.resume_content);
+                setJobDescription(currentResumeResult.job_description || "");
+                setSelectedSessions(currentResumeResult.session_ids || []);
+                setIncludeProfile(currentResumeResult.include_profile || false);
 
-            // 设置结果并切换 Tab
-            if (currentResumeResult.result_type === 'analyze') {
-                setAnalyzeResult(currentResumeResult.result_data as ResumeAnalyzeResult);
-                setOptimizeResult(null);
-                setActiveTab('analyze');
+                // 设置结果并切换 Tab
+                if (currentResumeResult.result_type === 'analyze') {
+                    setAnalyzeResult(currentResumeResult.result_data as ResumeAnalyzeResult);
+                    setOptimizeResult(null);
+                    setActiveTab('analyze');
+                } else {
+                    setOptimizeResult(currentResumeResult.result_data as ResumeOptimizeResult);
+                    setAnalyzeResult(null);
+                    setActiveTab('optimize');
+                }
+                setCurrentResultId(currentResumeResult.id);
             } else {
-                setOptimizeResult(currentResumeResult.result_data as ResumeOptimizeResult);
+                // 新建模式：清空结果和非简历输入
                 setAnalyzeResult(null);
-                setActiveTab('optimize');
-            }
-            setCurrentResultId(currentResumeResult.id);
-        } else {
-            // 新建模式：清空结果和非简历输入
-            setAnalyzeResult(null);
-            setOptimizeResult(null);
-            setCurrentResultId(undefined);
+                setOptimizeResult(null);
+                setCurrentResultId(undefined);
 
-            // 重置表单状态
-            setJobDescription("");
-            setSelectedSessions([]);
-            setIncludeProfile(false);
-        }
+                // 重置表单状态
+                setJobDescription("");
+                setSelectedSessions([]);
+                setIncludeProfile(false);
+            }
+        });
     }, [currentResumeResult]);
 
     // 同步外部简历内容（仅在非查看历史记录模式下）
     useEffect(() => {
         if (!currentResumeResult) {
-            setLocalResume(resumeContent);
+            startTransition(() => {
+                setLocalResume(resumeContent);
+            });
         }
     }, [resumeContent, currentResumeResult]);
 
     // 同步 store 中的 JD 匹配详情
     useEffect(() => {
         if (currentJDMatchDetail) {
-            setJDMatchResult(currentJDMatchDetail);
-            setActiveTab("jd-match");
+            startTransition(() => {
+                setJDMatchResult(currentJDMatchDetail);
+                setActiveTab("jd-match");
+            });
         }
     }, [currentJDMatchDetail]);
 
@@ -217,12 +221,12 @@ export function ResumeTools({ apiConfig, resumeContent, onResumeChange }: Resume
                 // 刷新侧边栏历史记录，完成后自动选中新记录
                 await fetchResumeResults();
                 if (response.result_id) {
-                    selectResumeResult(response.result_id);
+                    await selectResumeResult(response.result_id);
                 }
             } else {
                 toast.error(response.message || "分析失败");
             }
-        } catch (error) {
+        } catch {
             toast.error("分析失败，请重试");
         } finally {
             setIsAnalyzing(false);
@@ -282,12 +286,12 @@ export function ResumeTools({ apiConfig, resumeContent, onResumeChange }: Resume
                 await fetchResumeResults();
                 if (response.result_id) {
                     setCurrentResultId(response.result_id);
-                    selectResumeResult(response.result_id);
+                    await selectResumeResult(response.result_id);
                 }
             } else {
                 toast.error(response.message || "优化失败");
             }
-        } catch (error) {
+        } catch {
             toast.error("优化失败，请重试");
         } finally {
             setIsOptimizing(false);
@@ -337,7 +341,7 @@ export function ResumeTools({ apiConfig, resumeContent, onResumeChange }: Resume
             } else {
                 toast.error(response.message || "分析失败");
             }
-        } catch (error) {
+        } catch {
             toast.error("分析失败，请重试");
         } finally {
             setIsJDMatching(false);
@@ -1270,7 +1274,7 @@ export function ResumeTools({ apiConfig, resumeContent, onResumeChange }: Resume
             </Tabs>
 
             {/* Dialogs */}
-            {apiConfig && optimizeResult && (
+            {showGenerationDialog && apiConfig && optimizeResult && (
                 <ResumeGenerationDialog
                     isOpen={showGenerationDialog}
                     onClose={() => setShowGenerationDialog(false)}
@@ -1289,19 +1293,21 @@ export function ResumeTools({ apiConfig, resumeContent, onResumeChange }: Resume
                 />
             )}
 
-            <ResumePreviewDialog
-                isOpen={showPreviewDialog}
-                onClose={() => setShowPreviewDialog(false)}
-                title={previewContent.title}
-                content={previewContent.content}
-                onContentChange={async (newContent) => {
-                    setPreviewContent(prev => ({ ...prev, content: newContent }));
-                    if (previewResumeId) {
-                        await updateGeneratedResume(previewResumeId, newContent);
-                        useInterviewStore.getState().fetchGeneratedResumes?.();
-                    }
-                }}
-            />
+            {showPreviewDialog && (
+                <ResumePreviewDialog
+                    isOpen={showPreviewDialog}
+                    onClose={() => setShowPreviewDialog(false)}
+                    title={previewContent.title}
+                    content={previewContent.content}
+                    onContentChange={async (newContent) => {
+                        setPreviewContent(prev => ({ ...prev, content: newContent }));
+                        if (previewResumeId) {
+                            await updateGeneratedResume(previewResumeId, newContent);
+                            useInterviewStore.getState().fetchGeneratedResumes?.();
+                        }
+                    }}
+                />
+            )}
         </div>
     );
 }

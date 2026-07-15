@@ -1,5 +1,6 @@
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
+from app.schemas.schemas import InterviewCandidateQuestion
 
 class VoiceStartRequest(BaseModel):
     """语音面试开始请求"""
@@ -10,6 +11,8 @@ class VoiceStartRequest(BaseModel):
     job_description: Optional[str] = None
     company_info: Optional[str] = None
     max_questions: int = Field(default=5, ge=1, le=20)
+    question_bank_count: int = Field(default=0, ge=0, le=20)
+    experience_questions: List[InterviewCandidateQuestion] = Field(default_factory=list, max_length=20)
 
 
 class VoiceChatRequest(BaseModel):
