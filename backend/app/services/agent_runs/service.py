@@ -5,6 +5,7 @@ import uuid
 from datetime import datetime, timedelta
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 
 from app.models import AgentRunModel, async_session
 from app.services.agent_runs.crypto import decrypt_payload, encrypt_payload
@@ -169,7 +170,20 @@ class AgentRunService:
                 finished_at=None,
             )
             session.add(run)
-            await session.commit()
+            try:
+                await session.commit()
+            except IntegrityError:
+                await session.rollback()
+                existing = await session.scalar(
+                    select(AgentRunModel).where(
+                        AgentRunModel.user_id == user_id,
+                        AgentRunModel.task_type == task_type,
+                        AgentRunModel.idempotency_key == idempotency_key,
+                    )
+                )
+                if existing:
+                    return existing, False
+                raise
             await session.refresh(run)
             return run, True
 
@@ -234,6 +248,15 @@ class AgentRunService:
             if stage not in valid_stages:
                 raise ValueError(f"invalid stage for {run.task_type}: {stage}")
             run.stage = stage
+            run.updated_at = _now()
+            await session.commit()
+
+    async def touch(self, run_id: str) -> None:
+        """刷新运行中心跳，避免长时间模型调用被误判为中断。"""
+        async with async_session() as session:
+            run = await session.get(AgentRunModel, run_id, with_for_update=True)
+            if not run or run.status != "running":
+                return
             run.updated_at = _now()
             await session.commit()
 

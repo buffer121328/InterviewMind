@@ -10,6 +10,7 @@
 
 import asyncio
 from hashlib import sha256
+import os
 import platform as _platform
 
 import logging
@@ -17,6 +18,7 @@ from typing import Dict, Any, Optional
 from datetime import datetime
 
 from app.services.security import safe_error_message
+from app.services.url_security import validate_outbound_url
 
 from .job_normalizer import (
     normalize_company_name,
@@ -375,10 +377,9 @@ async def _fetch_page_text(url: str) -> str:
     """通过 HTTP 抓取页面文本（降级方案，优先用浏览器）"""
     try:
         import httpx
-        async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
-            resp = await client.get(
-                url,
-                headers={
+        from urllib.parse import urljoin
+
+        headers = {
                     "User-Agent": (
                         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
                         "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -386,10 +387,30 @@ async def _fetch_page_text(url: str) -> str:
                     ),
                     "Accept": "text/html,application/xhtml+xml",
                     "Accept-Language": "zh-CN,zh;q=0.9",
-                },
-            )
-            resp.raise_for_status()
-            html = resp.text
+                }
+        current_url = url
+        max_response_bytes = max(64 * 1024, int(os.getenv("JOB_CAPTURE_MAX_RESPONSE_BYTES", str(2 * 1024 * 1024))))
+        async with httpx.AsyncClient(timeout=15, follow_redirects=False) as client:
+            for _ in range(6):
+                await asyncio.to_thread(validate_outbound_url, current_url, allow_private=False)
+                async with client.stream("GET", current_url, headers=headers) as resp:
+                    if resp.is_redirect:
+                        location = resp.headers.get("location")
+                        if not location:
+                            return ""
+                        current_url = urljoin(current_url, location)
+                        continue
+                    resp.raise_for_status()
+                    body = bytearray()
+                    async for chunk in resp.aiter_bytes():
+                        body.extend(chunk)
+                        if len(body) > max_response_bytes:
+                            raise ValueError("岗位页面响应内容过大")
+                    encoding = resp.encoding or "utf-8"
+                    html = body.decode(encoding, errors="replace")
+                    break
+            else:
+                raise ValueError("岗位链接重定向次数过多")
 
             # 简单提取可见文本
             import re

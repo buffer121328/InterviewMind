@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 from dataclasses import dataclass, field
 
 from sqlalchemy import delete, select
+from sqlalchemy.exc import IntegrityError
 
 from app.models import async_session
 from app.models.resume import GeneratedResumeModel
@@ -17,86 +18,137 @@ logger = logging.getLogger(__name__)
 
 
 # ============================================================================
-# 内存中的会话状态管理
+# 持久化生成会话状态
 # ============================================================================
 
 @dataclass
 class GenerationSession:
-    """生成会话状态（内存中暂存）"""
     session_id: str
     user_id: str
     resume_content: str
     job_description: str
     optimization_result: dict
     template_style: str = "professional"
-    
-    # 中间状态
     questions: List[str] = field(default_factory=list)
     user_answers: Dict[str, str] = field(default_factory=dict)
     review_result: Optional[dict] = None
     iteration_count: int = 0
-    
-    # 产出
     draft_content: str = ""
     final_markdown: str = ""
-    
-    # 状态
-    status: str = "pending"  # pending / awaiting_input / generating / completed / failed
+    generated_resume_id: Optional[int] = None
+    agent_run_id: Optional[str] = None
+    status: str = "pending"
     created_at: datetime = field(default_factory=datetime.now)
     updated_at: datetime = field(default_factory=datetime.now)
 
 
 class SessionStore:
-    """内存会话存储"""
-    
-    def __init__(self, ttl_minutes: int = 30):
-        self._sessions: Dict[str, GenerationSession] = {}
-        self._ttl = timedelta(minutes=ttl_minutes)
-    
-    def create(self, session_id: str, **kwargs) -> GenerationSession:
-        """创建新会话"""
-        session = GenerationSession(session_id=session_id, **kwargs)
-        self._sessions[session_id] = session
-        self._cleanup_expired()
-        return session
-    
-    def get(self, session_id: str) -> Optional[GenerationSession]:
-        """获取会话"""
-        session = self._sessions.get(session_id)
-        if session and datetime.now() - session.updated_at > self._ttl:
-            del self._sessions[session_id]
-            return None
-        return session
-    
-    def update(self, session_id: str, **kwargs) -> Optional[GenerationSession]:
-        """更新会话"""
-        session = self.get(session_id)
-        if session:
-            for key, value in kwargs.items():
-                if hasattr(session, key):
-                    setattr(session, key, value)
-            session.updated_at = datetime.now()
-        return session
-    
-    def delete(self, session_id: str) -> bool:
-        """删除会话"""
-        if session_id in self._sessions:
-            del self._sessions[session_id]
-            return True
-        return False
-    
-    def _cleanup_expired(self):
-        """清理过期会话"""
+    """PostgreSQL 生成会话存储；支持重启恢复和多进程共享。"""
+
+    def __init__(self, ttl_hours: int | None = None):
+        import os
+
+        self._ttl = timedelta(hours=ttl_hours or max(1, int(os.getenv("RESUME_GENERATION_SESSION_TTL_HOURS", "24"))))
+
+    @staticmethod
+    def _to_session(row) -> GenerationSession:
+        return GenerationSession(
+            session_id=row.id,
+            user_id=row.user_id,
+            resume_content=row.resume_content,
+            job_description=row.job_description,
+            optimization_result=row.optimization_result or {},
+            template_style=row.template_style,
+            questions=row.questions or [],
+            user_answers=row.user_answers or {},
+            review_result=row.review_result,
+            iteration_count=row.iteration_count,
+            draft_content=row.draft_content or "",
+            final_markdown=row.final_markdown or "",
+            generated_resume_id=row.generated_resume_id,
+            agent_run_id=row.agent_run_id,
+            status=row.status,
+            created_at=row.created_at,
+            updated_at=row.updated_at,
+        )
+
+    async def create(self, session_id: str, **kwargs) -> GenerationSession:
+        from app.models.resume import ResumeGenerationSessionModel
+
         now = datetime.now()
-        expired = [
-            sid for sid, session in self._sessions.items()
-            if now - session.updated_at > self._ttl
-        ]
-        for sid in expired:
-            del self._sessions[sid]
+        row = ResumeGenerationSessionModel(
+            id=session_id,
+            created_at=now,
+            updated_at=now,
+            questions=[],
+            user_answers={},
+            status="pending",
+            **kwargs,
+        )
+        async with async_session() as db:
+            await db.execute(
+                delete(ResumeGenerationSessionModel).where(
+                    ResumeGenerationSessionModel.updated_at < now - self._ttl
+                )
+            )
+            db.add(row)
+            await db.commit()
+            await db.refresh(row)
+            return self._to_session(row)
+
+    async def get(self, session_id: str, user_id: Optional[str] = None) -> Optional[GenerationSession]:
+        from app.models.resume import ResumeGenerationSessionModel
+
+        async with async_session() as db:
+            stmt = select(ResumeGenerationSessionModel).where(ResumeGenerationSessionModel.id == session_id)
+            if user_id is not None:
+                stmt = stmt.where(ResumeGenerationSessionModel.user_id == user_id)
+            row = await db.scalar(stmt)
+            if not row:
+                return None
+            if datetime.now() - row.updated_at > self._ttl:
+                await db.delete(row)
+                await db.commit()
+                return None
+            return self._to_session(row)
+
+    async def update(self, session_id: str, user_id: Optional[str] = None, **kwargs) -> Optional[GenerationSession]:
+        from app.models.resume import ResumeGenerationSessionModel
+
+        allowed = {
+            "questions", "user_answers", "review_result", "iteration_count", "draft_content",
+            "final_markdown", "generated_resume_id", "status",
+        }
+        values = {key: value for key, value in kwargs.items() if key in allowed}
+        values["updated_at"] = datetime.now()
+        async with async_session() as db:
+            stmt = select(ResumeGenerationSessionModel).where(ResumeGenerationSessionModel.id == session_id).with_for_update()
+            if user_id is not None:
+                stmt = stmt.where(ResumeGenerationSessionModel.user_id == user_id)
+            row = await db.scalar(stmt)
+            if not row:
+                return None
+            for key, value in values.items():
+                setattr(row, key, value)
+            await db.commit()
+            await db.refresh(row)
+            return self._to_session(row)
+
+    async def delete(self, session_id: str, user_id: Optional[str] = None) -> bool:
+        from app.models.resume import ResumeGenerationSessionModel
+
+        async with async_session() as db:
+            stmt = select(ResumeGenerationSessionModel).where(ResumeGenerationSessionModel.id == session_id).with_for_update()
+            if user_id is not None:
+                stmt = stmt.where(ResumeGenerationSessionModel.user_id == user_id)
+            row = await db.scalar(stmt)
+            if not row:
+                return False
+            await db.delete(row)
+            await db.commit()
+            return True
 
 
-# 全局会话存储实例
 session_store = SessionStore()
 
 
@@ -116,7 +168,9 @@ class ResumeGenerationRepo:
         title: str,
         content: str,
         job_description: Optional[str] = None,
-        optimization_result_id: Optional[int] = None
+        optimization_result_id: Optional[int] = None,
+        generation_session_id: Optional[str] = None,
+        agent_run_id: Optional[str] = None,
     ) -> int:
         """
         保存生成的简历
@@ -126,12 +180,23 @@ class ResumeGenerationRepo:
         """
         async with async_session() as db:
             try:
+                if generation_session_id or agent_run_id:
+                    stmt = select(GeneratedResumeModel)
+                    if agent_run_id:
+                        stmt = stmt.where(GeneratedResumeModel.agent_run_id == agent_run_id)
+                    else:
+                        stmt = stmt.where(GeneratedResumeModel.generation_session_id == generation_session_id)
+                    existing = await db.scalar(stmt)
+                    if existing:
+                        return existing.id
                 db_obj = GeneratedResumeModel(
                     user_id=user_id,
                     title=title,
                     optimization_result_id=optimization_result_id,
                     job_description=job_description,
                     content=content,
+                    generation_session_id=generation_session_id,
+                    agent_run_id=agent_run_id,
                     created_at=datetime.now(),
                 )
                 db.add(db_obj)
@@ -142,6 +207,19 @@ class ResumeGenerationRepo:
                 logger.info(f"保存生成的简历: ID={resume_id}, title={title}")
                 return resume_id
                 
+            except IntegrityError:
+                await db.rollback()
+                stmt = select(GeneratedResumeModel)
+                if agent_run_id:
+                    stmt = stmt.where(GeneratedResumeModel.agent_run_id == agent_run_id)
+                elif generation_session_id:
+                    stmt = stmt.where(GeneratedResumeModel.generation_session_id == generation_session_id)
+                else:
+                    raise
+                existing = await db.scalar(stmt)
+                if existing:
+                    return existing.id
+                raise
             except Exception as e:
                 logger.error(f"保存生成的简历失败: {e}")
                 raise

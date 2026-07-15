@@ -9,6 +9,7 @@ from langchain_openai import ChatOpenAI
 
 from app.config import get_settings
 from app.schemas.schemas import ApiConfigValidateRequest
+from app.services.url_security import UnsafeOutboundUrl, validate_outbound_url
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,10 @@ async def validate_api_config(request: ApiConfigValidateRequest):
         dict: 验证结果
     """
     try:
+        validate_outbound_url(
+            request.base_url,
+            allow_private=get_settings().allow_private_model_base_urls,
+        )
         # 创建临时 LLM 实例
         llm = ChatOpenAI(
             temperature=0,
@@ -49,6 +54,8 @@ async def validate_api_config(request: ApiConfigValidateRequest):
             "message": f"连接成功！模型 {request.model} 可用。"
         }
         
+    except UnsafeOutboundUrl as e:
+        return {"success": False, "message": str(e)}
     except Exception as e:
         error_msg = str(e)
         logger.warning(f"API 配置验证失败: {error_msg}")

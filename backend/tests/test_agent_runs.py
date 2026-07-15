@@ -160,3 +160,30 @@ async def test_existing_queued_run_is_not_dispatched_twice(monkeypatch):
 
     assert response.status_code == 202
     assert dispatched == []
+
+
+@pytest.mark.asyncio
+async def test_redis_run_gate_renews_owned_lock(monkeypatch):
+    from app.services import runtime_gate
+
+    class FakeRedis:
+        def __init__(self):
+            self.calls = []
+
+        async def set(self, *args, **kwargs):
+            return True
+
+        async def eval(self, script, *args):
+            self.calls.append((script, args))
+            return 1
+
+    gate = object.__new__(runtime_gate.RedisRunGate)
+    gate._client = FakeRedis()
+    gate._ttl = 3
+
+    lease = await gate.acquire()
+    assert lease is not None
+    await __import__("asyncio").sleep(1.1)
+    await lease.release()
+
+    assert any("expire" in script for script, _args in gate._client.calls)

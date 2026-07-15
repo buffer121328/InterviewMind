@@ -8,6 +8,7 @@ from typing import List, Optional, Dict, Any, Callable
 from datetime import datetime
 
 from sqlalchemy import delete, func, select
+from sqlalchemy.exc import IntegrityError
 
 from app.models import async_session
 from app.models.resume import ResumeResultModel
@@ -29,8 +30,9 @@ class ResumeRepo:
         resume_content: str,
         result_data: dict,
         job_description: Optional[str] = None,
-        session_ids: List[str] = [],
-        include_profile: bool = False
+        session_ids: Optional[List[str]] = None,
+        include_profile: bool = False,
+        agent_run_id: Optional[str] = None,
     ) -> int:
         """
         保存优化/分析结果
@@ -49,6 +51,12 @@ class ResumeRepo:
         """
         async with async_session() as db:
             try:
+                if agent_run_id:
+                    existing = await db.scalar(
+                        select(ResumeResultModel).where(ResumeResultModel.agent_run_id == agent_run_id)
+                    )
+                    if existing:
+                        return existing.id
                 db_obj = ResumeResultModel(
                     user_id=user_id,
                     result_type=result_type,
@@ -57,6 +65,7 @@ class ResumeRepo:
                     session_ids=session_ids or None,
                     include_profile=include_profile,
                     result_data=result_data,
+                    agent_run_id=agent_run_id,
                     created_at=datetime.now(),
                 )
                 db.add(db_obj)
@@ -67,9 +76,28 @@ class ResumeRepo:
                 logger.info(f"保存简历{result_type}结果: ID={result_id}, user={user_id}")
                 return result_id
                 
+            except IntegrityError:
+                await db.rollback()
+                if agent_run_id:
+                    existing = await db.scalar(
+                        select(ResumeResultModel).where(ResumeResultModel.agent_run_id == agent_run_id)
+                    )
+                    if existing:
+                        return existing.id
+                raise
             except Exception as e:
                 logger.error(f"保存简历结果失败: {e}")
                 raise
+
+    async def get_result_by_agent_run_id(self, agent_run_id: str, user_id: str) -> Optional[Dict[str, Any]]:
+        async with async_session() as db:
+            row = await db.scalar(
+                select(ResumeResultModel).where(
+                    ResumeResultModel.agent_run_id == agent_run_id,
+                    ResumeResultModel.user_id == user_id,
+                )
+            )
+            return self._row_to_dict(row) if row else None
     
     async def get_result(self, result_id: int, user_id: str) -> Optional[Dict[str, Any]]:
         """
