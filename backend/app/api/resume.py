@@ -43,7 +43,6 @@ from app.schemas.project_rewrite_schemas import (
     ProjectRewriteDetailResponse,
 )
 from app.repositories.resume.resume_repo import get_resume_repo
-from app.repositories.resume.resume_generation_repo import get_generation_repo
 from app.repositories.resume.jd_analysis_repo import get_jd_analysis_repo
 from app.services.resume.resume_analyzer_graph import analyze_resume
 from app.services.resume.resume_orchestrator import run_pipeline  # 新流水线入口
@@ -54,14 +53,15 @@ from app.services.resume.resume_review import (
     public_review_state,
 )
 from app.services.resume.resume_optimizer_graph import optimize_resume_streaming  # 保留流式
-from app.services.resume.resume_generation_graph import (
-    init_generation_session,
-    submit_user_answers,
-    get_session_status
-)
 from app.services.resume.jd_matcher import analyze_jd_match
 from app.api.deps import get_current_user_id  # 统一用户ID提取
 from app.application.resume.history import ResumeHistoryNotFound, resume_history_use_cases
+from app.application.resume.generation import (
+    ResumeGenerationBadRequest,
+    ResumeGenerationConflict,
+    ResumeGenerationNotFound,
+    resume_generation_use_cases,
+)
 from app.application.resume.materials import (
     ResumeMaterialBadRequest,
     ResumeMaterialImportFormatError,
@@ -400,60 +400,18 @@ async def init_resume_generation(
     request: ResumeGenerateInitRequest,
     user_id: str = Depends(get_current_user_id)
 ):
-    """
-    初始化简历生成会话
-    
-    根据优化结果启动简历生成流程。如果需要用户补充信息，返回问题列表；
-    否则直接返回生成的简历。
-    """
-    # user_id 已通过 Depends(get_current_user_id) 获取
-    
-    if not request.api_config:
-        raise HTTPException(status_code=400, detail="请先配置 API Key")
-
+    """初始化简历生成会话。"""
     try:
-        resume_content = request.resume_content
-        job_description = request.job_description
-        optimization_result = request.optimization_result
-        if request.optimization_result_id is not None:
-            stored = await get_resume_repo().get_result(request.optimization_result_id, user_id)
-            if not stored or stored.get("result_type") != "optimize":
-                raise HTTPException(status_code=404, detail="优化结果不存在")
-            stored_data = stored["result_data"]
-            review = public_review_state(stored_data)
-            if review["status"] == "pending":
-                raise HTTPException(status_code=409, detail="请先完成简历人工审阅")
-            resume_content = review.get("resolved_resume") or stored["resume_content"]
-            job_description = stored.get("job_description") or request.job_description
-            optimization_result = _pipeline_to_optimize_result(stored_data).model_dump()
-        elif request.optimization_result.get("requires_user_review"):
-            raise HTTPException(
-                status_code=400,
-                detail="需要人工审阅的优化结果必须提供 optimization_result_id",
-            )
-
-        result = await init_generation_session(
-            resume_content=resume_content,
-            job_description=job_description,
-            optimization_result=optimization_result,
-            user_id=user_id,
-            template_style=request.template_style,
-            api_config=request.api_config.model_dump() if request.api_config else None
-        )
-        
-        return ResumeGenerateInitResponse(
-            success=True,
-            session_id=result["session_id"],
-            needs_input=result["needs_input"],
-            questions=result.get("questions", []),
-            result=result.get("result")
-        )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"初始化简历生成失败: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        return await resume_generation_use_cases.init_resume_generation(request=request, user_id=user_id)
+    except ResumeGenerationBadRequest as exc:
+        raise HTTPException(status_code=400, detail=exc.message) from exc
+    except ResumeGenerationNotFound as exc:
+        raise HTTPException(status_code=404, detail=exc.message) from exc
+    except ResumeGenerationConflict as exc:
+        raise HTTPException(status_code=409, detail=exc.message) from exc
+    except Exception as exc:
+        logger.error("初始化简历生成失败: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @router.post("/generation/submit", response_model=ResumeGenerateSubmitResponse)
@@ -461,32 +419,16 @@ async def submit_generation_answers(
     request: ResumeGenerateSubmitRequest,
     user_id: str = Depends(get_current_user_id)
 ):
-    """
-    提交用户回答并完成简历生成
-    """
-    if not request.api_config:
-        raise HTTPException(status_code=400, detail="请先配置 API Key")
-    
+    """提交用户回答并完成简历生成。"""
     try:
-        result = await submit_user_answers(
-            session_id=request.session_id,
-            answers=request.answers,
-            user_id=user_id,
-            api_config=request.api_config.model_dump() if request.api_config else None
-        )
-        
-        return ResumeGenerateSubmitResponse(
-            success=True,
-            resume_id=result.get("resume_id"),
-            title=result.get("title"),
-            content=result.get("content")
-        )
-        
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except Exception as e:
-        logger.error(f"提交生成回答失败: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        return await resume_generation_use_cases.submit_generation_answers(request=request, user_id=user_id)
+    except ResumeGenerationBadRequest as exc:
+        raise HTTPException(status_code=400, detail=exc.message) from exc
+    except ResumeGenerationNotFound as exc:
+        raise HTTPException(status_code=404, detail=exc.message) from exc
+    except Exception as exc:
+        logger.error("提交生成回答失败: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @router.get("/generation/session/{session_id}")
@@ -494,15 +436,11 @@ async def get_generation_session_status(
     session_id: str,
     user_id: str = Depends(get_current_user_id),
 ):
-    """
-    获取生成会话状态（用于页面刷新后恢复）
-    """
-    status = await get_session_status(session_id, user_id)
-    
-    if not status:
-        raise HTTPException(status_code=404, detail="会话不存在或已过期")
-    
-    return {"success": True, "data": status}
+    """获取生成会话状态（用于页面刷新后恢复）。"""
+    try:
+        return await resume_generation_use_cases.get_generation_session_status(session_id=session_id, user_id=user_id)
+    except ResumeGenerationNotFound as exc:
+        raise HTTPException(status_code=404, detail=exc.message) from exc
 
 
 @router.get("/generated", response_model=GeneratedResumesResponse)
@@ -510,31 +448,8 @@ async def list_generated_resumes(
     limit: int = 20,
     user_id: str = Depends(get_current_user_id)
 ):
-    """
-    获取用户生成的简历列表
-    """
-    # user_id 已通过 Depends(get_current_user_id) 获取
-    
-    try:
-        service = get_generation_repo()
-        resumes = await service.list_generated_resumes(user_id, limit)
-        
-        return GeneratedResumesResponse(
-            success=True,
-            resumes=[
-                GeneratedResumeItem(
-                    id=r["id"],
-                    title=r["title"],
-                    job_description=r.get("job_description"),
-                    created_at=r["created_at"]
-                )
-                for r in resumes
-            ]
-        )
-        
-    except Exception as e:
-        logger.error(f"获取生成的简历列表失败: {e}", exc_info=True)
-        return GeneratedResumesResponse(success=False, message=str(e))
+    """获取用户生成的简历列表。"""
+    return await resume_generation_use_cases.list_generated_resumes(user_id=user_id, limit=limit)
 
 
 @router.get("/generated/{resume_id}")
@@ -542,25 +457,14 @@ async def get_generated_resume(
     resume_id: int,
     user_id: str = Depends(get_current_user_id)
 ):
-    """
-    获取单个生成的简历
-    """
-    # user_id 已通过 Depends(get_current_user_id) 获取
-    
+    """获取单个生成的简历。"""
     try:
-        service = get_generation_repo()
-        resume = await service.get_generated_resume(resume_id, user_id)
-        
-        if not resume:
-            raise HTTPException(status_code=404, detail="简历不存在")
-        
-        return {"success": True, "resume": resume}
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"获取生成的简历失败: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        return await resume_generation_use_cases.get_generated_resume(resume_id=resume_id, user_id=user_id)
+    except ResumeGenerationNotFound as exc:
+        raise HTTPException(status_code=404, detail=exc.message) from exc
+    except Exception as exc:
+        logger.error("获取生成的简历失败: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @router.put("/generated/{resume_id}")
@@ -569,37 +473,20 @@ async def update_generated_resume(
     request: dict,
     user_id: str = Depends(get_current_user_id)
 ):
-    """
-    更新生成的简历内容
-    """
-    # user_id 已通过 Depends(get_current_user_id) 获取
-    
-    # 获取请求参数
-    content = request.get("content")
-    title = request.get("title")
-    
-    if not content and not title:
-        raise HTTPException(status_code=400, detail="至少需要提供 content 或 title 参数")
-    
+    """更新生成的简历内容。"""
     try:
-        service = get_generation_repo()
-        success = await service.update_generated_resume(
+        return await resume_generation_use_cases.update_generated_resume(
             resume_id=resume_id,
+            request=request,
             user_id=user_id,
-            content=content,
-            title=title
         )
-        
-        if not success:
-            raise HTTPException(status_code=404, detail="简历不存在或无权更新")
-        
-        return {"success": True, "message": "更新成功"}
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"更新生成的简历失败: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+    except ResumeGenerationBadRequest as exc:
+        raise HTTPException(status_code=400, detail=exc.message) from exc
+    except ResumeGenerationNotFound as exc:
+        raise HTTPException(status_code=404, detail=exc.message) from exc
+    except Exception as exc:
+        logger.error("更新生成的简历失败: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @router.delete("/generated/{resume_id}")
@@ -607,26 +494,14 @@ async def delete_generated_resume(
     resume_id: int,
     user_id: str = Depends(get_current_user_id)
 ):
-    """
-    删除生成的简历
-    """
-    # user_id 已通过 Depends(get_current_user_id) 获取
-    
+    """删除生成的简历。"""
     try:
-        service = get_generation_repo()
-        success = await service.delete_generated_resume(resume_id, user_id)
-        
-        if not success:
-            raise HTTPException(status_code=404, detail="简历不存在或无权删除")
-        
-        return {"success": True, "message": "删除成功"}
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"删除生成的简历失败: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
-
+        return await resume_generation_use_cases.delete_generated_resume(resume_id=resume_id, user_id=user_id)
+    except ResumeGenerationNotFound as exc:
+        raise HTTPException(status_code=404, detail=exc.message) from exc
+    except Exception as exc:
+        logger.error("删除生成的简历失败: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 # ============================================================================
 # JD 匹配分析接口

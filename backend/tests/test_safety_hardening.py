@@ -115,8 +115,8 @@ async def test_resume_generation_cannot_bypass_pending_review():
     }
 
     with (
-        patch("app.api.resume.get_resume_repo", return_value=repo),
-        patch("app.api.resume.init_generation_session", new=AsyncMock()) as start_generation,
+        patch("app.application.resume.generation.get_resume_repo", return_value=repo),
+        patch("app.application.resume.generation.init_generation_session", new=AsyncMock()) as start_generation,
     ):
         with pytest.raises(HTTPException) as exc_info:
             await init_resume_generation(request, user_id="user-1")
@@ -129,6 +129,7 @@ async def test_resume_generation_cannot_bypass_pending_review():
 async def test_resume_generation_submit_and_status_are_user_scoped(monkeypatch):
     from types import SimpleNamespace
     from app.api import resume as resume_api
+    from app.application.resume import generation as resume_generation
 
     submit_calls = []
     status_calls = []
@@ -141,8 +142,8 @@ async def test_resume_generation_submit_and_status_are_user_scoped(monkeypatch):
         status_calls.append((session_id, user_id))
         return {"status": "awaiting_input"}
 
-    monkeypatch.setattr(resume_api, "submit_user_answers", fake_submit)
-    monkeypatch.setattr(resume_api, "get_session_status", fake_status)
+    monkeypatch.setattr(resume_generation, "submit_user_answers", fake_submit)
+    monkeypatch.setattr(resume_generation, "get_session_status", fake_status)
     request = SimpleNamespace(
         session_id="session-1",
         answers={"问题": "回答"},
