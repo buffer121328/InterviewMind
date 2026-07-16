@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.application.interview import stream as chat_stream
+from app.application.interview.checkpoints import interview_turn_checkpoint_thread_id
 from app.application.interview.stream import ChatStreamUseCases
 from app.schemas.schemas import ChatRequest
 from app.services.agent_runs.service import TASK_TYPE_INTERVIEW_TURN, get_task_definition
@@ -75,7 +76,11 @@ class _FakeGate:
 
 
 class _FakeGraph:
-    async def astream_events(self, *_args, **_kwargs):
+    def __init__(self):
+        self.config = None
+
+    async def astream_events(self, *_args, **kwargs):
+        self.config = kwargs.get("config")
         yield {
             "event": "on_chat_model_stream",
             "metadata": {"langgraph_node": "responder"},
@@ -85,6 +90,10 @@ class _FakeGraph:
             "event": "on_chain_end",
             "data": {"output": {"current_question_index": 1, "question_count": 1, "max_questions": 5}},
         }
+
+
+def test_interview_turn_checkpoint_thread_id_uses_persisted_run_id():
+    assert interview_turn_checkpoint_thread_id("session-1", "run-1") == "interview:session-1:run:run-1"
 
 
 def test_interview_turn_task_definition_is_registered():
@@ -101,8 +110,10 @@ async def test_chat_stream_creates_and_completes_agent_run(monkeypatch):
     fake_run_service = _FakeRunService()
     use_cases._run_service = fake_run_service
 
+    fake_graph = _FakeGraph()
+
     async def fake_build_interview_graph(_mode):
-        return _FakeGraph()
+        return fake_graph
 
     async def fake_get_memory_context(**_kwargs):
         return "", []
@@ -125,6 +136,7 @@ async def test_chat_stream_creates_and_completes_agent_run(monkeypatch):
 
     assert fake_run_service.created[0]["task_type"] == TASK_TYPE_INTERVIEW_TURN
     assert fake_run_service.created[0]["payload"]["thread_id"] == "thread-1"
+    assert fake_graph.config == {"configurable": {"thread_id": "interview:thread-1:run:run-1"}}
     assert fake_run_service.stages == [
         ("run-1", "loading_session"),
         ("run-1", "saving_answer"),

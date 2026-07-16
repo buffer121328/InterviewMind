@@ -10,6 +10,7 @@ from typing import Optional
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
+from app.application.interview.checkpoints import interview_turn_checkpoint_thread_id
 from app.repositories.session.session_repo import SessionRepo
 from app.services.agent_runs.service import AgentRunService, TASK_TYPE_INTERVIEW_TURN
 from app.schemas.schemas import ChatRequest, ChatStreamResponse
@@ -58,8 +59,6 @@ class ChatStreamUseCases:
         if session is None:
             raise ChatStreamNotFound(message="会话不存在或无权访问")
         interview_plan = await self._session_repo.get_interview_plan(request.thread_id)
-        config = {"configurable": {"thread_id": f"{request.thread_id}:turn:{len(session.messages)}"}}
-
         hydrated_messages = []
         for msg in session.messages:
             if not msg.content:
@@ -115,6 +114,8 @@ class ChatStreamUseCases:
             raise ChatStreamConflict(message="当前面试生成任务状态异常，请稍后重试")
         await self._run_service.mark_stage(run.id, "loading_session")
         inputs["run_id"] = run.id
+        checkpoint_thread_id = interview_turn_checkpoint_thread_id(request.thread_id, run.id)
+        config = {"configurable": {"thread_id": checkpoint_thread_id}}
 
         lease = await get_run_gate().acquire()
         if lease is None:
