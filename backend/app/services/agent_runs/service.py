@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.definitions import get_agent_definition, get_agent_definitions
+from app.application.unit_of_work import UnitOfWork
 from app.models import AgentRunEventModel, AgentRunModel, async_session
 from app.services.agent_runs.crypto import decrypt_payload, encrypt_payload
 from app.services.agent_runs.outbox import enqueue_agent_run_outbox
@@ -341,7 +342,8 @@ class AgentRunService:
         return await self._recover(user_id=None, limit=limit)
 
     async def succeed(self, run_id: str, result: dict) -> None:
-        async with async_session() as session:
+        async with UnitOfWork(async_session) as uow:
+            session = uow.db
             run = await session.get(AgentRunModel, run_id, with_for_update=True)
             if not run or run.status == "cancelled":
                 return
@@ -361,10 +363,10 @@ class AgentRunService:
                 run.updated_at = now
                 run.finished_at = now
                 await self._append_event(session, run, "run.completed")
-            await session.commit()
 
     async def fail(self, run_id: str, message: str) -> None:
-        async with async_session() as session:
+        async with UnitOfWork(async_session) as uow:
+            session = uow.db
             run = await session.get(AgentRunModel, run_id, with_for_update=True)
             if not run or run.status == "cancelled":
                 return
@@ -381,7 +383,6 @@ class AgentRunService:
             run.updated_at = now
             run.finished_at = now
             await self._append_event(session, run, event_type, {"message": run.error_message})
-            await session.commit()
 
     async def mark_cancelled(self, run_id: str, message: str = "任务已取消") -> None:
         async with async_session() as session:

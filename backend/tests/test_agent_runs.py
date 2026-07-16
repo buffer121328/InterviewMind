@@ -382,18 +382,18 @@ async def test_succeed_turns_cancel_requested_run_into_cancelled(monkeypatch):
     appended: list[tuple[str, dict | None]] = []
 
     class FakeSession:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, exc_type, exc, tb):
-            return False
-
         async def get(self, _model, run_id, with_for_update=False):
             assert run_id == "run-cancel"
             assert with_for_update is True
             return run
 
         async def commit(self):
+            return None
+
+        async def rollback(self):
+            raise AssertionError("不应回滚成功路径")
+
+        async def close(self):
             return None
 
     async def append_event(self, _session, _run, event_type, payload=None):
@@ -410,3 +410,49 @@ async def test_succeed_turns_cancel_requested_run_into_cancelled(monkeypatch):
     assert run.error_message == "任务已取消"
     assert run.finished_at is not None
     assert appended == [("run.cancelled", {"reason": "cancel_won_race"})]
+
+
+@pytest.mark.asyncio
+async def test_event_stream_replays_from_last_event_id_when_larger(monkeypatch):
+    from types import SimpleNamespace
+    from app.api import agent_runs
+
+    now = datetime.now()
+    run = SimpleNamespace(status="succeeded")
+    event = SimpleNamespace(
+        id=8,
+        run_id="run-1",
+        sequence=8,
+        event_type="run.completed",
+        stage="succeeded",
+        payload={"ok": True},
+        schema_version=1,
+        created_at=now,
+    )
+    list_after_sequences: list[int] = []
+
+    async def get(_run_id, _user_id):
+        return run
+
+    async def list_events(_run_id, _user_id, *, after_sequence, limit):
+        list_after_sequences.append(after_sequence)
+        assert limit == 200
+        return [event] if after_sequence == 7 else []
+
+    monkeypatch.setattr(agent_runs.service, "get", get)
+    monkeypatch.setattr(agent_runs.service, "list_events", list_events)
+
+    response = await agent_runs.stream_agent_run_events(
+        "run-1",
+        after_sequence=3,
+        last_event_id="7",
+        user_id="user-1",
+    )
+    chunks = []
+    async for chunk in response.body_iterator:
+        chunks.append(chunk.decode() if isinstance(chunk, bytes) else chunk)
+
+    assert list_after_sequences == [7, 8]
+    assert chunks == [
+        f'id: 8\nevent: run.completed\ndata: {json.dumps({"event_id": "8", "run_id": "run-1", "sequence": 8, "type": "run.completed", "stage": "succeeded", "payload": {"ok": True}, "schema_version": 1, "timestamp": now.isoformat()}, ensure_ascii=False)}\n\n'
+    ]

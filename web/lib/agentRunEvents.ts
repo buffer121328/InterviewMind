@@ -1,6 +1,7 @@
 import type { AgentRun, AgentRunEvent, AgentRunPlanStep, AgentRunStatus } from './api/agentRuns';
 
 const TERMINAL_STATUSES = new Set<AgentRunStatus>(['succeeded', 'failed', 'cancelled']);
+const SUPPORTED_SCHEMA_VERSION = 1;
 
 function stringPayload(payload: Record<string, unknown>, key: string): string | undefined {
     const value = payload[key];
@@ -22,6 +23,8 @@ export function parseAgentRunEventEnvelope(content: unknown): AgentRunEvent | nu
         const value = typeof content === 'string' ? JSON.parse(content) : content;
         if (!isRecord(value)) return null;
         if (typeof value.run_id !== 'string' || typeof value.type !== 'string') return null;
+        const schemaVersion = typeof value.schema_version === 'number' ? value.schema_version : SUPPORTED_SCHEMA_VERSION;
+        if (schemaVersion !== SUPPORTED_SCHEMA_VERSION) return null;
         return {
             event_id: typeof value.event_id === 'string' ? value.event_id : '',
             run_id: value.run_id,
@@ -29,7 +32,7 @@ export function parseAgentRunEventEnvelope(content: unknown): AgentRunEvent | nu
             type: value.type,
             stage: typeof value.stage === 'string' || value.stage === null ? value.stage : null,
             payload: isRecord(value.payload) ? value.payload : {},
-            schema_version: typeof value.schema_version === 'number' ? value.schema_version : 1,
+            schema_version: schemaVersion,
             timestamp: typeof value.timestamp === 'string' ? value.timestamp : new Date().toISOString(),
         };
     } catch {
