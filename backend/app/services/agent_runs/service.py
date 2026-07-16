@@ -9,6 +9,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.models import AgentRunModel, async_session
 from app.services.agent_runs.crypto import decrypt_payload, encrypt_payload
+from app.services.agent_runs.policies import allows_whole_run_retry
 
 
 TASK_TYPE_INTERVIEW_START = "interview_start"
@@ -143,7 +144,7 @@ def serialize_run(run: AgentRunModel) -> dict:
         "error_message": run.error_message,
         "attempts": run.attempts,
         "max_attempts": max_attempts(),
-        "can_retry": run.status in {"failed", "cancelled"} and run.attempts < max_attempts(),
+        "can_retry": allows_whole_run_retry(run.task_type) and run.status in {"failed", "cancelled"} and run.attempts < max_attempts(),
         "created_at": run.created_at.isoformat(),
         "updated_at": run.updated_at.isoformat(),
         "started_at": run.started_at.isoformat() if run.started_at else None,
@@ -299,7 +300,12 @@ class AgentRunService:
                     AgentRunModel.user_id == user_id,
                 ).with_for_update()
             )
-            if not run or run.status not in {"failed", "cancelled"} or run.attempts >= max_attempts():
+            if (
+                not run
+                or not allows_whole_run_retry(run.task_type)
+                or run.status not in {"failed", "cancelled"}
+                or run.attempts >= max_attempts()
+            ):
                 return None
             run.status = "retrying"
             run.stage = "queued"
