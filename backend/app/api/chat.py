@@ -16,6 +16,7 @@ from app.services.interview.interview_graph import build_interview_graph
 from app.schemas.schemas import ChatRequest, ChatStreamResponse, InterviewStartRequest, ErrorResponse, RollbackRequest, ProfileGenerateRequest, WeaknessGenerateRequest
 from app.repositories.session.session_repo import SessionRepo
 from app.api.deps import get_current_user_id
+from app.application.interview.session_actions import InterviewSessionNotFound, interview_session_use_cases
 from app.services.interview.interview_context import build_interview_context
 from app.services.security import safe_error_message
 from app.services.runtime_gate import get_run_gate
@@ -73,64 +74,21 @@ async def get_hint(
     question_index: int,
     user_id: str = Depends(get_current_user_id)
 ):
-    """
-    获取指定问题的回答提示
-    
-    直接从 interview_plan 中读取，无需调用 LLM
-    
-    Args:
-        session_id: 会话ID
-        question_index: 当前问题索引（从0开始）
-        
-    Returns:
-        dict: 包含提示内容
-    """
+    """获取指定问题的回答提示。"""
     try:
-        session = await session_repo.get_session(session_id, user_id=user_id)
-        if not session:
-            raise HTTPException(status_code=404, detail="会话不存在或无权访问")
-
-        plan = await session_repo.get_interview_plan(session_id)
-        
-        if not plan:
-            raise HTTPException(status_code=404, detail="面试计划不存在")
-        
-        if question_index < 0 or question_index >= len(plan):
-            raise HTTPException(status_code=404, detail="问题索引超出范围")
-        
-        question = plan[question_index]
-        hint = question.get("hint")
-        
-        # 检查提示是否已生成
-        if not hint:
-            return {
-                "success": True,
-                "generating": True,
-                "hint": "提示正在生成中，请稍后再试...",
-                "topic": question.get("topic", ""),
-                "question": question.get("content", "")
-            }
-        
-        return {
-            "success": True,
-            "generating": False,
-            "hint": hint,
-            "topic": question.get("topic", ""),
-            "question": question.get("content", "")
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"获取回答提示失败: {str(e)}")
+        return await interview_session_use_cases.get_hint(
+            session_id=session_id,
+            question_index=question_index,
+            user_id=user_id,
+        )
+    except InterviewSessionNotFound as exc:
+        raise HTTPException(status_code=404, detail=exc.message) from exc
+    except Exception as exc:
+        logger.error("获取回答提示失败: %s", exc)
         raise HTTPException(
             status_code=500,
-            detail={
-                "error": "InternalServerError",
-                "message": "获取回答提示失败"
-            }
-        )
-
+            detail={"error": "InternalServerError", "message": "获取回答提示失败"},
+        ) from exc
 
 @router.post("/start")
 async def start_interview(
@@ -614,107 +572,45 @@ async def event_generator(graph, inputs, config, thread_id: str, user_message: s
 
 @router.get("/status/{thread_id}")
 async def get_chat_status(thread_id: str):
-    """
-    获取聊天会话状态
-    
-    Args:
-        thread_id: 线程 ID
-        
-    Returns:
-        dict: 会话状态信息
-    """
+    """获取聊天会话状态。"""
     try:
-        # 这里可以实现获取会话状态的逻辑
-        # 目前返回基本信息
-        return {
-            "success": True,
-            "thread_id": thread_id,
-            "status": "active"
-        }
-        
-    except Exception as e:
-        logger.error(f"获取聊天状态失败: {str(e)}")
+        return await interview_session_use_cases.get_chat_status(thread_id=thread_id)
+    except Exception as exc:
+        logger.error("获取聊天状态失败: %s", exc)
         raise HTTPException(
             status_code=500,
-            detail={
-                "error": "InternalServerError",
-                "message": "获取聊天状态失败"
-            }
-        )
+            detail={"error": "InternalServerError", "message": "获取聊天状态失败"},
+        ) from exc
 
 
 @router.delete("/session/{thread_id}")
 async def end_chat_session(thread_id: str):
-    """
-    结束聊天会话
-    
-    Args:
-        thread_id: 线程 ID
-        
-    Returns:
-        dict: 会话结束结果
-    """
+    """结束聊天会话。"""
     try:
-        # 这里可以实现清理会话的逻辑
-        return {
-            "success": True,
-            "message": f"会话 {thread_id} 已结束",
-            "thread_id": thread_id
-        }
-        
-    except Exception as e:
-        logger.error(f"结束聊天会话失败: {str(e)}")
+        return await interview_session_use_cases.end_chat_session(thread_id=thread_id)
+    except Exception as exc:
+        logger.error("结束聊天会话失败: %s", exc)
         raise HTTPException(
             status_code=500,
-            detail={
-                "error": "InternalServerError",
-                "message": "结束聊天会话失败"
-            }
-        )
+            detail={"error": "InternalServerError", "message": "结束聊天会话失败"},
+        ) from exc
 
 
 @router.post("/rollback")
 async def rollback_chat(
     request: RollbackRequest,
     user_id: str = Depends(get_current_user_id)):
-    """
-    回退聊天会话
-    
-    Args:
-        request: 回退请求
-        x_user_id: 用户ID（从 Header 中获取，用于权限校验）
-        
-    Returns:
-        dict: 回退结果
-    """
+    """回退聊天会话。"""
     try:
-        success = await session_repo.rollback_session(
-            request.thread_id, 
-            request.index,
-            user_id=user_id
-        )
-        
-        if not success:
-            raise HTTPException(status_code=404, detail="Session or message not found")
-            
-        return {
-            "success": True,
-            "message": f"会话已回退至索引 {request.index}",
-            "thread_id": request.thread_id
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"回退会话失败: {str(e)}")
+        return await interview_session_use_cases.rollback_chat(request=request, user_id=user_id)
+    except InterviewSessionNotFound as exc:
+        raise HTTPException(status_code=404, detail=exc.message) from exc
+    except Exception as exc:
+        logger.error("回退会话失败: %s", exc)
         raise HTTPException(
             status_code=500,
-            detail={
-                "error": "InternalServerError",
-                "message": "回退会话失败"
-            }
-        )
-
+            detail={"error": "InternalServerError", "message": "回退会话失败"},
+        ) from exc
 
 @router.post("/profile/generate")
 async def generate_profile(
