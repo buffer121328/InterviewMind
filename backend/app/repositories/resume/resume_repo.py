@@ -9,6 +9,7 @@ from datetime import datetime
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import async_session
 from app.models.resume import ResumeResultModel
@@ -33,6 +34,7 @@ class ResumeRepo:
         session_ids: Optional[List[str]] = None,
         include_profile: bool = False,
         agent_run_id: Optional[str] = None,
+        session: AsyncSession | None = None,
     ) -> int:
         """
         保存优化/分析结果
@@ -49,45 +51,80 @@ class ResumeRepo:
         Returns:
             int: 结果 ID
         """
-        async with async_session() as db:
-            try:
-                if agent_run_id:
-                    existing = await db.scalar(
-                        select(ResumeResultModel).where(ResumeResultModel.agent_run_id == agent_run_id)
+        owns_session = session is None
+        db = session
+        try:
+            if owns_session:
+                async with async_session() as owned_db:
+                    return await self._save_result_with_session(
+                        owned_db,
+                        user_id=user_id,
+                        result_type=result_type,
+                        resume_content=resume_content,
+                        result_data=result_data,
+                        job_description=job_description,
+                        session_ids=session_ids,
+                        include_profile=include_profile,
+                        agent_run_id=agent_run_id,
+                        owns_session=True,
                     )
-                    if existing:
-                        return existing.id
-                db_obj = ResumeResultModel(
-                    user_id=user_id,
-                    result_type=result_type,
-                    resume_content=resume_content,
-                    job_description=job_description,
-                    session_ids=session_ids or None,
-                    include_profile=include_profile,
-                    result_data=result_data,
-                    agent_run_id=agent_run_id,
-                    created_at=datetime.now(),
-                )
-                db.add(db_obj)
-                await db.commit()
-                await db.refresh(db_obj)
-                result_id = db_obj.id
-                
-                logger.info(f"保存简历{result_type}结果: ID={result_id}, user={user_id}")
-                return result_id
-                
-            except IntegrityError:
-                await db.rollback()
-                if agent_run_id:
-                    existing = await db.scalar(
-                        select(ResumeResultModel).where(ResumeResultModel.agent_run_id == agent_run_id)
-                    )
-                    if existing:
-                        return existing.id
-                raise
-            except Exception as e:
-                logger.error(f"保存简历结果失败: {e}")
-                raise
+            assert db is not None
+            return await self._save_result_with_session(
+                db,
+                user_id=user_id,
+                result_type=result_type,
+                resume_content=resume_content,
+                result_data=result_data,
+                job_description=job_description,
+                session_ids=session_ids,
+                include_profile=include_profile,
+                agent_run_id=agent_run_id,
+                owns_session=False,
+            )
+        except Exception as e:
+            logger.error(f"保存简历结果失败: {e}")
+            raise
+
+    async def _save_result_with_session(
+        self,
+        db: AsyncSession,
+        *,
+        user_id: str,
+        result_type: str,
+        resume_content: str,
+        result_data: dict,
+        job_description: Optional[str] = None,
+        session_ids: Optional[List[str]] = None,
+        include_profile: bool = False,
+        agent_run_id: Optional[str] = None,
+        owns_session: bool,
+    ) -> int:
+        if agent_run_id:
+            existing = await db.scalar(
+                select(ResumeResultModel).where(ResumeResultModel.agent_run_id == agent_run_id)
+            )
+            if existing:
+                return existing.id
+        db_obj = ResumeResultModel(
+            user_id=user_id,
+            result_type=result_type,
+            resume_content=resume_content,
+            job_description=job_description,
+            session_ids=session_ids or None,
+            include_profile=include_profile,
+            result_data=result_data,
+            agent_run_id=agent_run_id,
+            created_at=datetime.now(),
+        )
+        db.add(db_obj)
+        await db.flush()
+        result_id = db_obj.id
+        if owns_session:
+            await db.commit()
+            await db.refresh(db_obj)
+            result_id = db_obj.id
+        logger.info(f"保存简历{result_type}结果: ID={result_id}, user={user_id}")
+        return result_id
 
     async def get_result_by_agent_run_id(self, agent_run_id: str, user_id: str) -> Optional[Dict[str, Any]]:
         async with async_session() as db:
