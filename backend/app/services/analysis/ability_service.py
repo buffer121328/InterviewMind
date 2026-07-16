@@ -110,10 +110,7 @@ class AbilityAnalysisService:
         - 第4次：权重 0.55
         - 第5次：权重 0.40
         """
-        from app.services.llms import get_llm_for_request
-        
-        # 获取 LLM (优先使用用户配置)
-        llm = get_llm_for_request(api_config, channel="smart")
+        from app.services import llms
         
         # 为每个画像添加权重信息
         weighted_profiles = []
@@ -172,7 +169,7 @@ class AbilityAnalysisService:
 请客观、公正地进行评估，重点关注加权平均后的稳定表现。"""
         
         try:
-            response = await llm.ainvoke(prompt)
+            response = await llms.invoke_text(prompt, api_config, channel="smart")
             content = response.content.strip()
             
             # 清理 markdown 标记

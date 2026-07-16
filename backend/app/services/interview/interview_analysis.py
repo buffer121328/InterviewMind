@@ -332,8 +332,7 @@ async def generate_interview_summary(
                 llm_messages.append(AIMessage(content=content))
         
         # 调用 LLM 生成总结
-        smart_llm = llms.get_llm_for_request(api_config, channel="smart")
-        response = await smart_llm.ainvoke(llm_messages)
+        response = await llms.invoke_text(llm_messages, api_config, channel="smart")
         
         summary = response.content if hasattr(response, 'content') else str(response)
         logger.info(f"[Summary] 成功生成面试总结，长度: {len(summary)} 字符")

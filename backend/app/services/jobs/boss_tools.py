@@ -74,8 +74,7 @@ async def score_jobs_by_match(cards: List[Dict[str, Any]], resume_content: str,
                     "jd_short": (c.get("job_description") or "")[:120]} for i, c in enumerate(cards[:15])]
     prompt = build_job_card_scoring_prompt(cards_brief=cards_brief, resume_context=resume_content[:800])
     try:
-        fast_llm = llms.get_llm_for_request(api_config, channel="fast")
-        response = await fast_llm.ainvoke(prompt)
+        response = await llms.invoke_text(prompt, api_config, channel="fast")
         text_strip = response.content.strip() if hasattr(response, "content") else str(response).strip()
         if text_strip.startswith("```"):
             text_strip = text_strip.split("```")[1]

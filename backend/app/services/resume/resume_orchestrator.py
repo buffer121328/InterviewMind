@@ -692,8 +692,7 @@ async def stage4_assemble(state: PipelineState) -> PipelineState:
         from app.services import llms
         from langchain_core.messages import HumanMessage
         
-        fast_llm = llms.get_llm_for_request(state.api_config, channel="fast")
-        response = await fast_llm.ainvoke([HumanMessage(content=prompt)])
+        response = await llms.invoke_text([HumanMessage(content=prompt)], state.api_config, channel="fast")
         assembled = response.content.strip()
         
         # 清理可能的代码块包裹

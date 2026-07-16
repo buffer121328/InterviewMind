@@ -109,10 +109,9 @@ async def rewrite_project(
     job_description: Optional[str] = None,
     api_config: Optional[dict] = None,
 ) -> dict:
-    llm = llms.get_llm_for_request(api_config, channel="smart")
     prompt = _build_prompt(project_content, project_title, rewrite_mode, job_description)
     messages = [HumanMessage(content=prompt)]
-    response = await llm.ainvoke(messages)
+    response = await llms.invoke_text(messages, api_config, channel="smart")
     result_text = response.content.strip()
 
     try:

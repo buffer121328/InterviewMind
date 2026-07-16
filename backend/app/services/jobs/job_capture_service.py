@@ -711,8 +711,7 @@ async def _score_job_cards_by_match(
 Respond in JSON format."""
 
     try:
-        fast_llm = llms.get_llm_for_request(api_config, channel="fast")
-        response = await fast_llm.ainvoke(prompt)
+        response = await llms.invoke_text(prompt, api_config, channel="fast")
         response_text = response.content if hasattr(response, "content") else str(response)
 
         # 解析 JSON

@@ -282,10 +282,10 @@ async def node_generate_draft(state: ResumeGenerationState) -> dict:
 3. **突出重点**：优先展示与目标职位最相关的内容
 """
     
-    llm = llms.get_llm_for_request(api_config, channel="content_writer")
-    
     try:
-        response = await llm.ainvoke([HumanMessage(content=prompt)])
+        response = await llms.invoke_text(
+            [HumanMessage(content=prompt)], api_config, channel="content_writer"
+        )
         draft = response.content.strip()
         
         # 清理可能的代码块包裹
