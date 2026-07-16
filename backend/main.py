@@ -57,6 +57,14 @@ async def lifespan(app: FastAPI):
     
     logger.info("数据目录和静态目录初始化完成")
     
+    # 主动恢复 Worker 中断或长期未领取的持久化 Agent 任务
+    try:
+        from app.services.agent_runs.recovery import run_agent_run_recovery_loop
+        from app.services.background_tasks import create_background_task
+        create_background_task(run_agent_run_recovery_loop(), name="agent-run-recovery")
+    except Exception as e:
+        logger.warning("Agent 任务主动恢复循环启动失败: %s", e)
+
     # 初始化 mem0 长期记忆服务
     try:
         from app.services.agent_memory import get_agent_memory_service

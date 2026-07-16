@@ -24,7 +24,7 @@ from .rag import RagChunkModel
 from .application import JobApplicationModel, ApplicationEventModel
 from .jd import JdAnalysisResultModel
 from .job_capture import CapturedJobModel
-from .agent_run import AgentRunModel
+from .agent_run import AgentRunEventModel, AgentRunModel
 
 __all__ = [
     # base
@@ -47,5 +47,5 @@ __all__ = [
     # job capture
     "CapturedJobModel",
     # agent runs
-    "AgentRunModel",
+    "AgentRunModel", "AgentRunEventModel",
 ]

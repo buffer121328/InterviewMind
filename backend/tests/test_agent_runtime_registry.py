@@ -178,3 +178,22 @@ async def test_tool_guard_redacts_nested_secrets():
         "api_key": "[REDACTED]",
         "nested": [{"token": "[REDACTED]", "value": 1}],
     }
+
+
+def test_production_agent_definitions_are_registered():
+    from app.agents.definitions import get_agent_definitions
+
+    definitions = {item.task_type: item for item in get_agent_definitions()}
+
+    assert set(definitions) == {
+        "interview_start",
+        "interview_turn",
+        "voice_interview_turn",
+        "resume_optimize",
+        "interview_report",
+        "job_assets",
+    }
+    assert definitions["interview_start"].checkpoint_policy == "durable"
+    assert definitions["interview_turn"].checkpoint_policy == "durable"
+    assert definitions["voice_interview_turn"].checkpoint_policy == "durable"
+    assert all(item.cancellation_policy == "cooperative" for item in definitions.values())
