@@ -64,16 +64,16 @@ class InMemoryMaterialRepo:
 
 @pytest.fixture
 def material_repo(monkeypatch):
-    from app.repositories.resume import candidate_material_repo
+    from app.application.resume import materials as resume_materials
 
     repo = InMemoryMaterialRepo()
-    monkeypatch.setattr(candidate_material_repo, "get_candidate_material_repo", lambda: repo)
+    monkeypatch.setattr(resume_materials, "get_candidate_material_repo", lambda: repo)
     return repo
 
 
 @pytest.fixture
 def assembly_services(monkeypatch):
-    from app.services.resume import resume_assembler
+    from app.application.resume import assembly as resume_assembly
 
     async def select_empty_materials(**_kwargs):
         return SimpleNamespace(
@@ -88,9 +88,9 @@ def assembly_services(monkeypatch):
     async def get_missing_result(*_args, **_kwargs):
         return None
 
-    monkeypatch.setattr(resume_assembler, "select_materials_for_jd", select_empty_materials)
-    monkeypatch.setattr(resume_assembler, "list_assembly_results", list_empty_results)
-    monkeypatch.setattr(resume_assembler, "get_assembly_result", get_missing_result)
+    monkeypatch.setattr(resume_assembly, "select_materials_for_jd", select_empty_materials)
+    monkeypatch.setattr(resume_assembly, "list_assembly_results", list_empty_results)
+    monkeypatch.setattr(resume_assembly, "get_assembly_result", get_missing_result)
 
 
 class TestCandidateMaterialsAPI:
