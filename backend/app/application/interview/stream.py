@@ -10,6 +10,7 @@ from typing import Optional
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from app.repositories.session.session_repo import SessionRepo
+from app.services.agent_runs.service import AgentRunService, TASK_TYPE_INTERVIEW_TURN
 from app.schemas.schemas import ChatRequest, ChatStreamResponse
 from app.services.interview.interview_graph import build_interview_graph
 from app.services.runtime_gate import get_run_gate
@@ -45,6 +46,7 @@ class ChatStreamUseCases:
 
     def __init__(self) -> None:
         self._session_repo = SessionRepo()
+        self._run_service = AgentRunService()
 
     async def stream_chat(self, *, request: ChatRequest, user_id: str) -> AsyncGenerator[str, None]:
         graph = await build_interview_graph(request.mode)
@@ -96,10 +98,28 @@ class ChatStreamUseCases:
             "memory_items": memory_items,
         }
 
+        run, _ = await self._run_service.create_or_get(
+            user_id=user_id,
+            task_type=TASK_TYPE_INTERVIEW_TURN,
+            idempotency_key=f"chat-turn:{request.thread_id}:{len(session.messages)}:{uuid.uuid4()}",
+            payload={
+                "thread_id": request.thread_id,
+                "mode": request.mode,
+                "message_preview": request.message[:120],
+                "question_index": inputs["current_question_index"],
+            },
+        )
+        claimed = await self._run_service.claim(run.id)
+        if claimed is None:
+            raise ChatStreamConflict(message="当前面试生成任务状态异常，请稍后重试")
+        await self._run_service.mark_stage(run.id, "loading_session")
+        inputs["run_id"] = run.id
+
         lease = await get_run_gate().acquire()
         if lease is None:
+            await self._run_service.fail(run.id, "当前仍有面试任务在生成，请等待当前回复完成")
             raise ChatStreamConflict(message="当前仍有面试任务在生成，请等待当前回复完成")
-        return self._event_generator(graph, inputs, config, request.thread_id, request.message, user_id, lease)
+        return self._event_generator(graph, inputs, config, request.thread_id, request.message, user_id, lease, run.id)
 
     async def _event_generator(
         self,
@@ -110,6 +130,7 @@ class ChatStreamUseCases:
         user_message: str,
         user_id: str = "default_user",
         lease=None,
+        run_id: str | None = None,
     ) -> AsyncGenerator[str, None]:
         ai_response_content = ""
         final_question_index = inputs.get("current_question_index", 0)
@@ -133,10 +154,12 @@ class ChatStreamUseCases:
             return stream_event("step_update", {"id": step_id, "status": status})
 
         try:
-            yield stream_event("plan", plan)
+            yield stream_event("plan", {"run_id": run_id, "steps": plan})
             event = step_event("save_answer", "running")
             if event:
                 yield event
+            if run_id:
+                await self._run_service.mark_stage(run_id, "saving_answer")
             await self._session_repo.add_message(
                 session_id=thread_id,
                 role="user",
@@ -150,6 +173,8 @@ class ChatStreamUseCases:
             event = step_event("analyze_answer", "running")
             if event:
                 yield event
+            if run_id:
+                await self._run_service.mark_stage(run_id, "generating_response")
 
             async for event in graph.astream_events(inputs, config=config, version="v1"):
                 kind = event["event"]
@@ -194,6 +219,8 @@ class ChatStreamUseCases:
                             yield f"data: {response.model_dump_json()}\n\n"
 
             if ai_response_content:
+                if run_id:
+                    await self._run_service.mark_stage(run_id, "saving_response")
                 await self._session_repo.add_message(
                     session_id=thread_id,
                     role="assistant",
@@ -207,6 +234,8 @@ class ChatStreamUseCases:
                 event = step_event(step_id, "completed")
                 if event:
                     yield event
+            if run_id:
+                await self._run_service.succeed(run_id, {"thread_id": thread_id, "question_index": final_question_index})
             response = ChatStreamResponse(type="done", content="[DONE]")
             yield f"data: {response.model_dump_json()}\n\n"
         except Exception as exc:
@@ -218,6 +247,8 @@ class ChatStreamUseCases:
                     if event:
                         yield event
                     break
+            if run_id:
+                await self._run_service.fail(run_id, safe_msg)
             response = ChatStreamResponse(type="error", content=safe_msg)
             yield f"data: {response.model_dump_json()}\n\n"
         finally:
