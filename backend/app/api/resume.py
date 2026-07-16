@@ -54,6 +54,11 @@ from app.services.resume.resume_review import (
 from app.services.resume.resume_optimizer_graph import optimize_resume_streaming  # 保留流式
 from app.api.deps import get_current_user_id  # 统一用户ID提取
 from app.application.resume.history import ResumeHistoryNotFound, resume_history_use_cases
+from app.application.resume.assembly import (
+    ResumeAssemblyBadRequest,
+    ResumeAssemblyNotFound,
+    resume_assembly_use_cases,
+)
 from app.application.resume.jd_match import JDMatchBadRequest, JDMatchNotFound, jd_match_use_cases
 from app.application.resume.generation import (
     ResumeGenerationBadRequest,
@@ -677,80 +682,14 @@ async def assemble_resume(
     request: dict,
     user_id: str = Depends(get_current_user_id)
 ):
-    """
-    根据 JD 自动筛选素材并组装简历
-    """
-    # user_id 已通过 Depends(get_current_user_id) 获取
-    
-    job_description = request.get("job_description")
-    if not job_description:
-        raise HTTPException(status_code=400, detail="job_description 为必填字段")
-    
-    api_config = request.get("api_config")
-    if not api_config:
-        raise HTTPException(status_code=400, detail="请先配置 API Key")
-    
+    """根据 JD 自动筛选素材并组装简历。"""
     try:
-        from app.services.resume.resume_assembler import (
-            select_materials_for_jd,
-            assemble_resume_from_materials,
-            save_assembly_result
-        )
-        
-        # 第一步：筛选素材
-        selection_result = await select_materials_for_jd(
-            user_id=user_id,
-            job_description=job_description,
-            api_config=api_config,
-            material_type_filter=request.get("material_type_filter"),
-            max_materials=request.get("max_materials", 50)
-        )
-        
-        # 如果用户手动指定了素材，使用用户的素材
-        selected_ids = request.get("selected_material_ids") or selection_result.selected_material_ids
-        
-        if not selected_ids:
-            return {
-                "success": True,
-                "message": "未找到相关素材，请先添加素材",
-                "selected_material_ids": [],
-                "selection_reason": selection_result.selection_reason,
-                "assembled_outline": selection_result.assembled_outline
-            }
-        
-        # 第二步：组装简历
-        assembly_result = await assemble_resume_from_materials(
-            user_id=user_id,
-            job_description=job_description,
-            selected_material_ids=selected_ids,
-            api_config=api_config
-        )
-        
-        # 第三步：保存结果
-        result_id = await save_assembly_result(
-            user_id=user_id,
-            job_description=job_description,
-            selected_material_ids=selected_ids,
-            selection_reason=selection_result.selection_reason,
-            assembled_outline=selection_result.assembled_outline,
-            assembled_content=assembly_result["assembled_content"]
-        )
-        
-        return {
-            "success": True,
-            "result_id": result_id,
-            "selected_material_ids": selected_ids,
-            "selection_reason": selection_result.selection_reason,
-            "assembled_outline": selection_result.assembled_outline,
-            "assembled_content": assembly_result["assembled_content"],
-            "materials_used": assembly_result["materials_used"]
-        }
-        
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        logger.error(f"简历组装失败: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        return await resume_assembly_use_cases.assemble_resume(request=request, user_id=user_id)
+    except ResumeAssemblyBadRequest as exc:
+        raise HTTPException(status_code=400, detail=exc.message) from exc
+    except Exception as exc:
+        logger.error("简历组装失败: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @router.get("/assemble")
@@ -758,24 +697,8 @@ async def list_assembly_results(
     limit: int = 20,
     user_id: str = Depends(get_current_user_id)
 ):
-    """
-    获取简历组装结果列表
-    """
-    # user_id 已通过 Depends(get_current_user_id) 获取
-    
-    try:
-        from app.services.resume.resume_assembler import list_assembly_results
-        
-        results = await list_assembly_results(user_id=user_id, limit=limit)
-        
-        return {
-            "success": True,
-            "results": results
-        }
-        
-    except Exception as e:
-        logger.error(f"获取组装结果列表失败: {e}", exc_info=True)
-        return {"success": False, "results": [], "message": str(e)}
+    """获取简历组装结果列表。"""
+    return await resume_assembly_use_cases.list_assembly_results(user_id=user_id, limit=limit)
 
 
 @router.get("/assemble/{result_id}")
@@ -783,26 +706,14 @@ async def get_assembly_result(
     result_id: int,
     user_id: str = Depends(get_current_user_id)
 ):
-    """
-    获取单个组装结果
-    """
-    # user_id 已通过 Depends(get_current_user_id) 获取
-    
+    """获取单个组装结果。"""
     try:
-        from app.services.resume.resume_assembler import get_assembly_result
-        
-        result = await get_assembly_result(result_id, user_id)
-        
-        if not result:
-            raise HTTPException(status_code=404, detail="组装结果不存在")
-        
-        return {"success": True, "result": result}
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"获取组装结果失败: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        return await resume_assembly_use_cases.get_assembly_result(result_id=result_id, user_id=user_id)
+    except ResumeAssemblyNotFound as exc:
+        raise HTTPException(status_code=404, detail=exc.message) from exc
+    except Exception as exc:
+        logger.error("获取组装结果失败: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @router.delete("/assemble/{result_id}")
@@ -810,27 +721,14 @@ async def delete_assembly_result(
     result_id: int,
     user_id: str = Depends(get_current_user_id)
 ):
-    """
-    删除组装结果
-    """
-    # user_id 已通过 Depends(get_current_user_id) 获取
-    
+    """删除组装结果。"""
     try:
-        from app.services.resume.resume_assembler import delete_assembly_result
-        
-        success = await delete_assembly_result(result_id, user_id)
-        
-        if not success:
-            raise HTTPException(status_code=404, detail="结果不存在或无权删除")
-        
-        return {"success": True, "message": "删除成功"}
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"删除组装结果失败: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
-
+        return await resume_assembly_use_cases.delete_assembly_result(result_id=result_id, user_id=user_id)
+    except ResumeAssemblyNotFound as exc:
+        raise HTTPException(status_code=404, detail=exc.message) from exc
+    except Exception as exc:
+        logger.error("删除组装结果失败: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 # ============================================================================
 # 项目经历重写接口
