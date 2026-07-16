@@ -12,6 +12,31 @@ function numberPayload(payload: Record<string, unknown>, key: string): number | 
     return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+export function parseAgentRunEventEnvelope(content: unknown): AgentRunEvent | null {
+    try {
+        const value = typeof content === 'string' ? JSON.parse(content) : content;
+        if (!isRecord(value)) return null;
+        if (typeof value.run_id !== 'string' || typeof value.type !== 'string') return null;
+        return {
+            event_id: typeof value.event_id === 'string' ? value.event_id : '',
+            run_id: value.run_id,
+            sequence: typeof value.sequence === 'number' ? value.sequence : 0,
+            type: value.type,
+            stage: typeof value.stage === 'string' || value.stage === null ? value.stage : null,
+            payload: isRecord(value.payload) ? value.payload : {},
+            schema_version: typeof value.schema_version === 'number' ? value.schema_version : 1,
+            timestamp: typeof value.timestamp === 'string' ? value.timestamp : new Date().toISOString(),
+        };
+    } catch {
+        return null;
+    }
+}
+
 function updatePlanByStage(
     plan: AgentRunPlanStep[],
     stage: string | null | undefined,

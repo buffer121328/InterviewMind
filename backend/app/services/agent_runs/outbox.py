@@ -23,22 +23,44 @@ def next_retry_at(now: datetime, attempts: int) -> datetime:
     return now + timedelta(seconds=delay_seconds)
 
 
-def enqueue_agent_run_outbox(session, run_id: str, *, now: datetime | None = None) -> TaskOutboxModel:
-    """在当前数据库事务中写入 AgentRun 投递消息。"""
+async def enqueue_agent_run_outbox(session, run_id: str, *, now: datetime | None = None) -> TaskOutboxModel:
+    """在当前数据库事务中登记 AgentRun 投递消息。
+
+    同一个 run 可能经历创建、用户重试、陈旧恢复等多轮投递；这里按
+    `(topic, message_key)` 幂等复用旧记录，并重新置为 pending。
+    """
     current = now or _now()
-    item = TaskOutboxModel(
-        topic=AGENT_RUN_EXECUTE_TOPIC,
-        message_key=run_id,
-        payload={"run_id": run_id},
-        status="pending",
-        attempts=0,
-        next_attempt_at=current,
-        created_at=current,
-        updated_at=current,
-        dispatched_at=None,
-        last_error=None,
+    item = await session.scalar(
+        select(TaskOutboxModel)
+        .where(
+            TaskOutboxModel.topic == AGENT_RUN_EXECUTE_TOPIC,
+            TaskOutboxModel.message_key == run_id,
+        )
+        .with_for_update()
     )
-    session.add(item)
+    if item is None:
+        item = TaskOutboxModel(
+            topic=AGENT_RUN_EXECUTE_TOPIC,
+            message_key=run_id,
+            payload={"run_id": run_id},
+            status="pending",
+            attempts=0,
+            next_attempt_at=current,
+            created_at=current,
+            updated_at=current,
+            dispatched_at=None,
+            last_error=None,
+        )
+        session.add(item)
+        return item
+
+    item.payload = {"run_id": run_id}
+    item.status = "pending"
+    item.attempts = 0
+    item.next_attempt_at = current
+    item.updated_at = current
+    item.dispatched_at = None
+    item.last_error = None
     return item
 
 

@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import logging
 import uuid
 from typing import Optional
 
@@ -18,6 +19,7 @@ from app.services.agent_runs.dispatcher import enqueue_agent_run, enqueue_interv
 from app.services.agent_runs.event_stream import replay_cursor
 from app.services.agent_runs.executors import execute_registered_task
 from app.services.agent_runs.interview_start import execute_interview_start
+from app.services.agent_runs.outbox import dispatch_pending_outbox
 from app.services.agent_runs.service import (
     AgentRunService,
     TASK_DEFINITIONS,
@@ -34,6 +36,7 @@ from app.services.runtime_gate import get_run_gate
 
 router = APIRouter(prefix="/api/agent-runs", tags=["Agent 任务"])
 service = AgentRunService()
+logger = logging.getLogger(__name__)
 
 
 class InterviewReportRunRequest(BaseModel):
@@ -75,11 +78,9 @@ async def _create_queued_run(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     if created or run.status == "retrying":
-        try:
-            enqueue_fn(run.id)
-        except Exception as exc:
-            await service.fail(run.id, "任务队列暂不可用，请稍后重试")
-            raise HTTPException(status_code=503, detail="任务队列暂不可用，请稍后重试") from exc
+        success, failed = await dispatch_pending_outbox(limit=50, enqueue_fn=enqueue_fn)
+        if failed:
+            logger.warning("AgentRun Outbox 即时投递失败，等待后台重试: success=%s failed=%s", success, failed)
     return JSONResponse(status_code=status.HTTP_202_ACCEPTED, content=serialize_run(run))
 
 
@@ -161,11 +162,10 @@ async def list_agent_runs(
     if task_type and task_type not in TASK_DEFINITIONS:
         raise HTTPException(status_code=400, detail="未知任务类型")
     recovered = await service.recover_stale_runs(user_id)
-    for run in recovered:
-        try:
-            enqueue_agent_run(run.id)
-        except Exception:
-            await service.fail(run.id, "任务队列暂不可用，请稍后手动重试")
+    if recovered:
+        success, failed = await dispatch_pending_outbox(limit=200, enqueue_fn=enqueue_agent_run)
+        if failed:
+            logger.warning("用户触发 AgentRun Outbox 恢复投递失败，等待后台重试: success=%s failed=%s", success, failed)
     runs, total = await service.list_runs(
         user_id,
         status=status_filter,
@@ -197,11 +197,9 @@ async def retry_agent_run(run_id: str, user_id: str = Depends(get_current_user_i
     run = await service.retry(run_id, user_id)
     if not run:
         raise HTTPException(status_code=409, detail="任务不可重试或已超过最大尝试次数")
-    try:
-        enqueue_agent_run(run.id)
-    except Exception as exc:
-        await service.fail(run.id, "任务队列暂不可用，请稍后重试")
-        raise HTTPException(status_code=503, detail="任务队列暂不可用，请稍后重试") from exc
+    success, failed = await dispatch_pending_outbox(limit=50, enqueue_fn=enqueue_agent_run)
+    if failed:
+        logger.warning("AgentRun retry Outbox 即时投递失败，等待后台重试: success=%s failed=%s", success, failed)
     return JSONResponse(status_code=status.HTTP_202_ACCEPTED, content=serialize_run(run))
 
 

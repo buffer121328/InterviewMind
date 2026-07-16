@@ -4,7 +4,7 @@ import asyncio
 import logging
 import os
 
-from app.services.agent_runs.dispatcher import enqueue_agent_run
+from app.services.agent_runs.outbox import dispatch_pending_outbox
 from app.services.agent_runs.service import AgentRunService, task_queue_enabled
 
 logger = logging.getLogger(__name__)
@@ -19,13 +19,14 @@ async def run_agent_run_recovery_loop() -> None:
     while True:
         try:
             recovered = await service.recover_all_stale_runs(limit=200)
-            for run in recovered:
-                try:
-                    enqueue_agent_run(run.id)
-                except Exception:
-                    await service.fail(run.id, "任务队列暂不可用，请稍后手动重试")
-            if recovered:
-                logger.info("主动恢复 Agent 任务: count=%s", len(recovered))
+            success, failed = await dispatch_pending_outbox(limit=200)
+            if recovered or success or failed:
+                logger.info(
+                    "主动恢复 Agent 任务: recovered=%s outbox_dispatched=%s outbox_failed=%s",
+                    len(recovered),
+                    success,
+                    failed,
+                )
         except asyncio.CancelledError:
             raise
         except Exception:

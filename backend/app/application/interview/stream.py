@@ -12,6 +12,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from app.application.interview.checkpoints import interview_turn_checkpoint_thread_id
 from app.repositories.session.session_repo import SessionRepo
+from app.services.agent_runs.event_stream import build_run_event_envelope
 from app.services.agent_runs.service import AgentRunService, TASK_TYPE_INTERVIEW_TURN
 from app.schemas.schemas import ChatRequest, ChatStreamResponse
 from app.services.interview.interview_graph import build_interview_graph
@@ -155,13 +156,29 @@ class ChatStreamUseCases:
             emitted_steps.add(marker)
             return stream_event("step_update", {"id": step_id, "status": status})
 
+        def run_event(event_type: str, stage: str | None = None, payload: dict | None = None) -> str | None:
+            if not run_id:
+                return None
+            return stream_event("agent_run_event", build_run_event_envelope(
+                run_id=run_id,
+                event_type=event_type,
+                stage=stage,
+                payload=payload,
+            ))
+
         try:
             yield stream_event("plan", {"run_id": run_id, "steps": plan})
+            event = run_event("run.started", "loading_session")
+            if event:
+                yield event
             event = step_event("save_answer", "running")
             if event:
                 yield event
             if run_id:
                 await self._run_service.mark_stage(run_id, "saving_answer")
+                event = run_event("run.stage.changed", "saving_answer")
+                if event:
+                    yield event
             await self._session_repo.add_message(
                 session_id=thread_id,
                 role="user",
@@ -177,6 +194,9 @@ class ChatStreamUseCases:
                 yield event
             if run_id:
                 await self._run_service.mark_stage(run_id, "generating_response")
+                event = run_event("run.stage.changed", "generating_response")
+                if event:
+                    yield event
 
             async for event in graph.astream_events(inputs, config=config, version="v1"):
                 kind = event["event"]
@@ -223,6 +243,9 @@ class ChatStreamUseCases:
             if ai_response_content:
                 if run_id:
                     await self._run_service.mark_stage(run_id, "saving_response")
+                    event = run_event("run.stage.changed", "saving_response")
+                    if event:
+                        yield event
                 await self._session_repo.add_message(
                     session_id=thread_id,
                     role="assistant",
@@ -238,6 +261,9 @@ class ChatStreamUseCases:
                     yield event
             if run_id:
                 await self._run_service.succeed(run_id, {"thread_id": thread_id, "question_index": final_question_index})
+                event = run_event("run.completed", "succeeded")
+                if event:
+                    yield event
             response = ChatStreamResponse(type="done", content="[DONE]")
             yield f"data: {response.model_dump_json()}\n\n"
         except asyncio.CancelledError:
@@ -255,6 +281,9 @@ class ChatStreamUseCases:
                     break
             if run_id:
                 await self._run_service.fail(run_id, safe_msg)
+                event = run_event("run.failed", None, {"message": safe_msg})
+                if event:
+                    yield event
             response = ChatStreamResponse(type="error", content=safe_msg)
             yield f"data: {response.model_dump_json()}\n\n"
         finally:
