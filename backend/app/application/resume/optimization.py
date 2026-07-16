@@ -6,6 +6,8 @@ import uuid
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 
+from app.models import async_session
+from app.application.unit_of_work import UnitOfWork
 from app.repositories.resume.resume_repo import get_resume_repo
 from app.schemas.resume_schemas import (
     ResumeAnalyzeRequest,
@@ -91,15 +93,17 @@ class ResumeOptimizationUseCases:
             raise ResumeOptimizationBadRequest(message=str(exc)) from exc
 
         result = initialize_review(result)
-        result_id = await get_resume_repo().save_result(
-            user_id=user_id,
-            result_type="optimize",
-            resume_content=request.resume_content,
-            result_data=result,
-            job_description=request.job_description,
-            session_ids=request.session_ids,
-            include_profile=request.include_overall_profile,
-        )
+        async with UnitOfWork(async_session) as uow:
+            result_id = await get_resume_repo().save_result(
+                user_id=user_id,
+                result_type="optimize",
+                resume_content=request.resume_content,
+                result_data=result,
+                job_description=request.job_description,
+                session_ids=request.session_ids,
+                include_profile=request.include_overall_profile,
+                session=uow.db,
+            )
         return ResumeOptimizeResponse(
             success=True,
             result=pipeline_to_optimize_result(result),
@@ -196,15 +200,17 @@ class ResumeOptimizationUseCases:
             result_id = None
             if final_result:
                 try:
-                    result_id = await get_resume_repo().save_result(
-                        user_id=user_id,
-                        result_type="optimize",
-                        resume_content=request.resume_content,
-                        result_data=final_result,
-                        job_description=request.job_description,
-                        session_ids=request.session_ids,
-                        include_profile=request.include_overall_profile,
-                    )
+                    async with UnitOfWork(async_session) as uow:
+                        result_id = await get_resume_repo().save_result(
+                            user_id=user_id,
+                            result_type="optimize",
+                            resume_content=request.resume_content,
+                            result_data=final_result,
+                            job_description=request.job_description,
+                            session_ids=request.session_ids,
+                            include_profile=request.include_overall_profile,
+                            session=uow.db,
+                        )
                     logger.info("流式优化结果已保存: ID=%s", result_id)
                 except Exception as save_error:
                     logger.error("保存流式优化结果失败: %s", save_error)

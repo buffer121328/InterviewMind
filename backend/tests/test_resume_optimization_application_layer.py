@@ -98,11 +98,39 @@ async def test_resume_stream_emits_inline_run_events_without_breaking_legacy_eve
     assert [event["sequence"] for event in run_events] == [1, 2, 3]
     assert run_events[-1]["payload"] == {"result_id": 42}
     assert fake_repo.saved[0]["result_data"] == {"match_score": 88}
+    assert fake_repo.saved[0]["session"] is not None
 
 
 async def _failing_optimize_resume_streaming(**_kwargs):
     raise RuntimeError("api_key=sk-secret123456789 请求失败")
     yield {}  # pragma: no cover
+
+
+@pytest.mark.asyncio
+async def test_resume_optimize_uses_unit_of_work_for_result_save(monkeypatch):
+    fake_repo = _FakeResumeRepo()
+
+    async def fake_run_pipeline(**_kwargs):
+        return {"match_score": 88, "hr_pass_rate": 92, "optimized_sections": [], "key_improvements": [], "overall_confidence": 0.8}
+
+    monkeypatch.setattr(resume_optimization, "run_pipeline", fake_run_pipeline)
+    monkeypatch.setattr(resume_optimization, "initialize_review", lambda value: value)
+    monkeypatch.setattr(resume_optimization, "pipeline_to_optimize_result", lambda value: value)
+    monkeypatch.setattr(resume_optimization, "get_resume_repo", lambda: fake_repo)
+
+    request = ResumeOptimizeRequest(
+        resume_content="resume",
+        job_description="jd",
+        api_config={
+            "smart": {"api_key": "k", "base_url": "https://example.test", "model": "smart"},
+            "fast": {"api_key": "k", "base_url": "https://example.test", "model": "fast"},
+        },
+    )
+
+    response = await resume_optimization.ResumeOptimizationUseCases().optimize_resume(request=request, user_id="user-1")
+
+    assert response.result_id == 42
+    assert fake_repo.saved[0]["session"] is not None
 
 
 @pytest.mark.asyncio
