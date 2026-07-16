@@ -54,6 +54,11 @@ from app.services.resume.resume_review import (
 from app.services.resume.resume_optimizer_graph import optimize_resume_streaming  # 保留流式
 from app.api.deps import get_current_user_id  # 统一用户ID提取
 from app.application.resume.history import ResumeHistoryNotFound, resume_history_use_cases
+from app.application.resume.project_rewrite import (
+    ProjectRewriteBadRequest,
+    ProjectRewriteNotFound,
+    project_rewrite_use_cases,
+)
 from app.application.resume.assembly import (
     ResumeAssemblyBadRequest,
     ResumeAssemblyNotFound,
@@ -740,64 +745,21 @@ async def project_rewrite_endpoint(
     user_id: str = Depends(get_current_user_id)
 ):
     """
-    项目经历重写接口
-    
+    项目经历重写接口。
+
     支持四种重写模式：
     - star_rewrite: STAR 方法重写
     - quantify_results: 量化结果补强
     - jd_customize: 针对 JD 定制
     - followup_prediction: 面试追问预测
     """
-    # user_id 已通过 Depends(get_current_user_id) 获取
-    
-    # 验证输入
-    if not request.project_content.strip():
-        raise HTTPException(status_code=400, detail="请输入项目内容")
-    if not request.project_title.strip():
-        raise HTTPException(status_code=400, detail="请输入项目标题")
-    if not request.api_config:
-        raise HTTPException(status_code=400, detail="请先配置 API Key")
-    
-    valid_modes = ['star_rewrite', 'quantify_results', 'jd_customize', 'followup_prediction']
-    if request.rewrite_mode not in valid_modes:
-        raise HTTPException(status_code=400, detail=f"rewrite_mode 必须是 {valid_modes} 之一")
-    
     try:
-        from app.services.resume.project_rewriter import rewrite_project
-        from app.repositories.resume.project_rewrite_repo import get_project_rewrite_repo
-        
-        # 执行重写
-        result = await rewrite_project(
-            project_content=request.project_content,
-            project_title=request.project_title,
-            rewrite_mode=request.rewrite_mode,
-            job_description=request.job_description,
-            api_config=request.api_config.model_dump() if request.api_config else None
-        )
-        
-        # 保存记录
-        rewrite_service = get_project_rewrite_repo()
-        rewrite_id = await rewrite_service.save_rewrite(
-            user_id=user_id,
-            material_id=request.material_id,
-            project_title=request.project_title,
-            original_content=request.project_content,
-            rewrite_mode=request.rewrite_mode,
-            job_description=request.job_description,
-            result_data=result
-        )
-        
-        return ProjectRewriteResponse(
-            success=True,
-            result=result,
-            rewrite_id=rewrite_id
-        )
-        
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        logger.error(f"项目重写失败: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"重写失败: {str(e)}")
+        return await project_rewrite_use_cases.rewrite(request=request, user_id=user_id)
+    except ProjectRewriteBadRequest as exc:
+        raise HTTPException(status_code=400, detail=exc.message) from exc
+    except Exception as exc:
+        logger.error("项目重写失败: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"重写失败: {exc}") from exc
 
 
 @router.get("/project-rewrite", response_model=ProjectRewriteHistoryResponse)
@@ -806,37 +768,12 @@ async def list_project_rewrite_results(
     limit: int = 20,
     user_id: str = Depends(get_current_user_id)
 ):
-    """
-    获取项目重写历史列表
-    """
-    # user_id 已通过 Depends(get_current_user_id) 获取
-    
-    try:
-        from app.repositories.resume.project_rewrite_repo import get_project_rewrite_repo
-        rewrite_service = get_project_rewrite_repo()
-        
-        records = await rewrite_service.list_rewrites(
-            user_id=user_id,
-            rewrite_mode=rewrite_mode,
-            limit=limit
-        )
-        
-        return ProjectRewriteHistoryResponse(
-            success=True,
-            records=[
-                ProjectRewriteHistoryItem(
-                    id=r["id"],
-                    project_title=r["project_title"],
-                    rewrite_mode=r["rewrite_mode"],
-                    created_at=r["created_at"]
-                )
-                for r in records
-            ]
-        )
-        
-    except Exception as e:
-        logger.error(f"获取项目重写历史失败: {e}", exc_info=True)
-        return ProjectRewriteHistoryResponse(success=False, message=str(e))
+    """获取项目重写历史列表。"""
+    return await project_rewrite_use_cases.list_results(
+        user_id=user_id,
+        rewrite_mode=rewrite_mode,
+        limit=limit,
+    )
 
 
 @router.get("/project-rewrite/{rewrite_id}", response_model=ProjectRewriteDetailResponse)
@@ -844,27 +781,14 @@ async def get_project_rewrite_result(
     rewrite_id: int,
     user_id: str = Depends(get_current_user_id)
 ):
-    """
-    获取单个项目重写结果详情
-    """
-    # user_id 已通过 Depends(get_current_user_id) 获取
-    
+    """获取单个项目重写结果详情。"""
     try:
-        from app.repositories.resume.project_rewrite_repo import get_project_rewrite_repo
-        rewrite_service = get_project_rewrite_repo()
-        
-        record = await rewrite_service.get_rewrite(rewrite_id, user_id)
-        
-        if not record:
-            raise HTTPException(status_code=404, detail="重写记录不存在")
-        
-        return ProjectRewriteDetailResponse(success=True, record=record)
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"获取项目重写详情失败: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        return await project_rewrite_use_cases.get_result(rewrite_id=rewrite_id, user_id=user_id)
+    except ProjectRewriteNotFound as exc:
+        raise HTTPException(status_code=404, detail=exc.message) from exc
+    except Exception as exc:
+        logger.error("获取项目重写详情失败: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @router.delete("/project-rewrite/{rewrite_id}")
@@ -872,24 +796,11 @@ async def delete_project_rewrite_result(
     rewrite_id: int,
     user_id: str = Depends(get_current_user_id)
 ):
-    """
-    删除项目重写记录
-    """
-    # user_id 已通过 Depends(get_current_user_id) 获取
-    
+    """删除项目重写记录。"""
     try:
-        from app.repositories.resume.project_rewrite_repo import get_project_rewrite_repo
-        rewrite_service = get_project_rewrite_repo()
-        
-        success = await rewrite_service.delete_rewrite(rewrite_id, user_id)
-        
-        if not success:
-            raise HTTPException(status_code=404, detail="记录不存在或无权删除")
-        
-        return {"success": True, "message": "删除成功"}
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"删除项目重写记录失败: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        return await project_rewrite_use_cases.delete_result(rewrite_id=rewrite_id, user_id=user_id)
+    except ProjectRewriteNotFound as exc:
+        raise HTTPException(status_code=404, detail=exc.message) from exc
+    except Exception as exc:
+        logger.error("删除项目重写记录失败: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
