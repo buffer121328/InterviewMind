@@ -62,6 +62,12 @@ from app.services.resume.resume_generation_graph import (
 from app.services.resume.jd_matcher import analyze_jd_match
 from app.api.deps import get_current_user_id  # 统一用户ID提取
 from app.application.resume.history import ResumeHistoryNotFound, resume_history_use_cases
+from app.application.resume.materials import (
+    ResumeMaterialBadRequest,
+    ResumeMaterialImportFormatError,
+    ResumeMaterialNotFound,
+    resume_material_use_cases,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -773,47 +779,14 @@ async def create_material(
     request: dict,
     user_id: str = Depends(get_current_user_id)
 ):
-    """
-    创建候选人素材
-    """
-    # user_id 已通过 Depends(get_current_user_id) 获取
-    
-    # 验证必填字段
-    material_type = request.get("material_type")
-    title = request.get("title")
-    content = request.get("content")
-    
-    if not material_type or not title or not content:
-        raise HTTPException(status_code=400, detail="material_type, title, content 为必填字段")
-    
-    # 验证素材类型
-    valid_types = ['tech_stack', 'project', 'internship', 'work_experience', 'education', 'certificate', 'highlight']
-    if material_type not in valid_types:
-        raise HTTPException(status_code=400, detail=f"material_type 必须是 {valid_types} 之一")
-    
+    """创建候选人素材。"""
     try:
-        from app.repositories.resume.candidate_material_repo import get_candidate_material_repo
-        material_service = get_candidate_material_repo()
-        
-        material_id = await material_service.create_material(
-            user_id=user_id,
-            material_type=material_type,
-            title=title,
-            content=content,
-            structured_data=request.get("structured_data", {}),
-            tags=request.get("tags", []),
-            source_type=request.get("source_type", "manual"),
-            source_resume_id=request.get("source_resume_id"),
-            importance_score=request.get("importance_score", 0.5),
-            confidence_score=request.get("confidence_score", 0.5),
-            is_verified=request.get("is_verified", False)
-        )
-        
-        return {"success": True, "material_id": material_id}
-        
-    except Exception as e:
-        logger.error(f"创建素材失败: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        return await resume_material_use_cases.create_material(request=request, user_id=user_id)
+    except ResumeMaterialBadRequest as exc:
+        raise HTTPException(status_code=400, detail=exc.message) from exc
+    except Exception as exc:
+        logger.error("创建素材失败: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @router.post("/materials/import")
@@ -821,97 +794,17 @@ async def import_materials_from_resume(
     request: dict,
     user_id: str = Depends(get_current_user_id)
 ):
-    """
-    从简历导入素材
-    """
-    # user_id 已通过 Depends(get_current_user_id) 获取
-    
-    resume_content = request.get("resume_content")
-    if not resume_content:
-        raise HTTPException(status_code=400, detail="resume_content 为必填字段")
-    
-    api_config = request.get("api_config")
-    if not api_config:
-        raise HTTPException(status_code=400, detail="请先配置 API Key")
-    
+    """从简历导入素材。"""
     try:
-        # 使用 LLM 从简历中提取素材
-        from app.services import llms
-        from langchain_core.messages import HumanMessage
-        
-        prompt = f"""请从以下简历中提取候选人的素材，按照以下类型分类：
-
-1. tech_stack - 技术栈
-2. project - 项目经历
-3. internship - 实习经历
-4. work_experience - 工作经验
-5. education - 教育背景
-6. certificate - 证书
-7. highlight - 亮点/成就
-
-## 简历内容
-{resume_content}
-
-## 输出要求
-请以 JSON 数组格式输出每个素材，每个素材包含：
-- material_type: 素材类型
-- title: 简洁标题
-- content: 详细内容
-- tags: 相关标签列表
-
-请严格以 JSON 格式输出，不要包含其他文本。"""
-        
-        messages = [HumanMessage(content=prompt)]
-        response = await llms.invoke_text(messages, api_config, channel="smart")
-        
-        # 解析响应
-        result_text = response.content.strip()
-        if result_text.startswith("```"):
-            lines = result_text.split("\n")
-            json_lines = []
-            in_block = False
-            for line in lines:
-                if line.startswith("```") and not in_block:
-                    in_block = True
-                    continue
-                elif line.startswith("```") and in_block:
-                    break
-                elif in_block:
-                    json_lines.append(line)
-            result_text = "\n".join(json_lines)
-        
-        materials_data = json.loads(result_text)
-        
-        # 保存素材
-        from app.repositories.resume.candidate_material_repo import get_candidate_material_repo
-        material_service = get_candidate_material_repo()
-        
-        created_ids = []
-        for m in materials_data:
-            material_id = await material_service.create_material(
-                user_id=user_id,
-                material_type=m.get("material_type", "highlight"),
-                title=m.get("title", "未命名"),
-                content=m.get("content", ""),
-                tags=m.get("tags", []),
-                source_type="ai_extract",
-                confidence_score=0.7,
-                is_verified=False
-            )
-            created_ids.append(material_id)
-        
-        return {
-            "success": True,
-            "message": f"成功导入 {len(created_ids)} 个素材",
-            "material_ids": created_ids
-        }
-        
-    except json.JSONDecodeError as e:
-        logger.error(f"AI 提取结果解析失败: {e}")
-        raise HTTPException(status_code=500, detail="AI 提取结果格式异常，请重试")
-    except Exception as e:
-        logger.error(f"导入素材失败: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        return await resume_material_use_cases.import_materials_from_resume(request=request, user_id=user_id)
+    except ResumeMaterialBadRequest as exc:
+        raise HTTPException(status_code=400, detail=exc.message) from exc
+    except ResumeMaterialImportFormatError as exc:
+        logger.error("AI 提取结果解析失败: %s", exc)
+        raise HTTPException(status_code=500, detail=exc.message) from exc
+    except Exception as exc:
+        logger.error("导入素材失败: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @router.get("/materials")
@@ -922,31 +815,14 @@ async def list_materials(
     offset: int = 0,
     user_id: str = Depends(get_current_user_id)
 ):
-    """
-    获取候选人素材列表
-    """
-    # user_id 已通过 Depends(get_current_user_id) 获取
-    
-    try:
-        from app.repositories.resume.candidate_material_repo import get_candidate_material_repo
-        material_service = get_candidate_material_repo()
-        
-        materials = await material_service.list_materials(
-            user_id=user_id,
-            material_type=material_type,
-            is_verified=is_verified,
-            limit=limit,
-            offset=offset
-        )
-        
-        return {
-            "success": True,
-            "materials": materials
-        }
-        
-    except Exception as e:
-        logger.error(f"获取素材列表失败: {e}", exc_info=True)
-        return {"success": False, "materials": [], "message": str(e)}
+    """获取候选人素材列表。"""
+    return await resume_material_use_cases.list_materials(
+        user_id=user_id,
+        material_type=material_type,
+        is_verified=is_verified,
+        limit=limit,
+        offset=offset,
+    )
 
 
 @router.get("/materials/{material_id}")
@@ -954,27 +830,14 @@ async def get_material(
     material_id: int,
     user_id: str = Depends(get_current_user_id)
 ):
-    """
-    获取单个素材
-    """
-    # user_id 已通过 Depends(get_current_user_id) 获取
-    
+    """获取单个素材。"""
     try:
-        from app.repositories.resume.candidate_material_repo import get_candidate_material_repo
-        material_service = get_candidate_material_repo()
-        
-        material = await material_service.get_material(material_id, user_id)
-        
-        if not material:
-            raise HTTPException(status_code=404, detail="素材不存在")
-        
-        return {"success": True, "material": material}
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"获取素材失败: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        return await resume_material_use_cases.get_material(material_id=material_id, user_id=user_id)
+    except ResumeMaterialNotFound as exc:
+        raise HTTPException(status_code=404, detail=exc.message) from exc
+    except Exception as exc:
+        logger.error("获取素材失败: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @router.put("/materials/{material_id}")
@@ -983,37 +846,18 @@ async def update_material(
     request: dict,
     user_id: str = Depends(get_current_user_id)
 ):
-    """
-    更新素材
-    """
-    # user_id 已通过 Depends(get_current_user_id) 获取
-    
+    """更新素材。"""
     try:
-        from app.repositories.resume.candidate_material_repo import get_candidate_material_repo
-        material_service = get_candidate_material_repo()
-        
-        success = await material_service.update_material(
+        return await resume_material_use_cases.update_material(
             material_id=material_id,
+            request=request,
             user_id=user_id,
-            title=request.get("title"),
-            content=request.get("content"),
-            structured_data=request.get("structured_data"),
-            tags=request.get("tags"),
-            importance_score=request.get("importance_score"),
-            confidence_score=request.get("confidence_score"),
-            is_verified=request.get("is_verified")
         )
-        
-        if not success:
-            raise HTTPException(status_code=404, detail="素材不存在或无权更新")
-        
-        return {"success": True, "message": "更新成功"}
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"更新素材失败: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+    except ResumeMaterialNotFound as exc:
+        raise HTTPException(status_code=404, detail=exc.message) from exc
+    except Exception as exc:
+        logger.error("更新素材失败: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @router.delete("/materials/{material_id}")
@@ -1021,28 +865,14 @@ async def delete_material(
     material_id: int,
     user_id: str = Depends(get_current_user_id)
 ):
-    """
-    删除素材
-    """
-    # user_id 已通过 Depends(get_current_user_id) 获取
-    
+    """删除素材。"""
     try:
-        from app.repositories.resume.candidate_material_repo import get_candidate_material_repo
-        material_service = get_candidate_material_repo()
-        
-        success = await material_service.delete_material(material_id, user_id)
-        
-        if not success:
-            raise HTTPException(status_code=404, detail="素材不存在或无权删除")
-        
-        return {"success": True, "message": "删除成功"}
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"删除素材失败: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
-
+        return await resume_material_use_cases.delete_material(material_id=material_id, user_id=user_id)
+    except ResumeMaterialNotFound as exc:
+        raise HTTPException(status_code=404, detail=exc.message) from exc
+    except Exception as exc:
+        logger.error("删除素材失败: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 # ============================================================================
 # 简历组装接口
