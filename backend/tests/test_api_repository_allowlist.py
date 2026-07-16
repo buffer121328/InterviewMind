@@ -8,11 +8,7 @@ from pathlib import Path
 
 
 BACKEND_APP = Path(__file__).resolve().parents[1] / "app"
-ALLOWED_API_REPOSITORY_IMPORTS = {
-    "interview_experience.py",
-    "sessions.py",
-    "voice_chat.py",
-}
+ALLOWED_API_REPOSITORY_IMPORTS: set[str] = set()
 
 
 def _imports(path: Path) -> list[str]:

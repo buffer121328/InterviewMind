@@ -3,7 +3,14 @@
 import logging
 
 from app.repositories.interview.question_bank_repo import QuestionBankRepo
-from app.schemas.interview_experience import ExperienceQuestionImportRequest, ExperienceQuestionImportResponse
+from app.schemas.interview_experience import (
+    ExperienceCollectRequest,
+    ExperienceCollectResponse,
+    ExperienceQuestionImportRequest,
+    ExperienceQuestionImportResponse,
+    ExperienceSummary,
+)
+from app.services.interview_experience import InterviewExperienceService
 
 
 logger = logging.getLogger(__name__)
@@ -14,6 +21,34 @@ class InterviewExperienceImportUseCases:
 
     def __init__(self) -> None:
         self._question_bank_repo = QuestionBankRepo()
+        self._experience_service = InterviewExperienceService()
+
+    async def collect(
+        self,
+        *,
+        request: ExperienceCollectRequest,
+    ) -> ExperienceCollectResponse:
+        documents, questions = await self._experience_service.collect(
+            source=request.source,
+            queries=[query.strip() for query in request.queries if query.strip()],
+            max_pages=request.max_pages,
+            exported_items=[item.model_dump(mode="json", exclude_none=True) for item in request.exported_items],
+        )
+        return ExperienceCollectResponse(
+            experiences=[
+                ExperienceSummary(
+                    source=document.source,
+                    source_id=document.source_id,
+                    title=document.title,
+                    url=document.url,
+                    query=document.query,
+                    content_preview=document.content[:300],
+                )
+                for document in documents
+            ],
+            questions=questions,
+            message=f"采集 {len(documents)} 篇面经，抽取 {len(questions)} 道候选题",
+        )
 
     async def import_questions(
         self,
