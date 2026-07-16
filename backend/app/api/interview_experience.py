@@ -6,7 +6,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.deps import get_current_user_id
-from app.repositories.interview.question_bank_repo import get_question_bank_repo
+from app.application.interview.experience_imports import interview_experience_import_use_cases
 from app.schemas.interview_experience import (
     ExperienceCollectRequest,
     ExperienceCollectResponse,
@@ -63,37 +63,4 @@ async def import_experience_questions(
     user_id: str = Depends(get_current_user_id),
 ):
     """将用户确认后的面经候选题写入个人题库。"""
-    repo = get_question_bank_repo()
-    success_count = 0
-    for question in request.questions:
-        try:
-            await repo.create_item(
-                user_id=user_id,
-                question_text=question.question_text,
-                reference_answer=question.reference_answer,
-                tags=question.tags,
-                difficulty=question.difficulty,
-                target_skill=question.target_skill,
-                question_type=question.question_type,
-                source_type=question.source_type,
-                source_id=question.source_id,
-            )
-            success_count += 1
-        except Exception as exc:
-            logger.warning("单条面经题导入失败: %s", type(exc).__name__)
-
-    import_id = await repo.save_import_record(
-        user_id=user_id,
-        import_source="interview_experience",
-        file_name=None,
-        total_count=len(request.questions),
-        success_count=success_count,
-        summary=f"面经题导入 {success_count}/{len(request.questions)}",
-    )
-    return ExperienceQuestionImportResponse(
-        success=success_count > 0,
-        total_count=len(request.questions),
-        success_count=success_count,
-        import_id=import_id,
-        message=f"成功导入 {success_count}/{len(request.questions)} 道面经题",
-    )
+    return await interview_experience_import_use_cases.import_questions(request=request, user_id=user_id)

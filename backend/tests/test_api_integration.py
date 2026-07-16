@@ -291,10 +291,9 @@ class TestSessionCRUD:
         self.mock_repo.delete_session = AsyncMock(return_value=True)
         self.mock_repo.add_message = AsyncMock(return_value=None)
 
-        # 替换 sessions 路由中的 session_repo 实例
-        with patch("app.api.sessions.session_repo", self.mock_repo):
-            with patch("app.api.chat.session_repo", self.mock_repo):
-                yield
+        # 替换 sessions 应用层中的 SessionRepo 实例
+        with patch("app.api.sessions.session_management_use_cases._session_repo", self.mock_repo):
+            yield
 
     def test_create_session(self, client):
         """POST /api/sessions/ 创建新会话"""

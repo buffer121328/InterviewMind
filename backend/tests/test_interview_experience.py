@@ -123,7 +123,7 @@ async def test_import_experience_questions_keeps_source_trace(monkeypatch):
     repo = AsyncMock()
     repo.create_item.return_value = 7
     repo.save_import_record.return_value = 9
-    monkeypatch.setattr(experience_api, "get_question_bank_repo", lambda: repo)
+    monkeypatch.setattr(experience_api.interview_experience_import_use_cases, "_question_bank_repo", repo)
     request = ExperienceQuestionImportRequest(
         questions=[
             ExperienceQuestionCandidate(
