@@ -54,3 +54,6 @@ docs/*
 !docs/Langfuse与DeepEval接入实施计划.md
 !docs/单用户任务队列与Fallback实施计划.md
 !docs/求职者端配置启动与功能验收指南.md
+!docs/待办拆分-01-平台与事务边界.md
+!docs/待办拆分-02-Agent运行时与能力中台.md
+!docs/待办拆分-03-前端与事件契约.md

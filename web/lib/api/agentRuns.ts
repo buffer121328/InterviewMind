@@ -3,6 +3,21 @@ import { apiRequest, getUserId, API_BASE_URL } from './config';
 export type AgentRunStatus = 'queued' | 'retrying' | 'running' | 'cancel_requested' | 'succeeded' | 'failed' | 'cancelled';
 export type AgentRunTaskType = 'interview_start' | 'interview_turn' | 'voice_interview_turn' | 'resume_optimize' | 'interview_report' | 'job_assets';
 
+export const AGENT_RUN_EVENT_TYPES = [
+    'run.created',
+    'run.started',
+    'run.stage.changed',
+    'run.completed',
+    'run.failed',
+    'run.cancelled',
+    'run.cancel.requested',
+    'run.retry.requested',
+    'run.recovered',
+    'run.requeued',
+] as const;
+
+export type AgentRunEventType = typeof AGENT_RUN_EVENT_TYPES[number];
+
 export interface AgentRunPlanStep {
     id: string;
     title: string;
@@ -119,7 +134,7 @@ export interface AgentRunEvent {
     event_id: string;
     run_id: string;
     sequence: number;
-    type: string;
+    type: AgentRunEventType;
     stage?: string | null;
     payload: Record<string, unknown>;
     schema_version: number;
