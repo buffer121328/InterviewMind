@@ -43,7 +43,6 @@ from app.schemas.project_rewrite_schemas import (
     ProjectRewriteDetailResponse,
 )
 from app.repositories.resume.resume_repo import get_resume_repo
-from app.repositories.resume.jd_analysis_repo import get_jd_analysis_repo
 from app.services.resume.resume_analyzer_graph import analyze_resume
 from app.services.resume.resume_orchestrator import run_pipeline  # 新流水线入口
 from app.services.resume.resume_review import (
@@ -53,9 +52,9 @@ from app.services.resume.resume_review import (
     public_review_state,
 )
 from app.services.resume.resume_optimizer_graph import optimize_resume_streaming  # 保留流式
-from app.services.resume.jd_matcher import analyze_jd_match
 from app.api.deps import get_current_user_id  # 统一用户ID提取
 from app.application.resume.history import ResumeHistoryNotFound, resume_history_use_cases
+from app.application.resume.jd_match import JDMatchBadRequest, JDMatchNotFound, jd_match_use_cases
 from app.application.resume.generation import (
     ResumeGenerationBadRequest,
     ResumeGenerationConflict,
@@ -513,51 +512,18 @@ async def jd_match_endpoint(
     user_id: str = Depends(get_current_user_id)
 ):
     """
-    JD 匹配分析接口
-    
+    JD 匹配分析接口。
+
     对简历与目标 JD 进行结构化匹配分析，返回各维度评分、关键词命中、
     优劣势和优先改进建议。
     """
-    # user_id 已通过 Depends(get_current_user_id) 获取
-    
-    # 验证输入
-    if not request.resume_content.strip():
-        raise HTTPException(status_code=400, detail="请输入简历内容")
-    if not request.job_description.strip():
-        raise HTTPException(status_code=400, detail="请输入目标职位描述")
-    if not request.api_config:
-        raise HTTPException(status_code=400, detail="请先配置 API Key")
-    
     try:
-        # 执行分析
-        result = await analyze_jd_match(
-            resume_content=request.resume_content,
-            job_description=request.job_description,
-            api_config=request.api_config.model_dump() if request.api_config else None
-        )
-        
-        # 保存结果
-        jd_service = get_jd_analysis_repo()
-        analysis_id = await jd_service.save_result(
-            user_id=user_id,
-            resume_source_type=request.resume_source_type,
-            resume_content_snapshot=request.resume_content,
-            job_description=request.job_description,
-            analysis_result=result,
-            resume_source_id=request.resume_source_id
-        )
-        
-        return JDMatchResponse(
-            success=True,
-            result=result,
-            analysis_id=analysis_id
-        )
-        
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        logger.error(f"JD 匹配分析失败: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"分析失败: {str(e)}")
+        return await jd_match_use_cases.analyze(request=request, user_id=user_id)
+    except JDMatchBadRequest as exc:
+        raise HTTPException(status_code=400, detail={"message": exc.message}) from exc
+    except Exception as exc:
+        logger.error("JD 匹配分析失败: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"分析失败: {exc}") from exc
 
 
 @router.get("/jd-match", response_model=JDMatchHistoryResponse)
@@ -565,32 +531,8 @@ async def list_jd_match_results(
     limit: int = 20,
     user_id: str = Depends(get_current_user_id)
 ):
-    """
-    获取用户的 JD 匹配分析历史列表
-    """
-    # user_id 已通过 Depends(get_current_user_id) 获取
-    
-    try:
-        jd_service = get_jd_analysis_repo()
-        results = await jd_service.list_results(user_id=user_id, limit=limit)
-        
-        return JDMatchHistoryResponse(
-            success=True,
-            results=[
-                JDMatchHistoryItem(
-                    id=r["id"],
-                    resume_source_type=r["resume_source_type"],
-                    resume_source_id=r.get("resume_source_id"),
-                    job_description=r["job_description"][:200] if r.get("job_description") else "",
-                    created_at=r["created_at"]
-                )
-                for r in results
-            ]
-        )
-        
-    except Exception as e:
-        logger.error(f"获取 JD 分析历史失败: {e}", exc_info=True)
-        return JDMatchHistoryResponse(success=False, message=str(e))
+    """获取用户的 JD 匹配分析历史列表。"""
+    return await jd_match_use_cases.list_results(user_id=user_id, limit=limit)
 
 
 @router.get("/jd-match/{analysis_id}", response_model=JDMatchDetailResponse)
@@ -598,25 +540,14 @@ async def get_jd_match_result(
     analysis_id: int,
     user_id: str = Depends(get_current_user_id)
 ):
-    """
-    获取单个 JD 匹配分析结果详情
-    """
-    # user_id 已通过 Depends(get_current_user_id) 获取
-    
+    """获取单个 JD 匹配分析结果详情。"""
     try:
-        jd_service = get_jd_analysis_repo()
-        result = await jd_service.get_result(analysis_id, user_id)
-        
-        if not result:
-            raise HTTPException(status_code=404, detail="分析结果不存在")
-        
-        return JDMatchDetailResponse(success=True, result=result)
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"获取 JD 分析结果失败: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        return await jd_match_use_cases.get_result(analysis_id=analysis_id, user_id=user_id)
+    except JDMatchNotFound as exc:
+        raise HTTPException(status_code=404, detail=exc.message) from exc
+    except Exception as exc:
+        logger.error("获取 JD 分析结果失败: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @router.delete("/jd-match/{analysis_id}")
@@ -624,26 +555,14 @@ async def delete_jd_match_result(
     analysis_id: int,
     user_id: str = Depends(get_current_user_id)
 ):
-    """
-    删除 JD 匹配分析结果
-    """
-    # user_id 已通过 Depends(get_current_user_id) 获取
-    
+    """删除 JD 匹配分析结果。"""
     try:
-        jd_service = get_jd_analysis_repo()
-        success = await jd_service.delete_result(analysis_id, user_id)
-        
-        if not success:
-            raise HTTPException(status_code=404, detail="结果不存在或无权删除")
-        
-        return {"success": True, "message": "删除成功"}
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"删除 JD 分析结果失败: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
-
+        return await jd_match_use_cases.delete_result(analysis_id=analysis_id, user_id=user_id)
+    except JDMatchNotFound as exc:
+        raise HTTPException(status_code=404, detail=exc.message) from exc
+    except Exception as exc:
+        logger.error("删除 JD 分析结果失败: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 # ============================================================================
 # 候选人素材库接口
