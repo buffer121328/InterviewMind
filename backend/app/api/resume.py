@@ -42,7 +42,6 @@ from app.schemas.project_rewrite_schemas import (
     ProjectRewriteHistoryItem,
     ProjectRewriteDetailResponse,
 )
-from app.repositories.session.session_repo import SessionRepo
 from app.repositories.resume.resume_repo import get_resume_repo
 from app.repositories.resume.resume_generation_repo import get_generation_repo
 from app.repositories.resume.jd_analysis_repo import get_jd_analysis_repo
@@ -62,13 +61,12 @@ from app.services.resume.resume_generation_graph import (
 )
 from app.services.resume.jd_matcher import analyze_jd_match
 from app.api.deps import get_current_user_id  # 统一用户ID提取
+from app.application.resume.history import ResumeHistoryNotFound, resume_history_use_cases
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/resume", tags=["简历工具"])
 
-# 实例化服务
-session_repo = SessionRepo()
 
 
 from app.services.resume.result_mapper import pipeline_to_optimize_result
@@ -335,40 +333,9 @@ async def get_completed_sessions(
     user_id: str = Depends(get_current_user_id),
     limit: int = 10
 ):
-    """
-    获取可用于简历优化的已完成面试会话列表
-    """
-    # user_id 已通过 Depends(get_current_user_id) 获取
-    logger.info(f"获取已完成会话: user_id={user_id}, header={x_user_id}")
-    
-    try:
-        sessions = await session_repo.get_completed_sessions_for_resume(
-            user_id=user_id,
-            limit=limit
-        )
-        
-        return CompletedSessionsResponse(
-            success=True,
-            sessions=[
-                CompletedSessionItem(
-                    session_id=s['session_id'],
-                    title=s['title'],
-                    updated_at=s['updated_at'],
-                    round_index=s['round_index'],
-                    round_type=s['round_type'],
-                    message_count=s['message_count']
-                )
-                for s in sessions
-            ]
-        )
-        
-    except Exception as e:
-        logger.error(f"获取已完成会话列表失败: {e}", exc_info=True)
-        return CompletedSessionsResponse(
-            success=False,
-            sessions=[],
-            message=f"获取失败: {str(e)}"
-        )
+    """获取可用于简历优化的已完成面试会话列表。"""
+    logger.info("获取已完成会话: user_id=%s", user_id)
+    return await resume_history_use_cases.get_completed_sessions(user_id=user_id, limit=limit)
 
 
 @router.get("/results", response_model=ResumeHistoryListResponse)
@@ -379,40 +346,14 @@ async def list_resume_results(
     include_data: bool = Query(default=True, description="是否在列表中返回完整简历和结果 JSON"),
     user_id: str = Depends(get_current_user_id)
 ):
-    """
-    获取用户的简历分析/优化历史记录
-    """
-    # user_id 已通过 Depends(get_current_user_id) 获取
-    
-    try:
-        resume_service = get_resume_repo()
-        results = await resume_service.list_results(
-            user_id=user_id,
-            result_type=result_type,
-            limit=limit,
-            offset=offset,
-            include_data=include_data,
-        )
-        total = await resume_service.count_results(user_id=user_id, result_type=result_type)
-
-        return ResumeHistoryListResponse(
-            success=True,
-            results=results,
-            total=total,
-            limit=limit,
-            offset=offset,
-        )
-        
-    except Exception as e:
-        logger.error(f"获取历史记录失败: {e}", exc_info=True)
-        return ResumeHistoryListResponse(
-            success=False,
-            results=[],
-            total=0,
-            limit=limit,
-            offset=offset,
-            message=str(e),
-        )
+    """获取用户的简历分析/优化历史记录。"""
+    return await resume_history_use_cases.list_resume_results(
+        user_id=user_id,
+        result_type=result_type,
+        limit=limit,
+        offset=offset,
+        include_data=include_data,
+    )
 
 
 @router.get("/results/{result_id}", response_model=ResumeHistoryDetailResponse)
@@ -420,25 +361,14 @@ async def get_resume_result(
     result_id: int,
     user_id: str = Depends(get_current_user_id)
 ):
-    """
-    获取单个简历分析/优化结果
-    """
-    # user_id 已通过 Depends(get_current_user_id) 获取
-    
+    """获取单个简历分析/优化结果。"""
     try:
-        resume_service = get_resume_repo()
-        result = await resume_service.get_result(result_id, user_id)
-        
-        if not result:
-            raise HTTPException(status_code=404, detail="结果不存在")
-        
-        return ResumeHistoryDetailResponse(success=True, result=result)
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"获取结果失败: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        return await resume_history_use_cases.get_resume_result(result_id=result_id, user_id=user_id)
+    except ResumeHistoryNotFound as exc:
+        raise HTTPException(status_code=404, detail=exc.message) from exc
+    except Exception as exc:
+        logger.error("获取结果失败: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @router.delete("/results/{result_id}")
@@ -446,26 +376,14 @@ async def delete_resume_result(
     result_id: int,
     user_id: str = Depends(get_current_user_id)
 ):
-    """
-    删除简历分析/优化结果
-    """
-    # user_id 已通过 Depends(get_current_user_id) 获取
-    
+    """删除简历分析/优化结果。"""
     try:
-        resume_service = get_resume_repo()
-        success = await resume_service.delete_result(result_id, user_id)
-        
-        if not success:
-            raise HTTPException(status_code=404, detail="结果不存在或无权删除")
-        
-        return {"success": True, "message": "删除成功"}
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"删除结果失败: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
-
+        return await resume_history_use_cases.delete_resume_result(result_id=result_id, user_id=user_id)
+    except ResumeHistoryNotFound as exc:
+        raise HTTPException(status_code=404, detail=exc.message) from exc
+    except Exception as exc:
+        logger.error("删除结果失败: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 # ============================================================================
 # 简历生成接口
@@ -921,8 +839,6 @@ async def import_materials_from_resume(
         from app.services import llms
         from langchain_core.messages import HumanMessage
         
-        llm = llms.get_llm_for_request(api_config, channel="smart")
-        
         prompt = f"""请从以下简历中提取候选人的素材，按照以下类型分类：
 
 1. tech_stack - 技术栈
@@ -946,7 +862,7 @@ async def import_materials_from_resume(
 请严格以 JSON 格式输出，不要包含其他文本。"""
         
         messages = [HumanMessage(content=prompt)]
-        response = await llm.ainvoke(messages)
+        response = await llms.invoke_text(messages, api_config, channel="smart")
         
         # 解析响应
         result_text = response.content.strip()

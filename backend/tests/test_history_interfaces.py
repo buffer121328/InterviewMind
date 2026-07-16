@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.api import resume
+from app.application.resume import history as resume_history
 from app.repositories.resume.resume_repo import ResumeRepo
 from app.schemas.resume_schemas import ResumeHistoryDetailResponse, ResumeHistoryListResponse
 from app.schemas.job_application import ApplicationListResponse
@@ -64,7 +65,7 @@ async def test_resume_history_list_returns_pagination(monkeypatch):
             assert kwargs == {"user_id": "user-1", "result_type": "optimize"}
             return 12
 
-    monkeypatch.setattr(resume, "get_resume_repo", lambda: FakeRepo())
+    monkeypatch.setattr(resume_history, "get_resume_repo", lambda: FakeRepo())
 
     response = await resume.list_resume_results(
         result_type="optimize",
@@ -89,7 +90,7 @@ async def test_resume_history_detail_returns_wrapped_result(monkeypatch):
             assert (result_id, user_id) == (7, "user-1")
             return ResumeRepo()._row_to_dict(_resume_row())
 
-    monkeypatch.setattr(resume, "get_resume_repo", lambda: FakeRepo())
+    monkeypatch.setattr(resume_history, "get_resume_repo", lambda: FakeRepo())
 
     response = await resume.get_resume_result(7, user_id="user-1")
 
