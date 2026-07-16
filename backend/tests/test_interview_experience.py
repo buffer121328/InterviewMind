@@ -5,7 +5,7 @@ import pytest
 from unittest.mock import AsyncMock
 
 from app.api import interview_experience as experience_api
-from app.schemas.interview_experience import ExperienceQuestionCandidate, ExperienceQuestionImportRequest
+from app.schemas.interview_experience import ExperienceCollectRequest, ExperienceQuestionCandidate, ExperienceQuestionImportRequest
 from app.services.interview_experience.contracts import ExperienceDocument
 from app.services.interview_experience.extractor import extract_questions
 from app.services.interview_experience.providers import NowcoderProvider
@@ -116,6 +116,46 @@ async def test_nowcoder_public_api_adapter():
     assert len(documents) == 1
     assert documents[0].url == "https://www.nowcoder.com/discuss/42"
     assert "数据库事务" in documents[0].content
+
+
+@pytest.mark.asyncio
+async def test_collect_interview_experiences_uses_application_layer(monkeypatch):
+    class FakeExperienceService:
+        async def collect(self, **_kwargs):
+            return [
+                ExperienceDocument(
+                    source="xiaohongshu",
+                    source_id="note-1",
+                    title="后端面经",
+                    query="后端",
+                    content="Redis 为什么快？",
+                    url="https://example.test/note-1",
+                )
+            ], [
+                {
+                    "question_text": "Redis 为什么快？",
+                    "source_type": "experience:xiaohongshu",
+                    "source_id": "note-1",
+                }
+            ]
+
+    monkeypatch.setattr(
+        experience_api.interview_experience_import_use_cases,
+        "_experience_service",
+        FakeExperienceService(),
+    )
+
+    request = ExperienceCollectRequest(
+        source="xiaohongshu",
+        queries=["后端"],
+        exported_items=[{"note_id": "note-1", "title": "后端面经", "desc": "Redis 为什么快？"}],
+    )
+
+    response = await experience_api.collect_interview_experiences(request, "user-1")
+
+    assert response.experiences[0].source_id == "note-1"
+    assert response.questions[0].question_text == "Redis 为什么快？"
+    assert response.questions[0].source_id == "note-1"
 
 
 @pytest.mark.asyncio

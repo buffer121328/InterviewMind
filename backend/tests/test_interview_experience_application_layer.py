@@ -5,8 +5,8 @@ from pathlib import Path
 
 
 BACKEND_APP = Path(__file__).resolve().parents[1] / "app"
-MIGRATED_FUNCTIONS = {"import_experience_questions"}
-FORBIDDEN_NAMES = {"get_question_bank_repo"}
+MIGRATED_FUNCTIONS = {"collect_interview_experiences", "import_experience_questions"}
+FORBIDDEN_NAMES = {"get_question_bank_repo", "InterviewExperienceService"}
 
 
 def test_interview_experience_import_route_delegates_to_application_layer():
