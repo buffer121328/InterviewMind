@@ -413,6 +413,57 @@ async def test_succeed_turns_cancel_requested_run_into_cancelled(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_succeed_with_result_writer_uses_same_uow_session(monkeypatch):
+    from app.services.agent_runs import service as service_module
+
+    now = datetime.now()
+    run = AgentRunModel(
+        id="run-ok", user_id="user-1", task_type="interview_start", status="running", stage="loading_context",
+        idempotency_key="turn-ok", payload_encrypted="encrypted", result=None, error_message=None,
+        attempts=1, created_at=now, updated_at=now, started_at=now, finished_at=None,
+    )
+    appended: list[tuple[str, dict | None]] = []
+    writer_sessions: list[object] = []
+    commits: list[str] = []
+
+    class FakeSession:
+        async def get(self, _model, run_id, with_for_update=False):
+            assert run_id == "run-ok"
+            assert with_for_update is True
+            return run
+
+        async def commit(self):
+            commits.append("commit")
+
+        async def rollback(self):
+            raise AssertionError("不应回滚成功路径")
+
+        async def close(self):
+            return None
+
+    async def append_event(self, _session, _run, event_type, payload=None):
+        appended.append((event_type, payload))
+
+    async def write_business_result(session):
+        writer_sessions.append(session)
+        return {"success": True, "result_id": 7}
+
+    fake_session = FakeSession()
+    monkeypatch.setattr(service_module, "async_session", lambda: fake_session)
+    monkeypatch.setattr(service_module.AgentRunService, "_append_event", append_event)
+
+    await service_module.AgentRunService().succeed_with_result_writer("run-ok", write_business_result)
+
+    assert writer_sessions == [fake_session]
+    assert commits == ["commit"]
+    assert run.status == "succeeded"
+    assert run.stage == "succeeded"
+    assert run.result == {"success": True, "result_id": 7}
+    assert run.finished_at is not None
+    assert appended == [("run.completed", None)]
+
+
+@pytest.mark.asyncio
 async def test_event_stream_replays_from_last_event_id_when_larger(monkeypatch):
     from types import SimpleNamespace
     from app.api import agent_runs

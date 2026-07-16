@@ -99,6 +99,10 @@ def test_dispatch_outbox_items_keeps_failed_item_retryable_then_marks_dispatched
     assert bad.attempts == 1
     assert bad.next_attempt_at > now
     assert bad.last_error == "broker unavailable"
+    assert bad.last_error_type == "RuntimeError"
+    assert bad.last_failure_reason == "dispatch_error"
+    assert bad.last_attempt_at == now
+    assert bad.last_attempt_duration_ms is not None
 
     success, failed = outbox.dispatch_outbox_items([bad], enqueue_fn=dispatched.append, now=now)
 
@@ -106,7 +110,17 @@ def test_dispatch_outbox_items_keeps_failed_item_retryable_then_marks_dispatched
     assert dispatched == ["run-good", "run-bad"]
     assert bad.status == "dispatched"
     assert bad.dispatched_at == now
+    assert bad.last_attempt_at == now
+    assert bad.last_attempt_duration_ms is not None
     assert bad.last_error is None
+    assert bad.last_error_type is None
+    assert bad.last_failure_reason is None
+
+
+def test_classify_dispatch_error_for_operational_reason():
+    assert outbox.classify_dispatch_error(KeyError("run_id")) == ("KeyError", "invalid_payload")
+    assert outbox.classify_dispatch_error(ConnectionError("redis down")) == ("ConnectionError", "broker_unavailable")
+
 
 
 @pytest.mark.asyncio
@@ -116,6 +130,11 @@ async def test_enqueue_agent_run_outbox_reuses_existing_message():
     existing.status = "dispatched"
     existing.attempts = 3
     existing.dispatched_at = now
+    existing.last_attempt_at = now
+    existing.last_attempt_duration_ms = 12
+    existing.last_error = "old"
+    existing.last_error_type = "RuntimeError"
+    existing.last_failure_reason = "dispatch_error"
     added = []
 
     class FakeSession:
@@ -133,4 +152,8 @@ async def test_enqueue_agent_run_outbox_reuses_existing_message():
     assert existing.attempts == 0
     assert existing.next_attempt_at == now
     assert existing.dispatched_at is None
+    assert existing.last_attempt_at is None
+    assert existing.last_attempt_duration_ms is None
     assert existing.last_error is None
+    assert existing.last_error_type is None
+    assert existing.last_failure_reason is None

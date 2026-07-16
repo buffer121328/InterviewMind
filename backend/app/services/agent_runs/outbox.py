@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+import time
 from typing import Callable, Iterable
 
 from sqlalchemy import select
@@ -49,7 +50,11 @@ async def enqueue_agent_run_outbox(session, run_id: str, *, now: datetime | None
             created_at=current,
             updated_at=current,
             dispatched_at=None,
+            last_attempt_at=None,
+            last_attempt_duration_ms=None,
             last_error=None,
+            last_error_type=None,
+            last_failure_reason=None,
         )
         session.add(item)
         return item
@@ -60,23 +65,55 @@ async def enqueue_agent_run_outbox(session, run_id: str, *, now: datetime | None
     item.next_attempt_at = current
     item.updated_at = current
     item.dispatched_at = None
+    item.last_attempt_at = None
+    item.last_attempt_duration_ms = None
     item.last_error = None
+    item.last_error_type = None
+    item.last_failure_reason = None
     return item
 
 
-def mark_dispatched(item: TaskOutboxModel, *, now: datetime | None = None) -> None:
+def classify_dispatch_error(error: Exception) -> tuple[str, str]:
+    if isinstance(error, KeyError):
+        return type(error).__name__, "invalid_payload"
+    if isinstance(error, (ConnectionError, TimeoutError)):
+        return type(error).__name__, "broker_unavailable"
+    return type(error).__name__, "dispatch_error"
+
+
+def mark_dispatched(
+    item: TaskOutboxModel,
+    *,
+    now: datetime | None = None,
+    duration_ms: int | None = None,
+) -> None:
     current = now or _now()
     item.status = "dispatched"
     item.dispatched_at = current
+    item.last_attempt_at = current
+    item.last_attempt_duration_ms = duration_ms
     item.updated_at = current
     item.last_error = None
+    item.last_error_type = None
+    item.last_failure_reason = None
 
 
-def mark_dispatch_failed(item: TaskOutboxModel, error: Exception, *, now: datetime | None = None) -> None:
+def mark_dispatch_failed(
+    item: TaskOutboxModel,
+    error: Exception,
+    *,
+    now: datetime | None = None,
+    duration_ms: int | None = None,
+) -> None:
     current = now or _now()
+    error_type, reason = classify_dispatch_error(error)
     item.status = "failed"
     item.attempts += 1
+    item.last_attempt_at = current
+    item.last_attempt_duration_ms = duration_ms
     item.last_error = str(error)[:500]
+    item.last_error_type = error_type[:100]
+    item.last_failure_reason = reason
     item.next_attempt_at = next_retry_at(current, item.attempts)
     item.updated_at = current
 
@@ -92,14 +129,17 @@ def dispatch_outbox_items(
     failed = 0
     current = now or _now()
     for item in items:
+        started = time.perf_counter()
         try:
             run_id = item.payload["run_id"]
             enqueue_fn(run_id)
         except Exception as exc:  # noqa: BLE001 - 需要记录任意 Broker 投递失败
-            mark_dispatch_failed(item, exc, now=current)
+            duration_ms = max(0, int((time.perf_counter() - started) * 1000))
+            mark_dispatch_failed(item, exc, now=current, duration_ms=duration_ms)
             failed += 1
         else:
-            mark_dispatched(item, now=current)
+            duration_ms = max(0, int((time.perf_counter() - started) * 1000))
+            mark_dispatched(item, now=current, duration_ms=duration_ms)
             success += 1
     return success, failed
 

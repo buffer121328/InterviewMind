@@ -9,6 +9,7 @@ from typing import List, Optional
 
 from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import async_session
 from app.models.application import JobApplicationModel, ApplicationEventModel
@@ -34,10 +35,12 @@ class JobApplicationRepo:
         self,
         user_id: str,
         request: ApplicationCreateRequest,
+        session: AsyncSession | None = None,
     ) -> ApplicationDetail:
-        """创建投递记录并返回详情"""
+        """创建投递记录并返回详情；传入 session 时由外层 UnitOfWork 统一提交。"""
         now = datetime.now()
-        async with async_session() as db:
+
+        async def _create(db: AsyncSession, *, owns_session: bool) -> ApplicationDetail:
             db_obj = JobApplicationModel(
                 user_id=user_id,
                 company_name=request.company_name,
@@ -52,11 +55,18 @@ class JobApplicationRepo:
                 updated_at=now,
             )
             db.add(db_obj)
-            await db.commit()
-            await db.refresh(db_obj)
+            await db.flush()
+            if owns_session:
+                await db.commit()
+                await db.refresh(db_obj)
 
             logger.info(f"创建投递记录: ID={db_obj.id}, user={user_id}")
             return self._row_to_detail(db_obj)
+
+        if session is not None:
+            return await _create(session, owns_session=False)
+        async with async_session() as db:
+            return await _create(db, owns_session=True)
 
     async def list_applications(
         self,

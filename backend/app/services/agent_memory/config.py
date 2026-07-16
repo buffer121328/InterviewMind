@@ -92,3 +92,8 @@ def get_mem0_context_char_limit() -> int:
 def is_mem0_background_write() -> bool:
     """是否启用后台写入"""
     return _env("MEM0_BACKGROUND_WRITE", "true").lower() in ("true", "1", "yes")
+
+
+def get_mem0_retention_days() -> int:
+    """长期记忆默认有效期，默认 180 天。"""
+    return max(1, int(_env("MEM0_RETENTION_DAYS", "180")))

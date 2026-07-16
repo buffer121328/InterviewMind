@@ -11,6 +11,8 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from langchain_core.tools import tool
 
+from app.agent_runtime.tool_contracts import attach_tool_contract
+
 logger = logging.getLogger(__name__)
 
 
@@ -92,7 +94,12 @@ def make_interview_tools(user_id: str, session_id: Optional[str] = None) -> List
 
     from .memory_tools import make_memory_tools
 
-    return [search_question_bank, get_candidate_profile, get_interview_history, *make_memory_tools(user_id=user_id)]
+    return [
+        attach_tool_contract(search_question_bank, effect="read", permissions=("question_bank.search",), result_retention="summary"),
+        attach_tool_contract(get_candidate_profile, effect="read", permissions=("candidate.profile.read",), result_retention="summary"),
+        attach_tool_contract(get_interview_history, effect="read", permissions=("interview.history.read",), result_retention="summary"),
+        *make_memory_tools(user_id=user_id),
+    ]
 
 
 def make_interview_tool_executor(

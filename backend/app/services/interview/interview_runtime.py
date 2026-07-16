@@ -22,6 +22,7 @@
 
 import logging
 from datetime import datetime, timezone
+import time
 from typing import Dict, Any, List, Optional, Callable, Awaitable
 
 from .interview_output_contract import (
@@ -454,12 +455,14 @@ class InterviewRuntime:
                 tool_args = request.get("tool_args", {}) or {}
                 tool_reason = request.get("tool_reason")
             try:
+                started = time.perf_counter()
                 self._add_trace(
                     step="tool_call",
                     phase=InterviewPhase.EVALUATING.value,
                     tool_name=name,
                     status="started",
                     input_summary=str(tool_args)[:200],
+                    event_type="tool.started",
                 )
                 result = await self.tool_executor(name, **tool_args)
                 results[name] = result
@@ -473,6 +476,8 @@ class InterviewRuntime:
                     status="completed",
                     input_summary=(tool_reason or str(tool_args))[:200],
                     output_summary=str(result)[:300],
+                    event_type="tool.completed",
+                    duration_ms=max(0, int((time.perf_counter() - started) * 1000)),
                 )
             except Exception as e:
                 logger.warning(f"[Runtime] 工具 {name} 执行失败: {e}")
@@ -486,6 +491,8 @@ class InterviewRuntime:
                     status="failed",
                     input_summary=str(tool_args)[:200],
                     error=str(e),
+                    event_type="tool.failed",
+                    duration_ms=max(0, int((time.perf_counter() - started) * 1000)) if "started" in locals() else None,
                 )
         
         return results
@@ -574,6 +581,8 @@ class InterviewRuntime:
         input_summary: Optional[str] = None,
         output_summary: Optional[str] = None,
         error: Optional[str] = None,
+        event_type: Optional[str] = None,
+        duration_ms: Optional[int] = None,
     ) -> None:
         """记录统一 trace 事件。"""
         now = datetime.now(timezone.utc).isoformat()
@@ -584,6 +593,8 @@ class InterviewRuntime:
             "input_summary": input_summary,
             "output_summary": output_summary,
             "status": status,
+            "event_type": event_type,
+            "duration_ms": duration_ms,
             "started_at": now,
             "finished_at": now,
             "error": error,

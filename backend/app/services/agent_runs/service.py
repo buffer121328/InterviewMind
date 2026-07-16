@@ -3,6 +3,7 @@
 import os
 import uuid
 from datetime import datetime, timedelta
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from sqlalchemy import func, select
@@ -341,28 +342,46 @@ class AgentRunService:
     async def recover_all_stale_runs(self, limit: int = 200) -> list[AgentRunModel]:
         return await self._recover(user_id=None, limit=limit)
 
+    async def _succeed_in_session(
+        self,
+        session: AsyncSession,
+        run_id: str,
+        result_writer: Callable[[AsyncSession], Awaitable[dict]],
+    ) -> None:
+        run = await session.get(AgentRunModel, run_id, with_for_update=True)
+        if not run or run.status == "cancelled":
+            return
+        now = _now()
+        if run.status == "cancel_requested":
+            run.status = "cancelled"
+            run.stage = "cancelled"
+            run.error_message = "任务已取消"
+            run.finished_at = now
+            run.updated_at = now
+            await self._append_event(session, run, "run.cancelled", {"reason": "cancel_won_race"})
+        else:
+            result = await result_writer(session)
+            run.status = "succeeded"
+            run.stage = "succeeded"
+            run.result = result
+            run.error_message = None
+            run.updated_at = now
+            run.finished_at = now
+            await self._append_event(session, run, "run.completed")
+
     async def succeed(self, run_id: str, result: dict) -> None:
+        async def result_writer(_session: AsyncSession) -> dict:
+            return result
+
+        await self.succeed_with_result_writer(run_id, result_writer)
+
+    async def succeed_with_result_writer(
+        self,
+        run_id: str,
+        result_writer: Callable[[AsyncSession], Awaitable[dict]],
+    ) -> None:
         async with UnitOfWork(async_session) as uow:
-            session = uow.db
-            run = await session.get(AgentRunModel, run_id, with_for_update=True)
-            if not run or run.status == "cancelled":
-                return
-            now = _now()
-            if run.status == "cancel_requested":
-                run.status = "cancelled"
-                run.stage = "cancelled"
-                run.error_message = "任务已取消"
-                run.finished_at = now
-                run.updated_at = now
-                await self._append_event(session, run, "run.cancelled", {"reason": "cancel_won_race"})
-            else:
-                run.status = "succeeded"
-                run.stage = "succeeded"
-                run.result = result
-                run.error_message = None
-                run.updated_at = now
-                run.finished_at = now
-                await self._append_event(session, run, "run.completed")
+            await self._succeed_in_session(uow.db, run_id, result_writer)
 
     async def fail(self, run_id: str, message: str) -> None:
         async with UnitOfWork(async_session) as uow:

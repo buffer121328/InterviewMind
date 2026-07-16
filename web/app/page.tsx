@@ -12,6 +12,7 @@ import { useInterviewStore } from "@/store/useInterviewStore";
 import { useSpeechToText } from "@/hooks/useSpeechToText";
 import { getUserId } from "@/hooks/useUserIdentity";
 import { cn } from "@/lib/utils";
+import { parseSavedMainView, requiresApiConfig, type MainView } from "@/lib/navigation";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "sonner";
 import { ResumeTools } from "@/components/ResumeTools";
@@ -28,18 +29,14 @@ import QuestionBankPage from "@/components/QuestionBankPage";
 import { BossCenter } from "@/components/BossCenter";
 
 // 定义视图类型，包含 'landing'
-type ViewType = "landing" | "interview" | "resume" | "guide" | "applications" | "questionbank" | "boss";
+type ViewType = MainView;
 
 const subscribeToHydration = () => () => {};
 
 function getSavedMainTab(): ViewType {
   if (typeof window === "undefined") return "landing";
 
-  const savedTab = localStorage.getItem("activeMainTab") as ViewType | null;
-  return savedTab === "resume" || savedTab === "interview" || savedTab === "landing" ||
-    savedTab === "applications" || savedTab === "questionbank" || savedTab === "boss"
-    ? savedTab
-    : "landing";
+  return parseSavedMainView(localStorage.getItem("activeMainTab"));
 }
 
 export default function InterviewPage() {
@@ -323,8 +320,8 @@ export default function InterviewPage() {
   // 防止 Hydration 错误
   // 导航处理函数
   const handleNavigate = (page: ViewType) => {
-    // 如果要去使用指南、投递追踪或题库，直接放行（不需要 API 配置）
-    if (page === 'guide' || page === 'applications' || page === 'questionbank') {
+    // 首页/指南/投递追踪/题库属于公共主视图，不需要 API 配置。
+    if (!requiresApiConfig(page)) {
       setActiveMainTab(page);
       return;
     }

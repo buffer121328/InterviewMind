@@ -9,7 +9,7 @@ import dramatiq
 from dramatiq.brokers.redis import RedisBroker
 from dramatiq.middleware import AsyncIO
 
-from app.services.agent_runs.executors import execute_registered_task
+from app.services.agent_runs.executors import DeferredExecutionResult, execute_registered_task
 from app.services.agent_runs.service import AgentRunService
 from app.services.runtime_gate import get_run_gate
 from app.services.security import safe_error_message
@@ -67,7 +67,10 @@ async def execute_agent_run(run_id: str) -> None:
         cancel_task = asyncio.create_task(watch_cancellation(), name=f"agent-run-cancel-watch:{run_id}")
         try:
             result = await execution_task
-            await service.succeed(run_id, result)
+            if isinstance(result, DeferredExecutionResult):
+                await service.succeed_with_result_writer(run_id, result.persist)
+            else:
+                await service.succeed(run_id, result)
         except asyncio.CancelledError:
             if await service.is_cancel_requested(run_id):
                 await service.mark_cancelled(run_id)

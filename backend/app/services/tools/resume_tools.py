@@ -6,6 +6,8 @@ from typing import Any, Dict, List
 
 from langchain_core.tools import tool
 
+from app.agent_runtime.tool_contracts import attach_tool_contract
+
 
 async def search_jd_keywords(jd: str) -> List[str]:
     """从职位描述中提取关键技能和要求。"""
@@ -76,4 +78,7 @@ def make_resume_tools(resume_content: str = "", job_description: str = "") -> Li
         """核验某条简历说法是否能在原始简历中找到依据。"""
         return await globals()["validate_resume_claim"](claim=claim, resume=resume_content)
 
-    return [search_jd_keywords, validate_resume_claim]
+    return [
+        attach_tool_contract(search_jd_keywords, effect="read", permissions=("resume.jd.read",), result_retention="summary"),
+        attach_tool_contract(validate_resume_claim, effect="read", permissions=("resume.claim.validate",), result_retention="summary"),
+    ]

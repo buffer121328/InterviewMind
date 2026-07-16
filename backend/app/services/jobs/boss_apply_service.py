@@ -196,33 +196,43 @@ async def execute_apply_send(
         if not result.get("success"):
             clicked = bool(result.get("clicked"))
             next_status = "manual_takeover" if clicked else previous_status
-            await repo.update_status(job_id, user_id, next_status)
             from .rate_limiter import record_failure
             await record_failure(user_id)
+            from app.application.unit_of_work import UnitOfWork
+            from app.models import async_session
+
+            async with UnitOfWork(async_session) as uow:
+                await repo.update_status(job_id, user_id, next_status, session=uow.db)
+                await _save_application_record(
+                    user_id=user_id,
+                    job=job,
+                    greeting_text=greeting_text,
+                    resume_id=resume_id,
+                    send_status="failed",
+                    steps=steps,
+                    error=result.get("message", "发送失败"),
+                    screenshot_base64=screenshot_b64,
+                    session=uow.db,
+                )
+            return result
+
+        from app.application.unit_of_work import UnitOfWork
+        from app.models import async_session
+
+        async with UnitOfWork(async_session) as uow:
             await _save_application_record(
                 user_id=user_id,
                 job=job,
                 greeting_text=greeting_text,
                 resume_id=resume_id,
-                send_status="failed",
+                send_status="sent",
                 steps=steps,
-                error=result.get("message", "发送失败"),
                 screenshot_base64=screenshot_b64,
+                session=uow.db,
             )
-            return result
 
-        await _save_application_record(
-            user_id=user_id,
-            job=job,
-            greeting_text=greeting_text,
-            resume_id=resume_id,
-            send_status="sent",
-            steps=steps,
-            screenshot_base64=screenshot_b64,
-        )
-
-        # 更新岗位状态
-        await repo.update_status(job_id, user_id, "applied")
+            # 更新岗位状态
+            await repo.update_status(job_id, user_id, "applied", session=uow.db)
 
         from .rate_limiter import record_success
         await record_success(user_id)
@@ -241,23 +251,29 @@ async def execute_apply_send(
         from .rate_limiter import record_failure
         await record_failure(user_id)
         ambiguous = isinstance(e, BossAutomationError) and e.request_may_have_run
-        await repo.update_status(
-            job_id,
-            user_id,
-            "manual_takeover" if ambiguous else previous_status,
-        )
         steps = [{"step": "host_rpc", "status": "failed", "detail": error_message}]
         steps.append({"step": "error", "status": "failed", "detail": error_message})
-        await _save_application_record(
-            user_id=user_id,
-            job=job,
-            greeting_text=greeting_text,
-            resume_id=resume_id,
-            send_status="failed",
-            steps=steps,
-            error=error_message,
-            screenshot_base64="",
-        )
+        from app.application.unit_of_work import UnitOfWork
+        from app.models import async_session
+
+        async with UnitOfWork(async_session) as uow:
+            await repo.update_status(
+                job_id,
+                user_id,
+                "manual_takeover" if ambiguous else previous_status,
+                session=uow.db,
+            )
+            await _save_application_record(
+                user_id=user_id,
+                job=job,
+                greeting_text=greeting_text,
+                resume_id=resume_id,
+                send_status="failed",
+                steps=steps,
+                error=error_message,
+                screenshot_base64="",
+                session=uow.db,
+            )
 
         return {
             "success": False,
@@ -280,6 +296,7 @@ async def _save_application_record(
     steps: list,
     screenshot_base64: str = "",
     error: str = "",
+    session=None,
 ):
     """保存投递记录到 Application 表"""
     try:
@@ -301,7 +318,7 @@ async def _save_application_record(
                 + (f"错误: {error}" if error else "")
             ),
         )
-        app = await job_application_repo.create_application(user_id, req)
+        app = await job_application_repo.create_application(user_id, req, session=session)
 
         # 添加事件
         from app.repositories.application.application_event_repo import application_event_repo
@@ -321,6 +338,7 @@ async def _save_application_record(
                     "screenshot_included": bool(screenshot_base64),
                 },
             ),
+            session=session,
         )
 
         logger.info(f"[ApplyService] 投递记录已保存: app_id={app.id}, status={send_status}")

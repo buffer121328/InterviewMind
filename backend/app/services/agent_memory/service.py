@@ -6,14 +6,25 @@ AgentMemoryService - mem0 长期记忆服务
 
 import asyncio
 import logging
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from .config import get_mem0_config, get_mem0_search_limit, is_mem0_background_write
+from .config import get_mem0_config, get_mem0_retention_days, get_mem0_search_limit, is_mem0_background_write
 
 logger = logging.getLogger(__name__)
 
 # 全局单例
 _agent_memory_service: Optional["AgentMemoryService"] = None
+
+
+def _retention_metadata() -> dict:
+    retention_days = get_mem0_retention_days()
+    expires_at = datetime.now(timezone.utc) + timedelta(days=retention_days)
+    return {
+        "retention_days": retention_days,
+        "expires_at": expires_at.isoformat(),
+        "delete_sync_policy": "mem0_delete_by_user_or_expiry",
+    }
 
 
 class AgentMemoryService:
@@ -158,6 +169,7 @@ class AgentMemoryService:
                 "project": "agent_interview",
                 "source": "chat_turn",
                 "session_id": session_id,
+                **_retention_metadata(),
             }
             if metadata:
                 meta.update(metadata)
@@ -208,6 +220,7 @@ class AgentMemoryService:
                 "memory_type": memory_type,
                 "source": "interview_summary",
                 "session_id": session_id,
+                **_retention_metadata(),
             }
             if metadata:
                 meta.update(metadata)
@@ -337,7 +350,7 @@ class AgentMemoryService:
                 memory_id=memory_id,
             )
             
-            logger.info(f"删除记忆成功: memory_id={memory_id}")
+            logger.info(f"删除记忆成功: memory_id={memory_id}, delete_sync_policy=mem0_delete_by_user_or_expiry")
             return True
             
         except Exception as e:
@@ -373,7 +386,7 @@ class AgentMemoryService:
                 user_id=user_id,
             )
             
-            logger.info(f"清空用户记忆成功: user_id={user_id}")
+            logger.info(f"清空用户记忆成功: user_id={user_id}, delete_sync_policy=mem0_delete_all_by_user")
             return True
             
         except Exception as e:

@@ -1,8 +1,11 @@
 """通用任务执行器注册表。"""
 
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 import logging
 from typing import Any
+
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.agent_runs.interview_start import execute_interview_start
 from app.services.agent_runs.service import (
@@ -13,7 +16,18 @@ from app.services.agent_runs.service import (
 )
 
 ProgressCallback = Callable[[str], Awaitable[None]]
-TaskExecutor = Callable[[dict, str, ProgressCallback], Awaitable[dict]]
+PersistResultCallback = Callable[[AsyncSession], Awaitable[dict]]
+
+
+@dataclass(frozen=True)
+class DeferredExecutionResult:
+    """业务结果需要和 AgentRun 完成态在同一事务内落库。"""
+
+    persist: PersistResultCallback
+
+
+ExecutionResult = dict | DeferredExecutionResult
+TaskExecutor = Callable[[dict, str, ProgressCallback], Awaitable[ExecutionResult]]
 logger = logging.getLogger(__name__)
 
 
@@ -50,23 +64,30 @@ async def execute_resume_optimize(payload: dict, user_id: str, progress: Progres
     )
     result = initialize_review(result)
     await progress("saving_result")
-    result_id = await resume_repo.save_result(
-        user_id=user_id,
-        result_type="optimize",
-        resume_content=payload["resume_content"],
-        result_data=result,
-        job_description=payload.get("job_description"),
-        session_ids=session_ids,
-        include_profile=bool(payload.get("include_overall_profile", False)),
-        agent_run_id=agent_run_id,
-    )
-    public_result = pipeline_to_optimize_result(result)
-    return {
-        "success": True,
-        "result_id": result_id,
-        "result": public_result.model_dump(),
-        "warnings": result.get("errors") or [],
-    }
+
+    async def persist_result(session: AsyncSession | None = None) -> dict:
+        result_id = await resume_repo.save_result(
+            user_id=user_id,
+            result_type="optimize",
+            resume_content=payload["resume_content"],
+            result_data=result,
+            job_description=payload.get("job_description"),
+            session_ids=session_ids,
+            include_profile=bool(payload.get("include_overall_profile", False)),
+            agent_run_id=agent_run_id,
+            session=session,
+        )
+        public_result = pipeline_to_optimize_result(result)
+        return {
+            "success": True,
+            "result_id": result_id,
+            "result": public_result.model_dump(),
+            "warnings": result.get("errors") or [],
+        }
+
+    if agent_run_id:
+        return DeferredExecutionResult(persist=persist_result)
+    return await persist_result()
 
 
 async def execute_interview_report(payload: dict, user_id: str, progress: ProgressCallback) -> dict:
@@ -115,12 +136,13 @@ async def execute_interview_report(payload: dict, user_id: str, progress: Progre
     }
 
 
-async def execute_job_assets(payload: dict, user_id: str, progress: ProgressCallback) -> dict:
+async def execute_job_assets(payload: dict, user_id: str, progress: ProgressCallback) -> ExecutionResult:
     from app.services.jobs.job_asset_orchestrator import generate_assets
 
     await progress("loading_job")
     await progress("analyzing_jd")
     await progress("generating_assets")
+    agent_run_id = payload.get("_agent_run_id")
     result = await generate_assets(
         job_id=int(payload["job_id"]),
         user_id=user_id,
@@ -128,17 +150,34 @@ async def execute_job_assets(payload: dict, user_id: str, progress: ProgressCall
         api_config=payload.get("api_config"),
         include_project_rewrite=bool(payload.get("include_project_rewrite", False)),
         template_style=payload.get("template_style", "professional"),
-        agent_run_id=payload.get("_agent_run_id"),
+        agent_run_id=agent_run_id,
+        update_job_status=not bool(agent_run_id),
     )
     if not result.get("success"):
         raise RuntimeError(result.get("message") or "岗位资产生成失败")
     await progress("saving_assets")
     assets = result.get("assets")
-    return {
+    public_result = {
         "success": True,
         "message": result.get("message"),
         "assets": assets.model_dump() if hasattr(assets, "model_dump") else assets,
     }
+
+    async def persist_result(session: AsyncSession | None = None) -> dict:
+        from app.repositories.jobs.job_capture_repo import get_job_capture_repo
+
+        if agent_run_id:
+            await get_job_capture_repo().update_status(
+                int(payload["job_id"]),
+                user_id,
+                "assets_generated",
+                session=session,
+            )
+        return public_result
+
+    if agent_run_id:
+        return DeferredExecutionResult(persist=persist_result)
+    return await persist_result()
 
 
 EXECUTORS: dict[str, TaskExecutor] = {
@@ -149,7 +188,7 @@ EXECUTORS: dict[str, TaskExecutor] = {
 }
 
 
-async def execute_registered_task(task_type: str, payload: dict, user_id: str, progress: ProgressCallback) -> dict:
+async def execute_registered_task(task_type: str, payload: dict, user_id: str, progress: ProgressCallback) -> ExecutionResult:
     try:
         executor = EXECUTORS[task_type]
     except KeyError as exc:
