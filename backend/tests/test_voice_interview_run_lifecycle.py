@@ -1,12 +1,27 @@
 """语音面试生成接入持久化 AgentRun。"""
 
-import pytest
+import json
 from types import SimpleNamespace
+
+import pytest
 
 from app.application.interview import voice_stream
 from app.application.interview.voice_stream import VoiceStreamUseCases
 from app.schemas.voice import VoiceChatRequest
 from app.services.agent_runs.service import TASK_TYPE_VOICE_INTERVIEW_TURN, get_task_definition
+
+
+def _agent_run_events(chunks):
+    events = []
+    for chunk in chunks:
+        if not chunk.startswith("data: "):
+            continue
+        outer = json.loads(chunk.removeprefix("data: ").strip())
+        if outer.get("type") != "agent_run_event":
+            continue
+        content = outer.get("content")
+        events.append(json.loads(content) if isinstance(content, str) else content)
+    return events
 
 
 class _FakeRunService:
@@ -69,7 +84,9 @@ async def test_voice_chat_stream_creates_and_completes_agent_run(monkeypatch):
     assert fake_run_service.stages == [("voice-run-1", "generating_response")]
     assert fake_run_service.succeeded == [("voice-run-1", {"session_id": "voice-session-1"})]
     assert fake_run_service.failed == []
-    assert any("voice-run-1" in chunk for chunk in chunks)
+    run_events = _agent_run_events(chunks)
+    assert {event["type"] for event in run_events} >= {"run.started", "run.completed"}
+    assert all(event["run_id"] == "voice-run-1" for event in run_events)
 
 
 async def _cancelled_voice_chunks(**_kwargs):

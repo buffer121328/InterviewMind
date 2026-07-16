@@ -110,6 +110,7 @@ async def test_queued_start_dispatches_only_run_id(monkeypatch):
         attempts=0, created_at=now, updated_at=now, started_at=None, finished_at=None,
     )
     dispatched: list[str] = []
+    dispatch_calls: list[int] = []
 
     async def create_or_get(**_kwargs):
         return run, True
@@ -117,9 +118,15 @@ async def test_queued_start_dispatches_only_run_id(monkeypatch):
     def enqueue(run_id: str) -> None:
         dispatched.append(run_id)
 
+    async def dispatch_pending_outbox(*, limit, enqueue_fn):
+        dispatch_calls.append(limit)
+        enqueue_fn(run.id)
+        return 1, 0
+
     monkeypatch.setattr(agent_runs, "task_queue_enabled", lambda: True)
     monkeypatch.setattr(agent_runs.service, "create_or_get", create_or_get)
     monkeypatch.setattr(agent_runs, "enqueue_interview_start", enqueue)
+    monkeypatch.setattr(agent_runs, "dispatch_pending_outbox", dispatch_pending_outbox)
 
     response = await agent_runs.create_interview_start_run(
         InterviewStartRequest(thread_id="turn-1", mode="mock", resume_context="private resume"),
@@ -129,8 +136,46 @@ async def test_queued_start_dispatches_only_run_id(monkeypatch):
 
     assert response.status_code == 202
     assert dispatched == ["run-1"]
+    assert dispatch_calls == [50]
     assert "private resume" not in response.body.decode()
     assert json.loads(response.body)["run_id"] == "run-1"
+
+
+@pytest.mark.asyncio
+async def test_queued_start_keeps_run_retryable_when_outbox_dispatch_fails(monkeypatch):
+    from app.api import agent_runs
+
+    now = datetime.now()
+    run = AgentRunModel(
+        id="run-1", user_id="user-1", task_type="interview_start", status="queued", stage="queued",
+        idempotency_key="turn-1", payload_encrypted="encrypted", result=None, error_message=None,
+        attempts=0, created_at=now, updated_at=now, started_at=None, finished_at=None,
+    )
+    failed: list[tuple[str, str]] = []
+
+    async def create_or_get(**_kwargs):
+        return run, True
+
+    async def fail(run_id, message):
+        failed.append((run_id, message))
+
+    async def dispatch_pending_outbox(*, limit, enqueue_fn):
+        return 0, 1
+
+    monkeypatch.setattr(agent_runs, "task_queue_enabled", lambda: True)
+    monkeypatch.setattr(agent_runs.service, "create_or_get", create_or_get)
+    monkeypatch.setattr(agent_runs.service, "fail", fail)
+    monkeypatch.setattr(agent_runs, "dispatch_pending_outbox", dispatch_pending_outbox)
+
+    response = await agent_runs.create_interview_start_run(
+        InterviewStartRequest(thread_id="turn-1", mode="mock", resume_context="private resume"),
+        user_id="user-1",
+        idempotency_key="turn-1",
+    )
+
+    assert response.status_code == 202
+    assert failed == []
+    assert json.loads(response.body)["status"] == "queued"
 
 
 @pytest.mark.asyncio
@@ -144,13 +189,20 @@ async def test_existing_queued_run_is_not_dispatched_twice(monkeypatch):
         attempts=0, created_at=now, updated_at=now, started_at=None, finished_at=None,
     )
     dispatched: list[str] = []
+    dispatch_calls: list[int] = []
 
     async def create_or_get(**_kwargs):
         return run, False
 
+    async def dispatch_pending_outbox(*, limit, enqueue_fn):
+        dispatch_calls.append(limit)
+        enqueue_fn(run.id)
+        return 1, 0
+
     monkeypatch.setattr(agent_runs, "task_queue_enabled", lambda: True)
     monkeypatch.setattr(agent_runs.service, "create_or_get", create_or_get)
     monkeypatch.setattr(agent_runs, "enqueue_interview_start", dispatched.append)
+    monkeypatch.setattr(agent_runs, "dispatch_pending_outbox", dispatch_pending_outbox)
 
     response = await agent_runs.create_interview_start_run(
         InterviewStartRequest(thread_id="turn-1", mode="mock", resume_context="private resume"),
@@ -160,6 +212,7 @@ async def test_existing_queued_run_is_not_dispatched_twice(monkeypatch):
 
     assert response.status_code == 202
     assert dispatched == []
+    assert dispatch_calls == []
 
 
 @pytest.mark.asyncio
@@ -260,27 +313,28 @@ async def test_recovery_loop_dispatches_recovered_runs(monkeypatch):
     from types import SimpleNamespace
     from app.services.agent_runs import recovery
 
-    dispatched = []
+    dispatch_calls = []
 
     class FakeService:
         async def recover_all_stale_runs(self, limit=200):
             return [SimpleNamespace(id="run-recovered")]
 
-        async def fail(self, *_args):
-            raise AssertionError("dispatch should not fail")
+    async def dispatch_pending_outbox(*, limit):
+        dispatch_calls.append(limit)
+        return 1, 0
 
     async def stop_after_first_sleep(_seconds):
         raise __import__("asyncio").CancelledError
 
     monkeypatch.setattr(recovery, "task_queue_enabled", lambda: True)
     monkeypatch.setattr(recovery, "AgentRunService", FakeService)
-    monkeypatch.setattr(recovery, "enqueue_agent_run", dispatched.append)
+    monkeypatch.setattr(recovery, "dispatch_pending_outbox", dispatch_pending_outbox)
     monkeypatch.setattr(recovery.asyncio, "sleep", stop_after_first_sleep)
 
     with pytest.raises(__import__("asyncio").CancelledError):
         await recovery.run_agent_run_recovery_loop()
 
-    assert dispatched == ["run-recovered"]
+    assert dispatch_calls == [200]
 
 
 @pytest.mark.asyncio
@@ -288,34 +342,31 @@ async def test_recovery_loop_marks_failed_dispatch_and_continues(monkeypatch):
     from types import SimpleNamespace
     from app.services.agent_runs import recovery
 
-    dispatched: list[str] = []
-    failed: list[tuple[str, str]] = []
+    dispatch_calls: list[int] = []
 
     class FakeService:
         async def recover_all_stale_runs(self, limit=200):
             return [SimpleNamespace(id="run-bad"), SimpleNamespace(id="run-ok")]
 
-        async def fail(self, run_id, message):
-            failed.append((run_id, message))
+        async def fail(self, *_args):
+            raise AssertionError("Outbox 投递失败不应直接 fail run")
 
-    def enqueue(run_id: str) -> None:
-        if run_id == "run-bad":
-            raise RuntimeError("broker unavailable")
-        dispatched.append(run_id)
+    async def dispatch_pending_outbox(*, limit):
+        dispatch_calls.append(limit)
+        return 1, 1
 
     async def stop_after_first_sleep(_seconds):
         raise __import__("asyncio").CancelledError
 
     monkeypatch.setattr(recovery, "task_queue_enabled", lambda: True)
     monkeypatch.setattr(recovery, "AgentRunService", FakeService)
-    monkeypatch.setattr(recovery, "enqueue_agent_run", enqueue)
+    monkeypatch.setattr(recovery, "dispatch_pending_outbox", dispatch_pending_outbox)
     monkeypatch.setattr(recovery.asyncio, "sleep", stop_after_first_sleep)
 
     with pytest.raises(__import__("asyncio").CancelledError):
         await recovery.run_agent_run_recovery_loop()
 
-    assert failed == [("run-bad", "任务队列暂不可用，请稍后手动重试")]
-    assert dispatched == ["run-ok"]
+    assert dispatch_calls == [200]
 
 
 @pytest.mark.asyncio

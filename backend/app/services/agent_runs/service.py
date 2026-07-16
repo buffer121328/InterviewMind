@@ -167,7 +167,7 @@ class AgentRunService:
                 "checkpoint_policy": definition.checkpoint_policy,
                 "cancellation_policy": definition.cancellation_policy,
             })
-            enqueue_agent_run_outbox(session, run.id, now=now)
+            await enqueue_agent_run_outbox(session, run.id, now=now)
             try:
                 await session.commit()
             except IntegrityError:
@@ -261,8 +261,10 @@ class AgentRunService:
                 return
             run.status = "queued"
             run.stage = "queued"
-            run.updated_at = _now()
+            now = _now()
+            run.updated_at = now
             await self._append_event(session, run, "run.requeued")
+            await enqueue_agent_run_outbox(session, run.id, now=now)
             await session.commit()
 
     async def retry(self, run_id: str, user_id: str) -> AgentRunModel | None:
@@ -280,8 +282,10 @@ class AgentRunService:
             run.result = None
             run.error_message = None
             run.finished_at = None
-            run.updated_at = _now()
+            now = _now()
+            run.updated_at = now
             await self._append_event(session, run, "run.retry.requested", {"next_attempt": run.attempts + 1})
+            await enqueue_agent_run_outbox(session, run.id, now=now)
             await session.commit()
             await session.refresh(run)
             return run
@@ -311,6 +315,7 @@ class AgentRunService:
                     run.finished_at = None
                     recovered.append(run)
                     await self._append_event(session, run, "run.recovered", {"reason": "not_claimed"})
+                    await enqueue_agent_run_outbox(session, run.id, now=now)
                 elif run.attempts < max_attempts():
                     run.status = "retrying"
                     run.stage = "queued"
@@ -318,6 +323,7 @@ class AgentRunService:
                     run.finished_at = None
                     recovered.append(run)
                     await self._append_event(session, run, "run.recovered", {"reason": "worker_interrupted"})
+                    await enqueue_agent_run_outbox(session, run.id, now=now)
                 else:
                     run.status = "failed"
                     run.error_message = "任务执行中断且已达到最大尝试次数"

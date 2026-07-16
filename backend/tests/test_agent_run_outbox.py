@@ -107,3 +107,30 @@ def test_dispatch_outbox_items_keeps_failed_item_retryable_then_marks_dispatched
     assert bad.status == "dispatched"
     assert bad.dispatched_at == now
     assert bad.last_error is None
+
+
+@pytest.mark.asyncio
+async def test_enqueue_agent_run_outbox_reuses_existing_message():
+    now = datetime(2026, 7, 16, 12, 0, 0)
+    existing = _outbox_item("run-1", now=now)
+    existing.status = "dispatched"
+    existing.attempts = 3
+    existing.dispatched_at = now
+    added = []
+
+    class FakeSession:
+        async def scalar(self, _statement):
+            return existing
+
+        def add(self, item):
+            added.append(item)
+
+    item = await outbox.enqueue_agent_run_outbox(FakeSession(), "run-1", now=now)
+
+    assert item is existing
+    assert added == []
+    assert existing.status == "pending"
+    assert existing.attempts == 0
+    assert existing.next_attempt_at == now
+    assert existing.dispatched_at is None
+    assert existing.last_error is None

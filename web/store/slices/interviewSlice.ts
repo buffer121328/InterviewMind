@@ -10,6 +10,7 @@ import type { Message, ResumeInfo, InterviewProgress, InterviewSession, Executio
 import { API_BASE_URL } from '../types';
 import type { ExperienceQuestionCandidate } from '@/lib/api/interviewExperience';
 import { listAgentRunEvents, type AgentRunEvent } from '@/lib/api/agentRuns';
+import { parseAgentRunEventEnvelope } from '@/lib/agentRunEvents';
 
 // ============================================================================
 // 类型定义
@@ -400,6 +401,14 @@ export const createInterviewSlice = (set: SetState, get: GetState): InterviewFlo
                                         step.id === update.id ? { ...step, status: update.status } : step
                                     )),
                                 }));
+                            } else if (data.type === 'agent_run_event') {
+                                const event = parseAgentRunEventEnvelope(data.content);
+                                if (event) {
+                                    set({
+                                        currentInteractiveRunId: event.run_id,
+                                        executionPlan: buildInteractiveExecutionPlan([event]),
+                                    });
+                                }
                             } else if (data.type === 'token' || data.type === 'content') {
                                 currentAiMessage += data.content || '';
                                 set(state => {

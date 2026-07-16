@@ -6,6 +6,7 @@ from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 
 from app.schemas.voice import VoiceChatRequest
+from app.services.agent_runs.event_stream import build_run_event_envelope
 from app.services.agent_runs.service import AgentRunService, TASK_TYPE_VOICE_INTERVIEW_TURN
 from app.services.interview.voice_interview import process_voice_chat
 from app.services.security import safe_error_message
@@ -54,17 +55,23 @@ class VoiceStreamUseCases:
         return self._wrap_stream(source=source, run_id=run.id, session_id=request.session_id)
 
     async def _wrap_stream(self, *, source: AsyncGenerator[str, None], run_id: str, session_id: str) -> AsyncGenerator[str, None]:
+        def run_event(event_type: str, stage: str | None = None, payload: dict | None = None) -> str:
+            return f"data: {json.dumps({'type': 'agent_run_event', 'content': build_run_event_envelope(run_id=run_id, event_type=event_type, stage=stage, payload=payload)}, ensure_ascii=False)}\n\n"
+
         try:
             yield f"data: {json.dumps({'type': 'run', 'run_id': run_id}, ensure_ascii=False)}\n\n"
+            yield run_event("run.started", "generating_response")
             async for chunk in source:
                 yield chunk
             await self._run_service.succeed(run_id, {"session_id": session_id})
+            yield run_event("run.completed", "succeeded")
         except asyncio.CancelledError:
             await self._run_service.fail(run_id, "client_disconnected")
             raise
         except Exception as exc:
             safe_msg = safe_error_message(exc)
             await self._run_service.fail(run_id, safe_msg)
+            yield run_event("run.failed", None, {"message": safe_msg})
             yield f"data: {json.dumps({'type': 'error', 'content': safe_msg}, ensure_ascii=False)}\n\n"
 
 
