@@ -21,12 +21,12 @@ from app.services.interview.voice_interview import (
     generate_interview_plan,
     build_system_prompt,
     get_opening_message,
-    process_voice_chat,
     generate_greeting_audio,
     save_message_async,
     generate_voice_summary,
 )
 from app.api.deps import get_current_user_id
+from app.application.interview.voice_stream import VoiceStreamUseCaseError, voice_stream_use_cases
 
 logger = logging.getLogger(__name__)
 
@@ -205,20 +205,11 @@ async def voice_chat_endpoint(
     """
     语音对话接口 (SSE 流式输出)
     """
-    # 创建生成器
-    generator = process_voice_chat(
-        session_id=request.session_id,
-        system_prompt=request.system_prompt,
-        history=request.history,
-        audio_base64=request.audio,
-        text_message=request.message,
-        api_config=request.api_config,
-        is_greeting=request.is_greeting,
-        audio_id=request.audio_id,  # 浏览器端存储的音频 ID
-        user_id=user_id
-    )
-    
-    # 返回 SSE 流式响应
+    try:
+        generator = await voice_stream_use_cases.stream_voice_chat(request=request, user_id=user_id)
+    except VoiceStreamUseCaseError as exc:
+        raise HTTPException(status_code=409, detail=exc.message) from exc
+
     return StreamingResponse(
         generator,
         media_type="text/event-stream",

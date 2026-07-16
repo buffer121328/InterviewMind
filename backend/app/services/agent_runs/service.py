@@ -13,6 +13,7 @@ from app.services.agent_runs.crypto import decrypt_payload, encrypt_payload
 
 TASK_TYPE_INTERVIEW_START = "interview_start"
 TASK_TYPE_INTERVIEW_TURN = "interview_turn"
+TASK_TYPE_VOICE_INTERVIEW_TURN = "voice_interview_turn"
 TASK_TYPE_RESUME_OPTIMIZE = "resume_optimize"
 TASK_TYPE_INTERVIEW_REPORT = "interview_report"
 TASK_TYPE_JOB_ASSETS = "job_assets"
@@ -36,6 +37,15 @@ TASK_DEFINITIONS: dict[str, dict] = {
             ("saving_answer", "记录本轮回答"),
             ("generating_response", "生成反馈与下一题"),
             ("saving_response", "保存面试进度与回复"),
+        ),
+    },
+    TASK_TYPE_VOICE_INTERVIEW_TURN: {
+        "title": "生成语音面试回复",
+        "steps": (
+            ("queued", "等待执行资源"),
+            ("transcribing", "识别语音或读取文本"),
+            ("generating_response", "生成语音面试回复"),
+            ("streaming_response", "推送语音回复"),
         ),
     },
     TASK_TYPE_RESUME_OPTIMIZE: {
