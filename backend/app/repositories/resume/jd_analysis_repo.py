@@ -8,6 +8,7 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime
 
 from sqlalchemy import delete, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import async_session
 from app.models.jd import JdAnalysisResultModel
@@ -28,7 +29,8 @@ class JDAnalysisRepo:
         resume_content_snapshot: str,
         job_description: str,
         analysis_result: dict,
-        resume_source_id: Optional[int] = None
+        resume_source_id: Optional[int] = None,
+        session: AsyncSession | None = None,
     ) -> int:
         """
         保存 JD 匹配分析结果
@@ -44,30 +46,68 @@ class JDAnalysisRepo:
         Returns:
             int: 结果 ID
         """
-        async with async_session() as db:
-            try:
-                now = datetime.now()
-                db_obj = JdAnalysisResultModel(
-                    user_id=user_id,
-                    resume_source_type=resume_source_type,
-                    resume_source_id=resume_source_id,
-                    resume_content_snapshot=resume_content_snapshot,
-                    job_description=job_description,
-                    analysis_result=analysis_result,
-                    created_at=now,
-                    updated_at=now,
-                )
-                db.add(db_obj)
-                await db.commit()
-                await db.refresh(db_obj)
-                result_id = db_obj.id
-                
-                logger.info(f"保存 JD 分析结果: ID={result_id}, user={user_id}")
-                return result_id
-                
-            except Exception as e:
-                logger.error(f"保存 JD 分析结果失败: {e}")
-                raise
+        owns_session = session is None
+        db = session
+        try:
+            if owns_session:
+                async with async_session() as owned_db:
+                    return await self._save_result_with_session(
+                        owned_db,
+                        user_id=user_id,
+                        resume_source_type=resume_source_type,
+                        resume_content_snapshot=resume_content_snapshot,
+                        job_description=job_description,
+                        analysis_result=analysis_result,
+                        resume_source_id=resume_source_id,
+                        owns_session=True,
+                    )
+            assert db is not None
+            return await self._save_result_with_session(
+                db,
+                user_id=user_id,
+                resume_source_type=resume_source_type,
+                resume_content_snapshot=resume_content_snapshot,
+                job_description=job_description,
+                analysis_result=analysis_result,
+                resume_source_id=resume_source_id,
+                owns_session=False,
+            )
+        except Exception as e:
+            logger.error(f"保存 JD 分析结果失败: {e}")
+            raise
+
+    async def _save_result_with_session(
+        self,
+        db: AsyncSession,
+        *,
+        user_id: str,
+        resume_source_type: str,
+        resume_content_snapshot: str,
+        job_description: str,
+        analysis_result: dict,
+        resume_source_id: Optional[int] = None,
+        owns_session: bool,
+    ) -> int:
+        now = datetime.now()
+        db_obj = JdAnalysisResultModel(
+            user_id=user_id,
+            resume_source_type=resume_source_type,
+            resume_source_id=resume_source_id,
+            resume_content_snapshot=resume_content_snapshot,
+            job_description=job_description,
+            analysis_result=analysis_result,
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(db_obj)
+        await db.flush()
+        result_id = db_obj.id
+        if owns_session:
+            await db.commit()
+            await db.refresh(db_obj)
+            result_id = db_obj.id
+        logger.info(f"保存 JD 分析结果: ID={result_id}, user={user_id}")
+        return result_id
     
     async def get_result(self, analysis_id: int, user_id: str) -> Optional[Dict[str, Any]]:
         """
