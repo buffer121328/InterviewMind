@@ -12,7 +12,7 @@ from app.models.interview import (
     QuestionBankItemModel,
 )
 from app.models.session import MessageModel, SessionModel
-from app.services.question_bank.session_archive import build_archived_turns
+from app.repositories.interview.archive_mapper import build_archived_turns
 
 
 class QuestionArchiveRepo:
