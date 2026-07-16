@@ -11,6 +11,7 @@ import { API_BASE_URL } from '../types';
 import type { ExperienceQuestionCandidate } from '@/lib/api/interviewExperience';
 import { listAgentRunEvents, type AgentRunEvent } from '@/lib/api/agentRuns';
 import { parseAgentRunEventEnvelope } from '@/lib/agentRunEvents';
+import { parseSseFrames } from '@/lib/sse';
 
 // ============================================================================
 // 类型定义
@@ -374,99 +375,96 @@ export const createInterviewSlice = (set: SetState, get: GetState): InterviewFlo
                 const { done, value } = await reader.read();
                 if (done) break;
 
-                buffer += decoder.decode(value, { stream: true });
-                const lines = buffer.split('\n');
-                buffer = lines.pop() || '';
+                const parsed = parseSseFrames(buffer, decoder.decode(value, { stream: true }));
+                buffer = parsed.buffer;
 
-                for (const line of lines) {
-                    if (line.startsWith('data: ')) {
-                        try {
-                            const data = JSON.parse(line.slice(6));
+                for (const frame of parsed.frames) {
+                    try {
+                        const data = JSON.parse(frame.data);
 
-                            if (data.type === 'plan') {
-                                const planPayload = JSON.parse(data.content || '[]');
-                                if (Array.isArray(planPayload)) {
-                                    set({ executionPlan: planPayload });
-                                } else {
-                                    const steps = Array.isArray(planPayload.steps) ? planPayload.steps : [];
-                                    set({
-                                        executionPlan: steps,
-                                        currentInteractiveRunId: typeof planPayload.run_id === 'string' ? planPayload.run_id : null,
-                                    });
-                                }
-                            } else if (data.type === 'step_update') {
-                                const update = JSON.parse(data.content || '{}');
-                                set(state => ({
-                                    executionPlan: state.executionPlan.map(step => (
-                                        step.id === update.id ? { ...step, status: update.status } : step
-                                    )),
-                                }));
-                            } else if (data.type === 'agent_run_event') {
-                                const event = parseAgentRunEventEnvelope(data.content);
-                                if (event) {
-                                    set({
-                                        currentInteractiveRunId: event.run_id,
-                                        executionPlan: buildInteractiveExecutionPlan([event]),
-                                    });
-                                }
-                            } else if (data.type === 'token' || data.type === 'content') {
-                                currentAiMessage += data.content || '';
-                                set(state => {
-                                    const messages = [...state.messages];
-                                    const lastMsg = messages[messages.length - 1];
-                                    if (lastMsg && lastMsg.role === 'assistant') {
-                                        lastMsg.content = currentAiMessage;
-                                    } else {
-                                        messages.push({
-                                            role: 'assistant',
-                                            content: currentAiMessage,
-                                            timestamp: new Date().toISOString(),
-                                        });
-                                    }
-                                    return { messages };
+                        if (data.type === 'plan') {
+                            const planPayload = JSON.parse(data.content || '[]');
+                            if (Array.isArray(planPayload)) {
+                                set({ executionPlan: planPayload });
+                            } else {
+                                const steps = Array.isArray(planPayload.steps) ? planPayload.steps : [];
+                                set({
+                                    executionPlan: steps,
+                                    currentInteractiveRunId: typeof planPayload.run_id === 'string' ? planPayload.run_id : null,
                                 });
-                            } else if (data.type === 'state_update') {
-                                try {
-                                    const stateData = JSON.parse(data.content);
-                                    if (stateData.question_count !== undefined) {
-                                        const questionCount = stateData.question_count;
-                                        const maxQs = stateData.max_questions || get().maxQuestions;
-                                        const currentSession = get().currentSession;
-
-                                        // 使用类型断言处理跨 slice 状态更新
-                                        (set as (partial: Record<string, unknown>) => void)({
-                                            interviewProgress: {
-                                                current: questionCount,
-                                                total: maxQs,
-                                            },
-                                            currentSession: currentSession && questionCount >= maxQs
-                                                ? {
-                                                    ...currentSession,
-                                                    metadata: {
-                                                        ...currentSession.metadata,
-                                                        status: 'completed',
-                                                        question_count: questionCount,
-                                                    },
-                                                }
-                                                : currentSession,
-                                        });
-                                    }
-                                } catch {
-                                    // Ignore parse errors
-                                }
-                            } else if (data.type === 'error') {
-                                console.error('收到 SSE 错误:', data.content);
-                                let errorMessage = data.content || 'AI 响应失败';
-                                if (errorMessage.includes('401') || errorMessage.toLowerCase().includes('unauthorized')) {
-                                    errorMessage = 'API Key 无效，请检查配置';
-                                } else if (errorMessage.includes('404')) {
-                                    errorMessage = '模型不存在或 API 地址错误';
-                                }
-                                set({ apiError: errorMessage });
                             }
-                        } catch {
-                            // Ignore parse errors
+                        } else if (data.type === 'step_update') {
+                            const update = JSON.parse(data.content || '{}');
+                            set(state => ({
+                                executionPlan: state.executionPlan.map(step => (
+                                    step.id === update.id ? { ...step, status: update.status } : step
+                                )),
+                            }));
+                        } else if (data.type === 'agent_run_event') {
+                            const event = parseAgentRunEventEnvelope(data.content);
+                            if (event) {
+                                set({
+                                    currentInteractiveRunId: event.run_id,
+                                    executionPlan: buildInteractiveExecutionPlan([event]),
+                                });
+                            }
+                        } else if (data.type === 'token' || data.type === 'content') {
+                            currentAiMessage += data.content || '';
+                            set(state => {
+                                const messages = [...state.messages];
+                                const lastMsg = messages[messages.length - 1];
+                                if (lastMsg && lastMsg.role === 'assistant') {
+                                    lastMsg.content = currentAiMessage;
+                                } else {
+                                    messages.push({
+                                        role: 'assistant',
+                                        content: currentAiMessage,
+                                        timestamp: new Date().toISOString(),
+                                    });
+                                }
+                                return { messages };
+                            });
+                        } else if (data.type === 'state_update') {
+                            try {
+                                const stateData = JSON.parse(data.content);
+                                if (stateData.question_count !== undefined) {
+                                    const questionCount = stateData.question_count;
+                                    const maxQs = stateData.max_questions || get().maxQuestions;
+                                    const currentSession = get().currentSession;
+
+                                    // 使用类型断言处理跨 slice 状态更新
+                                    (set as (partial: Record<string, unknown>) => void)({
+                                        interviewProgress: {
+                                            current: questionCount,
+                                            total: maxQs,
+                                        },
+                                        currentSession: currentSession && questionCount >= maxQs
+                                            ? {
+                                                ...currentSession,
+                                                metadata: {
+                                                    ...currentSession.metadata,
+                                                    status: 'completed',
+                                                    question_count: questionCount,
+                                                },
+                                            }
+                                            : currentSession,
+                                    });
+                                }
+                            } catch {
+                                // Ignore parse errors
+                            }
+                        } else if (data.type === 'error') {
+                            console.error('收到 SSE 错误:', data.content);
+                            let errorMessage = data.content || 'AI 响应失败';
+                            if (errorMessage.includes('401') || errorMessage.toLowerCase().includes('unauthorized')) {
+                                errorMessage = 'API Key 无效，请检查配置';
+                            } else if (errorMessage.includes('404')) {
+                                errorMessage = '模型不存在或 API 地址错误';
+                            }
+                            set({ apiError: errorMessage });
                         }
+                    } catch {
+                        // Ignore parse errors
                     }
                 }
             }
