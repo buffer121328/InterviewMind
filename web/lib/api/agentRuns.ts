@@ -1,7 +1,7 @@
 import { apiRequest, getUserId, API_BASE_URL } from './config';
 
-export type AgentRunStatus = 'queued' | 'retrying' | 'running' | 'succeeded' | 'failed' | 'cancelled';
-export type AgentRunTaskType = 'interview_start' | 'resume_optimize' | 'interview_report' | 'job_assets';
+export type AgentRunStatus = 'queued' | 'retrying' | 'running' | 'cancel_requested' | 'succeeded' | 'failed' | 'cancelled';
+export type AgentRunTaskType = 'interview_start' | 'interview_turn' | 'voice_interview_turn' | 'resume_optimize' | 'interview_report' | 'job_assets';
 
 export interface AgentRunPlanStep {
     id: string;
@@ -11,6 +11,8 @@ export interface AgentRunPlanStep {
 
 export interface AgentRun {
     run_id: string;
+    agent_name: string;
+    agent_version: string;
     task_type: AgentRunTaskType;
     title: string;
     status: AgentRunStatus;
@@ -21,6 +23,7 @@ export interface AgentRun {
     attempts: number;
     max_attempts: number;
     can_retry: boolean;
+    can_cancel: boolean;
     created_at: string;
     updated_at: string;
     started_at?: string | null;
@@ -109,5 +112,55 @@ export async function pollAgentRun(
             }, 1200);
             signal?.addEventListener('abort', onAbort, { once: true });
         });
+    }
+}
+
+export interface AgentRunEvent {
+    event_id: string;
+    run_id: string;
+    sequence: number;
+    type: string;
+    stage?: string | null;
+    payload: Record<string, unknown>;
+    schema_version: number;
+    timestamp: string;
+}
+
+export async function listAgentRunEvents(
+    runId: string,
+    afterSequence = 0,
+): Promise<AgentRunEvent[]> {
+    const response = await apiRequest<{ events: AgentRunEvent[] }>(
+        `/api/agent-runs/${runId}/events?after_sequence=${afterSequence}`,
+    );
+    return response.events || [];
+}
+
+export async function streamAgentRunEvents(
+    runId: string,
+    onEvent: (event: AgentRunEvent) => void,
+    signal?: AbortSignal,
+    afterSequence = 0,
+): Promise<void> {
+    const response = await fetch(
+        `${API_BASE_URL}/api/agent-runs/${runId}/events/stream?after_sequence=${afterSequence}`,
+        { headers: { 'X-User-ID': getUserId() }, signal },
+    );
+    if (!response.ok || !response.body) throw new Error(`订阅任务事件失败: HTTP ${response.status}`);
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const frames = buffer.split('\n\n');
+        buffer = frames.pop() || '';
+        for (const frame of frames) {
+            const dataLine = frame.split('\n').find(line => line.startsWith('data:'));
+            if (!dataLine) continue;
+            onEvent(JSON.parse(dataLine.slice(5).trim()) as AgentRunEvent);
+        }
     }
 }
