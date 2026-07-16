@@ -8,6 +8,7 @@ from app.repositories.session.session_repo import SessionRepo
 from app.schemas.schemas import InterviewStartRequest
 from app.services.interview.interview_context import build_interview_context
 from app.services.interview.interview_graph import build_interview_graph
+from app.services.error_classification import classify_error_message
 from app.services.security import safe_error_message
 
 logger = logging.getLogger(__name__)
@@ -140,14 +141,10 @@ class InterviewStartUseCases:
 
     @staticmethod
     def _classify_start_error(safe_msg: str) -> tuple[str, str]:
-        error_str = safe_msg.lower()
-        if "api key" in error_str or "authentication" in error_str or "unauthorized" in error_str:
-            return "AuthenticationError", "API Key 无效或未配置，请检查设置"
-        if "rate limit" in error_str or "429" in error_str:
-            return "RateLimitError", "API 请求过于频繁，请稍后重试"
-        if "insufficient" in error_str or "quota" in error_str or "balance" in error_str:
-            return "QuotaError", "API 余额不足，请充值后重试"
-        return "InternalServerError", f"开始面试会话失败: {safe_msg[:100]}"
+        classified = classify_error_message(safe_msg)
+        if classified.code == "InternalServerError":
+            return classified.code, f"开始面试会话失败: {safe_msg[:100]}"
+        return classified.code, classified.user_message
 
 
 interview_start_use_cases = InterviewStartUseCases()
