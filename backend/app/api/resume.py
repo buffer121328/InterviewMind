@@ -3,10 +3,9 @@
 提供简历竞争力分析和简历内容优化接口
 """
 
-import json
 import logging
-from typing import Optional, AsyncGenerator, Literal
-from fastapi import APIRouter, HTTPException, Header, Depends, Query
+from typing import Optional, Literal
+from fastapi import APIRouter, HTTPException, Depends, Query
 from fastapi.responses import StreamingResponse
 
 from app.schemas.resume_schemas import (
@@ -14,14 +13,11 @@ from app.schemas.resume_schemas import (
     ResumeAnalyzeResponse,
     ResumeOptimizeRequest,
     ResumeOptimizeResponse,
-    ResumeOptimizeResult,
     CompletedSessionsResponse,
-    CompletedSessionItem,
     ResumeGenerateInitRequest,
     ResumeGenerateSubmitRequest,
     ResumeGenerateInitResponse,
     ResumeGenerateSubmitResponse,
-    GeneratedResumeItem,
     GeneratedResumesResponse,
     ResumeReviewRequest,
     ResumeReviewResponse,
@@ -42,18 +38,14 @@ from app.schemas.project_rewrite_schemas import (
     ProjectRewriteHistoryItem,
     ProjectRewriteDetailResponse,
 )
-from app.repositories.resume.resume_repo import get_resume_repo
-from app.services.resume.resume_analyzer_graph import analyze_resume
-from app.services.resume.resume_orchestrator import run_pipeline  # 新流水线入口
-from app.services.resume.resume_review import (
-    ReviewConflictError,
-    apply_review_decisions,
-    initialize_review,
-    public_review_state,
-)
-from app.services.resume.resume_optimizer_graph import optimize_resume_streaming  # 保留流式
 from app.api.deps import get_current_user_id  # 统一用户ID提取
 from app.application.resume.history import ResumeHistoryNotFound, resume_history_use_cases
+from app.application.resume.optimization import (
+    ResumeOptimizationBadRequest,
+    ResumeOptimizationNotFound,
+    ResumeReviewConflict,
+    resume_optimization_use_cases,
+)
 from app.application.resume.project_rewrite import (
     ProjectRewriteBadRequest,
     ProjectRewriteNotFound,
@@ -84,71 +76,24 @@ router = APIRouter(prefix="/api/resume", tags=["简历工具"])
 
 
 
-from app.services.resume.result_mapper import pipeline_to_optimize_result
-
-
 @router.post("/analyze", response_model=ResumeAnalyzeResponse)
 async def analyze_resume_endpoint(
     request: ResumeAnalyzeRequest,
     user_id: str = Depends(get_current_user_id)
 ):
     """
-    简历竞争力分析接口
-    
+    简历竞争力分析接口。
+
     对简历进行多维度分析，返回评分、优缺点和改进建议。
     可选择关联面试记录以获得更精准的分析。
     """
-    
-    # 验证 session_ids 数量
-    if len(request.session_ids) > 3:
-        raise HTTPException(
-            status_code=400,
-            detail="最多只能选择 3 个面试记录"
-        )
-    
-    # 验证 API 配置
-    if not request.api_config:
-        raise HTTPException(
-            status_code=400,
-            detail="请先配置 API Key"
-        )
-    
     try:
-        # 执行分析
-        result = await analyze_resume(
-            resume_content=request.resume_content,
-            job_description=request.job_description,
-            session_ids=request.session_ids,
-            user_id=user_id,
-            api_config=request.api_config.model_dump() if request.api_config else None
-        )
-        
-        # 保存结果
-        resume_service = get_resume_repo()
-        result_id = await resume_service.save_result(
-            user_id=user_id,
-            result_type="analyze",
-            resume_content=request.resume_content,
-            result_data=result,
-            job_description=request.job_description,
-            session_ids=request.session_ids
-        )
-        
-        return ResumeAnalyzeResponse(
-            success=True,
-            result=result,
-            result_id=result_id
-        )
-        
-    except ValueError as e:
-        # API 配置错误等
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        logger.error(f"简历分析失败: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"分析失败: {str(e)}"
-        )
+        return await resume_optimization_use_cases.analyze_resume(request=request, user_id=user_id)
+    except ResumeOptimizationBadRequest as exc:
+        raise HTTPException(status_code=400, detail=exc.message) from exc
+    except Exception as exc:
+        logger.error("简历分析失败: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"分析失败: {exc}") from exc
 
 
 @router.post("/optimize", response_model=ResumeOptimizeResponse)
@@ -157,66 +102,17 @@ async def optimize_resume_endpoint(
     user_id: str = Depends(get_current_user_id)
 ):
     """
-    简历内容优化接口
-    
+    简历内容优化接口。
+
     使用 6 阶段 Pipeline 流水线（JD分析 → 素材选择 → 定制改写 → 简历组装 → 事实核验 → 用户确认）。
     """
-    
-    # 验证 session_ids 数量
-    if len(request.session_ids) > 3:
-        raise HTTPException(
-            status_code=400,
-            detail="最多只能选择 3 个面试记录"
-        )
-    
-    # 验证 API 配置
-    if not request.api_config:
-        raise HTTPException(
-            status_code=400,
-            detail="请先配置 API Key"
-        )
-    
     try:
-        # 执行 6 阶段 Pipeline
-        result = await run_pipeline(
-            resume_content=request.resume_content,
-            job_description=request.job_description,
-            session_ids=request.session_ids,
-            include_profile=request.include_overall_profile,
-            user_id=user_id,
-            api_config=request.api_config.model_dump() if request.api_config else None,
-        )
-        
-        # 保存结果
-        resume_service = get_resume_repo()
-        result = initialize_review(result)
-        result_id = await resume_service.save_result(
-            user_id=user_id,
-            result_type="optimize",
-            resume_content=request.resume_content,
-            result_data=result,
-            job_description=request.job_description,
-            session_ids=request.session_ids,
-            include_profile=request.include_overall_profile
-        )
-        
-        # 将 pipeline 输出映射为 API 响应格式
-        opt_result = pipeline_to_optimize_result(result)
-        
-        return ResumeOptimizeResponse(
-            success=True,
-            result=opt_result,
-            result_id=result_id
-        )
-        
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        logger.error(f"简历优化失败: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"优化失败: {str(e)}"
-        )
+        return await resume_optimization_use_cases.optimize_resume(request=request, user_id=user_id)
+    except ResumeOptimizationBadRequest as exc:
+        raise HTTPException(status_code=400, detail=exc.message) from exc
+    except Exception as exc:
+        logger.error("简历优化失败: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"优化失败: {exc}") from exc
 
 
 @router.get("/optimize/{result_id}/review", response_model=ResumeReviewResponse)
@@ -224,14 +120,10 @@ async def get_resume_review(
     result_id: int,
     user_id: str = Depends(get_current_user_id),
 ):
-    resume_service = get_resume_repo()
-    result = await resume_service.get_result(result_id, user_id)
-    if not result or result.get("result_type") != "optimize":
-        raise HTTPException(status_code=404, detail="优化结果不存在")
-    return ResumeReviewResponse(
-        result_id=result_id,
-        review=public_review_state(result["result_data"]),
-    )
+    try:
+        return await resume_optimization_use_cases.get_resume_review(result_id=result_id, user_id=user_id)
+    except ResumeOptimizationNotFound as exc:
+        raise HTTPException(status_code=404, detail=exc.message) from exc
 
 
 @router.post("/optimize/{result_id}/review", response_model=ResumeReviewResponse)
@@ -240,28 +132,18 @@ async def submit_resume_review(
     request: ResumeReviewRequest,
     user_id: str = Depends(get_current_user_id),
 ):
-    resume_service = get_resume_repo()
     try:
-        updated = await resume_service.update_result_data(
-            result_id,
-            user_id,
-            lambda data: apply_review_decisions(
-                data,
-                decisions=[decision.model_dump() for decision in request.decisions],
-                expected_version=request.expected_version,
-            ),
-            result_type="optimize",
+        return await resume_optimization_use_cases.submit_resume_review(
+            result_id=result_id,
+            request=request,
+            user_id=user_id,
         )
-    except ReviewConflictError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    if not updated:
-        raise HTTPException(status_code=404, detail="优化结果不存在")
-    return ResumeReviewResponse(
-        result_id=result_id,
-        review=public_review_state(updated["result_data"]),
-    )
+    except ResumeReviewConflict as exc:
+        raise HTTPException(status_code=409, detail=exc.message) from exc
+    except ResumeOptimizationBadRequest as exc:
+        raise HTTPException(status_code=400, detail=exc.message) from exc
+    except ResumeOptimizationNotFound as exc:
+        raise HTTPException(status_code=404, detail=exc.message) from exc
 
 
 @router.post("/optimize/stream")
@@ -270,70 +152,16 @@ async def optimize_resume_stream_endpoint(
     user_id: str = Depends(get_current_user_id)
 ):
     """
-    简历内容优化接口 (SSE 流式)
-    
+    简历内容优化接口 (SSE 流式)。
+
     使用 6 阶段 Pipeline，通过 SSE 推送阶段进度和最终结果。
     """
-    
-    # 验证 session_ids 数量
-    if len(request.session_ids) > 3:
-        raise HTTPException(
-            status_code=400,
-            detail="最多只能选择 3 个面试记录"
-        )
-    
-    # 验证 API 配置
-    if not request.api_config:
-        raise HTTPException(
-            status_code=400,
-            detail="请先配置 API Key"
-        )
-    
-    async def event_generator() -> AsyncGenerator[str, None]:
-        """SSE 事件生成器"""
-        final_result = None
-        try:
-            async for event in optimize_resume_streaming(
-                resume_content=request.resume_content,
-                job_description=request.job_description,
-                session_ids=request.session_ids,
-                include_overall_profile=request.include_overall_profile,
-                user_id=user_id,
-                api_config=request.api_config.model_dump() if request.api_config else None
-            ):
-                # 捕获最终结果
-                if event.get("type") == "result":
-                    final_result = event.get("data")
-                
-                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
-            
-            # 保存结果到数据库
-            result_id = None
-            if final_result:
-                try:
-                    resume_service = get_resume_repo()
-                    result_id = await resume_service.save_result(
-                        user_id=user_id,
-                        result_type="optimize",
-                        resume_content=request.resume_content,
-                        result_data=final_result,
-                        job_description=request.job_description,
-                        session_ids=request.session_ids,
-                        include_profile=request.include_overall_profile
-                    )
-                    logger.info(f"流式优化结果已保存: ID={result_id}")
-                except Exception as save_error:
-                    logger.error(f"保存流式优化结果失败: {save_error}")
-            
-            # 发送结束信号（包含 result_id 供前端选中）
-            yield f"data: {json.dumps({'type': 'done', 'content': '[DONE]', 'result_id': result_id})}\n\n"
-            
-        except Exception as e:
-            logger.error(f"SSE 流式优化失败: {e}", exc_info=True)
-            yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
-    
+    try:
+        event_generator = resume_optimization_use_cases.optimize_resume_stream(request=request, user_id=user_id)
+    except ResumeOptimizationBadRequest as exc:
+        raise HTTPException(status_code=400, detail=exc.message) from exc
     return StreamingResponse(
-        event_generator(),
+        event_generator,
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -341,7 +169,6 @@ async def optimize_resume_stream_endpoint(
             "Access-Control-Allow-Origin": "*",
         }
     )
-
 
 @router.get("/sessions", response_model=CompletedSessionsResponse)
 async def get_completed_sessions(
