@@ -258,3 +258,102 @@ def test_model_pool_callback_implements_langchain_handler_contract():
     assert scheduler.get_inflight(identity) == 1
     runs[0].on_llm_end({"generations": []})
     assert scheduler.get_inflight(identity) == 0
+
+
+def test_pre_reserved_callback_does_not_double_count():
+    redis = _FakeRedis()
+    scheduler = llms.ModelPoolScheduler(redis_client=redis)
+    identity = llms._identity(_channel("flash-a"))
+    scheduler.start(identity)
+    callback = llms._ModelPoolCallback(scheduler, identity, pre_reserved=True)
+
+    callback.on_chat_model_start(run_id="run-reserved")
+    assert scheduler.get_inflight(identity) == 1
+    callback.on_llm_end(run_id="run-reserved")
+    assert scheduler.get_inflight(identity) == 0
+
+
+async def _invoke_text_fallback_case(monkeypatch):
+    class FakeLLM:
+        def __init__(self, result=None, error=None):
+            self.result = result
+            self.error = error
+
+        async def ainvoke(self, _input):
+            if self.error:
+                raise self.error
+            return self.result
+
+    candidates = [FakeLLM(error=RuntimeError("primary failed")), FakeLLM(result="fallback")]
+    monkeypatch.setattr(llms.model_gateway, "get_chat_candidates", lambda *_args, **_kwargs: candidates)
+    return await llms.invoke_text("hello", {"smart": _channel("x")}, channel="smart")
+
+
+def test_invoke_text_uses_next_candidate(monkeypatch):
+    import asyncio
+
+    assert asyncio.run(_invoke_text_fallback_case(monkeypatch)) == "fallback"
+
+
+class _FakePipeline:
+    def __init__(self, redis):
+        self.redis = redis
+        self.commands = []
+        self.in_multi = False
+
+    def watch(self, *_keys):
+        return None
+
+    def mget(self, keys):
+        return self.redis.mget(keys)
+
+    def get(self, key):
+        return self.redis.get(key)
+
+    def multi(self):
+        self.in_multi = True
+
+    def incr(self, key):
+        if self.in_multi:
+            self.commands.append(("incr", key))
+            return self
+        return self.redis.incr(key)
+
+    def expire(self, key, seconds):
+        if self.in_multi:
+            self.commands.append(("expire", key, seconds))
+            return self
+        return self.redis.expire(key, seconds)
+
+    def execute(self):
+        results = []
+        for command in self.commands:
+            if command[0] == "incr":
+                results.append(self.redis.incr(command[1]))
+            else:
+                results.append(self.redis.expire(command[1], command[2]))
+        return results
+
+    def reset(self):
+        self.commands.clear()
+        self.in_multi = False
+
+
+class _TransactionalFakeRedis(_FakeRedis):
+    def pipeline(self):
+        return _FakePipeline(self)
+
+
+def test_redis_reserve_order_atomically_marks_selected_member_busy():
+    redis = _TransactionalFakeRedis()
+    first_scheduler = llms.ModelPoolScheduler(redis_client=redis)
+    second_scheduler = llms.ModelPoolScheduler(redis_client=redis)
+    configs = [_channel("flash-a"), _channel("flash-b")]
+
+    first, first_identity = first_scheduler.reserve_order("fast_pool", configs)
+    second, second_identity = second_scheduler.reserve_order("fast_pool", configs)
+
+    assert first[0]["model"] == "flash-a"
+    assert second[0]["model"] == "flash-b"
+    assert first_scheduler.get_inflight(first_identity) == 1
+    assert second_scheduler.get_inflight(second_identity) == 1

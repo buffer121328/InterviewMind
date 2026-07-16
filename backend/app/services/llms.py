@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections import defaultdict
 from hashlib import sha256
 import logging
@@ -180,6 +181,66 @@ class ModelPoolScheduler:
                     seen.add(identity)
             return ordered
 
+
+    def reserve_order(self, pool_name: str, configs: list[dict]) -> tuple[list[dict], str | None]:
+        """原子选择并预占首候选；Redis 不可用时保持旧的进程内排序。"""
+        if not configs:
+            return [], None
+        redis = self._redis_client()
+        if redis is None or not hasattr(redis, "pipeline"):
+            return self.order(pool_name, configs), None
+
+        cooldown_keys = [self._member_key("cooldown", _identity(item)) for item in configs]
+        inflight_keys = [self._member_key("inflight", _identity(item)) for item in configs]
+        cursor_key = f"agent_interview:model_pool:cursor:{self._pool_token(pool_name, configs)}"
+        try:
+            from redis.exceptions import WatchError
+        except Exception:
+            WatchError = RuntimeError
+
+        for _attempt in range(5):
+            pipe = redis.pipeline()
+            try:
+                pipe.watch(cursor_key, *cooldown_keys, *inflight_keys)
+                cooldowns = pipe.mget(cooldown_keys)
+                available_pairs = [(item, key) for item, key, cooling in zip(configs, inflight_keys, cooldowns) if not cooling]
+                candidate_pairs = available_pairs or list(zip(configs, inflight_keys))
+                inflights = [int(value or 0) for value in pipe.mget([key for _item, key in candidate_pairs])]
+                min_inflight = min(inflights)
+                members = [item for (item, _key), value in zip(candidate_pairs, inflights) if value == min_inflight]
+                schedule: list[int] = []
+                for index, config in enumerate(members):
+                    schedule.extend([index] * max(1, min(int(config.get("weight", 1)), 100)))
+                cursor = int(pipe.get(cursor_key) or 0)
+                cursor %= len(schedule)
+                ordered: list[dict] = []
+                seen: set[str] = set()
+                for offset in range(len(schedule)):
+                    config = members[schedule[(cursor + offset) % len(schedule)]]
+                    identity = _identity(config)
+                    if identity not in seen:
+                        ordered.append(config)
+                        seen.add(identity)
+                selected_identity = _identity(ordered[0])
+                selected_key = self._member_key("inflight", selected_identity)
+                pipe.multi()
+                pipe.incr(cursor_key)
+                pipe.incr(selected_key)
+                pipe.expire(selected_key, get_settings().llm_pool_inflight_ttl_seconds)
+                pipe.execute()
+                return ordered, selected_identity
+            except WatchError:
+                continue
+            except Exception as exc:
+                self._redis_failed(exc)
+                break
+            finally:
+                try:
+                    pipe.reset()
+                except Exception:
+                    pass
+        return self.order(pool_name, configs), None
+
     def record_success(self, identity: str) -> None:
         redis = self._redis_client()
         if redis is not None:
@@ -269,11 +330,12 @@ class ModelPoolScheduler:
 class _ModelPoolCallback(BaseCallbackHandler):
     """覆盖真实 LangChain 调用的全局健康与 in-flight 统计。"""
 
-    def __init__(self, scheduler: ModelPoolScheduler, identity: str) -> None:
+    def __init__(self, scheduler: ModelPoolScheduler, identity: str, *, pre_reserved: bool = False) -> None:
         self.scheduler = scheduler
         self.identity = identity
         self._lock = RLock()
         self._active_runs: set[str] = set()
+        self._pre_reserved = pre_reserved
 
     @staticmethod
     def _run_token(kwargs: dict[str, Any]) -> str:
@@ -285,7 +347,10 @@ class _ModelPoolCallback(BaseCallbackHandler):
             if token in self._active_runs:
                 return
             self._active_runs.add(token)
-        self.scheduler.start(self.identity)
+            pre_reserved = self._pre_reserved
+            self._pre_reserved = False
+        if not pre_reserved:
+            self.scheduler.start(self.identity)
 
     def _finish(self, kwargs: dict[str, Any], *, success: bool) -> None:
         token = self._run_token(kwargs)
@@ -345,7 +410,7 @@ class ModelGateway:
         fallback = api_config.get(fallback_channel)
         return [dict(fallback)] if fallback and fallback.get("api_key") else []
 
-    def _candidate_configs(self, api_config: dict, channel: str) -> list[dict]:
+    def _candidate_configs(self, api_config: dict, channel: str) -> tuple[list[dict], str | None]:
         fast_pool = self._pool(api_config, "fast_pool", "fast")
         reasoning_pool = self._pool(api_config, "reasoning_pool", "smart")
 
@@ -369,20 +434,28 @@ class ModelGateway:
 
         ordered: list[dict] = []
         seen: set[str] = set()
+        reserved_identity: str | None = None
         for pool_name, configs in groups:
-            for config in self.scheduler.order(pool_name, configs):
+            if not configs:
+                continue
+            if reserved_identity is None:
+                group_order, reserved_identity = self.scheduler.reserve_order(pool_name, configs)
+            else:
+                group_order = self.scheduler.order(pool_name, configs)
+            for config in group_order:
                 identity = _identity(config)
                 if identity not in seen:
                     ordered.append(config)
                     seen.add(identity)
-        return ordered
+        return ordered, reserved_identity
 
     def get_chat_candidates(self, api_config: Optional[dict], channel: str = "smart") -> list[ChatOpenAI]:
         if not api_config:
             raise ValueError("未检测到 API 配置。请在设置中配置您的大模型 API 后再使用本功能。")
-        configs = self._candidate_configs(api_config, channel)
+        configs, reserved_identity = self._candidate_configs(api_config, channel)
         if not configs:
             configs = [_resolve_channel_config(api_config, channel)]
+            configs, reserved_identity = self.scheduler.reserve_order(f"channel:{channel}", configs)
 
         candidates: list[ChatOpenAI] = []
         for config in configs:
@@ -391,7 +464,11 @@ class ModelGateway:
                 base_url=config["base_url"],
                 model=config["model"],
                 max_tokens=get_settings().llm_max_tokens,
-                extra_callbacks=[_ModelPoolCallback(self.scheduler, _identity(config))],
+                extra_callbacks=[_ModelPoolCallback(
+                    self.scheduler,
+                    _identity(config),
+                    pre_reserved=_identity(config) == reserved_identity,
+                )],
             )
             self._bind_identity(llm, _identity(config))
             candidates.append(llm)
@@ -449,3 +526,28 @@ def get_async_omni_client(voice_config: dict):
     if not voice_config or not voice_config.get("api_key"):
         raise ValueError("未检测到语音模型 API 配置")
     return AsyncOpenAI(api_key=voice_config["api_key"], base_url=voice_config["base_url"])
+
+
+async def invoke_text(
+    input_value: object,
+    api_config: Optional[dict] = None,
+    channel: str = "smart",
+    *,
+    timeout: float | None = None,
+):
+    """普通文本调用的统一 fallback 入口。"""
+    candidates = model_gateway.get_chat_candidates(api_config, channel)
+    request_timeout = timeout or get_settings().llm_request_timeout_seconds
+    last_error: Exception | None = None
+    for index, candidate in enumerate(candidates):
+        try:
+            return await asyncio.wait_for(candidate.ainvoke(input_value), timeout=request_timeout)
+        except Exception as exc:
+            last_error = exc
+            logging.getLogger(__name__).warning(
+                "[LLM] 文本调用失败，切换候选: channel=%s candidate=%s error=%s",
+                channel, index + 1, type(exc).__name__,
+            )
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError("没有可用的模型候选")

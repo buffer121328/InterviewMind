@@ -138,9 +138,6 @@ async def select_materials_for_jd(
             assembled_outline={}
         )
     
-    # 获取 LLM 实例
-    llm = llms.get_llm_for_request(api_config, channel="smart")
-    
     # 构建消息
     messages = [
         HumanMessage(content=build_user_prompt(job_description, materials))
@@ -148,7 +145,7 @@ async def select_materials_for_jd(
     
     # 调用 LLM
     logger.info(f"开始素材筛选: user={user_id}, materials_count={len(materials)}")
-    response = await llm.ainvoke(messages)
+    response = await llms.invoke_text(messages, api_config, channel="smart")
     
     # 解析响应
     try:
@@ -220,9 +217,6 @@ async def assemble_resume_from_materials(
     if not materials:
         raise ValueError("未找到选中的素材")
     
-    # 获取 LLM 实例
-    llm = llms.get_llm_for_request(api_config, channel="smart")
-    
     # 构建组装 prompt
     materials_text = []
     for m in materials:
@@ -258,7 +252,7 @@ async def assemble_resume_from_materials(
     # 调用 LLM
     logger.info(f"开始组装简历: user={user_id}, materials_count={len(materials)}")
     messages = [HumanMessage(content=prompt)]
-    response = await llm.ainvoke(messages)
+    response = await llms.invoke_text(messages, api_config, channel="smart")
     
     assembled_content = response.content.strip()
     
