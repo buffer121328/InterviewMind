@@ -5,7 +5,7 @@ import { CheckCircle2, Circle, Loader2, RefreshCw, RotateCcw, Square, XCircle } 
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { cancelAgentRun, listAgentRuns, retryAgentRun, type AgentRun } from '@/lib/api/agentRuns';
+import { cancelAgentRun, listAgentRuns, retryAgentRun, streamAgentRunEvents, type AgentRun } from '@/lib/api/agentRuns';
 import { toast } from 'sonner';
 
 interface TaskCenterDialogProps {
@@ -17,6 +17,7 @@ const STATUS_TEXT: Record<string, string> = {
     queued: '等待中',
     retrying: '等待重试',
     running: '执行中',
+    cancel_requested: '取消中',
     succeeded: '已完成',
     failed: '失败',
     cancelled: '已取消',
@@ -28,6 +29,8 @@ export function TaskCenterDialog({ open, onOpenChange }: TaskCenterDialogProps) 
     const [loading, setLoading] = useState(false);
     const [actingId, setActingId] = useState<string | null>(null);
     const visibleCount = useRef(20);
+    const eventControllers = useRef(new Map<string, AbortController>());
+    const eventSequences = useRef(new Map<string, number>());
 
     const load = useCallback(async (offset = 0, append = false) => {
         setLoading(true);
@@ -54,12 +57,49 @@ export function TaskCenterDialog({ open, onOpenChange }: TaskCenterDialogProps) 
         const initialLoad = window.setTimeout(() => void load(0, false), 0);
         const timer = window.setInterval(() => {
             void load(0, false);
-        }, 2500);
+        }, 10000);
         return () => {
             window.clearTimeout(initialLoad);
             window.clearInterval(timer);
         };
     }, [open, load]);
+
+    useEffect(() => {
+        const activeIds = new Set(
+            open
+                ? runs.filter(run => ['queued', 'retrying', 'running', 'cancel_requested'].includes(run.status)).map(run => run.run_id)
+                : [],
+        );
+        for (const [runId, controller] of eventControllers.current) {
+            if (!activeIds.has(runId)) {
+                controller.abort();
+                eventControllers.current.delete(runId);
+            }
+        }
+        for (const runId of activeIds) {
+            if (eventControllers.current.has(runId)) continue;
+            const controller = new AbortController();
+            eventControllers.current.set(runId, controller);
+            void streamAgentRunEvents(
+                runId,
+                event => {
+                    eventSequences.current.set(runId, event.sequence);
+                    void load(0, false);
+                },
+                controller.signal,
+                eventSequences.current.get(runId) || 0,
+            ).catch(error => {
+                if (!(error instanceof DOMException && error.name === 'AbortError')) {
+                    eventControllers.current.delete(runId);
+                }
+            });
+        }
+    }, [open, runs, load]);
+
+    useEffect(() => () => {
+        for (const controller of eventControllers.current.values()) controller.abort();
+        eventControllers.current.clear();
+    }, []);
 
     const retry = async (runId: string) => {
         setActingId(runId);
@@ -107,7 +147,7 @@ export function TaskCenterDialog({ open, onOpenChange }: TaskCenterDialogProps) 
                                     <div>
                                         <div className="font-medium text-gray-900">{run.title}</div>
                                         <div className="mt-1 text-xs text-gray-400">
-                                            {new Date(run.created_at).toLocaleString('zh-CN')} · 尝试 {run.attempts} 次
+                                            {new Date(run.created_at).toLocaleString('zh-CN')} · {run.agent_name}@{run.agent_version} · 尝试 {run.attempts} 次
                                         </div>
                                     </div>
                                     <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs text-gray-600">
@@ -132,7 +172,7 @@ export function TaskCenterDialog({ open, onOpenChange }: TaskCenterDialogProps) 
                                     尝试次数：{run.attempts}/{run.max_attempts}
                                 </div>
                                 <div className="mt-3 flex justify-end gap-2">
-                                    {['queued', 'retrying'].includes(run.status) && (
+                                    {run.can_cancel && run.status !== 'cancel_requested' && (
                                         <Button variant="outline" size="sm" onClick={() => void cancel(run.run_id)} disabled={actingId === run.run_id}>
                                             <Square />取消
                                         </Button>

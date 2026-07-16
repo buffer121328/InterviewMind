@@ -26,9 +26,11 @@ TASK_PAYLOAD_ENCRYPTION_KEY=
 AGENT_RUN_LOCK_TTL_SECONDS=600
 # 用户手动重试与中断恢复共享此上限。
 AGENT_RUN_MAX_ATTEMPTS=3
-# queued/retrying 长时间未领取或 running 无阶段更新时，任务中心会自动重新投递。
+# queued/retrying 长时间未领取或 running 无心跳时，后台恢复循环会自动重新投递。
 AGENT_RUN_STALE_SECONDS=1800
 AGENT_RUN_HEARTBEAT_SECONDS=30
+AGENT_RUN_CANCEL_POLL_SECONDS=2
+AGENT_RUN_RECOVERY_INTERVAL_SECONDS=60
 # 交互式简历生成会话在 PostgreSQL 中保留的时间。
 RESUME_GENERATION_SESSION_TTL_HOURS=24
 
