@@ -154,13 +154,10 @@ export async function streamAgentRunEvents(
     while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const frames = buffer.split('\n\n');
-        buffer = frames.pop() || '';
-        for (const frame of frames) {
-            const dataLine = frame.split('\n').find(line => line.startsWith('data:'));
-            if (!dataLine) continue;
-            onEvent(JSON.parse(dataLine.slice(5).trim()) as AgentRunEvent);
+        const parsed = parseSseFrames(buffer, decoder.decode(value, { stream: true }));
+        buffer = parsed.buffer;
+        for (const frame of parsed.frames) {
+            onEvent(JSON.parse(frame.data) as AgentRunEvent);
         }
     }
 }

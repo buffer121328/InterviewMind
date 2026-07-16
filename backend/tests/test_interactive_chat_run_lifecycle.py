@@ -163,6 +163,8 @@ async def test_chat_stream_creates_and_completes_agent_run(monkeypatch):
     run_events = _agent_run_events(chunks)
     assert {event["type"] for event in run_events} >= {"run.started", "run.completed"}
     assert all(event["run_id"] == "run-1" for event in run_events)
+    assert [event["sequence"] for event in run_events] == list(range(1, len(run_events) + 1))
+    assert [event["event_id"] for event in run_events] == [f"inline:run-1:{index}" for index in range(1, len(run_events) + 1)]
 
 
 class _CancelledGraph:

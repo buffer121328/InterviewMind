@@ -87,6 +87,8 @@ async def test_voice_chat_stream_creates_and_completes_agent_run(monkeypatch):
     run_events = _agent_run_events(chunks)
     assert {event["type"] for event in run_events} >= {"run.started", "run.completed"}
     assert all(event["run_id"] == "voice-run-1" for event in run_events)
+    assert [event["sequence"] for event in run_events] == [1, 2]
+    assert [event["event_id"] for event in run_events] == ["inline:voice-run-1:1", "inline:voice-run-1:2"]
 
 
 async def _cancelled_voice_chunks(**_kwargs):
