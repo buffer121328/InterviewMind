@@ -1,4 +1,4 @@
-"""持久化 Agent 任务与可重放运行事件。"""
+"""持久化 Agent 任务、可重放运行事件与任务投递 Outbox。"""
 
 from datetime import datetime
 
@@ -55,4 +55,25 @@ class AgentRunEventModel(Base):
     __table_args__ = (
         UniqueConstraint("run_id", "sequence", name="uq_agent_run_event_sequence"),
         Index("idx_agent_run_events_run_created", "run_id", "created_at"),
+    )
+
+
+class TaskOutboxModel(Base):
+    __tablename__ = "task_outbox"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    topic: Mapped[str] = mapped_column(String, nullable=False)
+    message_key: Mapped[str] = mapped_column(String, nullable=False)
+    payload: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    status: Mapped[str] = mapped_column(String, nullable=False, default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    next_attempt_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    dispatched_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("topic", "message_key", name="uq_task_outbox_topic_key"),
+        Index("idx_task_outbox_pending", "status", "next_attempt_at"),
     )

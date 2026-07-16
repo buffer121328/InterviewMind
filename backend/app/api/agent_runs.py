@@ -15,6 +15,7 @@ from app.schemas.resume_schemas import ResumeOptimizeRequest
 from app.schemas.schemas import ApiConfig, InterviewStartRequest
 from app.services.agent_runs.crypto import TaskPayloadConfigurationError
 from app.services.agent_runs.dispatcher import enqueue_agent_run, enqueue_interview_start
+from app.services.agent_runs.event_stream import replay_cursor
 from app.services.agent_runs.executors import execute_registered_task
 from app.services.agent_runs.interview_start import execute_interview_start
 from app.services.agent_runs.service import (
@@ -227,7 +228,7 @@ async def stream_agent_run_events(
     run = await service.get(run_id, user_id)
     if not run:
         raise HTTPException(status_code=404, detail="任务不存在或无权访问")
-    cursor = max(after_sequence, int(last_event_id or 0) if str(last_event_id or "").isdigit() else 0)
+    cursor = replay_cursor(after_sequence=after_sequence, last_event_id=last_event_id)
 
     async def generate():
         nonlocal cursor

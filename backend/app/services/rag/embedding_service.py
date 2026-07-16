@@ -8,27 +8,13 @@ import logging
 import os
 from typing import List, Optional
 
+from app.services import llms
+
 logger = logging.getLogger(__name__)
 
 # 配置（可通过环境变量覆盖）
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
 EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "1536"))
-
-# 全局客户端缓存
-_client = None
-
-
-def _get_client():
-    """懒加载 OpenAI 客户端"""
-    global _client
-    if _client is None:
-        from openai import AsyncOpenAI
-        _client = AsyncOpenAI(
-            api_key=os.getenv("OPENAI_API_KEY", ""),
-            base_url=os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1"),
-        )
-    return _client
-
 
 def compute_content_hash(content: str) -> str:
     """
@@ -64,9 +50,8 @@ async def generate_embedding(
     dims = dimensions or EMBEDDING_DIM
 
     try:
-        client = _get_client()
-        response = await client.embeddings.create(
-            input=text,
+        response = await llms.model_gateway.create_embeddings(
+            text,
             model=model,
             dimensions=dims,
         )
@@ -103,11 +88,10 @@ async def generate_embeddings_batch(
     all_embeddings: List[List[float]] = []
 
     try:
-        client = _get_client()
         for i in range(0, len(texts), batch_size):
             batch = texts[i : i + batch_size]
-            response = await client.embeddings.create(
-                input=batch,
+            response = await llms.model_gateway.create_embeddings(
+                batch,
                 model=model,
                 dimensions=dims,
             )

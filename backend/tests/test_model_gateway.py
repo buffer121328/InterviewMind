@@ -1,4 +1,6 @@
-"""模型网关应统一普通模型与语音模型的配置解析。"""
+"""模型网关应统一普通模型、语音模型与 Embedding 的配置解析。"""
+
+import pytest
 
 from app.config import get_settings
 from app.schemas.schemas import ApiConfig
@@ -357,3 +359,164 @@ def test_redis_reserve_order_atomically_marks_selected_member_busy():
     assert second[0]["model"] == "flash-b"
     assert first_scheduler.get_inflight(first_identity) == 1
     assert second_scheduler.get_inflight(second_identity) == 1
+
+
+def test_embedding_options_use_environment(monkeypatch):
+    monkeypatch.setenv("EMBEDDING_MODEL", "embed-small")
+    monkeypatch.setenv("EMBEDDING_DIM", "768")
+
+    options = llms.model_gateway.get_embedding_request_options()
+
+    assert options == {"model": "embed-small", "dimensions": 768}
+
+
+async def _create_embeddings_case(monkeypatch):
+    captured = {}
+
+    class FakeEmbeddings:
+        async def create(self, **kwargs):
+            captured.update(kwargs)
+            return type("EmbeddingResponse", (), {"data": [type("Item", (), {"embedding": [0.1, 0.2]})()]})()
+
+    class FakeClient:
+        embeddings = FakeEmbeddings()
+
+    monkeypatch.delenv("REDIS_URL", raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "embedding-key")
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://example.invalid/v1")
+    monkeypatch.setattr(llms, "create_embedding_client", lambda _config: FakeClient())
+
+    gateway = llms.ModelGateway()
+    response = await gateway.create_embeddings("hello", model="embed-model", dimensions=2)
+
+    return captured, response, gateway
+
+
+def test_embedding_creation_goes_through_gateway(monkeypatch):
+    import asyncio
+
+    captured, response, gateway = asyncio.run(_create_embeddings_case(monkeypatch))
+
+    assert captured == {"input": "hello", "model": "embed-model", "dimensions": 2}
+    assert response.data[0].embedding == [0.1, 0.2]
+    assert all(value == 0 for value in gateway.scheduler._inflight.values())
+
+
+async def _embedding_service_case(monkeypatch):
+    from app.services.rag import embedding_service
+
+    captured = {}
+
+    async def fake_create_embeddings(input_value, *, model=None, dimensions=None):
+        captured.update({"input": input_value, "model": model, "dimensions": dimensions})
+        return type("EmbeddingResponse", (), {"data": [type("Item", (), {"embedding": [0.3, 0.4]})()]})()
+
+    monkeypatch.setattr(embedding_service.llms.model_gateway, "create_embeddings", fake_create_embeddings)
+    embedding = await embedding_service.generate_embedding("hello", model="embed-model", dimensions=2)
+    return captured, embedding
+
+
+def test_rag_embedding_service_uses_model_gateway(monkeypatch):
+    import asyncio
+
+    captured, embedding = asyncio.run(_embedding_service_case(monkeypatch))
+
+    assert captured == {"input": "hello", "model": "embed-model", "dimensions": 2}
+    assert embedding == [0.3, 0.4]
+
+
+
+class _AsyncChunks:
+    def __init__(self, chunks, *, fail_after_first=False):
+        self._chunks = list(chunks)
+        self._fail_after_first = fail_after_first
+        self._index = 0
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        if self._fail_after_first and self._index >= 1:
+            raise RuntimeError("stream interrupted")
+        if self._index >= len(self._chunks):
+            raise StopAsyncIteration
+        chunk = self._chunks[self._index]
+        self._index += 1
+        return chunk
+
+
+async def _voice_fallback_case(monkeypatch):
+    monkeypatch.delenv("REDIS_URL", raising=False)
+    monkeypatch.setenv("VOICE_MODEL", "fallback-omni")
+    get_settings.cache_clear()
+    calls = []
+
+    class FakeCompletions:
+        async def create(self, **kwargs):
+            calls.append(kwargs["model"])
+            if kwargs["model"] == "voice-primary":
+                raise RuntimeError("primary unavailable")
+            return _AsyncChunks(["fallback-chunk"])
+
+    class FakeClient:
+        chat = type("Chat", (), {"completions": FakeCompletions()})()
+
+    monkeypatch.setattr(llms, "get_async_omni_client", lambda _config: FakeClient())
+    gateway = llms.ModelGateway()
+    chunks = []
+    async for chunk in gateway.stream_voice_chat_completions(
+        {"voice": _channel("voice-primary"), "fast": _channel("fast-text")},
+        messages=[{"role": "user", "content": "hello"}],
+    ):
+        chunks.append(chunk)
+    get_settings.cache_clear()
+    return calls, chunks, gateway
+
+
+def test_voice_stream_falls_back_before_first_chunk(monkeypatch):
+    import asyncio
+
+    calls, chunks, gateway = asyncio.run(_voice_fallback_case(monkeypatch))
+
+    assert calls == ["voice-primary", "fallback-omni"]
+    assert chunks == ["fallback-chunk"]
+    assert all(value == 0 for value in gateway.scheduler._inflight.values())
+
+
+async def _voice_partial_failure_case(monkeypatch):
+    monkeypatch.delenv("REDIS_URL", raising=False)
+    monkeypatch.setenv("VOICE_MODEL", "fallback-omni")
+    get_settings.cache_clear()
+    calls = []
+
+    class FakeCompletions:
+        async def create(self, **kwargs):
+            calls.append(kwargs["model"])
+            if kwargs["model"] == "voice-primary":
+                return _AsyncChunks(["partial"], fail_after_first=True)
+            return _AsyncChunks(["fallback-chunk"])
+
+    class FakeClient:
+        chat = type("Chat", (), {"completions": FakeCompletions()})()
+
+    monkeypatch.setattr(llms, "get_async_omni_client", lambda _config: FakeClient())
+    gateway = llms.ModelGateway()
+    chunks = []
+    with pytest.raises(RuntimeError, match="stream interrupted"):
+        async for chunk in gateway.stream_voice_chat_completions(
+            {"voice": _channel("voice-primary"), "fast": _channel("fast-text")},
+            messages=[{"role": "user", "content": "hello"}],
+        ):
+            chunks.append(chunk)
+    get_settings.cache_clear()
+    return calls, chunks, gateway
+
+
+def test_voice_stream_does_not_fallback_after_partial_output(monkeypatch):
+    import asyncio
+
+    calls, chunks, gateway = asyncio.run(_voice_partial_failure_case(monkeypatch))
+
+    assert calls == ["voice-primary"]
+    assert chunks == ["partial"]
+    assert all(value == 0 for value in gateway.scheduler._inflight.values())

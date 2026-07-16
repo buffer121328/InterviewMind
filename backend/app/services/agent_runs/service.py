@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agents.definitions import get_agent_definition, get_agent_definitions
 from app.models import AgentRunEventModel, AgentRunModel, async_session
 from app.services.agent_runs.crypto import decrypt_payload, encrypt_payload
+from app.services.agent_runs.outbox import enqueue_agent_run_outbox
 from app.services.agent_runs.policies import allows_whole_run_retry
 
 TASK_TYPE_INTERVIEW_START = "interview_start"
@@ -166,6 +167,7 @@ class AgentRunService:
                 "checkpoint_policy": definition.checkpoint_policy,
                 "cancellation_policy": definition.cancellation_policy,
             })
+            enqueue_agent_run_outbox(session, run.id, now=now)
             try:
                 await session.commit()
             except IntegrityError:

@@ -500,8 +500,6 @@ async def node_greeting(state: VoiceInterviewState) -> AsyncGenerator[str, None]
     try:
         logger.info(f"[Voice] 开场白节点开始: session={session_id}, text={text_message[:50] if text_message else 'None'}...")
         
-        client = _get_omni_client(api_config)
-        
         # TTS 专用消息 - 只做语音合成
         messages = [
             {
@@ -515,11 +513,9 @@ async def node_greeting(state: VoiceInterviewState) -> AsyncGenerator[str, None]
         ]
         
         # 调用 Omni 模型
-        completion = await client.chat.completions.create(
+        completion = llms.model_gateway.stream_voice_chat_completions(
+            api_config,
             messages=messages,
-            stream=True,
-            stream_options={"include_usage": True},
-            **llms.model_gateway.get_voice_request_options(api_config),
         )
         
         # 处理流式响应
@@ -624,8 +620,6 @@ async def node_responder(state: VoiceInterviewState) -> AsyncGenerator[str, None
 
         logger.info(f"[Voice] 对话节点开始: session={session_id}, 进度=题{current_q_idx+1}/追问{follow_up_count}")
         
-        client = _get_omni_client(api_config)
-        
         # 构建消息列表
         messages = []
         
@@ -665,11 +659,9 @@ async def node_responder(state: VoiceInterviewState) -> AsyncGenerator[str, None
         logger.info(f"[Voice] 发送 Omni 请求: session={session_id}, msgs_len={len(messages)}")
         
         # 调用 Omni 模型
-        completion = await client.chat.completions.create(
+        completion = llms.model_gateway.stream_voice_chat_completions(
+            api_config,
             messages=messages,
-            stream=True,
-            stream_options={"include_usage": True},
-            **llms.model_gateway.get_voice_request_options(api_config),
         )
         
         # 处理流式响应
@@ -944,8 +936,6 @@ async def generate_greeting_audio(text: str, api_config: Dict[str, Any]) -> tupl
         元组 (音频 Base64 字符串, TTS 生成的文本)
     """
     try:
-        client = _get_omni_client(api_config)
-        
         messages = [
             {
                 "role": "system",
@@ -958,11 +948,9 @@ async def generate_greeting_audio(text: str, api_config: Dict[str, Any]) -> tupl
         ]
         
         # 使用异步客户端
-        completion = await client.chat.completions.create(
+        completion = llms.model_gateway.stream_voice_chat_completions(
+            api_config,
             messages=messages,
-            stream=True,
-            stream_options={"include_usage": True},
-            **llms.model_gateway.get_voice_request_options(api_config),
         )
         
         audio_chunks = []

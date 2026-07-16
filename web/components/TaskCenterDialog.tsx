@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cancelAgentRun, listAgentRuns, retryAgentRun, streamAgentRunEvents, type AgentRun } from '@/lib/api/agentRuns';
+import { applyAgentRunEventList, isTerminalAgentRunEvent } from '@/lib/agentRunEvents';
 import { toast } from 'sonner';
 
 interface TaskCenterDialogProps {
@@ -84,7 +85,10 @@ export function TaskCenterDialog({ open, onOpenChange }: TaskCenterDialogProps) 
                 runId,
                 event => {
                     eventSequences.current.set(runId, event.sequence);
-                    void load(0, false);
+                    setRuns(current => applyAgentRunEventList(current, event));
+                    if (isTerminalAgentRunEvent(event)) {
+                        void load(0, false);
+                    }
                 },
                 controller.signal,
                 eventSequences.current.get(runId) || 0,
