@@ -20,6 +20,20 @@ class ToolExecutionPolicy:
     redact_results: bool = True
 
 
+class ToolApprovalRequired(PermissionError):
+    """工具需要人工确认后才能执行。"""
+
+    run_status = "awaiting_approval"
+
+    def __init__(
+        self,
+        tool_name: str,
+        message: str = "tool requires explicit confirmation",
+    ) -> None:
+        super().__init__(message)
+        self.tool_name = tool_name
+
+
 class ToolExecutionGuard:
     """一次运行内共享的工具安全边界。"""
 
@@ -37,6 +51,7 @@ class ToolExecutionGuard:
         required_permissions: Collection[str] = (),
         requires_confirmation: bool | None = None,
         confirmed: bool = False,
+        tool_name: str | None = None,
         **kwargs: Any,
     ) -> Any:
         missing = set(required_permissions).difference(context.permissions)
@@ -44,7 +59,8 @@ class ToolExecutionGuard:
             raise PermissionError(f"tool requires permissions: {', '.join(sorted(missing))}")
         needs_confirmation = effect == "external" if requires_confirmation is None else requires_confirmation
         if needs_confirmation and not confirmed:
-            raise PermissionError("tool requires explicit confirmation")
+            name = tool_name or getattr(call, "__name__", "tool")
+            raise ToolApprovalRequired(str(name))
         if effect == "external":
             _validate_outbound_values((args, kwargs))
         if self.calls >= self.policy.max_calls:
