@@ -6,6 +6,8 @@ from typing import Any, Dict, List, Optional
 
 from langchain_core.tools import tool
 
+from app.agent_runtime.tool_contracts import attach_tool_contract
+
 from app.services.jobs import boss_tools as _tools
 
 
@@ -56,4 +58,23 @@ def make_jobs_tools(user_id: str, api_config: Optional[dict], resume_content: st
         """检测当前环境是否支持自动化。"""
         return await _tools.check_environment()
 
-    return [check_environment, open_boss_search_page, extract_job_cards, score_jobs, save_job, generate_assets]
+    return [
+        attach_tool_contract(check_environment, effect="read", permissions=("jobs.environment.read",), result_retention="summary"),
+        attach_tool_contract(open_boss_search_page, effect="external", permissions=("boss.browser.read",), result_retention="summary"),
+        attach_tool_contract(extract_job_cards, effect="read", permissions=("jobs.cards.extract",), result_retention="summary"),
+        attach_tool_contract(score_jobs, effect="read", permissions=("jobs.score",), result_retention="summary"),
+        attach_tool_contract(
+            save_job,
+            effect="write",
+            permissions=("jobs.capture.write",),
+            idempotency_key_strategy="user_id:platform:source_hash",
+            result_retention="reference",
+        ),
+        attach_tool_contract(
+            generate_assets,
+            effect="write",
+            permissions=("jobs.assets.write",),
+            idempotency_key_strategy="user_id:job_id:resume_hash",
+            result_retention="reference",
+        ),
+    ]

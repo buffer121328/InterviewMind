@@ -28,6 +28,7 @@ async def generate_assets(
     include_project_rewrite: bool = False,
     template_style: str = "professional",
     agent_run_id: Optional[str] = None,
+    update_job_status: bool = True,
 ) -> Dict[str, Any]:
     """
     为指定岗位生成完整投递资产。
@@ -178,10 +179,11 @@ async def generate_assets(
     # ======================================================================
     # Step 5: 更新岗位状态
     # ======================================================================
-    try:
-        await repo.update_status(job_id, user_id, "assets_generated")
-    except Exception as e:
-        logger.warning(f"[AssetOrchestrator] 更新岗位状态失败: {e}")
+    if update_job_status:
+        try:
+            await repo.update_status(job_id, user_id, "assets_generated")
+        except Exception as e:
+            logger.warning(f"[AssetOrchestrator] 更新岗位状态失败: {e}")
 
     # ======================================================================
     # 打包返回

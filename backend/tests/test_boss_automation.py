@@ -7,6 +7,18 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 
+class _FakeUowSession:
+    async def commit(self):
+        return None
+
+    async def rollback(self):
+        return None
+
+    async def close(self):
+        return None
+
+
+
 # ============================================================================
 # 浏览器自动化测试 (mock Playwright)
 # ============================================================================
@@ -305,6 +317,7 @@ class TestBossApplyService:
         }
         repo.claim_for_application.return_value = True
         client = MagicMock()
+        fake_session = _FakeUowSession()
         client.send = AsyncMock(
             return_value={
                 "success": True,
@@ -337,6 +350,7 @@ class TestBossApplyService:
                 "app.services.jobs.boss_apply_service._save_application_record",
                 new=AsyncMock(),
             ),
+            patch("app.models.async_session", new=lambda: fake_session),
         ):
             result = await execute_apply_send(
                 job_id=1,
@@ -350,7 +364,7 @@ class TestBossApplyService:
         assert result["send_status"] == "sent"
         client.send.assert_awaited_once_with(source_url, "您好，我想应聘")
         repo.claim_for_application.assert_awaited_once_with(1, "user-1")
-        repo.update_status.assert_awaited_once_with(1, "user-1", "applied")
+        repo.update_status.assert_awaited_once_with(1, "user-1", "applied", session=fake_session)
 
     @pytest.mark.asyncio
     async def test_apply_send_rpc_timeout_requires_manual_takeover(self):
@@ -374,6 +388,7 @@ class TestBossApplyService:
         }
         repo.claim_for_application.return_value = True
         client = MagicMock()
+        fake_session = _FakeUowSession()
         client.send = AsyncMock(
             side_effect=BossAutomationError("读取超时", request_may_have_run=True)
         )
@@ -399,6 +414,7 @@ class TestBossApplyService:
                 "app.services.jobs.boss_apply_service._save_application_record",
                 new=AsyncMock(),
             ),
+            patch("app.models.async_session", new=lambda: fake_session),
         ):
             result = await execute_apply_send(
                 job_id=2,
@@ -409,7 +425,7 @@ class TestBossApplyService:
             )
 
         assert result["send_status"] == "manual_takeover"
-        repo.update_status.assert_awaited_once_with(2, "user-1", "manual_takeover")
+        repo.update_status.assert_awaited_once_with(2, "user-1", "manual_takeover", session=fake_session)
 
 
 class TestApplyApprovalRegistry:

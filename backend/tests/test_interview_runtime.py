@@ -308,10 +308,14 @@ class TestToolRoundTrip:
         assert mock_llm.await_count == 2
         assert "【可用参考信息】" in mock_llm.await_args_list[1].args[0]
         assert result["current_question_index"] == 1
-        assert any(
-            item["step"] == "tool_call" and item["status"] == "completed"
-            for item in result["trace"]
-        )
+        completed_tool_events = [
+            item for item in result["trace"]
+            if item["step"] == "tool_call" and item["status"] == "completed"
+        ]
+        assert completed_tool_events
+        assert completed_tool_events[0]["event_type"] == "tool.completed"
+        assert completed_tool_events[0]["duration_ms"] is not None
+        assert len(completed_tool_events[0]["output_summary"]) <= 300
         assert runtime.tool_results["search_question_bank"][0]["question"] == "请解释线程池参数设计"
 
 

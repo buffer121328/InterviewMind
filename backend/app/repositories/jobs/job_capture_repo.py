@@ -7,6 +7,7 @@ from typing import Optional, List, Dict, Any
 from datetime import datetime
 
 from sqlalchemy import select, delete, func, and_, update
+from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.base import async_session
 from app.models.job_capture import CapturedJobModel
 
@@ -155,9 +156,11 @@ class JobCaptureRepo:
         job_id: int,
         user_id: str,
         status: str,
+        session: AsyncSession | None = None,
     ) -> bool:
-        """更新岗位状态"""
-        async with async_session() as db:
+        """更新岗位状态；传入 session 时由外层 UnitOfWork 统一提交。"""
+
+        async def _update(db: AsyncSession, *, owns_session: bool) -> bool:
             result = await db.execute(
                 select(CapturedJobModel).where(
                     and_(
@@ -170,13 +173,20 @@ class JobCaptureRepo:
             if row:
                 row.status = status
                 row.updated_at = datetime.now()
-                await db.commit()
+                if owns_session:
+                    await db.commit()
                 return True
             return False
 
-    async def claim_for_application(self, job_id: int, user_id: str) -> bool:
-        """原子占用岗位发送权，防止多请求重复点击。"""
+        if session is not None:
+            return await _update(session, owns_session=False)
         async with async_session() as db:
+            return await _update(db, owns_session=True)
+
+    async def claim_for_application(self, job_id: int, user_id: str, session: AsyncSession | None = None) -> bool:
+        """原子占用岗位发送权，防止多请求重复点击；可接入外层 UnitOfWork。"""
+
+        async def _claim(db: AsyncSession, *, owns_session: bool) -> bool:
             result = await db.execute(
                 update(CapturedJobModel)
                 .where(
@@ -186,8 +196,14 @@ class JobCaptureRepo:
                 )
                 .values(status="applying", updated_at=datetime.now())
             )
-            await db.commit()
+            if owns_session:
+                await db.commit()
             return result.rowcount == 1
+
+        if session is not None:
+            return await _claim(session, owns_session=False)
+        async with async_session() as db:
+            return await _claim(db, owns_session=True)
 
 
 # 全局单例

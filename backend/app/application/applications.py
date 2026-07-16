@@ -6,6 +6,8 @@
 from dataclasses import dataclass
 from typing import Optional
 
+from app.application.unit_of_work import UnitOfWork
+from app.models import async_session
 from app.repositories.application.application_event_repo import application_event_repo
 from app.repositories.application.job_application_repo import job_application_repo
 from app.schemas.job_application import (
@@ -133,10 +135,12 @@ class ApplicationUseCases:
         request: EventCreateRequest,
     ) -> dict[str, object]:
         await self._get_application_or_raise(application_id, user_id)
-        event_row = await application_event_repo.add_event(
-            application_id=application_id,
-            request=request,
-        )
+        async with UnitOfWork(async_session) as uow:
+            event_row = await application_event_repo.add_event(
+                application_id=application_id,
+                request=request,
+                session=uow.db,
+            )
         return {"success": True, "event": event_row}
 
     async def list_application_events(

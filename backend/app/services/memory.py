@@ -10,6 +10,19 @@ from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
+# 事实来源优先级：业务数据库是用户可见事实来源；checkpoint 只保存可恢复执行状态。
+FACT_SOURCE_PRIORITY = ("database", "checkpoint")
+CHECKPOINT_FACT_POLICY = {
+    "business_result": "database",
+    "agent_run_status": "database",
+    "recoverable_runtime_state": "checkpoint",
+}
+
+
+def fact_source_for(kind: str) -> str:
+    """返回某类事实的权威来源。未知事实默认以数据库为准。"""
+    return CHECKPOINT_FACT_POLICY.get(kind, "database")
+
 _global_checkpointer: Any = None
 _checkpointer_context: Any = None
 _checkpointer_type: Optional[str] = None

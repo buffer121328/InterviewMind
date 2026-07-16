@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import List
 
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import async_session
 from app.models.application import ApplicationEventModel, JobApplicationModel
@@ -25,10 +26,12 @@ class ApplicationEventRepo:
     async def add_event(
         self,
         application_id: int,
-        request: EventCreateRequest
+        request: EventCreateRequest,
+        session: AsyncSession | None = None,
     ) -> ApplicationEventRow:
-        """新增投递事件，并在必要时更新主表状态"""
-        async with async_session() as db:
+        """新增投递事件，并在必要时更新主表状态；可接入外层 UnitOfWork。"""
+
+        async def _add(db: AsyncSession, *, owns_session: bool) -> ApplicationEventRow:
             try:
                 now = datetime.now()
                 event_time = request.event_time or now
@@ -58,13 +61,20 @@ class ApplicationEventRepo:
                         } else request.event_type
                         application.updated_at = now
 
-                await db.commit()
-                await db.refresh(event_obj)
+                await db.flush()
+                if owns_session:
+                    await db.commit()
+                    await db.refresh(event_obj)
                 logger.info(f"创建投递事件: ID={event_obj.id}, application_id={application_id}, type={request.event_type}")
                 return self._row_to_model(event_obj)
             except Exception as e:
                 logger.error(f"创建投递事件失败: {e}")
                 raise
+
+        if session is not None:
+            return await _add(session, owns_session=False)
+        async with async_session() as db:
+            return await _add(db, owns_session=True)
 
     async def list_events(self, application_id: int) -> List[ApplicationEventRow]:
         """获取某个投递记录的事件列表"""
