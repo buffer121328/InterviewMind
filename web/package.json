@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test:sse": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test --experimental-strip-types lib/sse.test.ts"
   },
   "dependencies": {
     "@radix-ui/react-accordion": "^1.2.12",
