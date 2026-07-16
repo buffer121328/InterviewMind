@@ -187,3 +187,97 @@ async def test_redis_run_gate_renews_owned_lock(monkeypatch):
     await lease.release()
 
     assert any("expire" in script for script, _args in gate._client.calls)
+
+
+def test_serialized_running_run_can_be_cancelled():
+    now = datetime.now()
+    run = AgentRunModel(
+        id="run-running", user_id="user-1", task_type="interview_start", status="running", stage="loading_context",
+        idempotency_key="turn-running", payload_encrypted="encrypted", result=None, error_message=None,
+        attempts=1, created_at=now, updated_at=now, started_at=now, finished_at=None,
+    )
+
+    public = serialize_run(run)
+
+    assert public["can_cancel"] is True
+    assert public["can_retry"] is False
+
+
+def test_serialized_run_event_has_replay_envelope():
+    from app.models.agent_run import AgentRunEventModel
+    from app.services.agent_runs.service import serialize_event
+
+    now = datetime.now()
+    event = AgentRunEventModel(
+        id=7,
+        run_id="run-1",
+        sequence=3,
+        event_type="run.stage.changed",
+        stage="optimizing",
+        payload={"detail": "working"},
+        schema_version=1,
+        created_at=now,
+    )
+
+    public = serialize_event(event)
+
+    assert public == {
+        "event_id": "7",
+        "run_id": "run-1",
+        "sequence": 3,
+        "type": "run.stage.changed",
+        "stage": "optimizing",
+        "payload": {"detail": "working"},
+        "schema_version": 1,
+        "timestamp": now.isoformat(),
+    }
+
+
+@pytest.mark.asyncio
+async def test_cancel_api_returns_cancel_requested_for_running_run(monkeypatch):
+    from app.api import agent_runs
+
+    now = datetime.now()
+    run = AgentRunModel(
+        id="run-running", user_id="user-1", task_type="interview_start", status="cancel_requested", stage="loading_context",
+        idempotency_key="turn-running", payload_encrypted="encrypted", result=None, error_message="正在请求取消当前任务",
+        attempts=1, created_at=now, updated_at=now, started_at=now, finished_at=None,
+    )
+
+    async def cancel(_run_id, _user_id):
+        return run
+
+    monkeypatch.setattr(agent_runs.service, "cancel", cancel)
+
+    response = await agent_runs.cancel_agent_run("run-running", user_id="user-1")
+
+    assert response["status"] == "cancel_requested"
+    assert response["can_cancel"] is True
+
+
+@pytest.mark.asyncio
+async def test_recovery_loop_dispatches_recovered_runs(monkeypatch):
+    from types import SimpleNamespace
+    from app.services.agent_runs import recovery
+
+    dispatched = []
+
+    class FakeService:
+        async def recover_all_stale_runs(self, limit=200):
+            return [SimpleNamespace(id="run-recovered")]
+
+        async def fail(self, *_args):
+            raise AssertionError("dispatch should not fail")
+
+    async def stop_after_first_sleep(_seconds):
+        raise __import__("asyncio").CancelledError
+
+    monkeypatch.setattr(recovery, "task_queue_enabled", lambda: True)
+    monkeypatch.setattr(recovery, "AgentRunService", FakeService)
+    monkeypatch.setattr(recovery, "enqueue_agent_run", dispatched.append)
+    monkeypatch.setattr(recovery.asyncio, "sleep", stop_after_first_sleep)
+
+    with pytest.raises(__import__("asyncio").CancelledError):
+        await recovery.run_agent_run_recovery_loop()
+
+    assert dispatched == ["run-recovered"]

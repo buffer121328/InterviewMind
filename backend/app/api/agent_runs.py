@@ -1,5 +1,7 @@
 """统一可恢复任务中心接口。"""
 
+import asyncio
+import json
 import uuid
 from typing import Optional
 
@@ -7,7 +9,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from app.api.deps import get_current_user_id
+from app.api.deps import create_sse_response, get_current_user_id
 from app.schemas.job_schemas import AssetGenerateRequest
 from app.schemas.resume_schemas import ResumeOptimizeRequest
 from app.schemas.schemas import ApiConfig, InterviewStartRequest
@@ -22,7 +24,9 @@ from app.services.agent_runs.service import (
     TASK_TYPE_INTERVIEW_START,
     TASK_TYPE_JOB_ASSETS,
     TASK_TYPE_RESUME_OPTIMIZE,
+    serialize_event,
     serialize_run,
+    TERMINAL_STATUSES,
     task_queue_enabled,
 )
 from app.services.runtime_gate import get_run_gate
@@ -183,7 +187,7 @@ async def get_agent_run(run_id: str, user_id: str = Depends(get_current_user_id)
 async def cancel_agent_run(run_id: str, user_id: str = Depends(get_current_user_id)):
     run = await service.cancel(run_id, user_id)
     if not run:
-        raise HTTPException(status_code=409, detail="只能取消等待中的任务")
+        raise HTTPException(status_code=409, detail="任务当前不可取消")
     return serialize_run(run)
 
 
@@ -198,3 +202,44 @@ async def retry_agent_run(run_id: str, user_id: str = Depends(get_current_user_i
         await service.fail(run.id, "任务队列暂不可用，请稍后重试")
         raise HTTPException(status_code=503, detail="任务队列暂不可用，请稍后重试") from exc
     return JSONResponse(status_code=status.HTTP_202_ACCEPTED, content=serialize_run(run))
+
+
+@router.get("/{run_id}/events")
+async def list_agent_run_events(
+    run_id: str,
+    after_sequence: int = Query(default=0, ge=0),
+    limit: int = Query(default=200, ge=1, le=500),
+    user_id: str = Depends(get_current_user_id),
+):
+    events = await service.list_events(run_id, user_id, after_sequence=after_sequence, limit=limit)
+    if events is None:
+        raise HTTPException(status_code=404, detail="任务不存在或无权访问")
+    return {"events": [serialize_event(event) for event in events]}
+
+
+@router.get("/{run_id}/events/stream")
+async def stream_agent_run_events(
+    run_id: str,
+    after_sequence: int = Query(default=0, ge=0),
+    last_event_id: Optional[str] = Header(default=None, alias="Last-Event-ID"),
+    user_id: str = Depends(get_current_user_id),
+):
+    run = await service.get(run_id, user_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="任务不存在或无权访问")
+    cursor = max(after_sequence, int(last_event_id or 0) if str(last_event_id or "").isdigit() else 0)
+
+    async def generate():
+        nonlocal cursor
+        while True:
+            events = await service.list_events(run_id, user_id, after_sequence=cursor, limit=200) or []
+            for event in events:
+                data = serialize_event(event)
+                cursor = event.sequence
+                yield f"id: {event.sequence}\nevent: {event.event_type}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+            latest = await service.get(run_id, user_id)
+            if latest is None or (latest.status in TERMINAL_STATUSES and not events):
+                return
+            await asyncio.sleep(1)
+
+    return create_sse_response(generate())
