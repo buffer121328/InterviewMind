@@ -17,6 +17,11 @@ from app.schemas.schemas import ChatRequest, ChatStreamResponse, InterviewStartR
 from app.repositories.session.session_repo import SessionRepo
 from app.api.deps import get_current_user_id
 from app.application.interview.session_actions import InterviewSessionNotFound, interview_session_use_cases
+from app.application.interview.reports import (
+    InterviewReportBadRequest,
+    InterviewReportNotFound,
+    interview_report_use_cases,
+)
 from app.services.interview.interview_context import build_interview_context
 from app.services.security import safe_error_message
 from app.services.runtime_gate import get_run_gate
@@ -616,144 +621,46 @@ async def rollback_chat(
 async def generate_profile(
     request: Optional[ProfileGenerateRequest] = Body(None),
     user_id: str = Depends(get_current_user_id)):
-    """
-    手动触发：生成用户综合能力画像
-    
-    基于最近 5 次面试，使用时间加权聚合算法生成综合画像
-    
-    Returns:
-        dict: 生成结果
-    """
+    """手动触发：生成用户综合能力画像。"""
     try:
-        from app.services.analysis.ability_service import get_ability_service
-        
-        api_config_dict = request.api_config.model_dump() if (request and request.api_config) else None
-        
-        service = get_ability_service()
-        # 注意：现在返回的是字典 {"profile": CandidateProfile, "warning": str}
-        # 传递 api_config 供服务层使用
-        result = await service.generate_overall_profile(user_id=user_id, api_config=api_config_dict)
-        
-        profile = result["profile"]
-        warning = result.get("warning")
-        
-        # 检查是否是空画像（无数据）
-        if profile.overall_assessment == "暂无面试记录，请先进行模拟面试。":
-            return {
-                "success": False,
-                "message": "暂无面试记录，无法生成画像。请先完成至少一次模拟面试。"
-            }
-        
-        response = {
-            "success": True,
-            "message": "综合能力画像已生成",
-            "profile": profile.model_dump()
-        }
-        
-        if warning:
-            response["warning"] = warning
-            
-        return response
-        
-    except ValueError as e:
-        # 处理冷却时间等业务逻辑错误
-        return {
-            "success": False,
-            "message": str(e)
-        }
-    except Exception as e:
-        logger.error(f"生成综合能力画像失败: {str(e)}", exc_info=True)
+        return await interview_report_use_cases.generate_profile(request=request, user_id=user_id)
+    except Exception as exc:
+        logger.error("生成综合能力画像失败: %s", exc, exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail={
-                "error": "InternalServerError",
-                "message": f"生成综合能力画像失败: {str(e)}"
-            }
-        )
+            detail={"error": "InternalServerError", "message": f"生成综合能力画像失败: {exc}"},
+        ) from exc
 
 
 @router.get("/profile/overall")
 async def get_overall_profile(
     user_id: str = Depends(get_current_user_id)):
-    """
-    获取用户综合能力画像（从数据库读取已生成的画像）
-    
-    如果尚未生成，返回提示信息
-    
-    Returns:
-        dict: 画像数据或提示信息
-    """
+    """获取用户综合能力画像（从数据库读取已生成的画像）。"""
     try:
-        from app.services.analysis.ability_service import get_ability_service
-        
-        service = get_ability_service()
-        result = await service.get_overall_profile(user_id=user_id)
-        
-        if result is None:
-            return {
-                "success": False,
-                "message": "尚未生成综合能力画像。请点击「生成画像」按钮。"
-            }
-        
-        return {
-            "success": True,
-            "profile": result["profile"],
-            "generated_at": result["updated_at"]
-        }
-        
-    except Exception as e:
-        logger.error(f"获取综合能力画像失败: {str(e)}")
+        return await interview_report_use_cases.get_overall_profile(user_id=user_id)
+    except Exception as exc:
+        logger.error("获取综合能力画像失败: %s", exc)
         raise HTTPException(
             status_code=500,
-            detail={
-                "error": "InternalServerError",
-                "message": "获取综合能力画像失败"
-            }
-        )
+            detail={"error": "InternalServerError", "message": "获取综合能力画像失败"},
+        ) from exc
 
 
 @router.get("/profile/session/{session_id}")
 async def get_session_profile(
     session_id: str,
     user_id: str = Depends(get_current_user_id)):
-    """
-    获取单个会话的能力画像
-    
-    Args:
-        session_id: 会话ID
-        
-    Returns:
-        dict: 画像数据或生成中提示
-    """
+    """获取单个会话的能力画像。"""
     try:
-        session = await session_repo.get_session(session_id, user_id=user_id)
-        if not session:
-            raise HTTPException(status_code=404, detail="会话不存在或无权访问")
-
-        profile = await session_repo.get_profile(session_id)
-        
-        if profile is None:
-            return {
-                "success": False,
-                "message": "画像生成中，请稍后刷新"
-            }
-        
-        return {
-            "success": True,
-            "profile": profile
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"获取会话画像失败: {str(e)}")
+        return await interview_report_use_cases.get_session_profile(session_id=session_id, user_id=user_id)
+    except InterviewReportNotFound as exc:
+        raise HTTPException(status_code=404, detail=exc.message) from exc
+    except Exception as exc:
+        logger.error("获取会话画像失败: %s", exc)
         raise HTTPException(
             status_code=500,
-            detail={
-                "error": "InternalServerError",
-                "message": "获取会话画像失败"
-            }
-        )
+            detail={"error": "InternalServerError", "message": "获取会话画像失败"},
+        ) from exc
 
 
 # ============================================================================
@@ -764,139 +671,45 @@ async def get_session_profile(
 async def generate_weakness_report(
     request: WeaknessGenerateRequest = Body(...),
     user_id: str = Depends(get_current_user_id)):
-    """
-    为指定会话生成短板地图报告
-    
-    Args:
-        request: 包含 session_id 和 api_config 的请求体
-        x_user_id: 用户 ID
-        
-    Returns:
-        dict: 生成结果
-    """
+    """为指定会话生成短板地图报告。"""
     try:
-        from app.services.interview.interview_analysis import trigger_weakness_analysis
-        
-        session_id = request.session_id
-        if not session_id:
-            raise HTTPException(status_code=400, detail="session_id 不能为空")
-        
-        # 校验会话存在
-        session = await session_repo.get_session(session_id, user_id=user_id)
-        if not session:
-            raise HTTPException(status_code=404, detail="会话不存在")
-        
-        # 解析 api_config
-        api_config_dict = request.api_config.model_dump() if request.api_config else None
-        
-        # 触发短板分析（同步等待结果）
-        await trigger_weakness_analysis(session_id, api_config_dict, user_id=user_id)
-        
-        # 查询生成结果
-        from app.repositories.interview.weakness_report_repo import get_weakness_report_repo
-        report_service = get_weakness_report_repo()
-        report = await report_service.get_report_by_session(
-            session_id, user_id=user_id
-        )
-        
-        if not report:
-            return {
-                "success": False,
-                "message": "短板地图生成失败，请稍后重试"
-            }
-        
-        return {
-            "success": True,
-            "message": "短板地图已生成",
-            "report": report
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"生成短板地图失败: {str(e)}", exc_info=True)
+        return await interview_report_use_cases.generate_weakness_report(request=request, user_id=user_id)
+    except InterviewReportBadRequest as exc:
+        raise HTTPException(status_code=400, detail=exc.message) from exc
+    except InterviewReportNotFound as exc:
+        raise HTTPException(status_code=404, detail=exc.message) from exc
+    except Exception as exc:
+        logger.error("生成短板地图失败: %s", exc, exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail={
-                "error": "InternalServerError",
-                "message": f"生成短板地图失败: {str(e)}"
-            }
-        )
+            detail={"error": "InternalServerError", "message": f"生成短板地图失败: {exc}"},
+        ) from exc
 
 
 @router.get("/weakness/session/{session_id}")
 async def get_weakness_by_session(
     session_id: str,
     user_id: str = Depends(get_current_user_id)):
-    """
-    获取指定会话的短板地图报告
-    
-    Args:
-        session_id: 会话 ID
-        x_user_id: 用户 ID
-        
-    Returns:
-        dict: 短板报告数据
-    """
+    """获取指定会话的短板地图报告。"""
     try:
-        from app.repositories.interview.weakness_report_repo import get_weakness_report_repo
-        
-        report_service = get_weakness_report_repo()
-        report = await report_service.get_report_by_session(
-            session_id, user_id=user_id
-        )
-        
-        if not report:
-            return {
-                "success": False,
-                "message": "该会话暂无短板地图，请先生成"
-            }
-        
-        return {
-            "success": True,
-            "report": report
-        }
-        
-    except Exception as e:
-        logger.error(f"获取短板地图失败: {str(e)}")
+        return await interview_report_use_cases.get_weakness_by_session(session_id=session_id, user_id=user_id)
+    except Exception as exc:
+        logger.error("获取短板地图失败: %s", exc)
         raise HTTPException(
             status_code=500,
-            detail={
-                "error": "InternalServerError",
-                "message": "获取短板地图失败"
-            }
-        )
+            detail={"error": "InternalServerError", "message": "获取短板地图失败"},
+        ) from exc
 
 
 @router.get("/weakness/history")
 async def get_weakness_history(
     user_id: str = Depends(get_current_user_id)):
-    """
-    获取用户的短板地图历史列表
-    
-    Args:
-        x_user_id: 用户 ID
-        
-    Returns:
-        dict: 历史报告列表
-    """
+    """获取用户的短板地图历史列表。"""
     try:
-        from app.repositories.interview.weakness_report_repo import get_weakness_report_repo
-        
-        report_service = get_weakness_report_repo()
-        reports = await report_service.list_reports(user_id=user_id, limit=20)
-        
-        return {
-            "success": True,
-            "reports": reports
-        }
-        
-    except Exception as e:
-        logger.error(f"获取短板地图历史失败: {str(e)}")
+        return await interview_report_use_cases.get_weakness_history(user_id=user_id)
+    except Exception as exc:
+        logger.error("获取短板地图历史失败: %s", exc)
         raise HTTPException(
             status_code=500,
-            detail={
-                "error": "InternalServerError",
-                "message": "获取短板地图历史失败"
-            }
-        )
+            detail={"error": "InternalServerError", "message": "获取短板地图历史失败"},
+        ) from exc
