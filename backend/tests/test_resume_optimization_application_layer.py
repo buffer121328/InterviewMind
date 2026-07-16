@@ -33,3 +33,68 @@ def test_resume_optimization_routes_delegate_to_application_layer():
             assert "resume_optimization_use_cases" in names
             assert names.isdisjoint(FORBIDDEN_NAMES)
     assert checked == MIGRATED_FUNCTIONS
+
+
+import json
+
+import pytest
+
+from app.application.resume import optimization as resume_optimization
+from app.schemas.resume_schemas import ResumeOptimizeRequest
+
+
+class _FakeResumeRepo:
+    def __init__(self):
+        self.saved = []
+
+    async def save_result(self, **kwargs):
+        self.saved.append(kwargs)
+        return 42
+
+
+async def _fake_optimize_resume_streaming(**_kwargs):
+    yield {"type": "progress", "stage": "prepare", "message": "准备中"}
+    yield {"type": "result", "data": {"match_score": 88}}
+
+
+def _sse_payloads(chunks):
+    payloads = []
+    for chunk in chunks:
+        assert chunk.startswith("data: ")
+        payloads.append(json.loads(chunk.removeprefix("data: ").strip()))
+    return payloads
+
+
+@pytest.mark.asyncio
+async def test_resume_stream_emits_inline_run_events_without_breaking_legacy_events(monkeypatch):
+    fake_repo = _FakeResumeRepo()
+    monkeypatch.setattr(resume_optimization, "optimize_resume_streaming", _fake_optimize_resume_streaming)
+    monkeypatch.setattr(resume_optimization, "get_resume_repo", lambda: fake_repo)
+
+    request = ResumeOptimizeRequest(
+        resume_content="resume",
+        job_description="jd",
+        api_config={
+            "smart": {"api_key": "k", "base_url": "https://example.test", "model": "smart"},
+            "fast": {"api_key": "k", "base_url": "https://example.test", "model": "fast"},
+        },
+    )
+
+    generator = resume_optimization.ResumeOptimizationUseCases().optimize_resume_stream(
+        request=request,
+        user_id="user-1",
+    )
+    payloads = _sse_payloads([chunk async for chunk in generator])
+
+    legacy_types = [payload["type"] for payload in payloads if payload["type"] != "agent_run_event"]
+    assert legacy_types == ["progress", "result", "done"]
+    run_events = [payload["content"] for payload in payloads if payload["type"] == "agent_run_event"]
+    assert [event["type"] for event in run_events] == [
+        "run.started",
+        "run.stage.changed",
+        "run.completed",
+    ]
+    assert all(event["run_id"].startswith("resume-stream:") for event in run_events)
+    assert [event["sequence"] for event in run_events] == [1, 2, 3]
+    assert run_events[-1]["payload"] == {"result_id": 42}
+    assert fake_repo.saved[0]["result_data"] == {"match_score": 88}

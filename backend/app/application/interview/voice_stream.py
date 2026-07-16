@@ -55,8 +55,20 @@ class VoiceStreamUseCases:
         return self._wrap_stream(source=source, run_id=run.id, session_id=request.session_id)
 
     async def _wrap_stream(self, *, source: AsyncGenerator[str, None], run_id: str, session_id: str) -> AsyncGenerator[str, None]:
+        run_event_sequence = 0
+
         def run_event(event_type: str, stage: str | None = None, payload: dict | None = None) -> str:
-            return f"data: {json.dumps({'type': 'agent_run_event', 'content': build_run_event_envelope(run_id=run_id, event_type=event_type, stage=stage, payload=payload)}, ensure_ascii=False)}\n\n"
+            nonlocal run_event_sequence
+            run_event_sequence += 1
+            envelope = build_run_event_envelope(
+                run_id=run_id,
+                event_type=event_type,
+                stage=stage,
+                payload=payload,
+                sequence=run_event_sequence,
+                event_id=f"inline:{run_id}:{run_event_sequence}",
+            )
+            return f"data: {json.dumps({'type': 'agent_run_event', 'content': envelope}, ensure_ascii=False)}\n\n"
 
         try:
             yield f"data: {json.dumps({'type': 'run', 'run_id': run_id}, ensure_ascii=False)}\n\n"

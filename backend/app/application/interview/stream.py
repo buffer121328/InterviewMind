@@ -144,6 +144,7 @@ class ChatStreamUseCases:
             {"id": "update_progress", "title": "更新面试进度", "status": "pending"},
         ]
         emitted_steps: set[tuple[str, str]] = set()
+        run_event_sequence = 0
 
         def stream_event(event_type: str, payload) -> str:
             content = payload if isinstance(payload, str) else json.dumps(payload, ensure_ascii=False)
@@ -157,13 +158,17 @@ class ChatStreamUseCases:
             return stream_event("step_update", {"id": step_id, "status": status})
 
         def run_event(event_type: str, stage: str | None = None, payload: dict | None = None) -> str | None:
+            nonlocal run_event_sequence
             if not run_id:
                 return None
+            run_event_sequence += 1
             return stream_event("agent_run_event", build_run_event_envelope(
                 run_id=run_id,
                 event_type=event_type,
                 stage=stage,
                 payload=payload,
+                sequence=run_event_sequence,
+                event_id=f"inline:{run_id}:{run_event_sequence}",
             ))
 
         try:

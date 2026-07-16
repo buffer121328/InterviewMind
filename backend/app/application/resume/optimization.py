@@ -2,6 +2,7 @@
 
 import json
 import logging
+import uuid
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 
@@ -14,6 +15,7 @@ from app.schemas.resume_schemas import (
     ResumeReviewRequest,
     ResumeReviewResponse,
 )
+from app.services.agent_runs.event_stream import build_run_event_envelope
 from app.services.resume.result_mapper import pipeline_to_optimize_result
 from app.services.resume.resume_analyzer_graph import analyze_resume
 from app.services.resume.resume_optimizer_graph import optimize_resume_streaming
@@ -146,7 +148,29 @@ class ResumeOptimizationUseCases:
         user_id: str,
     ) -> AsyncGenerator[str, None]:
         final_result = None
+        run_id = f"resume-stream:{uuid.uuid4()}"
+        sequence = 0
+
+        def sse_event(event: dict) -> str:
+            return f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+        def run_event(event_type: str, stage: str | None = None, payload: dict | None = None) -> str:
+            nonlocal sequence
+            sequence += 1
+            return sse_event({
+                "type": "agent_run_event",
+                "content": build_run_event_envelope(
+                    run_id=run_id,
+                    event_type=event_type,
+                    stage=stage,
+                    payload=payload,
+                    sequence=sequence,
+                    event_id=f"inline:{run_id}:{sequence}",
+                ),
+            })
+
         try:
+            yield run_event("run.started", "prepare")
             async for event in optimize_resume_streaming(
                 resume_content=request.resume_content,
                 job_description=request.job_description,
@@ -155,9 +179,18 @@ class ResumeOptimizationUseCases:
                 user_id=user_id,
                 api_config=request.api_config.model_dump() if request.api_config else None,
             ):
+                if event.get("type") == "progress":
+                    yield run_event(
+                        "run.stage.changed",
+                        event.get("stage") if isinstance(event.get("stage"), str) else None,
+                        {
+                            "message": event.get("message"),
+                            "complete": event.get("complete", False),
+                        },
+                    )
                 if event.get("type") == "result":
                     final_result = event.get("data")
-                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+                yield sse_event(event)
 
             result_id = None
             if final_result:
@@ -174,10 +207,12 @@ class ResumeOptimizationUseCases:
                     logger.info("流式优化结果已保存: ID=%s", result_id)
                 except Exception as save_error:
                     logger.error("保存流式优化结果失败: %s", save_error)
-            yield f"data: {json.dumps({'type': 'done', 'content': '[DONE]', 'result_id': result_id})}\n\n"
+            yield run_event("run.completed", "succeeded", {"result_id": result_id})
+            yield sse_event({'type': 'done', 'content': '[DONE]', 'result_id': result_id})
         except Exception as exc:
             logger.error("SSE 流式优化失败: %s", exc, exc_info=True)
-            yield f"data: {json.dumps({'type': 'error', 'content': str(exc)})}\n\n"
+            yield run_event("run.failed", None, {"message": str(exc)})
+            yield sse_event({'type': 'error', 'content': str(exc)})
 
     @staticmethod
     def _validate_common(request: ResumeAnalyzeRequest | ResumeOptimizeRequest) -> None:
