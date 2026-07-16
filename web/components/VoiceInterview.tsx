@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils';
 import { PreparingInterview } from './interview/PreparingInterview';
 import { type ApiConfig } from '@/lib/api/resume';
 import { type Message } from '@/store/types';
+import { parseSseFrames } from '@/lib/sse';
 
 interface VoiceInterviewProps {
     sessionId: string;
@@ -156,42 +157,29 @@ export function VoiceInterview({ sessionId, onEnd }: VoiceInterviewProps) {
                 const { done, value } = await reader.read();
                 if (done) break;
 
-                const textChunk = decoder.decode(value, { stream: true });
-                buffer += textChunk;
+                const parsed = parseSseFrames(buffer, decoder.decode(value, { stream: true }));
+                buffer = parsed.buffer;
 
-                // 处理完整的 SSE 消息
-                while (true) {
-                    const newlineIndex = buffer.indexOf('\n\n');
-                    if (newlineIndex === -1) break;
+                for (const frame of parsed.frames) {
+                    try {
+                        const data = JSON.parse(frame.data);
 
-                    const messageBlock = buffer.slice(0, newlineIndex);
-                    buffer = buffer.slice(newlineIndex + 2);
-
-                    const lines = messageBlock.split('\n');
-                    for (const line of lines) {
-                        if (line.startsWith('data: ')) {
-                            try {
-                                const jsonStr = line.slice(6);
-                                const data = JSON.parse(jsonStr);
-
-                                if (data.type === 'text') {
-                                    fullText += data.content;
-                                    setVoiceHistory([{ role: 'assistant', content: fullText, timestamp: new Date().toISOString() }]);
-                                } else if (data.type === 'audio') {
-                                    playPcmData(data.content);
-                                    setStatus(prev => prev !== 'idle' ? 'idle' : prev);
-                                } else if (data.type === 'done') {
-                                    console.log('[VoiceInterview] 开场白生成完成, text:', fullText.length);
-                                    setStreamEnded();
-                                } else if (data.type === 'error') {
-                                    console.error('[VoiceInterview] 开场白生成错误:', data.message);
-                                    toast.error(data.message || '开场白生成失败');
-                                    setStatus('listening');
-                                }
-                            } catch (parseError) {
-                                console.warn('解析 SSE 数据失败:', parseError);
-                            }
+                        if (data.type === 'text') {
+                            fullText += data.content;
+                            setVoiceHistory([{ role: 'assistant', content: fullText, timestamp: new Date().toISOString() }]);
+                        } else if (data.type === 'audio') {
+                            playPcmData(data.content);
+                            setStatus(prev => prev !== 'idle' ? 'idle' : prev);
+                        } else if (data.type === 'done') {
+                            console.log('[VoiceInterview] 开场白生成完成, text:', fullText.length);
+                            setStreamEnded();
+                        } else if (data.type === 'error') {
+                            console.error('[VoiceInterview] 开场白生成错误:', data.message);
+                            toast.error(data.message || '开场白生成失败');
+                            setStatus('listening');
                         }
+                    } catch (parseError) {
+                        console.warn('解析 SSE 数据失败:', parseError);
                     }
                 }
             }
@@ -418,65 +406,52 @@ export function VoiceInterview({ sessionId, onEnd }: VoiceInterviewProps) {
                 const { done, value } = await reader.read();
                 if (done) break;
 
-                const textChunk = decoder.decode(value, { stream: true });
-                buffer += textChunk;
+                const parsed = parseSseFrames(buffer, decoder.decode(value, { stream: true }));
+                buffer = parsed.buffer;
 
-                // 处理完整的 SSE 消息 (以 \n\n 分隔)
-                while (true) {
-                    const newlineIndex = buffer.indexOf('\n\n');
-                    if (newlineIndex === -1) break;
+                for (const frame of parsed.frames) {
+                    try {
+                        const data = JSON.parse(frame.data);
 
-                    const messageBlock = buffer.slice(0, newlineIndex);
-                    buffer = buffer.slice(newlineIndex + 2); // 跳过 \n\n
+                        if (data.type === 'text') {
+                            // 流式更新文本（累积到最后一条 assistant 消息）
+                            fullText += data.content;
+                            updateLastVoiceMessage(fullText);
+                        } else if (data.type === 'audio') {
+                            // 播放 PCM 音频分片
+                            playPcmData(data.content);
+                            // 状态保持 idle，直到播放结束（由 setStreamEnded 触发）
+                            setStatus(prev => prev !== 'idle' ? 'idle' : prev);
+                        } else if (data.type === 'progress') {
+                            // 更新全局进度状态
+                            const state = useInterviewStore.getState();
+                            useInterviewStore.getState().setInterviewProgress({
+                                current: data.current,
+                                total: state.interviewProgress?.total || state.maxQuestions
+                            });
+                        } else if (data.type === 'complete') {
+                            // 面试官表示面试已结束
+                            console.log('[VoiceInterview] 面试已完成，等待语音播放结束...');
+                            toast.success('面试已顺利结束');
+                            isInterviewEndPendingRef.current = true;
 
-                    const lines = messageBlock.split('\n');
-                    for (const line of lines) {
-                        if (line.startsWith('data: ')) {
-                            try {
-                                const jsonStr = line.slice(6);
-                                const data = JSON.parse(jsonStr);
-
-                                if (data.type === 'text') {
-                                    // 流式更新文本（累积到最后一条 assistant 消息）
-                                    fullText += data.content;
-                                    updateLastVoiceMessage(fullText);
-                                } else if (data.type === 'audio') {
-                                    // 播放 PCM 音频分片
-                                    playPcmData(data.content);
-                                    // 状态保持 idle，直到播放结束（由 setStreamEnded 触发）
-                                    setStatus(prev => prev !== 'idle' ? 'idle' : prev);
-                                } else if (data.type === 'progress') {
-                                    // 更新全局进度状态
-                                    const state = useInterviewStore.getState();
-                                    useInterviewStore.getState().setInterviewProgress({
-                                        current: data.current,
-                                        total: state.interviewProgress?.total || state.maxQuestions
-                                    });
-                                } else if (data.type === 'complete') {
-                                    // 面试官表示面试已结束
-                                    console.log('[VoiceInterview] 面试已完成，等待语音播放结束...');
-                                    toast.success('面试已顺利结束');
-                                    isInterviewEndPendingRef.current = true;
-
-                                    // 安全兜底：如果15秒后还没跳转，强制跳转
-                                    setTimeout(() => {
-                                        if (isInterviewEndPendingRef.current) {
-                                            console.warn('[VoiceInterview] 播放结束回调超时，强制跳转');
-                                            handleHangUp();
-                                        }
-                                    }, 15000);
-                                } else if (data.type === 'done') {
-                                    console.log('[VoiceInterview] 响应完成, text:', fullText.length);
-                                    setStreamEnded();
-                                } else if (data.type === 'error') {
-                                    console.error('[VoiceInterview] Server Error:', data.message);
-                                    toast.error(data.message || 'AI 响应失败');
-                                    setStatus('listening');
+                            // 安全兜底：如果15秒后还没跳转，强制跳转
+                            setTimeout(() => {
+                                if (isInterviewEndPendingRef.current) {
+                                    console.warn('[VoiceInterview] 播放结束回调超时，强制跳转');
+                                    handleHangUp();
                                 }
-                            } catch (parseError) {
-                                console.warn('解析 SSE 数据失败:', parseError);
-                            }
+                            }, 15000);
+                        } else if (data.type === 'done') {
+                            console.log('[VoiceInterview] 响应完成, text:', fullText.length);
+                            setStreamEnded();
+                        } else if (data.type === 'error') {
+                            console.error('[VoiceInterview] Server Error:', data.message);
+                            toast.error(data.message || 'AI 响应失败');
+                            setStatus('listening');
                         }
+                    } catch (parseError) {
+                        console.warn('解析 SSE 数据失败:', parseError);
                     }
                 }
             }
