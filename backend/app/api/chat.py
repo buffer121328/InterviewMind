@@ -5,7 +5,6 @@
 
 import json
 import logging
-import uuid
 from typing import AsyncGenerator
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Header, Body, Depends
@@ -17,12 +16,16 @@ from app.schemas.schemas import ChatRequest, ChatStreamResponse, InterviewStartR
 from app.repositories.session.session_repo import SessionRepo
 from app.api.deps import get_current_user_id
 from app.application.interview.session_actions import InterviewSessionNotFound, interview_session_use_cases
+from app.application.interview.start import (
+    InterviewStartFailed,
+    InterviewStartNotFound,
+    interview_start_use_cases,
+)
 from app.application.interview.reports import (
     InterviewReportBadRequest,
     InterviewReportNotFound,
     interview_report_use_cases,
 )
-from app.services.interview.interview_context import build_interview_context
 from app.services.security import safe_error_message
 from app.services.runtime_gate import get_run_gate
 
@@ -99,158 +102,16 @@ async def get_hint(
 async def start_interview(
     request: InterviewStartRequest,
     user_id: str = Depends(get_current_user_id)):
-    """
-    开始新的面试会话
-    
-    Args:
-        request: 面试开始请求
-        
-    Returns:
-        dict: 会话开始结果
-    """
-    
-    session_created = False  # 标记是否新创建了会话（用于异常时清理）
-    
+    """开始新的面试会话。"""
     try:
-        # 初始化图谱（异步）
-        graph = await build_interview_graph(request.mode)
-        
-        # 配置线程 ID
-        config = {"configurable": {"thread_id": request.thread_id}}
-        
-        # 构建初始状态（新架构）
-        api_config = request.api_config.model_dump() if request.api_config else None
-        
-        # 检查会话是否已存在，如果不存在则创建
-        session = await session_repo.get_session(request.thread_id, include_resume_content=True, user_id=user_id)
-        if session is None:
-            existing_session = await session_repo.get_session(request.thread_id)
-            if existing_session is not None:
-                raise HTTPException(status_code=404, detail="会话不存在或无权访问")
-
-        if session is None:
-            await session_repo.create_session(
-                session_id=request.thread_id,
-                mode=request.mode,
-                resume_filename=request.resume_filename,
-                resume_content=request.resume_context,
-                job_description=request.job_description,
-                company_info=getattr(request, "company_info", "未知"),
-                max_questions=request.max_questions,
-                user_id=user_id
-            )
-            session_created = True  # 标记为新创建
-
-        context = await build_interview_context(
-            user_id=user_id,
-            resume_context=request.resume_context,
-            job_description=request.job_description,
-            company_info=request.company_info,
-            max_questions=request.max_questions,
-            question_bank_count=request.question_bank_count,
-            experience_questions=request.experience_questions,
-            session_metadata=session.metadata if session else None,
-        )
-        inputs = {
-            "messages": [],
-            **context.graph_fields(),
-            "mode": request.mode,
-            "session_id": request.thread_id,
-            "user_id": user_id,
-            "run_id": str(uuid.uuid4()),
-            "interview_plan": [],
-            "current_question_index": 0,
-            "question_count": 0,
-            "api_config": api_config,
-        }
-        
-        # 生成并更新会话标题：{JD摘要} - 第 X 轮
-        current_r_idx = inputs["round_index"]
-        jd_for_title = inputs["job_description"] or request.job_description or ""
-        summary = jd_for_title[:15] + "..." if len(jd_for_title) > 15 else jd_for_title
-        title = f"{summary} - 第{current_r_idx}轮"
-        
-        # 更新数据库中的会话标题
-        await session_repo.update_session(request.thread_id, title=title, user_id=user_id)
-
-        # 执行图以生成第一题
-        first_question = ""
-        async for event in graph.astream_events(inputs, config=config, version="v1"):
-            kind = event["event"]
-            
-            # 收集 responder 节点的输出
-            if kind == "on_chat_model_stream":
-                node_name = event.get("metadata", {}).get("langgraph_node", "")
-                if node_name == "responder":
-                    content = event["data"]["chunk"].content
-                    if content:
-                        first_question += content
-        
-        # 保存第一题到会话
-        if first_question:
-            await session_repo.add_message(
-                session_id=request.thread_id,
-                role="assistant",
-                content=first_question,
-                question_index=0,
-                user_id=user_id
-            )
-
-        # 返回会话信息
-        return {
-            "success": True,
-            "message": "面试会话已初始化",
-            "thread_id": request.thread_id,
-            "mode": request.mode,
-            "max_questions": request.max_questions,
-            "session_title": title,
-            "first_question": first_question,  # 返回第一题
-            "has_memory_context": bool(context.memory_context),
-        }
-        
-    except Exception as e:
-        safe_msg = safe_error_message(e)
-        error_str = safe_msg.lower()
-        logger.error(f"开始面试会话失败: {safe_msg}", exc_info=True)
-        
-        # 如果新创建了会话但 LLM 调用失败，删除该空会话
-        if session_created:
-            try:
-                await session_repo.delete_session(request.thread_id)
-                logger.info(f"已清理失败的会话: {request.thread_id}")
-            except Exception as cleanup_error:
-                logger.warning(f"清理失败会话时出错: {cleanup_error}")
-        
-        if "401" in error_str or "unauthorized" in error_str or "invalid api key" in error_str or "authentication" in error_str:
-            message = "API Key 无效，请检查配置"
-            error_type = "AuthenticationError"
-        elif "404" in error_str or "not found" in error_str or "model" in error_str and "does not exist" in error_str:
-            message = "模型不存在或 API 地址错误，请检查配置"
-            error_type = "NotFoundError"
-        elif "timeout" in error_str or "timed out" in error_str:
-            message = "连接超时，请检查网络或 API 地址"
-            error_type = "TimeoutError"
-        elif "connection" in error_str or "connect" in error_str or "network" in error_str:
-            message = "无法连接到 API 服务器，请检查 Base URL"
-            error_type = "ConnectionError"
-        elif "rate limit" in error_str or "429" in error_str:
-            message = "API 请求过于频繁，请稍后重试"
-            error_type = "RateLimitError"
-        elif "insufficient" in error_str or "quota" in error_str or "balance" in error_str:
-            message = "API 余额不足，请充值后重试"
-            error_type = "QuotaError"
-        else:
-            message = f"开始面试会话失败: {safe_msg[:100]}"
-            error_type = "InternalServerError"
-        
+        return await interview_start_use_cases.start_interview(request=request, user_id=user_id)
+    except InterviewStartNotFound as exc:
+        raise HTTPException(status_code=404, detail=exc.message) from exc
+    except InterviewStartFailed as exc:
         raise HTTPException(
             status_code=500,
-            detail={
-                "error": error_type,
-                "message": message
-            }
-        )
-
+            detail={"error": exc.error, "message": exc.message},
+        ) from exc
 
 @router.post("/stream")
 async def stream_chat(
