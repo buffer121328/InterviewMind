@@ -42,6 +42,7 @@ import operator
 import re
 import uuid
 from typing import Annotated, List, Literal, TypedDict, Optional
+from weakref import WeakSet
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, BaseMessage
 from pydantic import BaseModel, Field
 try:
@@ -67,16 +68,16 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 
 
-_graph_instances = []
+_graph_instances: WeakSet = WeakSet()
 
 def register_graph_instance(graph):
     """注册图实例以便后续清理"""
-    _graph_instances.append(graph)
+    _graph_instances.add(graph)
     return graph
 
 def get_graph_instances():
     """获取所有图实例"""
-    return _graph_instances
+    return list(_graph_instances)
 
 def clear_graph_instances():
     """清空图实例列表"""
@@ -257,8 +258,8 @@ async def node_planner(state: InterviewState):
     retrieval_context = None
     if remaining_questions > 0:
         try:
-            from app.repositories.interview.retrieval_repo import get_retrieval_repo
-            retrieval_svc = get_retrieval_repo()
+            from app.services.interview.retrieval_service import get_interview_retrieval_service
+            retrieval_svc = get_interview_retrieval_service()
             retrieval_context = await retrieval_svc.retrieve_for_question_generation(
                 user_id=user_id,
                 job_description=job_desc,

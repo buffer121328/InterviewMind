@@ -42,31 +42,12 @@ class RetrievalRepo:
         """
         为面试题生成检索相关上下文
 
-        优先走 RAG 编排（rag_chunks），降级到直接查询业务表。
+        直接查询业务表，作为 RAG 编排的稳定降级路径。
 
         Returns:
             检索结果字典，包含各来源的证据 + rag_evidences
         """
-        # 优先尝试 RAG 编排
-        try:
-            from app.services.interview.interview_rag import rag_retrieve_for_interview
-            result = await rag_retrieve_for_interview(
-                user_id=user_id,
-                job_description=job_description,
-                session_id=session_id,
-                weakness_report=weakness_report,
-                target_skills=target_skills,
-                round_type=round_type,
-            )
-            logger.info(
-                f"RAG 检索完成: user={user_id}, mode={result.get('retrieval_mode')}, "
-                f"evidences={len(result.get('rag_evidences', []))}"
-            )
-            return result
-        except Exception as e:
-            logger.warning(f"RAG 编排失败，降级到直接查询: {e}")
-
-        # 降级：直接查询业务表（原有逻辑）
+        # Repository 只负责结构化数据查询；RAG 编排位于上层 RetrievalService。
         results = {
             "jd_keywords": [],
             "weakness_categories": [],
