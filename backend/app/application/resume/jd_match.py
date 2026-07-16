@@ -2,6 +2,8 @@
 
 from dataclasses import dataclass
 
+from app.application.unit_of_work import UnitOfWork
+from app.models import async_session
 from app.repositories.resume.jd_analysis_repo import get_jd_analysis_repo
 from app.schemas.jd_schemas import (
     JDMatchDetailResponse,
@@ -48,14 +50,16 @@ class JDMatchUseCases:
         except ValueError as exc:
             raise JDMatchBadRequest(message=str(exc)) from exc
 
-        analysis_id = await get_jd_analysis_repo().save_result(
-            user_id=user_id,
-            resume_source_type=request.resume_source_type,
-            resume_content_snapshot=request.resume_content,
-            job_description=request.job_description,
-            analysis_result=result,
-            resume_source_id=request.resume_source_id,
-        )
+        async with UnitOfWork(async_session) as uow:
+            analysis_id = await get_jd_analysis_repo().save_result(
+                user_id=user_id,
+                resume_source_type=request.resume_source_type,
+                resume_content_snapshot=request.resume_content,
+                job_description=request.job_description,
+                analysis_result=result,
+                resume_source_id=request.resume_source_id,
+                session=uow.db,
+            )
         return JDMatchResponse(success=True, result=result, analysis_id=analysis_id)
 
     async def list_results(self, *, user_id: str, limit: int) -> JDMatchHistoryResponse:

@@ -42,6 +42,21 @@ def jd_match_dependencies(monkeypatch):
     return analyze, repository
 
 
+
+
+class _FakeSession:
+    def __init__(self):
+        self.calls = []
+
+    async def commit(self):
+        self.calls.append("commit")
+
+    async def close(self):
+        self.calls.append("close")
+
+    async def rollback(self):
+        self.calls.append("rollback")
+
 class TestJDMatchAPI:
     """JD 匹配分析 API 测试类"""
     
@@ -90,6 +105,37 @@ class TestJDMatchAPI:
         assert data["result"]["overall_match_score"] == 75.5
         assert len(data["result"]["matched_keywords"]) == 3
     
+
+    def test_jd_match_success_saves_with_unit_of_work_session(self, jd_match_dependencies, monkeypatch):
+        from app.application.resume import jd_match as jd_match_app
+
+        analyze, repository = jd_match_dependencies
+        analyze.return_value = {
+            "overall_match_score": 75.5,
+            "skill_match_score": 80.0,
+            "project_match_score": 70.0,
+            "experience_match_score": 75.0,
+            "education_match_score": 85.0,
+            "matched_keywords": ["Python"],
+            "missing_keywords": [],
+            "strengths": [],
+            "risks": [],
+            "priority_actions": [],
+            "selection_hints": {},
+        }
+        session = _FakeSession()
+        monkeypatch.setattr(jd_match_app, "async_session", lambda: session)
+
+        payload = {
+            "resume_content": "我是一名 Python 开发工程师",
+            "job_description": "招聘 Python 开发工程师",
+            "api_config": TEST_API_CONFIG,
+        }
+        response = client.post("/api/resume/jd-match", json=payload, headers={"X-User-ID": "test_user"})
+
+        assert response.status_code == 200
+        assert repository.save_result.await_args.kwargs["session"] is session
+
     def test_jd_match_missing_resume(self, jd_match_dependencies):
         """测试缺少简历内容"""
         # 准备

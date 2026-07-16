@@ -68,14 +68,16 @@ class ResumeOptimizationUseCases:
         except ValueError as exc:
             raise ResumeOptimizationBadRequest(message=str(exc)) from exc
 
-        result_id = await get_resume_repo().save_result(
-            user_id=user_id,
-            result_type="analyze",
-            resume_content=request.resume_content,
-            result_data=result,
-            job_description=request.job_description,
-            session_ids=request.session_ids,
-        )
+        async with UnitOfWork(async_session) as uow:
+            result_id = await get_resume_repo().save_result(
+                user_id=user_id,
+                result_type="analyze",
+                resume_content=request.resume_content,
+                result_data=result,
+                job_description=request.job_description,
+                session_ids=request.session_ids,
+                session=uow.db,
+            )
         return ResumeAnalyzeResponse(success=True, result=result, result_id=result_id)
 
     async def optimize_resume(self, *, request: ResumeOptimizeRequest, user_id: str) -> ResumeOptimizeResponse:
