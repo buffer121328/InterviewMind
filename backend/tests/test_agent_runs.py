@@ -456,3 +456,47 @@ async def test_event_stream_replays_from_last_event_id_when_larger(monkeypatch):
     assert chunks == [
         f'id: 8\nevent: run.completed\ndata: {json.dumps({"event_id": "8", "run_id": "run-1", "sequence": 8, "type": "run.completed", "stage": "succeeded", "payload": {"ok": True}, "schema_version": 1, "timestamp": now.isoformat()}, ensure_ascii=False)}\n\n'
     ]
+
+
+@pytest.mark.asyncio
+async def test_mark_cancelled_uses_cancelled_state_and_event(monkeypatch):
+    from app.services.agent_runs import service as service_module
+
+    now = datetime.now()
+    run = AgentRunModel(
+        id="run-cancel", user_id="user-1", task_type="interview_start", status="running", stage="loading_context",
+        idempotency_key="turn-cancel", payload_encrypted="encrypted", result=None, error_message=None,
+        attempts=1, created_at=now, updated_at=now, started_at=now, finished_at=None,
+    )
+    appended: list[tuple[str, dict | None]] = []
+    calls: list[str] = []
+
+    class FakeSession:
+        async def get(self, _model, run_id, with_for_update=False):
+            assert run_id == "run-cancel"
+            assert with_for_update is True
+            return run
+
+        async def commit(self):
+            calls.append("commit")
+
+        async def rollback(self):
+            calls.append("rollback")
+
+        async def close(self):
+            calls.append("close")
+
+    async def append_event(self, _session, _run, event_type, payload=None):
+        appended.append((event_type, payload))
+
+    monkeypatch.setattr(service_module, "async_session", lambda: FakeSession())
+    monkeypatch.setattr(service_module.AgentRunService, "_append_event", append_event)
+
+    await service_module.AgentRunService().mark_cancelled("run-cancel", "用户取消")
+
+    assert run.status == "cancelled"
+    assert run.stage == "cancelled"
+    assert run.error_message == "用户取消"
+    assert run.finished_at is not None
+    assert appended == [("run.cancelled", {"message": "用户取消"})]
+    assert calls == ["commit", "close"]
