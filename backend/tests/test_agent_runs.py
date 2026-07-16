@@ -281,3 +281,81 @@ async def test_recovery_loop_dispatches_recovered_runs(monkeypatch):
         await recovery.run_agent_run_recovery_loop()
 
     assert dispatched == ["run-recovered"]
+
+
+@pytest.mark.asyncio
+async def test_recovery_loop_marks_failed_dispatch_and_continues(monkeypatch):
+    from types import SimpleNamespace
+    from app.services.agent_runs import recovery
+
+    dispatched: list[str] = []
+    failed: list[tuple[str, str]] = []
+
+    class FakeService:
+        async def recover_all_stale_runs(self, limit=200):
+            return [SimpleNamespace(id="run-bad"), SimpleNamespace(id="run-ok")]
+
+        async def fail(self, run_id, message):
+            failed.append((run_id, message))
+
+    def enqueue(run_id: str) -> None:
+        if run_id == "run-bad":
+            raise RuntimeError("broker unavailable")
+        dispatched.append(run_id)
+
+    async def stop_after_first_sleep(_seconds):
+        raise __import__("asyncio").CancelledError
+
+    monkeypatch.setattr(recovery, "task_queue_enabled", lambda: True)
+    monkeypatch.setattr(recovery, "AgentRunService", FakeService)
+    monkeypatch.setattr(recovery, "enqueue_agent_run", enqueue)
+    monkeypatch.setattr(recovery.asyncio, "sleep", stop_after_first_sleep)
+
+    with pytest.raises(__import__("asyncio").CancelledError):
+        await recovery.run_agent_run_recovery_loop()
+
+    assert failed == [("run-bad", "任务队列暂不可用，请稍后手动重试")]
+    assert dispatched == ["run-ok"]
+
+
+@pytest.mark.asyncio
+async def test_succeed_turns_cancel_requested_run_into_cancelled(monkeypatch):
+    from app.services.agent_runs import service as service_module
+
+    now = datetime.now()
+    run = AgentRunModel(
+        id="run-cancel", user_id="user-1", task_type="interview_start", status="cancel_requested", stage="loading_context",
+        idempotency_key="turn-cancel", payload_encrypted="encrypted", result=None, error_message="正在请求取消当前任务",
+        attempts=1, created_at=now, updated_at=now, started_at=now, finished_at=None,
+    )
+    appended: list[tuple[str, dict | None]] = []
+
+    class FakeSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, _model, run_id, with_for_update=False):
+            assert run_id == "run-cancel"
+            assert with_for_update is True
+            return run
+
+        async def commit(self):
+            return None
+
+    async def append_event(self, _session, _run, event_type, payload=None):
+        appended.append((event_type, payload))
+
+    monkeypatch.setattr(service_module, "async_session", lambda: FakeSession())
+    monkeypatch.setattr(service_module.AgentRunService, "_append_event", append_event)
+
+    await service_module.AgentRunService().succeed("run-cancel", {"success": True})
+
+    assert run.status == "cancelled"
+    assert run.stage == "cancelled"
+    assert run.result is None
+    assert run.error_message == "任务已取消"
+    assert run.finished_at is not None
+    assert appended == [("run.cancelled", {"reason": "cancel_won_race"})]

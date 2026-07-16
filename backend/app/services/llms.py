@@ -28,6 +28,7 @@ def create_llm_from_config(
     temperature: float = 0.7,
     max_tokens: Optional[int] = None,
     extra_callbacks: Optional[list[Any]] = None,
+    timeout: Optional[int] = None,
     **_: Any,
 ) -> ChatOpenAI:
     """根据用户提供的 OpenAI-compatible 配置创建 LLM 实例。"""
@@ -40,7 +41,7 @@ def create_llm_from_config(
         "api_key": api_key,
         "base_url": base_url,
         # 由调用层负责有限重试，避免 SDK 重试与 fallback 叠加导致长时间阻塞。
-        "timeout": settings.llm_request_timeout_seconds,
+        "timeout": timeout or settings.llm_request_timeout_seconds,
         "max_retries": 0,
     }
     callbacks = list(get_langchain_callbacks())
@@ -491,17 +492,122 @@ class ModelGateway:
         voice_config = _resolve_channel_config(api_config, "voice")
         return get_async_omni_client(voice_config)
 
-    def get_voice_request_options(self, api_config: dict) -> dict:
+    def get_voice_request_options(self, api_config: dict, voice_config: dict | None = None) -> dict:
         settings = get_settings()
-        voice_config = api_config.get("voice") or {}
+        selected = voice_config or api_config.get("voice") or {}
         return {
-            "model": voice_config.get("model") or settings.voice_model,
+            "model": selected.get("model") or settings.voice_model,
             "modalities": ["text", "audio"],
             "audio": {"voice": settings.voice_name, "format": settings.voice_output_format},
         }
 
+    def _voice_candidate_configs(self, api_config: dict) -> tuple[list[dict], str | None]:
+        settings = get_settings()
+        groups: list[tuple[str, list[dict]]] = []
+        voice_config = api_config.get("voice")
+        if voice_config and voice_config.get("api_key"):
+            groups.append(("channel:voice", [dict(voice_config)]))
+
+        fast_fallbacks = [
+            {**config, "model": settings.voice_model}
+            for config in self._pool(api_config, "fast_pool", "fast")
+        ]
+        if fast_fallbacks:
+            groups.append(("voice:fallback_fast", fast_fallbacks))
+
+        ordered: list[dict] = []
+        seen: set[str] = set()
+        reserved_identity: str | None = None
+        for pool_name, configs in groups:
+            if not configs:
+                continue
+            if reserved_identity is None:
+                group_order, reserved_identity = self.scheduler.reserve_order(pool_name, configs)
+            else:
+                group_order = self.scheduler.order(pool_name, configs)
+            for config in group_order:
+                identity = _identity(config)
+                if identity not in seen:
+                    ordered.append(config)
+                    seen.add(identity)
+
+        if not ordered:
+            # 保留旧错误语义：既无 voice 也无 fast 时提示语音通道缺失。
+            config = _resolve_channel_config(api_config, "voice")
+            ordered.append({**config, "model": config.get("model") or settings.voice_model})
+        return ordered, reserved_identity
+
+    async def stream_voice_chat_completions(
+        self,
+        api_config: dict,
+        *,
+        messages: list[dict],
+        stream_options: dict | None = None,
+    ):
+        configs, reserved_identity = self._voice_candidate_configs(api_config)
+        last_error: Exception | None = None
+        for index, config in enumerate(configs):
+            identity = _identity(config)
+            if identity != reserved_identity:
+                self.scheduler.start(identity)
+            yielded = False
+            try:
+                client = get_async_omni_client(config)
+                completion = await client.chat.completions.create(
+                    messages=messages,
+                    stream=True,
+                    stream_options=stream_options or {"include_usage": True},
+                    **self.get_voice_request_options(api_config, config),
+                )
+                async for chunk in completion:
+                    yielded = True
+                    yield chunk
+                self.scheduler.record_success(identity)
+                return
+            except Exception as exc:
+                self.scheduler.record_failure(identity)
+                last_error = exc
+                if yielded:
+                    raise
+                logging.getLogger(__name__).warning(
+                    "[LLM] Voice 调用失败，切换候选: candidate=%s error=%s",
+                    index + 1, type(exc).__name__,
+                )
+        if last_error is not None:
+            raise last_error
+        raise RuntimeError("没有可用的语音模型候选")
+
     def get_voice_input_format(self) -> str:
         return get_settings().voice_input_format
+
+    def get_embedding_request_options(self, model: str | None = None, dimensions: int | None = None) -> dict:
+        return {
+            "model": model or os.getenv("EMBEDDING_MODEL", "text-embedding-3-small"),
+            "dimensions": dimensions or int(os.getenv("EMBEDDING_DIM", "1536")),
+        }
+
+    def get_embedding_client_config(self, model: str | None = None, dimensions: int | None = None) -> dict:
+        return {
+            "api_key": os.getenv("OPENAI_API_KEY", ""),
+            "base_url": os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1"),
+            **self.get_embedding_request_options(model=model, dimensions=dimensions),
+        }
+
+    async def create_embeddings(self, input_value: str | list[str], model: str | None = None, dimensions: int | None = None):
+        config = self.get_embedding_client_config(model=model, dimensions=dimensions)
+        identity = _identity(config)
+        self.scheduler.start(identity)
+        try:
+            client = create_embedding_client(config)
+            response = await client.embeddings.create(
+                input=input_value,
+                **self.get_embedding_request_options(model=config["model"], dimensions=config["dimensions"]),
+            )
+            self.scheduler.record_success(identity)
+            return response
+        except Exception:
+            self.scheduler.record_failure(identity)
+            raise
 
 
 model_gateway = ModelGateway()
@@ -519,13 +625,36 @@ def get_llm_for_request(api_config: Optional[dict] = None, channel: str = "smart
     return model_gateway.get_chat_model(api_config, channel)
 
 
+def create_embedding_client(config: dict):
+    """创建 OpenAI-compatible embedding 客户端。"""
+    from openai import AsyncOpenAI
+
+    if not config or not config.get("api_key"):
+        raise ValueError("未检测到 Embedding API 配置")
+    base_url = config.get("base_url") or "https://api.openai.com/v1"
+    validate_outbound_url(base_url, allow_private=get_settings().allow_private_model_base_urls)
+    return AsyncOpenAI(
+        api_key=config["api_key"],
+        base_url=base_url,
+        timeout=get_settings().llm_request_timeout_seconds,
+        max_retries=0,
+    )
+
+
 def get_async_omni_client(voice_config: dict):
     """根据前端传入的配置创建异步 OpenAI 客户端。"""
     from openai import AsyncOpenAI
 
     if not voice_config or not voice_config.get("api_key"):
         raise ValueError("未检测到语音模型 API 配置")
-    return AsyncOpenAI(api_key=voice_config["api_key"], base_url=voice_config["base_url"])
+    base_url = voice_config.get("base_url") or "https://api.openai.com/v1"
+    validate_outbound_url(base_url, allow_private=get_settings().allow_private_model_base_urls)
+    return AsyncOpenAI(
+        api_key=voice_config["api_key"],
+        base_url=base_url,
+        timeout=get_settings().llm_request_timeout_seconds,
+        max_retries=0,
+    )
 
 
 async def invoke_text(

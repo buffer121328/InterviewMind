@@ -4,12 +4,12 @@ API 配置相关端点
 """
 
 import logging
-from fastapi import APIRouter, HTTPException
-from langchain_openai import ChatOpenAI
+from fastapi import APIRouter
 
 from app.config import get_settings
 from app.schemas.schemas import ApiConfigValidateRequest
-from app.services.url_security import UnsafeOutboundUrl, validate_outbound_url
+from app.services.llms import create_llm_from_config
+from app.services.url_security import UnsafeOutboundUrl
 
 logger = logging.getLogger(__name__)
 
@@ -30,17 +30,13 @@ async def validate_api_config(request: ApiConfigValidateRequest):
         dict: 验证结果
     """
     try:
-        validate_outbound_url(
-            request.base_url,
-            allow_private=get_settings().allow_private_model_base_urls,
-        )
-        # 创建临时 LLM 实例
-        llm = ChatOpenAI(
-            temperature=0,
-            max_tokens=10,
-            model_name=request.model,
+        # 通过统一模型工厂创建临时 LLM 实例，复用 URL 校验、回调和 SDK 重试策略。
+        llm = create_llm_from_config(
             api_key=request.api_key,
             base_url=request.base_url,
+            model=request.model,
+            temperature=0,
+            max_tokens=10,
             timeout=get_settings().api_config_validation_timeout_seconds,
         )
         
