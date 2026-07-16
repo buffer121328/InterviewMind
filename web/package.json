@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test:sse": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test --experimental-strip-types lib/sse.test.ts"
+    "test:sse": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test --experimental-strip-types lib/sse.test.ts",
+    "test:agent-events": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test --experimental-strip-types lib/agentRunEvents.test.ts"
   },
   "dependencies": {
     "@radix-ui/react-accordion": "^1.2.12",
