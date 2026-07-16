@@ -70,3 +70,33 @@ async def test_voice_chat_stream_creates_and_completes_agent_run(monkeypatch):
     assert fake_run_service.succeeded == [("voice-run-1", {"session_id": "voice-session-1"})]
     assert fake_run_service.failed == []
     assert any("voice-run-1" in chunk for chunk in chunks)
+
+
+async def _cancelled_voice_chunks(**_kwargs):
+    yield 'data: {"type":"token","content":"你好"}\n\n'
+
+
+@pytest.mark.asyncio
+async def test_voice_chat_disconnect_marks_run_failed_not_cancelled(monkeypatch):
+    import asyncio
+
+    use_cases = VoiceStreamUseCases()
+    fake_run_service = _FakeRunService()
+    use_cases._run_service = fake_run_service
+    monkeypatch.setattr(voice_stream, "process_voice_chat", _cancelled_voice_chunks)
+
+    request = VoiceChatRequest(
+        session_id="voice-session-1",
+        system_prompt="你是面试官",
+        history=[],
+        message="我的回答",
+        api_config={"voice": {"api_key": "x"}},
+    )
+
+    generator = await use_cases.stream_voice_chat(request=request, user_id="user-1")
+    await generator.__anext__()
+    with pytest.raises(asyncio.CancelledError):
+        await generator.athrow(asyncio.CancelledError())
+
+    assert fake_run_service.failed == [("voice-run-1", "client_disconnected")]
+    assert fake_run_service.succeeded == []

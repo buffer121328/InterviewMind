@@ -1,5 +1,6 @@
 """文字面试流式生成接入持久化 AgentRun。"""
 
+import asyncio
 from types import SimpleNamespace
 
 import pytest
@@ -134,3 +135,45 @@ async def test_chat_stream_creates_and_completes_agent_run(monkeypatch):
     assert fake_run_service.failed == []
     assert lease.released is True
     assert any("run-1" in chunk for chunk in chunks)
+
+
+class _CancelledGraph:
+    async def astream_events(self, *_args, **_kwargs):
+        raise asyncio.CancelledError()
+        yield {}  # pragma: no cover
+
+
+@pytest.mark.asyncio
+async def test_chat_stream_disconnect_marks_run_failed_not_cancelled(monkeypatch):
+    lease = _FakeLease()
+    use_cases = ChatStreamUseCases()
+    use_cases._session_repo = _FakeSessionRepo()
+    fake_run_service = _FakeRunService()
+    use_cases._run_service = fake_run_service
+
+    async def fake_build_interview_graph(_mode):
+        return _CancelledGraph()
+
+    async def fake_get_memory_context(**_kwargs):
+        return "", []
+
+    monkeypatch.setattr(chat_stream, "build_interview_graph", fake_build_interview_graph)
+    monkeypatch.setattr(chat_stream, "get_memory_context", fake_get_memory_context)
+    monkeypatch.setattr(chat_stream, "get_run_gate", lambda: _FakeGate(lease))
+
+    request = ChatRequest(
+        thread_id="thread-1",
+        message="我的回答",
+        mode="mock",
+        resume_context="简历",
+        job_description="JD",
+        max_questions=5,
+    )
+
+    generator = await use_cases.stream_chat(request=request, user_id="user-1")
+    with pytest.raises(asyncio.CancelledError):
+        [chunk async for chunk in generator]
+
+    assert fake_run_service.failed == [("run-1", "client_disconnected")]
+    assert fake_run_service.succeeded == []
+    assert lease.released is True

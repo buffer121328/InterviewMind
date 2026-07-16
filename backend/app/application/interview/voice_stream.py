@@ -1,5 +1,6 @@
 """语音面试流式回复用例。"""
 
+import asyncio
 import json
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass
@@ -53,11 +54,14 @@ class VoiceStreamUseCases:
         return self._wrap_stream(source=source, run_id=run.id, session_id=request.session_id)
 
     async def _wrap_stream(self, *, source: AsyncGenerator[str, None], run_id: str, session_id: str) -> AsyncGenerator[str, None]:
-        yield f"data: {json.dumps({'type': 'run', 'run_id': run_id}, ensure_ascii=False)}\n\n"
         try:
+            yield f"data: {json.dumps({'type': 'run', 'run_id': run_id}, ensure_ascii=False)}\n\n"
             async for chunk in source:
                 yield chunk
             await self._run_service.succeed(run_id, {"session_id": session_id})
+        except asyncio.CancelledError:
+            await self._run_service.fail(run_id, "client_disconnected")
+            raise
         except Exception as exc:
             safe_msg = safe_error_message(exc)
             await self._run_service.fail(run_id, safe_msg)

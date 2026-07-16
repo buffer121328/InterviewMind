@@ -1,5 +1,6 @@
 """面试聊天流式回复用例。"""
 
+import asyncio
 import json
 import logging
 import uuid
@@ -238,6 +239,10 @@ class ChatStreamUseCases:
                 await self._run_service.succeed(run_id, {"thread_id": thread_id, "question_index": final_question_index})
             response = ChatStreamResponse(type="done", content="[DONE]")
             yield f"data: {response.model_dump_json()}\n\n"
+        except asyncio.CancelledError:
+            if run_id:
+                await self._run_service.fail(run_id, "client_disconnected")
+            raise
         except Exception as exc:
             safe_msg = safe_error_message(exc)
             logger.error("流式事件生成器错误: %s", safe_msg)
