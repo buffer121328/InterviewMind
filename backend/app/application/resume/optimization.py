@@ -17,6 +17,7 @@ from app.schemas.resume_schemas import (
 )
 from app.services.agent_runs.event_stream import build_run_event_envelope
 from app.services.resume.result_mapper import pipeline_to_optimize_result
+from app.services.security import safe_error_message
 from app.services.resume.resume_analyzer_graph import analyze_resume
 from app.services.resume.resume_optimizer_graph import optimize_resume_streaming
 from app.services.resume.resume_orchestrator import run_pipeline
@@ -210,9 +211,10 @@ class ResumeOptimizationUseCases:
             yield run_event("run.completed", "succeeded", {"result_id": result_id})
             yield sse_event({'type': 'done', 'content': '[DONE]', 'result_id': result_id})
         except Exception as exc:
-            logger.error("SSE 流式优化失败: %s", exc, exc_info=True)
-            yield run_event("run.failed", None, {"message": str(exc)})
-            yield sse_event({'type': 'error', 'content': str(exc)})
+            safe_msg = safe_error_message(exc)
+            logger.error("SSE 流式优化失败: %s", safe_msg, exc_info=True)
+            yield run_event("run.failed", None, {"message": safe_msg})
+            yield sse_event({'type': 'error', 'content': safe_msg})
 
     @staticmethod
     def _validate_common(request: ResumeAnalyzeRequest | ResumeOptimizeRequest) -> None:

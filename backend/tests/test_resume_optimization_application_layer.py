@@ -98,3 +98,36 @@ async def test_resume_stream_emits_inline_run_events_without_breaking_legacy_eve
     assert [event["sequence"] for event in run_events] == [1, 2, 3]
     assert run_events[-1]["payload"] == {"result_id": 42}
     assert fake_repo.saved[0]["result_data"] == {"match_score": 88}
+
+
+async def _failing_optimize_resume_streaming(**_kwargs):
+    raise RuntimeError("api_key=sk-secret123456789 请求失败")
+    yield {}  # pragma: no cover
+
+
+@pytest.mark.asyncio
+async def test_resume_stream_error_events_are_redacted(monkeypatch):
+    monkeypatch.setattr(resume_optimization, "optimize_resume_streaming", _failing_optimize_resume_streaming)
+
+    request = ResumeOptimizeRequest(
+        resume_content="resume",
+        job_description="jd",
+        api_config={
+            "smart": {"api_key": "k", "base_url": "https://example.test", "model": "smart"},
+            "fast": {"api_key": "k", "base_url": "https://example.test", "model": "fast"},
+        },
+    )
+
+    generator = resume_optimization.ResumeOptimizationUseCases().optimize_resume_stream(
+        request=request,
+        user_id="user-1",
+    )
+    payloads = _sse_payloads([chunk async for chunk in generator])
+
+    run_failed = [payload["content"] for payload in payloads if payload["type"] == "agent_run_event"][-1]
+    error_event = payloads[-1]
+    assert run_failed["type"] == "run.failed"
+    assert "sk-secret" not in run_failed["payload"]["message"]
+    assert "***REDACTED***" in run_failed["payload"]["message"]
+    assert "sk-secret" not in error_event["content"]
+    assert "***REDACTED***" in error_event["content"]
