@@ -9,6 +9,7 @@ import { getUserId } from '@/hooks/useUserIdentity';
 import type { Message, ResumeInfo, InterviewProgress, InterviewSession, ExecutionPlanStep } from '../types';
 import { API_BASE_URL } from '../types';
 import type { ExperienceQuestionCandidate } from '@/lib/api/interviewExperience';
+import { listAgentRunEvents, type AgentRunEvent } from '@/lib/api/agentRuns';
 
 // ============================================================================
 // 类型定义
@@ -37,6 +38,7 @@ export interface InterviewFlowState {
     isInitializing: boolean;
     initializationStage: string | null;
     executionPlan: ExecutionPlanStep[];
+    currentInteractiveRunId: string | null;
 }
 
 export interface InterviewFlowActions {
@@ -65,6 +67,7 @@ export interface InterviewFlowActions {
     setVoiceSessionId: (sessionId: string | null) => void;
     clearVoiceState: () => void;
     setInitializing: (isInitializing: boolean) => void;
+    resumeInteractiveRun: (runId: string) => Promise<void>;
 }
 
 export type InterviewFlowSlice = InterviewFlowState & InterviewFlowActions;
@@ -100,6 +103,7 @@ export const createInterviewSlice = (set: SetState, get: GetState): InterviewFlo
     isInitializing: false,
     initializationStage: null,
     executionPlan: [],
+    currentInteractiveRunId: null,
     // 语音面试初始状态
     voiceHistory: [],
     voiceSystemPrompt: '',
@@ -379,8 +383,16 @@ export const createInterviewSlice = (set: SetState, get: GetState): InterviewFlo
                             const data = JSON.parse(line.slice(6));
 
                             if (data.type === 'plan') {
-                                const plan = JSON.parse(data.content || '[]');
-                                if (Array.isArray(plan)) set({ executionPlan: plan });
+                                const planPayload = JSON.parse(data.content || '[]');
+                                if (Array.isArray(planPayload)) {
+                                    set({ executionPlan: planPayload });
+                                } else {
+                                    const steps = Array.isArray(planPayload.steps) ? planPayload.steps : [];
+                                    set({
+                                        executionPlan: steps,
+                                        currentInteractiveRunId: typeof planPayload.run_id === 'string' ? planPayload.run_id : null,
+                                    });
+                                }
                             } else if (data.type === 'step_update') {
                                 const update = JSON.parse(data.content || '{}');
                                 set(state => ({
@@ -575,4 +587,45 @@ export const createInterviewSlice = (set: SetState, get: GetState): InterviewFlo
     }),
 
     setInitializing: (isInitializing: boolean) => set({ isInitializing }),
+
+    resumeInteractiveRun: async (runId: string) => {
+        const events = await listAgentRunEvents(runId);
+        set({
+            currentInteractiveRunId: runId,
+            executionPlan: buildInteractiveExecutionPlan(events),
+        });
+    },
 });
+
+
+const INTERACTIVE_PLAN_STEPS: ExecutionPlanStep[] = [
+    { id: 'save_answer', title: '记录本轮回答', status: 'pending' },
+    { id: 'analyze_answer', title: '分析回答并决定追问策略', status: 'pending' },
+    { id: 'generate_response', title: '生成反馈与下一题', status: 'pending' },
+    { id: 'update_progress', title: '更新面试进度', status: 'pending' },
+];
+
+function buildInteractiveExecutionPlan(events: AgentRunEvent[]): ExecutionPlanStep[] {
+    const latest = events[events.length - 1];
+    if (!latest) return INTERACTIVE_PLAN_STEPS.map(step => ({ ...step }));
+    const failed = latest.type === 'run.failed' || latest.type === 'run.cancelled';
+    const completed = latest.type === 'run.completed';
+    const stage = latest.stage || '';
+
+    return INTERACTIVE_PLAN_STEPS.map(step => {
+        if (completed) return { ...step, status: 'completed' };
+        if (failed) return { ...step, status: step.id === 'generate_response' ? 'failed' : step.status };
+        if (stage === 'saving_answer') {
+            return step.id === 'save_answer' ? { ...step, status: 'running' } : { ...step };
+        }
+        if (stage === 'generating_response') {
+            if (step.id === 'save_answer' || step.id === 'analyze_answer') return { ...step, status: 'completed' };
+            if (step.id === 'generate_response') return { ...step, status: 'running' };
+        }
+        if (stage === 'saving_response') {
+            if (step.id !== 'update_progress') return { ...step, status: 'completed' };
+            return { ...step, status: 'running' };
+        }
+        return { ...step };
+    });
+}
