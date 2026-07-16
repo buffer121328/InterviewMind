@@ -47,3 +47,14 @@ test('parseAgentRunEventEnvelope rejects malformed content', () => {
     assert.equal(parseAgentRunEventEnvelope('{not json'), null);
     assert.equal(parseAgentRunEventEnvelope({ type: 'run.started' }), null);
 });
+
+test('parseAgentRunEventEnvelope rejects unknown event types', () => {
+    const event = parseAgentRunEventEnvelope({
+        run_id: 'run-1',
+        type: 'run.future.changed',
+        payload: {},
+        schema_version: 1,
+    });
+
+    assert.equal(event, null);
+});
