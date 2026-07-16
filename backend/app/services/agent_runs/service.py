@@ -385,7 +385,8 @@ class AgentRunService:
             await self._append_event(session, run, event_type, {"message": run.error_message})
 
     async def mark_cancelled(self, run_id: str, message: str = "任务已取消") -> None:
-        async with async_session() as session:
+        async with UnitOfWork(async_session) as uow:
+            session = uow.db
             run = await session.get(AgentRunModel, run_id, with_for_update=True)
             if not run or run.status == "cancelled":
                 return
@@ -396,7 +397,6 @@ class AgentRunService:
             run.updated_at = now
             run.finished_at = now
             await self._append_event(session, run, "run.cancelled", {"message": message})
-            await session.commit()
 
     async def cancel(self, run_id: str, user_id: str) -> AgentRunModel | None:
         async with async_session() as session:
