@@ -42,9 +42,13 @@ async def lifespan(app: FastAPI):
     if configure_observability():
         logger.info("Langfuse Agent 观测已启用")
     
-    # 初始化数据库（SQLAlchemy ORM 表结构同步）
-    from app.models import init_db
-    await init_db()
+    # 本地开发可自动同步 ORM 表结构；严格迁移验证时设 AUTO_CREATE_TABLES=false。
+    from app.config import get_settings
+    if get_settings().auto_create_tables:
+        from app.models import init_db
+        await init_db()
+    else:
+        logger.info("AUTO_CREATE_TABLES=false，跳过 ORM 表结构自动同步，请确保已执行 Alembic 迁移")
     
     # 确保数据目录存在
     data_dir = os.path.join(os.path.dirname(__file__), "data")

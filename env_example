@@ -41,6 +41,8 @@ HOST=0.0.0.0
 PORT=8000
 DEBUG=false
 NEXT_PUBLIC_API_URL=http://localhost:8000
+# 本地开发保持 true；需要严格验证 Alembic 迁移链时设为 false。
+AUTO_CREATE_TABLES=true
 
 # ----------------------------------------------------------------------------
 # LLM 网关、模型池与请求限制
