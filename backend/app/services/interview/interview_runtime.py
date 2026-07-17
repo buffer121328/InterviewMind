@@ -107,6 +107,7 @@ class InterviewRuntime:
                 "round_type": self.round_type,
                 "turn_phase": self.turn_phase,
             },
+            run_id=self.state.get("run_id"),
         ) as observation:
             result = await self._run()
             observation.set_output({

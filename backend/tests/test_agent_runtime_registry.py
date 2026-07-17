@@ -4,6 +4,7 @@ import pytest
 
 from app.agent_runtime.context import AgentContext
 from app.agent_runtime.graphs import graph_registry
+from app.agent_runtime.prompts import prompt_registry
 from app.agent_runtime.middleware import build_default_middleware, contains_prompt_injection
 from app.agent_runtime.models.registry import ModelProviderRegistry
 from app.agent_runtime.tools import (
@@ -53,13 +54,45 @@ def test_tool_registry_checks_permissions_before_building():
 
 
 def test_default_registries_expose_business_capabilities():
-    assert {"interview", "resume", "job_application"}.issubset(tool_registry.names())
+    assert {"interview", "resume", "memory", "job_application"}.issubset(tool_registry.names())
     assert {
         "interview",
         "resume_analyzer",
         "resume_optimizer",
         "resume_generator",
     }.issubset(graph_registry.names())
+    assert {
+        "interview.planner",
+        "interview.evaluating",
+        "voice.system",
+        "analysis.candidate_profile",
+        "analysis.weakness_report",
+        "analysis.aggregate_profile",
+        "resume.match_analyst",
+        "resume.jd_match.user",
+        "jobs.card_scoring",
+    }.issubset(prompt_registry.names())
+
+
+def test_prompt_registry_renders_registered_production_builder():
+    rendered = prompt_registry.get("resume.jd_match.user", "1").render(
+        resume_content="熟悉 Python",
+        job_description="需要 FastAPI",
+    )
+
+    assert "熟悉 Python" in rendered
+    assert "需要 FastAPI" in rendered
+
+
+def test_graph_registry_uses_agent_package_builders():
+    registry_source = (
+        __import__("pathlib").Path(__file__).resolve().parents[1]
+        / "app" / "agent_runtime" / "graphs" / "registry.py"
+    ).read_text()
+
+    assert "from app.agents.interview.graph" in registry_source
+    assert "from app.services.interview.interview_graph" not in registry_source
+    assert "from app.services.resume.resume_optimizer_graph" not in registry_source
 
 
 def test_default_middleware_has_limits_without_unsafe_global_tool_retry():
@@ -81,6 +114,36 @@ def test_interview_tools_can_be_built_through_runtime_registry():
         "get_interview_history",
         "search_memory",
     }
+
+
+def test_memory_tools_can_be_built_through_runtime_registry():
+    tools = tool_registry.build("memory", AgentContext(user_id="user-1"))
+
+    assert [tool.name for tool in tools] == ["search_memory"]
+
+
+@pytest.mark.asyncio
+async def test_tool_guard_emits_audit_records_for_successful_calls():
+    from app.agent_runtime.tools.executor import ToolExecutionGuard
+
+    audit_events: list[dict] = []
+    guard = ToolExecutionGuard()
+
+    async def demo_call(value: str):
+        return {"value": value, "token": "secret"}
+
+    result = await guard.execute(
+        demo_call,
+        "ok",
+        context=AgentContext(user_id="user-1"),
+        audit_callback=audit_events.append,
+        tool_name="demo_call",
+    )
+
+    assert result == {"value": "ok", "token": "[REDACTED]"}
+    assert [event["status"] for event in audit_events] == ["started", "completed"]
+    assert audit_events[1]["tool_name"] == "demo_call"
+    assert audit_events[1]["output_summary"].startswith("{'value': 'ok'")
 
 
 @pytest.mark.asyncio
@@ -197,3 +260,8 @@ def test_production_agent_definitions_are_registered():
     assert definitions["interview_turn"].checkpoint_policy == "durable"
     assert definitions["voice_interview_turn"].checkpoint_policy == "durable"
     assert all(item.cancellation_policy == "cooperative" for item in definitions.values())
+    for definition in definitions.values():
+        assert definition.graph_name in graph_registry.names()
+        assert definition.prompt_name is not None
+        assert definition.prompt_version is not None
+        assert definition.prompt_version in prompt_registry.versions(definition.prompt_name)

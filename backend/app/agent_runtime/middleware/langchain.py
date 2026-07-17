@@ -3,18 +3,45 @@
 from collections.abc import Collection
 from typing import Any
 
-from langchain.agents.middleware import (
-    HumanInTheLoopMiddleware,
-    ModelCallLimitMiddleware,
-    ModelFallbackMiddleware,
-    ModelRetryMiddleware,
-    PIIMiddleware,
-    ToolCallLimitMiddleware,
-    wrap_tool_call,
-)
-
 from app.agent_runtime.context import AgentContext
 from .content_safety import prompt_injection_middleware
+
+try:  # pragma: no cover - 运行时可选依赖
+    from langchain.agents.middleware import (
+        HumanInTheLoopMiddleware,
+        ModelCallLimitMiddleware,
+        ModelFallbackMiddleware,
+        ModelRetryMiddleware,
+        PIIMiddleware,
+        ToolCallLimitMiddleware,
+        wrap_tool_call,
+    )
+except ModuleNotFoundError:  # pragma: no cover - 轻量测试环境
+    def wrap_tool_call(func):
+        return func
+
+    class _StubMiddleware:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            self.args = args
+            self.kwargs = kwargs
+
+    class HumanInTheLoopMiddleware(_StubMiddleware):
+        pass
+
+    class ModelCallLimitMiddleware(_StubMiddleware):
+        pass
+
+    class ModelFallbackMiddleware(_StubMiddleware):
+        pass
+
+    class ModelRetryMiddleware(_StubMiddleware):
+        pass
+
+    class PIIMiddleware(_StubMiddleware):
+        pass
+
+    class ToolCallLimitMiddleware(_StubMiddleware):
+        pass
 
 
 def permission_middleware(tool_permissions: dict[str, Collection[str]]):

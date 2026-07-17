@@ -13,7 +13,7 @@ from langchain_openai import ChatOpenAI
 from langchain_core.callbacks.base import BaseCallbackHandler
 
 from app.config import get_settings
-from app.services.observability import get_langchain_callbacks
+from app.services.observability import extract_token_usage, get_langchain_callbacks, record_model_event
 from app.services.url_security import validate_outbound_url
 
 
@@ -548,9 +548,18 @@ class ModelGateway:
         last_error: Exception | None = None
         for index, config in enumerate(configs):
             identity = _identity(config)
+            model_name = config.get("model")
             if identity != reserved_identity:
                 self.scheduler.start(identity)
             yielded = False
+            started = time()
+            record_model_event(
+                event_type="voice.request.started",
+                channel="voice",
+                model_name=model_name,
+                model_member=identity,
+                candidate_index=index + 1,
+            )
             try:
                 client = get_async_omni_client(config)
                 completion = await client.chat.completions.create(
@@ -559,14 +568,35 @@ class ModelGateway:
                     stream_options=stream_options or {"include_usage": True},
                     **self.get_voice_request_options(api_config, config),
                 )
+                last_chunk = None
                 async for chunk in completion:
                     yielded = True
+                    last_chunk = chunk
                     yield chunk
                 self.scheduler.record_success(identity)
+                usage = extract_token_usage(last_chunk) if last_chunk is not None else {"input_tokens": None, "output_tokens": None}
+                record_model_event(
+                    event_type="voice.request.completed",
+                    channel="voice",
+                    model_name=model_name,
+                    model_member=identity,
+                    candidate_index=index + 1,
+                    duration_ms=max(0, int((time() - started) * 1000)),
+                    **usage,
+                )
                 return
             except Exception as exc:
                 self.scheduler.record_failure(identity)
                 last_error = exc
+                record_model_event(
+                    event_type="voice.request.failed",
+                    channel="voice",
+                    model_name=model_name,
+                    model_member=identity,
+                    candidate_index=index + 1,
+                    duration_ms=max(0, int((time() - started) * 1000)),
+                    error_type=type(exc).__name__,
+                )
                 if yielded:
                     raise
                 logging.getLogger(__name__).warning(
@@ -597,6 +627,13 @@ class ModelGateway:
         config = self.get_embedding_client_config(model=model, dimensions=dimensions)
         identity = _identity(config)
         self.scheduler.start(identity)
+        started = time()
+        record_model_event(
+            event_type="embedding.request.started",
+            channel="embedding",
+            model_name=config.get("model"),
+            model_member=identity,
+        )
         try:
             client = create_embedding_client(config)
             response = await client.embeddings.create(
@@ -604,9 +641,26 @@ class ModelGateway:
                 **self.get_embedding_request_options(model=config["model"], dimensions=config["dimensions"]),
             )
             self.scheduler.record_success(identity)
+            usage = extract_token_usage(response)
+            record_model_event(
+                event_type="embedding.request.completed",
+                channel="embedding",
+                model_name=config.get("model"),
+                model_member=identity,
+                duration_ms=max(0, int((time() - started) * 1000)),
+                **usage,
+            )
             return response
-        except Exception:
+        except Exception as exc:
             self.scheduler.record_failure(identity)
+            record_model_event(
+                event_type="embedding.request.failed",
+                channel="embedding",
+                model_name=config.get("model"),
+                model_member=identity,
+                duration_ms=max(0, int((time() - started) * 1000)),
+                error_type=type(exc).__name__,
+            )
             raise
 
 

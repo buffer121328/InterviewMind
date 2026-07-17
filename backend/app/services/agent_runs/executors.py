@@ -58,9 +58,10 @@ async def execute_resume_optimize(payload: dict, user_id: str, progress: Progres
         resume_content=payload["resume_content"],
         job_description=payload["job_description"],
         session_ids=session_ids,
-        include_overall_profile=bool(payload.get("include_overall_profile", False)),
+        include_profile=bool(payload.get("include_overall_profile", False)),
         user_id=user_id,
         api_config=payload.get("api_config"),
+        run_id=agent_run_id,
     )
     result = initialize_review(result)
     await progress("saving_result")

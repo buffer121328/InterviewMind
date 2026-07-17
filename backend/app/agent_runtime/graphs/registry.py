@@ -42,25 +42,25 @@ graph_registry = GraphRegistry()
 
 
 async def _build_interview(**kwargs: Any) -> Any:
-    from app.services.interview.interview_graph import build_interview_graph
+    from app.agents.interview.graph import build_interview_graph
 
     return await build_interview_graph(**kwargs)
 
 
 def _build_resume_analyzer(**kwargs: Any) -> Any:
-    from app.services.resume.resume_analyzer_graph import build_resume_analyzer_graph
+    from app.agents.resume_analyzer.graph import build_resume_analyzer_graph
 
     return build_resume_analyzer_graph(**kwargs)
 
 
 def _build_resume_optimizer(**kwargs: Any) -> Any:
-    from app.services.resume.resume_optimizer_graph import build_resume_optimizer_graph
+    from app.agents.resume_optimizer.graph import build_resume_optimizer_graph
 
     return build_resume_optimizer_graph(**kwargs)
 
 
 def _build_resume_generator(**kwargs: Any) -> Any:
-    from app.services.resume.resume_generation_graph import build_resume_generation_graph
+    from app.agents.resume_generator.graph import build_resume_generation_graph
 
     return build_resume_generation_graph(**kwargs)
 

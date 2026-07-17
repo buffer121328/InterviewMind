@@ -5,8 +5,12 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from langchain.agents.middleware import wrap_tool_call
-from langchain_core.messages import ToolMessage
+try:  # pragma: no cover - 运行时可选依赖
+    from langchain.agents.middleware import wrap_tool_call
+    from langchain_core.messages import ToolMessage
+except ModuleNotFoundError:  # pragma: no cover - 轻量测试环境
+    wrap_tool_call = None
+    ToolMessage = Any
 
 
 _INJECTION_PATTERNS = tuple(
@@ -33,15 +37,23 @@ def contains_prompt_injection(value: Any) -> bool:
     return False
 
 
-@wrap_tool_call
-async def prompt_injection_middleware(request: Any, handler: Any):
-    """不将被判定为注入的工具输出交给模型。"""
-    response = await handler(request)
-    if isinstance(response, ToolMessage) and contains_prompt_injection(response.content):
-        return response.model_copy(
-            update={
-                "content": "[BLOCKED] 工具输出包含可疑的指令注入，已隔离。",
-                "status": "error",
-            }
-        )
-    return response
+if wrap_tool_call is not None:
+
+    @wrap_tool_call
+    async def prompt_injection_middleware(request: Any, handler: Any):
+        """不将被判定为注入的工具输出交给模型。"""
+        response = await handler(request)
+        if isinstance(response, ToolMessage) and contains_prompt_injection(response.content):
+            return response.model_copy(
+                update={
+                    "content": "[BLOCKED] 工具输出包含可疑的指令注入，已隔离。",
+                    "status": "error",
+                }
+            )
+        return response
+
+else:
+
+    async def prompt_injection_middleware(request: Any, handler: Any):  # pragma: no cover - 轻量测试环境
+        """轻量测试环境下的占位实现。"""
+        return await handler(request)

@@ -111,6 +111,7 @@ async def run_pipeline(
     api_config: Optional[dict] = None,
     session_ids: Optional[List[str]] = None,
     include_profile: bool = False,
+    run_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     执行 6 阶段简历优化流水线。
@@ -138,6 +139,7 @@ async def run_pipeline(
             "session_count": len(session_ids),
             "include_profile": include_profile,
         },
+        run_id=run_id,
     ) as observation:
         result = await _run_pipeline(
             resume_content=resume_content,

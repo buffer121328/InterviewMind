@@ -80,8 +80,15 @@ def _job_tools(context: AgentContext) -> list[Any]:
     )
 
 
+def _memory_tools(context: AgentContext) -> list[Any]:
+    from app.services.tools.memory_tools import make_memory_tools
+
+    return make_memory_tools(user_id=context.user_id)
+
+
 tool_registry.register(ToolSpec("interview", _interview_tools, effect="read"))
 tool_registry.register(ToolSpec("resume", _resume_tools, effect="read"))
+tool_registry.register(ToolSpec("memory", _memory_tools, effect="read"))
 tool_registry.register(
     ToolSpec(
         "job_application",

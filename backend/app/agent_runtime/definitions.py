@@ -17,6 +17,9 @@ class AgentDefinition:
     steps: tuple[tuple[str, str], ...]
     checkpoint_policy: CheckpointPolicy = "none"
     cancellation_policy: CancellationPolicy = "cooperative"
+    graph_name: str | None = None
+    prompt_name: str | None = None
+    prompt_version: str | None = None
 
 
 class AgentDefinitionRegistry:

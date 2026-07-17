@@ -94,6 +94,17 @@ def serialize_run(run: AgentRunModel) -> dict:
         "plan": build_task_plan(run.task_type, run.stage, run.status),
         "result": run.result,
         "error_message": run.error_message,
+        "trace_id": getattr(run, "trace_id", None),
+        "model_provider": getattr(run, "model_provider", None),
+        "model_name": getattr(run, "model_name", None),
+        "model_member": getattr(run, "model_member", None),
+        "request_latency_ms": getattr(run, "request_latency_ms", None),
+        "input_tokens": getattr(run, "input_tokens", None),
+        "output_tokens": getattr(run, "output_tokens", None),
+        "fallback_count": getattr(run, "fallback_count", None),
+        "fallback_path": getattr(run, "fallback_path", None),
+        "estimated_cost_usd": getattr(run, "estimated_cost_usd", None),
+        "model_error_type": getattr(run, "model_error_type", None),
         "attempts": run.attempts,
         "max_attempts": max_attempts(),
         "can_retry": allows_whole_run_retry(run.task_type) and run.status in {"failed", "cancelled"} and run.attempts < max_attempts(),
@@ -118,6 +129,118 @@ def serialize_event(event: AgentRunEventModel) -> dict:
     }
 
 
+def _as_non_negative_int(value: Any) -> int | None:
+    if value is None:
+        return None
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def _summarize_model_events(model_events: list[dict[str, Any]]) -> dict[str, Any]:
+    """从模型事件聚合 AgentRun 的可查询观测字段。"""
+    summary: dict[str, Any] = {
+        "model_provider": None,
+        "model_name": None,
+        "model_member": None,
+        "request_latency_ms": None,
+        "input_tokens": None,
+        "output_tokens": None,
+        "fallback_count": 0,
+        "fallback_path": None,
+        "estimated_cost_usd": None,
+        "model_error_type": None,
+    }
+    total_latency = 0
+    total_input = 0
+    total_output = 0
+    has_latency = False
+    has_input = False
+    has_output = False
+    fallback_path: list[dict[str, Any]] = []
+    candidate_positions: dict[tuple[Any, ...], int] = {}
+
+    for event in model_events:
+        event_type = str(event.get("event_type") or "")
+        is_terminal = event_type.endswith(".completed") or event_type.endswith(".failed")
+        if is_terminal:
+            if event.get("channel"):
+                summary["model_provider"] = event.get("channel")
+            if event.get("model_name"):
+                summary["model_name"] = event.get("model_name")
+            if event.get("model_member"):
+                summary["model_member"] = event.get("model_member")
+
+            duration = _as_non_negative_int(event.get("duration_ms"))
+            if duration is not None:
+                has_latency = True
+                total_latency += duration
+
+            input_tokens = _as_non_negative_int(event.get("input_tokens"))
+            if input_tokens is not None:
+                has_input = True
+                total_input += input_tokens
+
+            output_tokens = _as_non_negative_int(event.get("output_tokens"))
+            if output_tokens is not None:
+                has_output = True
+                total_output += output_tokens
+
+            candidate_index = _as_non_negative_int(event.get("candidate_index")) or 0
+            candidate_key = (
+                event.get("channel"),
+                event.get("model_name"),
+                event.get("model_member"),
+                candidate_index,
+            )
+            path_item = {
+                "candidate_index": candidate_index or None,
+                "channel": event.get("channel"),
+                "model_name": event.get("model_name"),
+                "model_member": event.get("model_member"),
+                "status": "completed" if event_type.endswith(".completed") else "failed",
+                "duration_ms": duration,
+                "error_type": event.get("error_type"),
+            }
+            if candidate_key in candidate_positions:
+                fallback_path[candidate_positions[candidate_key]] = path_item
+            else:
+                candidate_positions[candidate_key] = len(fallback_path)
+                fallback_path.append(path_item)
+
+            if event_type.endswith(".failed") and event.get("error_type"):
+                summary["model_error_type"] = event.get("error_type")
+
+    summary["request_latency_ms"] = total_latency if has_latency else None
+    summary["input_tokens"] = total_input if has_input else None
+    summary["output_tokens"] = total_output if has_output else None
+    summary["fallback_path"] = fallback_path or None
+    summary["fallback_count"] = max(0, len(fallback_path) - 1)
+    summary["estimated_cost_usd"] = _estimate_cost_usd(summary["input_tokens"], summary["output_tokens"])
+    return summary
+
+
+def _estimate_cost_usd(input_tokens: Any, output_tokens: Any) -> float | None:
+    input_rate = _env_float("LLM_INPUT_COST_PER_1K_TOKENS_USD")
+    output_rate = _env_float("LLM_OUTPUT_COST_PER_1K_TOKENS_USD")
+    if input_rate is None and output_rate is None:
+        return None
+    input_count = _as_non_negative_int(input_tokens) or 0
+    output_count = _as_non_negative_int(output_tokens) or 0
+    return round((input_count / 1000 * (input_rate or 0.0)) + (output_count / 1000 * (output_rate or 0.0)), 8)
+
+
+def _env_float(name: str) -> float | None:
+    value = os.getenv(name)
+    if value is None or value == "":
+        return None
+    try:
+        return max(0.0, float(value))
+    except ValueError:
+        return None
+
+
 class AgentRunService:
     async def _append_event(
         self,
@@ -140,6 +263,36 @@ class AgentRunService:
         )
         session.add(event)
         return event
+
+    async def record_observation(
+        self,
+        run_id: str,
+        *,
+        trace_id: str,
+        model_events: list[dict[str, Any]] | None = None,
+    ) -> None:
+        """回填一次 Agent 观测到 AgentRun，并保存模型调用事件。"""
+        events = [dict(event) for event in (model_events or [])]
+        async with UnitOfWork(async_session) as uow:
+            session = uow.db
+            run = await session.get(AgentRunModel, run_id, with_for_update=True)
+            if not run:
+                return
+
+            now = _now()
+            run.trace_id = trace_id
+            if events:
+                summary = _summarize_model_events(events)
+                for field, value in summary.items():
+                    if value is not None or field == "fallback_count":
+                        setattr(run, field, value)
+            run.updated_at = now
+
+            for event in events:
+                event_type = str(event.get("event_type") or "model.event")
+                payload = {key: value for key, value in event.items() if key != "event_type"}
+                payload["trace_id"] = trace_id
+                await self._append_event(session, run, event_type, payload)
 
     async def create_or_get(self, *, user_id: str, payload: dict, idempotency_key: str, task_type: str = TASK_TYPE_INTERVIEW_START) -> tuple[AgentRunModel, bool]:
         if task_type not in TASK_DEFINITIONS:
