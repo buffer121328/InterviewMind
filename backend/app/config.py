@@ -22,6 +22,8 @@ class AppSettings(BaseSettings):
     llm_pool_inflight_ttl_seconds: int = Field(default=600, ge=30, le=3600)
     allow_private_model_base_urls: bool = True
     api_config_validation_timeout_seconds: int = Field(default=10, ge=1, le=60)
+    # 本地开发默认自动同步表结构；需要严格迁移验证时设为 false，仅使用 Alembic。
+    auto_create_tables: bool = True
 
     boss_automation_service_url: str = ""
     boss_automation_service_token: SecretStr = SecretStr("")
