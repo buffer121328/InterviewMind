@@ -68,6 +68,8 @@ def test_serialized_run_excludes_encrypted_payload():
     run = AgentRunModel(
         id="run-1", user_id="user-1", task_type="interview_start", status="queued", stage="queued",
         idempotency_key="turn-1", payload_encrypted="never-expose", result=None, error_message=None,
+        trace_id="trace-1", model_provider="openai", model_name="gpt-5", model_member="smart",
+        request_latency_ms=123, input_tokens=456, output_tokens=789, fallback_count=2, model_error_type="RateLimitError",
         attempts=0, created_at=now, updated_at=now, started_at=None, finished_at=None,
     )
 
@@ -81,6 +83,10 @@ def test_serialized_run_excludes_encrypted_payload():
         "status": "running",
     }
     assert public["max_attempts"] == 3
+    assert public["trace_id"] == "trace-1"
+    assert public["model_provider"] == "openai"
+    assert public["input_tokens"] == 456
+    assert public["fallback_count"] == 2
     assert public["can_retry"] is False
 
 
@@ -97,6 +103,31 @@ def test_generic_task_plans_are_task_specific():
     assert [step["id"] for step in resume_plan] == ["queued", "preparing", "optimizing", "saving_result"]
     assert resume_plan[2]["status"] == "running"
     assert report_plan[3]["status"] == "running"
+
+
+
+
+def test_serialized_run_includes_observability_fields_when_present():
+    now = datetime.now()
+    run = AgentRunModel(
+        id="run-obs", user_id="user-1", task_type="interview_start", status="running", stage="loading_context",
+        idempotency_key="turn-obs", payload_encrypted="encrypted", result=None, error_message=None,
+        trace_id="trace-obs", model_provider="anthropic", model_name="claude", model_member="fallback",
+        request_latency_ms=88, input_tokens=10, output_tokens=20, fallback_count=1,
+        fallback_path=[{"model_name": "claude", "status": "completed"}], estimated_cost_usd=0.0012,
+        model_error_type="TimeoutError",
+        attempts=1, created_at=now, updated_at=now, started_at=now, finished_at=None,
+    )
+
+    public = serialize_run(run)
+
+    assert public["trace_id"] == "trace-obs"
+    assert public["model_provider"] == "anthropic"
+    assert public["model_name"] == "claude"
+    assert public["request_latency_ms"] == 88
+    assert public["fallback_path"] == [{"model_name": "claude", "status": "completed"}]
+    assert public["estimated_cost_usd"] == 0.0012
+    assert public["model_error_type"] == "TimeoutError"
 
 
 @pytest.mark.asyncio
@@ -461,6 +492,116 @@ async def test_succeed_with_result_writer_uses_same_uow_session(monkeypatch):
     assert run.result == {"success": True, "result_id": 7}
     assert run.finished_at is not None
     assert appended == [("run.completed", None)]
+
+
+@pytest.mark.asyncio
+async def test_record_observation_persists_summary_and_model_events(monkeypatch):
+    from app.services.agent_runs import service as service_module
+
+    now = datetime.now()
+    run = AgentRunModel(
+        id="run-obs", user_id="user-1", task_type="voice_interview_turn", status="running", stage="generating_response",
+        idempotency_key="voice-turn", payload_encrypted="encrypted", result=None, error_message=None,
+        attempts=1, created_at=now, updated_at=now, started_at=now, finished_at=None,
+    )
+    appended: list[tuple[str, dict | None]] = []
+    commits: list[str] = []
+
+    class FakeSession:
+        async def get(self, _model, run_id, with_for_update=False):
+            assert run_id == "run-obs"
+            assert with_for_update is True
+            return run
+
+        async def commit(self):
+            commits.append("commit")
+
+        async def rollback(self):
+            raise AssertionError("不应回滚成功路径")
+
+        async def close(self):
+            return None
+
+    async def append_event(self, _session, _run, event_type, payload=None):
+        appended.append((event_type, payload))
+
+    monkeypatch.setattr(service_module, "async_session", lambda: FakeSession())
+    monkeypatch.setattr(service_module.AgentRunService, "_append_event", append_event)
+    monkeypatch.setenv("LLM_INPUT_COST_PER_1K_TOKENS_USD", "0.01")
+    monkeypatch.setenv("LLM_OUTPUT_COST_PER_1K_TOKENS_USD", "0.02")
+
+    await service_module.AgentRunService().record_observation(
+        "run-obs",
+        trace_id="trace-obs",
+        model_events=[
+            {
+                "event_type": "voice.request.started",
+                "channel": "voice",
+                "model_name": "gpt-voice-a",
+                "model_member": "member-a",
+                "candidate_index": 1,
+            },
+            {
+                "event_type": "voice.request.failed",
+                "channel": "voice",
+                "model_name": "gpt-voice-a",
+                "model_member": "member-a",
+                "candidate_index": 1,
+                "duration_ms": 12,
+                "error_type": "TimeoutError",
+            },
+            {
+                "event_type": "voice.request.completed",
+                "channel": "voice",
+                "model_name": "gpt-voice-b",
+                "model_member": "member-b",
+                "candidate_index": 2,
+                "fallback_index": 1,
+                "duration_ms": 19,
+                "input_tokens": 10,
+                "output_tokens": 5,
+            },
+        ],
+    )
+
+    assert commits == ["commit"]
+    assert run.trace_id == "trace-obs"
+    assert run.model_provider == "voice"
+    assert run.model_name == "gpt-voice-b"
+    assert run.model_member == "member-b"
+    assert run.request_latency_ms == 31
+    assert run.input_tokens == 10
+    assert run.output_tokens == 5
+    assert run.fallback_count == 1
+    assert run.fallback_path == [
+        {
+            "candidate_index": 1,
+            "channel": "voice",
+            "model_name": "gpt-voice-a",
+            "model_member": "member-a",
+            "status": "failed",
+            "duration_ms": 12,
+            "error_type": "TimeoutError",
+        },
+        {
+            "candidate_index": 2,
+            "channel": "voice",
+            "model_name": "gpt-voice-b",
+            "model_member": "member-b",
+            "status": "completed",
+            "duration_ms": 19,
+            "error_type": None,
+        },
+    ]
+    assert run.estimated_cost_usd == 0.0002
+    assert run.model_error_type == "TimeoutError"
+    assert [item[0] for item in appended] == [
+        "voice.request.started",
+        "voice.request.failed",
+        "voice.request.completed",
+    ]
+    assert appended[-1][1]["trace_id"] == "trace-obs"
+    assert "event_type" not in appended[-1][1]
 
 
 @pytest.mark.asyncio

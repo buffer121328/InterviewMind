@@ -13,6 +13,7 @@ from typing import Optional, List, Dict, Any, Literal, TypedDict, AsyncGenerator
 
 from app.config import get_settings
 from app.services import llms
+from app.services.observability import agent_observation
 from app.repositories.session.session_repo import SessionRepo
 
 logger = logging.getLogger(__name__)
@@ -29,6 +30,7 @@ class VoiceInterviewState(TypedDict):
     # 基础信息
     session_id: str
     user_id: str
+    run_id: Optional[str]
     api_config: Dict[str, Any]
     
     # 面试规划
@@ -999,7 +1001,8 @@ async def process_voice_chat(
     api_config: Dict[str, Any],
     is_greeting: bool = False,
     audio_id: Optional[str] = None,
-    user_id: str = "default_user"
+    user_id: str = "default_user",
+    run_id: Optional[str] = None,
 ) -> AsyncGenerator[str, None]:
     """
     处理语音对话请求（对外接口，兼容现有调用）
@@ -1023,6 +1026,7 @@ async def process_voice_chat(
     state: VoiceInterviewState = {
         "session_id": session_id,
         "user_id": user_id,
+        "run_id": run_id,
         "api_config": api_config,
         "interview_plan": [],  # 在这个入口不使用
         "system_prompt": system_prompt,
@@ -1042,17 +1046,37 @@ async def process_voice_chat(
             is_greeting = True
     
     logger.info(f"[Voice] process_voice_chat: session={session_id}, phase={state['current_phase']}, is_greeting={is_greeting}")
-    
-    # 路由到对应节点
-    node_name = route_voice_entry(state)
-    logger.info(f"[Voice] 路由结果: {node_name}")
-    
-    if node_name == "greeting" or is_greeting:
-        async for event in node_greeting(state):
-            yield event
-    elif node_name == "summary":
-        async for event in node_summary(state):
-            yield event
-    else:
-        async for event in node_responder(state):
-            yield event
+
+    async with agent_observation(
+        name="voice-interview",
+        agent_type="voice",
+        user_id=user_id,
+        session_id=session_id,
+        run_id=run_id,
+        input_payload={
+            "phase": state["current_phase"],
+            "history_count": len(history or []),
+            "has_audio": bool(audio_base64),
+            "has_text": bool(text_message),
+            "is_greeting": bool(is_greeting),
+        },
+    ) as observation:
+        # 路由到对应节点
+        node_name = route_voice_entry(state)
+        logger.info(f"[Voice] 路由结果: {node_name}")
+
+        if node_name == "greeting" or is_greeting:
+            async for event in node_greeting(state):
+                yield event
+        elif node_name == "summary":
+            async for event in node_summary(state):
+                yield event
+        else:
+            async for event in node_responder(state):
+                yield event
+
+        observation.set_output({
+            "node": node_name,
+            "phase": state["current_phase"],
+            "is_greeting": bool(is_greeting),
+        })

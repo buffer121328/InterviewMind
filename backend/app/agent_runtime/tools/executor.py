@@ -2,7 +2,8 @@
 
 import asyncio
 import ipaddress
-from dataclasses import dataclass
+import time
+from dataclasses import asdict, dataclass
 from typing import Any, Awaitable, Callable, Collection
 from urllib.parse import urlparse
 
@@ -18,6 +19,20 @@ class ToolExecutionPolicy:
     max_retries: int = 0
     retry_effects: frozenset[ToolEffect] = frozenset({"none", "read"})
     redact_results: bool = True
+
+
+
+
+@dataclass(frozen=True, slots=True)
+class ToolAuditRecord:
+    tool_name: str
+    effect: ToolEffect
+    status: str
+    duration_ms: int | None = None
+    input_summary: str | None = None
+    output_summary: str | None = None
+    error_type: str | None = None
+    error_message: str | None = None
 
 
 class ToolApprovalRequired(PermissionError):
@@ -52,6 +67,7 @@ class ToolExecutionGuard:
         requires_confirmation: bool | None = None,
         confirmed: bool = False,
         tool_name: str | None = None,
+        audit_callback: Callable[[dict[str, Any]], None] | None = None,
         **kwargs: Any,
     ) -> Any:
         missing = set(required_permissions).difference(context.permissions)
@@ -68,14 +84,55 @@ class ToolExecutionGuard:
 
         self.calls += 1
         attempts = 1 + (self.policy.max_retries if effect in self.policy.retry_effects else 0)
+        started = time.perf_counter()
+        input_summary = str((args, kwargs))[:200]
+        if audit_callback is not None:
+            audit_callback(
+                asdict(
+                    ToolAuditRecord(
+                        tool_name=tool_name or getattr(call, "__name__", "tool"),
+                        effect=effect,
+                        status="started",
+                        input_summary=input_summary,
+                    )
+                )
+            )
         for attempt in range(attempts):
             try:
                 result = await asyncio.wait_for(
                     call(*args, **kwargs), timeout=self.policy.timeout_seconds
                 )
-                return _redact(result) if self.policy.redact_results else result
-            except (TimeoutError, ConnectionError):
+                output = _redact(result) if self.policy.redact_results else result
+                if audit_callback is not None:
+                    audit_callback(
+                        asdict(
+                            ToolAuditRecord(
+                                tool_name=tool_name or getattr(call, "__name__", "tool"),
+                                effect=effect,
+                                status="completed",
+                                duration_ms=max(0, int((time.perf_counter() - started) * 1000)),
+                                input_summary=input_summary,
+                                output_summary=str(output)[:300],
+                            )
+                        )
+                    )
+                return output
+            except Exception as exc:
                 if attempt == attempts - 1:
+                    if audit_callback is not None:
+                        audit_callback(
+                            asdict(
+                                ToolAuditRecord(
+                                    tool_name=tool_name or getattr(call, "__name__", "tool"),
+                                    effect=effect,
+                                    status="failed",
+                                    duration_ms=max(0, int((time.perf_counter() - started) * 1000)),
+                                    input_summary=input_summary,
+                                    error_type=type(exc).__name__,
+                                    error_message=str(exc)[:200],
+                                )
+                            )
+                        )
                     raise
 
 

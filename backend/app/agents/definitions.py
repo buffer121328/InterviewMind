@@ -10,6 +10,9 @@ _DEFINITIONS = (
         title="生成面试首题",
         steps=(("queued", "等待执行资源"), ("loading_context", "读取简历与面试上下文"), ("generating_question", "规划面试并生成首题")),
         checkpoint_policy="durable",
+        graph_name="interview",
+        prompt_name="interview.planner",
+        prompt_version="1",
     ),
     AgentDefinition(
         name="interview_turn",
@@ -24,6 +27,9 @@ _DEFINITIONS = (
             ("saving_response", "保存面试进度与回复"),
         ),
         checkpoint_policy="durable",
+        graph_name="interview",
+        prompt_name="interview.evaluating",
+        prompt_version="1",
     ),
     AgentDefinition(
         name="voice_interview_turn",
@@ -37,6 +43,9 @@ _DEFINITIONS = (
             ("streaming_response", "推送语音回复"),
         ),
         checkpoint_policy="durable",
+        graph_name="interview",
+        prompt_name="voice.system",
+        prompt_version="1",
     ),
     AgentDefinition(
         name="resume_optimizer",
@@ -44,6 +53,9 @@ _DEFINITIONS = (
         task_type="resume_optimize",
         title="优化简历",
         steps=(("queued", "等待执行资源"), ("preparing", "读取简历、JD 与关联面试"), ("optimizing", "执行简历优化流水线"), ("saving_result", "保存优化结果")),
+        graph_name="resume_optimizer",
+        prompt_name="resume.match_analyst",
+        prompt_version="1",
     ),
     AgentDefinition(
         name="interview_reporter",
@@ -51,6 +63,9 @@ _DEFINITIONS = (
         task_type="interview_report",
         title="生成面试报告",
         steps=(("queued", "等待执行资源"), ("loading_session", "读取面试问答"), ("generating_profile", "生成本轮能力画像"), ("generating_weakness", "生成短板地图"), ("saving_report", "保存报告")),
+        graph_name="interview",
+        prompt_name="analysis.weakness_report",
+        prompt_version="1",
     ),
     AgentDefinition(
         name="job_asset_builder",
@@ -58,6 +73,9 @@ _DEFINITIONS = (
         task_type="job_assets",
         title="生成岗位投递资产",
         steps=(("queued", "等待执行资源"), ("loading_job", "读取岗位与候选人资料"), ("analyzing_jd", "分析岗位匹配度"), ("generating_assets", "生成定制简历与招呼文案"), ("saving_assets", "保存岗位资产")),
+        graph_name="resume_generator",
+        prompt_name="resume.jd_match.user",
+        prompt_version="1",
     ),
 )
 

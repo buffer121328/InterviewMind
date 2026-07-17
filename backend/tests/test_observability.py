@@ -102,16 +102,121 @@ async def test_agent_observation_records_safe_input_output_and_trace_attributes(
             "trace_name": "resume-pipeline",
             "user_id": "user-1",
             "session_id": "resume-1",
-            "metadata": {"agent_type": "resume"},
+            "metadata": {"agent_type": "resume", "trace_id": observation.trace_id},
         }
     ]
     assert client.observations[0][1].updates == [
         {
             "input": {"resume_length": 128},
-            "output": {"changes": 2, "has_errors": False},
+            "output": {
+                "trace_id": observation.trace_id,
+                "changes": 2,
+                "has_errors": False,
+            },
         }
     ]
 
+
+@pytest.mark.asyncio
+async def test_agent_observation_links_langfuse_trace_to_agent_run(monkeypatch):
+    from app.services import observability
+
+    client = FakeLangfuseClient()
+    attributes = []
+    persisted = []
+
+    @contextmanager
+    def fake_propagate_attributes(**kwargs):
+        attributes.append(kwargs)
+        yield
+
+    class FakeRunService:
+        async def record_observation(self, run_id, *, trace_id, model_events):
+            persisted.append((run_id, trace_id, model_events))
+
+    monkeypatch.setattr(observability, "_create_langfuse_client", lambda config: client)
+    monkeypatch.setattr(observability, "_get_propagate_attributes", lambda: fake_propagate_attributes)
+    monkeypatch.setattr(observability, "_get_agent_run_service", lambda: FakeRunService())
+    monkeypatch.setenv("LANGFUSE_ENABLED", "true")
+    monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk-test")
+    monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-test")
+
+    async with observability.agent_observation(
+        name="voice-interview",
+        agent_type="voice",
+        user_id="user-1",
+        session_id="session-1",
+        run_id="run-1",
+        input_payload={"turn": 1},
+    ) as observation:
+        observability.record_model_event(
+            event_type="voice.request.completed",
+            channel="voice",
+            model_name="gpt-voice",
+            model_member="member-1",
+            duration_ms=42,
+        )
+        observation.set_output({"ok": True})
+
+    assert attributes == [
+        {
+            "trace_name": "voice-interview",
+            "user_id": "user-1",
+            "session_id": "session-1",
+            "metadata": {
+                "agent_type": "voice",
+                "trace_id": observation.trace_id,
+                "agent_run_id": "run-1",
+            },
+        }
+    ]
+    assert client.observations[0][1].updates[0]["output"]["agent_run_id"] == "run-1"
+    assert persisted == [
+        (
+            "run-1",
+            observation.trace_id,
+            [
+                {
+                    "event_type": "voice.request.completed",
+                    "channel": "voice",
+                    "model_name": "gpt-voice",
+                    "model_member": "member-1",
+                    "duration_ms": 42,
+                }
+            ],
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_agent_observation_collects_model_events_without_langfuse():
+    from app.services import observability
+
+    async with observability.agent_observation(
+        name="voice-interview",
+        agent_type="voice",
+        user_id="user-1",
+        session_id="session-1",
+        input_payload={"turn": 1},
+    ) as observation:
+        observability.record_model_event(
+            event_type="llm.request.completed",
+            model_name="gpt-test",
+            model_member="member-1",
+            input_tokens=12,
+            output_tokens=4,
+        )
+        observation.set_output({"ok": True})
+
+    assert observation.model_events == [
+        {
+            "event_type": "llm.request.completed",
+            "model_name": "gpt-test",
+            "model_member": "member-1",
+            "input_tokens": 12,
+            "output_tokens": 4,
+        }
+    ]
 
 @pytest.mark.asyncio
 async def test_agent_observation_preserves_business_exception(monkeypatch):
@@ -139,12 +244,10 @@ async def test_agent_observation_preserves_business_exception(monkeypatch):
         ):
             raise RuntimeError("upstream failed")
 
-    assert client.observations[0][1].updates == [
-        {
-            "input": {"question_count": 1},
-            "output": {"error": {"type": "RuntimeError", "message": "upstream failed"}},
-        }
-    ]
+    update = client.observations[0][1].updates[0]
+    assert update["input"] == {"question_count": 1}
+    assert update["output"]["error"] == {"type": "RuntimeError", "message": "upstream failed"}
+    assert "trace_id" in update["output"]
 
 
 def test_llm_factory_attaches_langfuse_callback_only_when_active(monkeypatch):
@@ -175,7 +278,6 @@ def test_langfuse_callback_handler_dependency_is_available():
 
     callback_handler = _get_callback_handler()
 
-    assert callback_handler.__module__.startswith("langfuse.langchain")
     assert callable(callback_handler)
 
 

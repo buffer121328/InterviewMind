@@ -51,6 +51,7 @@ class VoiceStreamUseCases:
             is_greeting=request.is_greeting,
             audio_id=request.audio_id,
             user_id=user_id,
+            run_id=run.id,
         )
         return self._wrap_stream(source=source, run_id=run.id, session_id=request.session_id)
 

@@ -5,6 +5,7 @@
 
 import asyncio
 import logging
+import time
 from typing import Type, TypeVar, Optional, Dict, Any
 
 from pydantic import BaseModel
@@ -12,6 +13,7 @@ from langchain_openai import ChatOpenAI
 
 from app.config import get_settings
 from app.services import llms
+from app.services.observability import extract_token_usage, record_model_event
 
 logger = logging.getLogger(__name__)
 
@@ -24,16 +26,51 @@ async def _invoke_with_fallback(input_value: object, output_model: Type[T], api_
     last_error: Optional[Exception] = None
     candidates = llms.model_gateway.get_chat_candidates(api_config, channel)
     for candidate_index, current_llm in enumerate(candidates):
+        model_member = getattr(current_llm, "_model_pool_identity", None)
+        model_name = getattr(current_llm, "model_name", None) or getattr(current_llm, "model", None)
         structured_llm = current_llm.with_structured_output(output_model)
         attempts = max_retries + 1 if candidate_index == 0 else 1
         for attempt in range(attempts):
+            started = time.perf_counter()
+            record_model_event(
+                event_type="llm.request.started",
+                channel=channel,
+                model_name=model_name,
+                model_member=model_member,
+                candidate_index=candidate_index + 1,
+                attempt=attempt + 1,
+                max_retries=max_retries,
+            )
             try:
                 result = await asyncio.wait_for(structured_llm.ainvoke(input_value), timeout=timeout)
                 llms.model_gateway.record_chat_success(current_llm)
+                usage = extract_token_usage(result)
+                record_model_event(
+                    event_type="llm.request.completed",
+                    channel=channel,
+                    model_name=model_name,
+                    model_member=model_member,
+                    candidate_index=candidate_index + 1,
+                    attempt=attempt + 1,
+                    duration_ms=max(0, int((time.perf_counter() - started) * 1000)),
+                    fallback_index=candidate_index,
+                    **usage,
+                )
                 logger.debug("结构化输出成功: candidate=%s attempt=%s", candidate_index + 1, attempt + 1)
                 return result
             except Exception as exc:
                 last_error = exc
+                record_model_event(
+                    event_type="llm.request.failed",
+                    channel=channel,
+                    model_name=model_name,
+                    model_member=model_member,
+                    candidate_index=candidate_index + 1,
+                    attempt=attempt + 1,
+                    duration_ms=max(0, int((time.perf_counter() - started) * 1000)),
+                    fallback_index=candidate_index,
+                    error_type=type(exc).__name__,
+                )
                 if attempt + 1 < attempts:
                     logger.warning("结构化输出重试: candidate=%s attempt=%s", candidate_index + 1, attempt + 1)
         llms.model_gateway.record_chat_failure(current_llm)

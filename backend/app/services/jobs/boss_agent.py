@@ -26,7 +26,7 @@ class BossSearchState(TypedDict, total=False):
 
 
 def _build_boss_graph(
-    *, user_id: str, resume_content: str, api_config: dict, guard: ToolExecutionGuard
+    *, user_id: str, resume_content: str, api_config: dict, guard: ToolExecutionGuard, audit_events: list[dict[str, Any]]
 ):
     """构造一次请求专用的图；密钥留在闭包中，不进入 state/checkpoint。"""
     context = AgentContext(
@@ -34,11 +34,16 @@ def _build_boss_graph(
         permissions=frozenset({"jobs:automate"}),
     )
 
+    def record_audit(event: dict[str, Any]) -> None:
+        audit_events.append(event)
+
     async def check_environment(state: BossSearchState) -> dict:
         result = await guard.execute(
             boss_tools.check_environment,
             context=context,
             effect="read",
+            audit_callback=record_audit,
+            tool_name="check_environment",
         )
         error = "" if result.startswith("✅") else result
         return {"environment": result, "error": error}
@@ -68,6 +73,8 @@ def _build_boss_graph(
             api_config=api_config,
             context=context,
             effect="read",
+            audit_callback=record_audit,
+            tool_name="extract_job_cards_from_page",
         )
         return {"cards": cards, "error": "" if cards else "未提取到岗位"}
 
@@ -83,6 +90,8 @@ def _build_boss_graph(
             api_config=api_config,
             context=context,
             effect="read",
+            audit_callback=record_audit,
+            tool_name="score_jobs_by_match",
         )
         return {"cards": cards[: state["top_n"]]}
 
@@ -94,6 +103,8 @@ def _build_boss_graph(
             context=context,
             effect="write",
             required_permissions={"jobs:automate"},
+            audit_callback=record_audit,
+            tool_name="save_job_to_database",
         )
         result = {"card": card, "save": saved}
         job_id = saved.get("job_id")
@@ -107,6 +118,8 @@ def _build_boss_graph(
                 context=context,
                 effect="write",
                 required_permissions={"jobs:automate"},
+                audit_callback=record_audit,
+                tool_name="generate_job_assets",
             )
         return result
 
@@ -153,11 +166,13 @@ async def run_boss_search(
     guard = ToolExecutionGuard(
         ToolExecutionPolicy(timeout_seconds=240, max_calls=4 + max(0, top_n) * 2, max_retries=1)
     )
+    audit_events: list[dict[str, Any]] = []
     workflow = _build_boss_graph(
         user_id=user_id,
         resume_content=resume_content,
         api_config=api_config,
         guard=guard,
+        audit_events=audit_events,
     )
     graph = workflow.compile(checkpointer=await get_checkpointer())
     try:
@@ -184,6 +199,7 @@ async def run_boss_search(
             "total": len(jobs),
             "jobs": jobs,
             "message": error or f"搜索完成，处理 {len(jobs)} 个岗位",
+            "audit_events": audit_events,
         }
     except Exception as exc:
         logger.error("[BossGraph] 执行失败: %s", exc, exc_info=True)
