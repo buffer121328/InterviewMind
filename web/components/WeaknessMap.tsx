@@ -18,7 +18,7 @@ import {
     type WeaknessReport
 } from '@/lib/api/weakness';
 import { createInterviewReportRun, pollAgentRun } from '@/lib/api/agentRuns';
-import { useInterviewStore } from '@/store/useInterviewStore';
+import { getRequestApiConfig } from '@/store/interviewFacade';
 import { Button } from './ui/button';
 import { cn } from '@/lib/utils';
 
@@ -75,7 +75,7 @@ export function WeaknessMap({ sessionId, autoLoad = true }: WeaknessMapProps) {
         setGenerating(true);
         setError(null);
 
-        const apiConfig = useInterviewStore.getState().getApiConfigForRequest();
+        const apiConfig = getRequestApiConfig();
         if (!apiConfig) {
             setError('请先在设置中配置 API Key');
             setGenerating(false);

@@ -1,4 +1,4 @@
-import type { AgentRun, AgentRunEvent, AgentRunPlanStep, AgentRunStatus, AgentRunEventType } from './api/agentRuns';
+import type { AgentRun, AgentRunEvent, AgentRunPlanStep, AgentRunStatus, AgentRunEventType } from './api/agentRunTypes';
 
 const TERMINAL_STATUSES = new Set<AgentRunStatus>(['succeeded', 'failed', 'cancelled']);
 const SUPPORTED_SCHEMA_VERSION = 1;
@@ -35,14 +35,15 @@ export function parseAgentRunEventEnvelope(content: unknown): AgentRunEvent | nu
         const value = typeof content === 'string' ? JSON.parse(content) : content;
         if (!isRecord(value)) return null;
         if (typeof value.run_id !== 'string' || typeof value.type !== 'string') return null;
-        if (!KNOWN_AGENT_RUN_EVENT_TYPES.has(value.type as AgentRunEventType)) return null;
+        const eventType = value.type as AgentRunEventType;
+        if (!KNOWN_AGENT_RUN_EVENT_TYPES.has(eventType)) return null;
         const schemaVersion = typeof value.schema_version === 'number' ? value.schema_version : SUPPORTED_SCHEMA_VERSION;
         if (schemaVersion !== SUPPORTED_SCHEMA_VERSION) return null;
         return {
             event_id: typeof value.event_id === 'string' ? value.event_id : '',
             run_id: value.run_id,
             sequence: typeof value.sequence === 'number' ? value.sequence : 0,
-            type: value.type,
+            type: eventType,
             stage: typeof value.stage === 'string' || value.stage === null ? value.stage : null,
             payload: isRecord(value.payload) ? value.payload : {},
             schema_version: schemaVersion,
@@ -182,4 +183,44 @@ export function applyAgentRunEvent(run: AgentRun, event: AgentRunEvent): AgentRu
 
 export function applyAgentRunEventList(runs: AgentRun[], event: AgentRunEvent): AgentRun[] {
     return runs.map(run => (run.run_id === event.run_id ? applyAgentRunEvent(run, event) : run));
+}
+
+export type InteractiveExecutionPlanStepStatus = 'pending' | 'running' | 'completed' | 'failed';
+
+export interface InteractiveExecutionPlanStep {
+    id: string;
+    title: string;
+    status: InteractiveExecutionPlanStepStatus;
+}
+
+const INTERACTIVE_PLAN_STEPS: InteractiveExecutionPlanStep[] = [
+    { id: 'save_answer', title: '记录本轮回答', status: 'pending' },
+    { id: 'analyze_answer', title: '分析回答并决定追问策略', status: 'pending' },
+    { id: 'generate_response', title: '生成反馈与下一题', status: 'pending' },
+    { id: 'update_progress', title: '更新面试进度', status: 'pending' },
+];
+
+export function buildInteractiveExecutionPlan(events: AgentRunEvent[]): InteractiveExecutionPlanStep[] {
+    const latest = events[events.length - 1];
+    if (!latest) return INTERACTIVE_PLAN_STEPS.map(step => ({ ...step }));
+    const failed = latest.type === 'run.failed' || latest.type === 'run.cancelled';
+    const completed = latest.type === 'run.completed';
+    const stage = latest.stage || '';
+
+    return INTERACTIVE_PLAN_STEPS.map(step => {
+        if (completed) return { ...step, status: 'completed' };
+        if (failed) return { ...step, status: step.id === 'generate_response' ? 'failed' : step.status };
+        if (stage === 'saving_answer') {
+            return step.id === 'save_answer' ? { ...step, status: 'running' } : { ...step };
+        }
+        if (stage === 'generating_response') {
+            if (step.id === 'save_answer' || step.id === 'analyze_answer') return { ...step, status: 'completed' };
+            if (step.id === 'generate_response') return { ...step, status: 'running' };
+        }
+        if (stage === 'saving_response') {
+            if (step.id !== 'update_progress') return { ...step, status: 'completed' };
+            return { ...step, status: 'running' };
+        }
+        return { ...step };
+    });
 }

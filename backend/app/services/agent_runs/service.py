@@ -319,6 +319,8 @@ class AgentRunService:
                 "task_type": task_type,
                 "agent_name": definition.name,
                 "agent_version": definition.version,
+                "prompt_name": definition.prompt_name,
+                "prompt_version": definition.prompt_version,
                 "checkpoint_policy": definition.checkpoint_policy,
                 "cancellation_policy": definition.cancellation_policy,
             })

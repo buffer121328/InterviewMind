@@ -1,15 +1,22 @@
-import { useState, useEffect, useEffectEvent, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Mic, MicOff, PhoneOff, SendHorizontal, Loader2 } from 'lucide-react';
 import { useVoiceChat } from '@/hooks/useVoiceChat';
 import { toast } from 'sonner';
 import { useInterviewStore } from '@/store/useInterviewStore';
-import { getUserId } from '@/hooks/useUserIdentity';
 import { saveAudioLocally } from '@/lib/audioStorage';
 import { cn } from '@/lib/utils';
 import { PreparingInterview } from './interview/PreparingInterview';
-import { type ApiConfig } from '@/lib/api/resume';
 import { type Message } from '@/store/types';
-import { parseSseFrames } from '@/lib/sse';
+import { useVoiceSseStream } from '@/hooks/useVoiceSseStream';
+import { useVoicePlaybackFlow } from '@/hooks/useVoicePlaybackFlow';
+import { useVoiceInterviewSession, type VoiceInterviewStatus } from '@/hooks/useVoiceInterviewSession';
+import {
+    getVoiceGreetingHistorySnapshot,
+    getVoiceTurnContext,
+    selectInterviewSession,
+    setVoiceInterviewProgress,
+    type VoiceRequestApiConfig,
+} from '@/store/interviewFacade';
 
 interface VoiceInterviewProps {
     sessionId: string;
@@ -21,20 +28,16 @@ function isAbortError(error: unknown): boolean {
 }
 
 export function VoiceInterview({ sessionId, onEnd }: VoiceInterviewProps) {
-    const [status, setStatus] = useState<'initializing' | 'listening' | 'speaking' | 'processing' | 'idle'>('initializing');
+    const [status, setStatus] = useState<VoiceInterviewStatus>('initializing');
     const [isMuted, setIsMuted] = useState(false);
+    const { readVoiceSseStream } = useVoiceSseStream();
+    const playbackFlow = useVoicePlaybackFlow();
 
     // 使用 Zustand store 管理语音面试状态
     const voiceHistory = useInterviewStore(state => state.voiceHistory);
     const setVoiceHistory = useInterviewStore(state => state.setVoiceHistory);
     const updateLastVoiceMessage = useInterviewStore(state => state.updateLastVoiceMessage);
-    const setInitializing = useInterviewStore((state) => state.setInitializing);
-    const fetchSessions = useInterviewStore((state) => state.fetchSessions);
 
-    // 追踪是否在等待播放完成后启动录音
-    const waitingForPlaybackRef = useRef(false);
-    // 新增：追踪面试是否即将结束（等待播放完）
-    const isInterviewEndPendingRef = useRef(false);
     // 用于中断正在进行的网络请求 (SSE)
     const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -64,7 +67,7 @@ export function VoiceInterview({ sessionId, onEnd }: VoiceInterviewProps) {
                 }
 
                 // 如果面试即将结束，锁定状态，不让其变为 listening
-                if (isInterviewEndPendingRef.current) {
+                if (playbackFlow.shouldHoldVadStatus()) {
                     return prevStatus; // 保持当前状态（通常是 idle 或 processing）
                 }
 
@@ -73,23 +76,19 @@ export function VoiceInterview({ sessionId, onEnd }: VoiceInterviewProps) {
         },
         onPlaybackComplete: () => {
             // 当音频播放完成时，检查是否需要启动录音
-            if (waitingForPlaybackRef.current) {
+            if (playbackFlow.consumeWaitingForPlayback()) {
                 console.log('[VoiceInterview] 音频播放完成，现在启动录音');
-                waitingForPlaybackRef.current = false;
                 startRecording();
                 setStatus('listening');
             }
 
             // 新增：检查是否需要结束面试
-            if (isInterviewEndPendingRef.current) {
+            if (playbackFlow.shouldHoldVadStatus()) {
                 console.log('[VoiceInterview] 结束语播放完成，跳转回顾界面');
                 handleHangUp();
             }
         }
     });
-
-    // 2. 初始化：规划面试
-    const hasInitialized = useRef(false);
 
     // 挂断并同步数据
     const handleHangUp = async () => {
@@ -97,7 +96,7 @@ export function VoiceInterview({ sessionId, onEnd }: VoiceInterviewProps) {
             // 只停止录音和音频播放，不中断 SSE 流，让数据继续接收完成
             stopRecording();
             // 在退出前强制同步一次会话详情，确保回顾界面有最新消息
-            await useInterviewStore.getState().selectSession(sessionId);
+            await selectInterviewSession(sessionId);
         } catch (error) {
             console.error('[VoiceInterview] 同步会话失败:', error);
         } finally {
@@ -107,7 +106,7 @@ export function VoiceInterview({ sessionId, onEnd }: VoiceInterviewProps) {
 
     // 专门用于开场白的流式生成（在初始化时调用）
     async function sendToOmniForGreeting(
-        apiConfig: ApiConfig,
+        apiConfig: NonNullable<VoiceRequestApiConfig>,
         prompt: string,
         greetingText: string
     ) {
@@ -116,7 +115,7 @@ export function VoiceInterview({ sessionId, onEnd }: VoiceInterviewProps) {
 
         try {
             // 获取当前已恢复的历史记录（不要重置它！）
-            const currentHistory = useInterviewStore.getState().voiceHistory;
+            const currentHistory = getVoiceGreetingHistorySnapshot();
             const newHistory = [...currentHistory, { role: 'assistant' as const, content: '', timestamp: new Date().toISOString() }];
             setVoiceHistory(newHistory);
 
@@ -142,47 +141,32 @@ export function VoiceInterview({ sessionId, onEnd }: VoiceInterviewProps) {
                 throw new Error('开场白生成失败');
             }
 
-            const reader = response.body?.getReader();
-            const decoder = new TextDecoder();
-            let buffer = '';
             let fullText = '';
-
-            if (!reader) {
-                throw new Error('无法读取响应流');
-            }
 
             console.log('[VoiceInterview] 开始流式生成开场白...');
 
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-
-                const parsed = parseSseFrames(buffer, decoder.decode(value, { stream: true }));
-                buffer = parsed.buffer;
-
-                for (const frame of parsed.frames) {
-                    try {
-                        const data = JSON.parse(frame.data);
-
-                        if (data.type === 'text') {
-                            fullText += data.content;
-                            setVoiceHistory([{ role: 'assistant', content: fullText, timestamp: new Date().toISOString() }]);
-                        } else if (data.type === 'audio') {
-                            playPcmData(data.content);
-                            setStatus(prev => prev !== 'idle' ? 'idle' : prev);
-                        } else if (data.type === 'done') {
-                            console.log('[VoiceInterview] 开场白生成完成, text:', fullText.length);
-                            setStreamEnded();
-                        } else if (data.type === 'error') {
-                            console.error('[VoiceInterview] 开场白生成错误:', data.message);
-                            toast.error(data.message || '开场白生成失败');
-                            setStatus('listening');
-                        }
-                    } catch (parseError) {
-                        console.warn('解析 SSE 数据失败:', parseError);
-                    }
-                }
-            }
+            await readVoiceSseStream(response, {
+                onText: (content) => {
+                    fullText += content;
+                    setVoiceHistory([{ role: 'assistant', content: fullText, timestamp: new Date().toISOString() }]);
+                },
+                onAudio: (content) => {
+                    playPcmData(content);
+                    setStatus(prev => prev !== 'idle' ? 'idle' : prev);
+                },
+                onDone: () => {
+                    console.log('[VoiceInterview] 开场白生成完成, text:', fullText.length);
+                    setStreamEnded();
+                },
+                onError: (message) => {
+                    console.error('[VoiceInterview] 开场白生成错误:', message);
+                    toast.error(message || '开场白生成失败');
+                    setStatus('listening');
+                },
+                onMalformedFrame: (parseError) => {
+                    console.warn('解析 SSE 数据失败:', parseError);
+                },
+            });
 
         } catch (error) {
             if (isAbortError(error)) return;
@@ -192,142 +176,22 @@ export function VoiceInterview({ sessionId, onEnd }: VoiceInterviewProps) {
         }
     }
 
-    const initializeSession = useEffectEvent(async () => {
-            if (status !== 'initializing') return;
-            if (hasInitialized.current) return;
-            hasInitialized.current = true;
-
-            // 初始化 AbortController
-            if (abortControllerRef.current) abortControllerRef.current.abort();
-            abortControllerRef.current = new AbortController();
-            const signal = abortControllerRef.current.signal;
-
-            try {
-                const apiConfig = useInterviewStore.getState().getApiConfigForRequest(); // 获取配置
-                if (!apiConfig || !apiConfig.voice) {
-                    toast.error('请先在设置中配置语音模型 (Voice)');
-                    onEnd();
-                    return;
-                }
-
-                const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/voice/start`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-User-ID': getUserId()
-                    },
-                    signal, // 绑定 signal
-                    body: JSON.stringify({
-                        thread_id: sessionId,
-                        mode: 'mock',  // 必填字段
-                        api_config: apiConfig,
-                        // 传入面试上下文，支持独立启动
-                        resume_content: useInterviewStore.getState().resume?.content,
-                        resume_filename: useInterviewStore.getState().resume?.filename,
-                        job_description: useInterviewStore.getState().jobDescription,
-                        company_info: useInterviewStore.getState().companyInfo,
-                        max_questions: useInterviewStore.getState().maxQuestions,
-                        question_bank_count: useInterviewStore.getState().questionBankCount,
-                        experience_questions: useInterviewStore.getState().experienceQuestions.slice(
-                            0,
-                            useInterviewStore.getState().maxQuestions,
-                        ),
-                    })
-                });
-
-                if (signal.aborted) return; // 检查是否已中断
-                if (!response.ok) throw new Error('初始化失败');
-
-                const data = await response.json();
-                if (signal.aborted) return;
-
-                // 如果后端返回了新的 Session ID (克隆/切换场景)，同步更新 store
-                if (data.session_id && data.session_id !== sessionId) {
-                    console.info(`[VoiceInterview] 检测到 Session 变更 (文字->语音切换): ${sessionId} -> ${data.session_id}`);
-                    // 使用 useInterviewStore.setState 直接更新，并更新对应的 currentSession
-                    useInterviewStore.setState({ threadId: data.session_id });
-                    // 重新选择会话以确保 metadata 等信息同步
-                    await useInterviewStore.getState().selectSession(data.session_id);
-                }
-                if (signal.aborted) return;
-
-                // 恢复进度
-                if (data.question_count !== undefined) {
-                    useInterviewStore.getState().setInterviewProgress({
-                        current: data.question_count + 1, // 后端存的是索引(0-based)，前端展示需要 1-based
-                        total: data.max_questions || useInterviewStore.getState().maxQuestions
-                    });
-                }
-
-                // 恢复历史记录
-                const hasExistingHistory = data.history && Array.isArray(data.history) && data.history.length > 0;
-                if (hasExistingHistory) {
-                    console.log(`[VoiceInterview] 恢复历史消息: ${data.history.length} 条`);
-                    setVoiceHistory(data.history);
-                }
-
-                // 初始化完成，关闭全局加载状态（在开始生成开场白之前就切换界面）
-                useInterviewStore.getState().setExperienceQuestions([]);
-                setInitializing(false);
-
-                // 刷新侧边栏会话列表，让新创建的会话立即显示
-                fetchSessions();
-
-                // 判断是否是"继续面试"场景
-                // 如果已有历史记录，说明用户是从回顾界面点击"继续面试"，不需要再生成开场白
-                if (hasExistingHistory) {
-                    console.log('[VoiceInterview] 检测到已有历史记录，跳过开场白，直接进入录音状态');
-                    startRecording();
-                    setStatus('listening');
-                    return; // 早退
-                }
-
-                if (signal.aborted) return;
-
-                // 使用流式方式生成开场白音频
-                console.log('[VoiceInterview] 初始化完成，开始流式生成开场白...');
-                if (data.greeting_text) {
-                    // 设置标志，等待音频播放完成后再启动录音
-                    waitingForPlaybackRef.current = true;
-                    // 调用 sendToOmni 来流式生成开场白
-                    await sendToOmniForGreeting(apiConfig, data.system_prompt, data.greeting_text);
-                    console.log('[VoiceInterview] 开场白 SSE 流结束，等待音频播放完成...');
-                } else {
-                    // 没有开场白时直接启动录音
-                    startRecording();
-                    setStatus('listening');
-                }
-
-            } catch (error) {
-                if (isAbortError(error)) return;
-                console.error(error);
-                toast.error('无法启动语音面试');
-                hasInitialized.current = false;
-                setInitializing(false); // 发生错误也要重置状态
-                handleHangUp();
-            }
+    useVoiceInterviewSession({
+        sessionId,
+        status,
+        abortControllerRef,
+        onEnd,
+        onHangUp: handleHangUp,
+        startRecording,
+        setStatus,
+        sendGreeting: sendToOmniForGreeting,
+        markWaitingForPlayback: playbackFlow.markWaitingForPlayback,
+        resetPlaybackFlow: playbackFlow.resetPlaybackFlow,
     });
-
-    useEffect(() => {
-        void Promise.resolve().then(() => initializeSession());
-        // 清理函数：组件卸载时中断所有进行中的网络请求
-        return () => {
-            console.log('[VoiceInterview] 组件卸载，清理资源...');
-            if (abortControllerRef.current) {
-                abortControllerRef.current.abort();
-                abortControllerRef.current = null;
-            }
-            // 重置标志位，确保下次挂载时可以正确初始化
-            hasInitialized.current = false;
-            waitingForPlaybackRef.current = false;
-            isInterviewEndPendingRef.current = false;
-        };
-    }, [sessionId]);
-
 
     // 3. 发送音频/文本给 Omni (SSE 流式接收)
     async function sendToOmni(
-        apiConfig: ApiConfig,
+        apiConfig: NonNullable<VoiceRequestApiConfig>,
         prompt: string,
         chatHistory: Message[],
         audioBlob: Blob | null,
@@ -391,70 +255,53 @@ export function VoiceInterview({ sessionId, onEnd }: VoiceInterviewProps) {
                 throw new Error('请求失败');
             }
 
-            const reader = response.body?.getReader();
-            const decoder = new TextDecoder();
-            let buffer = '';
             let fullText = '';
-
-            if (!reader) {
-                throw new Error('无法读取响应流');
-            }
 
             console.log('[VoiceInterview] 开始读取流...');
 
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
+            await readVoiceSseStream(response, {
+                onText: (content) => {
+                    // 流式更新文本（累积到最后一条 assistant 消息）
+                    fullText += content;
+                    updateLastVoiceMessage(fullText);
+                },
+                onAudio: (content) => {
+                    // 播放 PCM 音频分片
+                    playPcmData(content);
+                    // 状态保持 idle，直到播放结束（由 setStreamEnded 触发）
+                    setStatus(prev => prev !== 'idle' ? 'idle' : prev);
+                },
+                onProgress: (current, total) => {
+                    // 更新全局进度状态
+                    setVoiceInterviewProgress(current, total);
+                },
+                onComplete: () => {
+                    // 面试官表示面试已结束
+                    console.log('[VoiceInterview] 面试已完成，等待语音播放结束...');
+                    toast.success('面试已顺利结束');
+                    playbackFlow.markInterviewEndPending();
 
-                const parsed = parseSseFrames(buffer, decoder.decode(value, { stream: true }));
-                buffer = parsed.buffer;
-
-                for (const frame of parsed.frames) {
-                    try {
-                        const data = JSON.parse(frame.data);
-
-                        if (data.type === 'text') {
-                            // 流式更新文本（累积到最后一条 assistant 消息）
-                            fullText += data.content;
-                            updateLastVoiceMessage(fullText);
-                        } else if (data.type === 'audio') {
-                            // 播放 PCM 音频分片
-                            playPcmData(data.content);
-                            // 状态保持 idle，直到播放结束（由 setStreamEnded 触发）
-                            setStatus(prev => prev !== 'idle' ? 'idle' : prev);
-                        } else if (data.type === 'progress') {
-                            // 更新全局进度状态
-                            const state = useInterviewStore.getState();
-                            useInterviewStore.getState().setInterviewProgress({
-                                current: data.current,
-                                total: state.interviewProgress?.total || state.maxQuestions
-                            });
-                        } else if (data.type === 'complete') {
-                            // 面试官表示面试已结束
-                            console.log('[VoiceInterview] 面试已完成，等待语音播放结束...');
-                            toast.success('面试已顺利结束');
-                            isInterviewEndPendingRef.current = true;
-
-                            // 安全兜底：如果15秒后还没跳转，强制跳转
-                            setTimeout(() => {
-                                if (isInterviewEndPendingRef.current) {
-                                    console.warn('[VoiceInterview] 播放结束回调超时，强制跳转');
-                                    handleHangUp();
-                                }
-                            }, 15000);
-                        } else if (data.type === 'done') {
-                            console.log('[VoiceInterview] 响应完成, text:', fullText.length);
-                            setStreamEnded();
-                        } else if (data.type === 'error') {
-                            console.error('[VoiceInterview] Server Error:', data.message);
-                            toast.error(data.message || 'AI 响应失败');
-                            setStatus('listening');
+                    // 安全兜底：如果15秒后还没跳转，强制跳转
+                    setTimeout(() => {
+                        if (playbackFlow.shouldHoldVadStatus()) {
+                            console.warn('[VoiceInterview] 播放结束回调超时，强制跳转');
+                            handleHangUp();
                         }
-                    } catch (parseError) {
-                        console.warn('解析 SSE 数据失败:', parseError);
-                    }
-                }
-            }
+                    }, 15000);
+                },
+                onDone: () => {
+                    console.log('[VoiceInterview] 响应完成, text:', fullText.length);
+                    setStreamEnded();
+                },
+                onError: (message) => {
+                    console.error('[VoiceInterview] Server Error:', message);
+                    toast.error(message || 'AI 响应失败');
+                    setStatus('listening');
+                },
+                onMalformedFrame: (parseError) => {
+                    console.warn('解析 SSE 数据失败:', parseError);
+                },
+            });
 
         } catch (error) {
             if (isAbortError(error)) return;
@@ -468,12 +315,8 @@ export function VoiceInterview({ sessionId, onEnd }: VoiceInterviewProps) {
     async function handleUserAudio(audioBlob: Blob, transcript?: string) {
         if (isMuted) return;
 
-        const apiConfig = useInterviewStore.getState().getApiConfigForRequest();
+        const { apiConfig, history: latestHistory, systemPrompt: latestPrompt } = getVoiceTurnContext();
         if (!apiConfig) return;
-
-        // 使用 getState() 获取最新值，避免闭包问题
-        const latestHistory = useInterviewStore.getState().voiceHistory;
-        const latestPrompt = useInterviewStore.getState().voiceSystemPrompt;
 
         console.log(`[VoiceInterview] Audio captured. Transcript: "${transcript || ''}"`);
 

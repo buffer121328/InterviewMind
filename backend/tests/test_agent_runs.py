@@ -430,6 +430,7 @@ async def test_succeed_turns_cancel_requested_run_into_cancelled(monkeypatch):
     async def append_event(self, _session, _run, event_type, payload=None):
         appended.append((event_type, payload))
 
+    monkeypatch.setenv("TASK_PAYLOAD_ENCRYPTION_KEY", Fernet.generate_key().decode())
     monkeypatch.setattr(service_module, "async_session", lambda: FakeSession())
     monkeypatch.setattr(service_module.AgentRunService, "_append_event", append_event)
 
@@ -525,6 +526,7 @@ async def test_record_observation_persists_summary_and_model_events(monkeypatch)
     async def append_event(self, _session, _run, event_type, payload=None):
         appended.append((event_type, payload))
 
+    monkeypatch.setenv("TASK_PAYLOAD_ENCRYPTION_KEY", Fernet.generate_key().decode())
     monkeypatch.setattr(service_module, "async_session", lambda: FakeSession())
     monkeypatch.setattr(service_module.AgentRunService, "_append_event", append_event)
     monkeypatch.setenv("LLM_INPUT_COST_PER_1K_TOKENS_USD", "0.01")
@@ -605,6 +607,61 @@ async def test_record_observation_persists_summary_and_model_events(monkeypatch)
 
 
 @pytest.mark.asyncio
+async def test_create_or_get_emits_prompt_version_in_created_event(monkeypatch):
+    from app.services.agent_runs import service as service_module
+
+    appended: list[tuple[str, dict | None]] = []
+
+    class FakeSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def scalar(self, _stmt):
+            return None
+
+        def add(self, _item):
+            return None
+
+        async def flush(self):
+            return None
+
+        async def commit(self):
+            return None
+
+        async def rollback(self):
+            return None
+
+        async def refresh(self, _item):
+            return None
+
+        async def close(self):
+            return None
+
+    async def append_event(self, _session, _run, event_type, payload=None):
+        appended.append((event_type, payload))
+
+    monkeypatch.setenv("TASK_PAYLOAD_ENCRYPTION_KEY", Fernet.generate_key().decode())
+    monkeypatch.setattr(service_module, "async_session", lambda: FakeSession())
+    monkeypatch.setattr(service_module.AgentRunService, "_append_event", append_event)
+
+    run, created = await service_module.AgentRunService().create_or_get(
+        user_id="user-1",
+        payload={"thread_id": "turn-1"},
+        idempotency_key="turn-1",
+        task_type="interview_start",
+    )
+
+    assert created is True
+    assert run.created_at is not None
+    assert appended and appended[0][0] == "run.created"
+    assert appended[0][1]["prompt_name"] == "interview.planner"
+    assert appended[0][1]["prompt_version"] == "1"
+
+
+@pytest.mark.asyncio
 async def test_event_stream_replays_from_last_event_id_when_larger(monkeypatch):
     from types import SimpleNamespace
     from app.api import agent_runs
@@ -681,6 +738,7 @@ async def test_mark_cancelled_uses_cancelled_state_and_event(monkeypatch):
     async def append_event(self, _session, _run, event_type, payload=None):
         appended.append((event_type, payload))
 
+    monkeypatch.setenv("TASK_PAYLOAD_ENCRYPTION_KEY", Fernet.generate_key().decode())
     monkeypatch.setattr(service_module, "async_session", lambda: FakeSession())
     monkeypatch.setattr(service_module.AgentRunService, "_append_event", append_event)
 

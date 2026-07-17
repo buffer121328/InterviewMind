@@ -8,6 +8,7 @@ import { Button } from "./ui/button";
 import { SessionProfileDialog } from "./SessionProfileDialog";
 import { toast } from "sonner";
 import { getUserId } from "@/hooks/useUserIdentity";
+import { getRequestApiConfig } from "@/store/interviewFacade";
 
 interface InterviewAreaProps {
     children: ReactNode;
@@ -110,7 +111,7 @@ export function InterviewArea({ children }: InterviewAreaProps) {
         const handleGenerateSummary = async () => {
             if (isGeneratingSummary) return;
             setIsGeneratingSummary(true);
-            const apiConfig = useInterviewStore.getState().getApiConfigForRequest();
+            const apiConfig = getRequestApiConfig();
 
             try {
                 const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/voice/summary`, {

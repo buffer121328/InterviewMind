@@ -5,7 +5,7 @@ import { Loader2, RefreshCw, AlertCircle, CheckCircle2, Check, Brain, Wand2, Lig
 import { getOverallProfile, generateProfile, type AbilityProfile } from '@/lib/api/profile';
 import { AbilityRadarChart } from './RadarChart';
 import { Button } from './ui/button';
-import { useInterviewStore } from '@/store/useInterviewStore';
+import { getRequestApiConfig } from '@/store/interviewFacade';
 
 const PROFILE_DIMENSIONS: Array<{
     key: keyof Pick<
@@ -56,7 +56,7 @@ export function AbilityProfileView() {
         setError(null);
 
         // 获取当前 API 配置
-        const apiConfig = useInterviewStore.getState().getApiConfigForRequest();
+        const apiConfig = getRequestApiConfig();
 
         if (!apiConfig) {
             setError('请先在设置中配置 API Key');

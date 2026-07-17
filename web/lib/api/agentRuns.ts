@@ -1,49 +1,16 @@
 import { apiRequest, getUserId, API_BASE_URL } from './config';
+import type { AgentRun, AgentRunStatus, AgentRunTaskType } from './agentRunTypes';
 
-export type AgentRunStatus = 'queued' | 'retrying' | 'running' | 'cancel_requested' | 'succeeded' | 'failed' | 'cancelled';
-export type AgentRunTaskType = 'interview_start' | 'interview_turn' | 'voice_interview_turn' | 'resume_optimize' | 'interview_report' | 'job_assets';
-
-export const AGENT_RUN_EVENT_TYPES = [
-    'run.created',
-    'run.started',
-    'run.stage.changed',
-    'run.completed',
-    'run.failed',
-    'run.cancelled',
-    'run.cancel.requested',
-    'run.retry.requested',
-    'run.recovered',
-    'run.requeued',
-] as const;
-
-export type AgentRunEventType = typeof AGENT_RUN_EVENT_TYPES[number];
-
-export interface AgentRunPlanStep {
-    id: string;
-    title: string;
-    status: 'pending' | 'running' | 'completed' | 'failed';
-}
-
-export interface AgentRun {
-    run_id: string;
-    agent_name: string;
-    agent_version: string;
-    task_type: AgentRunTaskType;
-    title: string;
-    status: AgentRunStatus;
-    stage: string;
-    plan: AgentRunPlanStep[];
-    result?: Record<string, unknown> | null;
-    error_message?: string | null;
-    attempts: number;
-    max_attempts: number;
-    can_retry: boolean;
-    can_cancel: boolean;
-    created_at: string;
-    updated_at: string;
-    started_at?: string | null;
-    finished_at?: string | null;
-}
+export type {
+    AgentRun,
+    AgentRunEvent,
+    AgentRunEventType,
+    AgentRunPlanStep,
+    AgentRunStatus,
+    AgentRunTaskType,
+} from './agentRunTypes';
+export { AGENT_RUN_EVENT_TYPES } from './agentRunTypes';
+export { listAgentRunEvents, streamAgentRunEvents } from './agentRunEvents';
 
 export async function listAgentRuns(params: {
     status?: AgentRunStatus;
@@ -127,52 +94,5 @@ export async function pollAgentRun(
             }, 1200);
             signal?.addEventListener('abort', onAbort, { once: true });
         });
-    }
-}
-
-export interface AgentRunEvent {
-    event_id: string;
-    run_id: string;
-    sequence: number;
-    type: AgentRunEventType;
-    stage?: string | null;
-    payload: Record<string, unknown>;
-    schema_version: number;
-    timestamp: string;
-}
-
-export async function listAgentRunEvents(
-    runId: string,
-    afterSequence = 0,
-): Promise<AgentRunEvent[]> {
-    const response = await apiRequest<{ events: AgentRunEvent[] }>(
-        `/api/agent-runs/${runId}/events?after_sequence=${afterSequence}`,
-    );
-    return response.events || [];
-}
-
-export async function streamAgentRunEvents(
-    runId: string,
-    onEvent: (event: AgentRunEvent) => void,
-    signal?: AbortSignal,
-    afterSequence = 0,
-): Promise<void> {
-    const response = await fetch(
-        `${API_BASE_URL}/api/agent-runs/${runId}/events/stream?after_sequence=${afterSequence}`,
-        { headers: { 'X-User-ID': getUserId() }, signal },
-    );
-    if (!response.ok || !response.body) throw new Error(`订阅任务事件失败: HTTP ${response.status}`);
-
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-    while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        const parsed = parseSseFrames(buffer, decoder.decode(value, { stream: true }));
-        buffer = parsed.buffer;
-        for (const frame of parsed.frames) {
-            onEvent(JSON.parse(frame.data) as AgentRunEvent);
-        }
     }
 }
