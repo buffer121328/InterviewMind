@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from app.api import chat
+from app.application.interview.stream import ChatStreamUseCases
 
 
 class _Chunk:
@@ -46,13 +46,14 @@ def _decode(line: str) -> dict:
 
 @pytest.mark.asyncio
 async def test_event_generator_emits_execution_plan(monkeypatch):
-    monkeypatch.setattr(chat, "session_repo", _Repo())
     monkeypatch.setattr("app.services.agent_memory.should_skip_write", lambda *_args: True)
     lease = _Lease()
+    use_cases = ChatStreamUseCases()
+    use_cases._session_repo = _Repo()
 
     lines = [
         line
-        async for line in chat.event_generator(
+        async for line in use_cases._event_generator(
             _Graph(),
             {"current_question_index": 1, "max_questions": 5},
             {},
@@ -70,7 +71,7 @@ async def test_event_generator_emits_execution_plan(monkeypatch):
     assert "token" in types
     assert types[-1] == "done"
     plan = json.loads(events[0]["content"])
-    assert [step["id"] for step in plan] == [
+    assert [step["id"] for step in plan["steps"]] == [
         "save_answer",
         "analyze_answer",
         "generate_response",

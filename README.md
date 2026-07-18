@@ -101,7 +101,7 @@ LangGraph → SSE(plan / step_update / token / state_update / done)
 基于 mem0 + pgvector，自动从面试对话中提取偏好、历史经验，提供个性化建议。
 
 #### Agent 可观测性与评测
-Langfuse 可关联 Agent、工具和模型调用；DeepEval 提供离线工具正确性检查与可选的 LLM-as-Judge 质量评测。两者均可按环境变量和测试标记按需启用，不影响核心业务链路。
+Langfuse 可关联 Agent、工具和模型调用；DeepEval 提供离线工具正确性检查与可选的 LLM-as-Judge 质量评测。离线 DeepEval 断言在 pytest 中默认使用同步执行路径，避免混合 async 测试集产生 event loop deprecation warning。两者均可按环境变量和测试标记按需启用，不影响核心业务链路。
 
 > 面试评分、能力画像和改进建议用于个人练习与复盘，不代表真实招聘结论，也不替代人工判断。
 >
@@ -316,15 +316,20 @@ npm run dev
 ```bash
 cd backend
 
-# 离线回归：不调用外部 LLM 或 LLM-as-Judge
+# 完整本地回归：无 OPENAI_API_KEY 时会自动跳过 LLM-as-Judge / 真实基础设施测试
+uv run pytest -q
+
+# 快速离线回归：不调用外部 LLM 或 LLM-as-Judge
 uv run pytest -m "not llm and not eval"
 
-# 离线 DeepEval 工具调用正确性检查
-uv run deepeval test run tests/eval/test_agent_tool_correctness.py -d failing
+# 离线 DeepEval 工具调用正确性检查（pytest 中 assert_test 默认 run_async=False）
+uv run pytest tests/eval/test_agent_tool_correctness.py -q
 
 # 可选：LLM-as-Judge 评测，需要评审模型凭据并会消耗 token
 uv run pytest -m "llm and eval"
 ```
+
+测试说明：`tests/eval/conftest.py` 会集中把 DeepEval `assert_test` 默认固定为同步模式，以减少 Python 3.12 / pytest-asyncio 混合测试下的 event loop warning；`tests/test_api_integration.py` 使用轻量 asyncpg fake，避免 API 集成测试的数据库 mock 污染后续 SQLAlchemy 异步测试。
 
 ---
 

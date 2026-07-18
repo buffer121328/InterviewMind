@@ -12,6 +12,33 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 # ---------------------------------------------------------------------------
+# DeepEval assert_test 默认使用异步执行路径，会在 pytest-asyncio 的
+# 混合测试集中触发 asyncio.get_event_loop() 的弃用告警，甚至遗留未关闭
+# event loop。评测用例里的指标均可同步执行；集中把默认值固定为
+# run_async=False，单个测试仍可显式覆盖。
+# ---------------------------------------------------------------------------
+
+def _patch_deepeval_assert_test_default_sync() -> None:
+    try:
+        import deepeval
+    except Exception:
+        return
+
+    original = deepeval.assert_test
+    if getattr(original, "_agent_interview_sync_default", False):
+        return
+
+    def assert_test_sync_default(*args, run_async: bool = False, **kwargs):
+        return original(*args, run_async=run_async, **kwargs)
+
+    assert_test_sync_default._agent_interview_sync_default = True
+    deepeval.assert_test = assert_test_sync_default
+
+
+_patch_deepeval_assert_test_default_sync()
+
+
+# ---------------------------------------------------------------------------
 # 1. 固定的测试 API 配置
 # ---------------------------------------------------------------------------
 

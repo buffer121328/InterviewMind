@@ -40,7 +40,6 @@ MOCK_STATE = {
     "mode": "mock",
     "session_id": "test-session-001",
     "user_id": "test-user-001",
-    "run_id": "test-run-001",
     "interview_plan": MOCK_PLAN,
     "current_question_index": 0,
     "max_questions": 3,

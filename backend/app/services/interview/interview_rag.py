@@ -14,6 +14,11 @@ from typing import List, Optional, Dict, Any
 logger = logging.getLogger(__name__)
 
 
+def _dedupe_preserve_order(values: List[str]) -> List[str]:
+    """去重并保留来源优先级顺序。"""
+    return list(dict.fromkeys(values))
+
+
 def _bounded_int_env(name: str, default: int, minimum: int, maximum: int) -> int:
     """读取有上下界的整数配置，非法值回退默认值。"""
     try:
@@ -197,7 +202,7 @@ def build_queries(
             source_types.append("question_bank")
         queries.append(RetrievalQuery(
             text=jd_text,
-            source_types=source_types,
+            source_types=_dedupe_preserve_order(source_types),
             target_skills=target_skills,
         ))
 
@@ -314,7 +319,10 @@ def fact_guard(
     historical_questions: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """
-    事实守卫：检查证据质量
+    事实守卫：检查证据质量与租户边界。
+
+    检索层会固定注入 user_id + user_private namespace；这里做防御式二次
+    校验，避免测试桩、未来仓库实现或外部适配器误传跨用户/不可信证据。
 
     Returns:
         {"passed": bool, "issues": [...]}
@@ -325,8 +333,24 @@ def fact_guard(
     if len(evidences) == 0:
         issues.append("no_evidence")
 
-    # 2. 检查是否跨用户（所有 evidence 必须属于同一用户）
-    # 这在检索层已通过 user_id 过滤保证，这里做二次检查
+    # 2. 防御式检查租户边界与可信来源
+    allowed_namespaces = {"user_private"}
+    allowed_trust_levels = {"user_private", "user_memory"}
+    for evidence in evidences:
+        owner = (
+            evidence.metadata.get("user_id")
+            or evidence.metadata.get("owner_user_id")
+            or evidence.metadata.get("created_by")
+        )
+        if owner and str(owner) != str(user_id):
+            issues.append("cross_user_evidence")
+            break
+
+    if any(evidence.namespace not in allowed_namespaces for evidence in evidences):
+        issues.append("unexpected_namespace")
+
+    if any(evidence.trust_level not in allowed_trust_levels for evidence in evidences):
+        issues.append("untrusted_evidence")
 
     # 3. 检查是否全是低分证据
     high_score_count = sum(1 for e in evidences if e.retrieval_score > 0.3)
@@ -335,7 +359,7 @@ def fact_guard(
 
     return {
         "passed": len(issues) == 0,
-        "issues": issues,
+        "issues": list(dict.fromkeys(issues)),
     }
 
 
@@ -652,14 +676,21 @@ async def run_rag_pipeline(
             )
             agentic_triggered = outcome.triggered
             agentic_rounds = outcome.rounds
-            final_issues = list(outcome.quality.issues)
+            agentic_candidate = _merge_ranked_evidences(outcome.evidences, max_results=15)
+            agentic_candidate_quality = grade_evidences(
+                agentic_candidate,
+                min_score=AGENTIC_MIN_SCORE,
+                min_evidences=AGENTIC_MIN_EVIDENCES,
+                min_source_types=AGENTIC_MIN_SOURCE_TYPES,
+            )
+            final_issues = list(agentic_candidate_quality.issues)
 
             if (
                 AGENTIC_MODE == "active"
                 and outcome.triggered
-                and _quality_key(outcome.quality) > _quality_key(initial_quality)
+                and _quality_key(agentic_candidate_quality) > _quality_key(initial_quality)
             ):
-                reranked = _merge_ranked_evidences(outcome.evidences, max_results=15)
+                reranked = agentic_candidate
                 agentic_adopted = True
         except Exception as exc:
             # Agentic 分支永远不能阻断原 RAG 快路径。
