@@ -331,10 +331,7 @@ def get_analysis_service() -> CandidateAnalysisService:
 
 class WeaknessAnalysisService:
     """面试短板地图分析服务"""
-    
-    def __init__(self):
-        pass
-    
+
     async def generate_weakness_report(
         self,
         session_id: str,

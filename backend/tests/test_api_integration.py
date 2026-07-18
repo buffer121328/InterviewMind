@@ -81,11 +81,70 @@ def _pre_mock():
     # -- 2. 修复 conftest 的 asyncpg mock（缺少 connect 属性，需支持 await）--
     if "asyncpg" in sys.modules:
         apg = sys.modules["asyncpg"]
+
+        class _FakeAsyncpgTransaction:
+            async def start(self):
+                return None
+
+            async def commit(self):
+                return None
+
+            async def rollback(self):
+                return None
+
+        class _FakeAsyncpgConnection:
+            """Enough asyncpg surface for accidental SQLAlchemy connection attempts.
+
+            Do not use AsyncMock as the connection itself: asyncpg's SQLAlchemy
+            dialect calls some methods synchronously (for example is_closed() and
+            transaction()). If those become AsyncMock coroutines, later tests emit
+            un-awaited coroutine warnings even when the DB call is caught.
+            """
+
+            def is_closed(self):
+                return False
+
+            def transaction(self, *args, **kwargs):
+                return _FakeAsyncpgTransaction()
+
+            def terminate(self):
+                return None
+
+            def add_listener(self, *args, **kwargs):
+                return None
+
+            def remove_listener(self, *args, **kwargs):
+                return None
+
+            def add_log_listener(self, *args, **kwargs):
+                return None
+
+            def remove_log_listener(self, *args, **kwargs):
+                return None
+
+            async def close(self, *args, **kwargs):
+                return None
+
+            async def set_type_codec(self, *args, **kwargs):
+                return None
+
+            async def execute(self, *args, **kwargs):
+                return "OK"
+
+            async def fetch(self, *args, **kwargs):
+                return []
+
+            async def fetchrow(self, *args, **kwargs):
+                return None
+
+            async def fetchval(self, *args, **kwargs):
+                return None
+
+            async def prepare(self, *args, **kwargs):
+                raise RuntimeError("asyncpg is mocked in unit tests")
+
         if not hasattr(apg, "connect") or isinstance(apg.connect, MagicMock):
-            # SQLAlchemy 通过 greenlet + await 使用 asyncpg，所有方法都需要是 awaitable
-            # AsyncMock 本身及子方法都自动支持 await
-            _mock_conn = AsyncMock()
-            apg.connect = AsyncMock(return_value=_mock_conn)
+            apg.connect = AsyncMock(return_value=_FakeAsyncpgConnection())
 
     # -- 3. 预先导入 app.models，避免 backend.app.models 双重定义 --
     # （conftest 把 backend/ 加入 sys.path，导致两条导入路径）
@@ -458,10 +517,14 @@ class TestErrorResponseFormat:
 
     @pytest.fixture(autouse=True)
     def _mock_session(self):
-        """Mock session_repo，确保 get_session 返回 None (404)"""
-        mock_repo = MagicMock()
-        mock_repo.get_session = AsyncMock(return_value=None)
-        with patch("app.api.sessions.session_repo", mock_repo):
+        """Mock 当前会话管理用例，确保 get_session 走 404 分支。"""
+        from app.application.interview.sessions import SessionManagementNotFound
+
+        mock_use_cases = MagicMock()
+        mock_use_cases.get_session = AsyncMock(
+            side_effect=SessionManagementNotFound(message="会话 nonexistent 不存在")
+        )
+        with patch("app.api.sessions.session_management_use_cases", mock_use_cases):
             yield
 
     def test_404_format(self, client):

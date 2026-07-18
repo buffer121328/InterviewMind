@@ -79,6 +79,15 @@ class TestBuildQueries:
         )
         assert queries[0].target_skills == ["Python", "FastAPI"]
 
+    def test_source_types_are_deduped_when_target_skills_present(self):
+        """target_skills 不应导致 question_bank 来源重复检索。"""
+        queries = build_queries(
+            job_description="Python 工程师",
+            target_skills=["Python"],
+        )
+
+        assert queries[0].source_types == ["candidate_material", "question_bank", "jd_analysis"]
+
 
 # ── rerank_evidences 测试 ─────────────────────────────────
 
@@ -180,6 +189,51 @@ class TestFactGuard:
         result = fact_guard(evidences, "user1")
         assert result["passed"] is False
         assert "all_low_score_evidence" in result["issues"]
+
+    def test_cross_user_evidence_fails(self):
+        """证据 metadata 标明属于其他用户时必须拒绝。"""
+        evidences = [RagEvidence(
+            source_type="candidate_material",
+            source_id="m1",
+            evidence="其他用户的简历素材",
+            metadata={"user_id": "user2"},
+            retrieval_score=0.8,
+        )]
+
+        result = fact_guard(evidences, "user1")
+
+        assert result["passed"] is False
+        assert "cross_user_evidence" in result["issues"]
+
+    def test_unexpected_namespace_fails(self):
+        """RAG 结果只允许用户私有 namespace。"""
+        evidences = [RagEvidence(
+            source_type="question_bank",
+            source_id="q1",
+            evidence="公共题库证据",
+            namespace="public",
+            retrieval_score=0.8,
+        )]
+
+        result = fact_guard(evidences, "user1")
+
+        assert result["passed"] is False
+        assert "unexpected_namespace" in result["issues"]
+
+    def test_untrusted_evidence_fails(self):
+        """非用户私有/长期记忆的信任级别不能进入面试上下文。"""
+        evidences = [RagEvidence(
+            source_type="question_bank",
+            source_id="q1",
+            evidence="未知来源证据",
+            trust_level="external",
+            retrieval_score=0.8,
+        )]
+
+        result = fact_guard(evidences, "user1")
+
+        assert result["passed"] is False
+        assert "untrusted_evidence" in result["issues"]
 
 
 # ── RagResult 测试 ────────────────────────────────────────
@@ -302,6 +356,48 @@ async def _fake_memory_evidences(**kwargs):
         retrieval_score=0.8,
         trust_level="user_memory",
     )]
+
+
+class _RecordingRagRepo:
+    def __init__(self):
+        self.calls = []
+
+    async def search_structured(self, **kwargs):
+        self.calls.append(("structured", kwargs))
+        return [{
+            "source_type": "question_bank",
+            "source_id": "q1",
+            "content": "FastAPI 依赖注入题",
+            "metadata": {},
+        }]
+
+    async def search_by_text(self, **kwargs):
+        self.calls.append(("text", kwargs))
+        return []
+
+    async def search_by_vector(self, **kwargs):
+        self.calls.append(("vector", kwargs))
+        return []
+
+
+@pytest.mark.asyncio
+async def test_retrieve_queries_injects_user_boundary_and_private_namespace(monkeypatch):
+    repo = _RecordingRagRepo()
+    monkeypatch.setattr(rag_module, "VECTOR_ENABLED", False)
+
+    result = await rag_module._retrieve_queries(
+        repo=repo,
+        user_id="user-1",
+        queries=[RetrievalQuery(text="FastAPI dependency injection", source_types=["question_bank"])],
+    )
+
+    assert result[0].namespace == "user_private"
+    assert result[0].trust_level == "user_private"
+    assert {name for name, _ in repo.calls} == {"structured", "text"}
+    for _, kwargs in repo.calls:
+        assert kwargs["user_id"] == "user-1"
+        assert kwargs["namespace"] == "user_private"
+        assert kwargs["source_types"] == ["question_bank"]
 
 
 @pytest.mark.asyncio

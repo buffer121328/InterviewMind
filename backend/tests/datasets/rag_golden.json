@@ -1,0 +1,81 @@
+{
+  "corpus": [
+    {
+      "source_type": "question_bank",
+      "source_id": "q-fastapi-di",
+      "content": "FastAPI dependency injection Depends lifecycle async endpoint testing",
+      "metadata": {"target_skill": "FastAPI", "difficulty": "medium", "tags": ["FastAPI", "DI"]}
+    },
+    {
+      "source_type": "candidate_material",
+      "source_id": "m-fastapi-order",
+      "content": "Candidate built async FastAPI order API with SQLAlchemy repository and Redis cache",
+      "metadata": {"material_type": "project", "title": "Order API", "tags": ["FastAPI", "SQLAlchemy"]}
+    },
+    {
+      "source_type": "jd_analysis",
+      "source_id": "jd-fastapi",
+      "content": "Python FastAPI backend SQLAlchemy Redis async job keyword analysis",
+      "metadata": {"matched_keywords": ["Python", "FastAPI", "SQLAlchemy"]}
+    },
+    {
+      "source_type": "weakness_report",
+      "source_id": "w-system-design",
+      "content": "System design weakness: microservice boundaries cache consistency scalability",
+      "metadata": {"category": "system_design", "severity": "high"}
+    },
+    {
+      "source_type": "historical_question",
+      "source_id": "h-cache-consistency",
+      "content": "Previous question covered cache consistency and distributed transaction tradeoffs",
+      "metadata": {"topic": "system_design"}
+    },
+    {
+      "source_type": "question_bank",
+      "source_id": "q-cache-consistency",
+      "content": "Design cache consistency for microservice order system with Redis and database",
+      "metadata": {"target_skill": "system_design", "difficulty": "hard", "tags": ["cache", "microservice"]}
+    },
+    {
+      "source_type": "candidate_material",
+      "source_id": "m-django-payment",
+      "content": "Candidate led Django payment reconciliation with Celery Postgres idempotency and monitoring",
+      "metadata": {"material_type": "project", "title": "Payment reconciliation", "tags": ["Django", "Celery"]}
+    }
+  ],
+  "cases": [
+    {
+      "case_id": "jd_fastapi_recall",
+      "job_description": "Python FastAPI backend role requiring dependency injection async SQLAlchemy Redis",
+      "target_skills": ["FastAPI", "SQLAlchemy"],
+      "expected_source_ids": ["q-fastapi-di", "m-fastapi-order", "jd-fastapi"],
+      "expected_source_types": ["question_bank", "candidate_material", "jd_analysis"],
+      "min_recall_at_5": 0.6
+    },
+    {
+      "case_id": "weakness_system_design_recall",
+      "job_description": "Backend engineer interview",
+      "weakness_report": {
+        "weakness_categories": [
+          {"category": "system_design", "description": "microservice cache consistency scalability"}
+        ]
+      },
+      "expected_source_ids": ["w-system-design", "h-cache-consistency", "q-cache-consistency"],
+      "expected_source_types": ["weakness_report", "historical_question", "question_bank"],
+      "min_recall_at_5": 0.6
+    },
+    {
+      "case_id": "resume_candidate_material_recall",
+      "job_description": "Backend engineer for payment platform",
+      "resume": "Led Django payment reconciliation project using Celery Postgres idempotency monitoring and operational alerting for payment failures.",
+      "target_skills": ["Django", "Celery"],
+      "expected_source_ids": ["m-django-payment"],
+      "expected_source_types": ["candidate_material"],
+      "min_recall_at_5": 1.0
+    }
+  ],
+  "fallback_case": {
+    "case_id": "rag_no_match_fallback",
+    "job_description": "COBOL mainframe zOS assembler interview"
+  }
+}

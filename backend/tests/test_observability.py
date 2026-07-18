@@ -294,3 +294,71 @@ def test_shutdown_observability_closes_client(monkeypatch):
     observability.shutdown_observability()
 
     assert client.shutdown_called is True
+
+
+@pytest.mark.asyncio
+async def test_agent_observation_records_rag_trace_without_raw_private_content(monkeypatch):
+    """RAG 观测只记录模式、计数和 trace，不把 JD/简历/证据正文写入 Langfuse 输出。"""
+    from app.services import observability
+    from app.services.interview.interview_rag import RagEvidence, RagResult
+
+    client = FakeLangfuseClient()
+    attributes = []
+
+    @contextmanager
+    def fake_propagate_attributes(**kwargs):
+        attributes.append(kwargs)
+        yield
+
+    monkeypatch.setattr(observability, "_create_langfuse_client", lambda config: client)
+    monkeypatch.setattr(observability, "_get_propagate_attributes", lambda: fake_propagate_attributes)
+    monkeypatch.setenv("LANGFUSE_ENABLED", "true")
+    monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk-test")
+    monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-test")
+
+    rag_result = RagResult(
+        retrieval_mode="structured",
+        evidences=[RagEvidence(
+            source_type="candidate_material",
+            source_id="material-1",
+            evidence="候选人私密项目细节不应进入观测输出",
+            retrieval_score=0.8,
+        )],
+        query_used="原始 JD 正文不应进入观测输出",
+        retrieval_trace={
+            "duration_ms": 12.5,
+            "total_candidates": 3,
+            "evidence_count": 1,
+            "source_counts": {"candidate_material": 1},
+            "agentic_mode": "shadow",
+            "agentic_triggered": False,
+            "agentic_adopted": False,
+            "search_rounds": 0,
+            "initial_quality_issues": [],
+            "final_quality_issues": [],
+            "agentic_error_type": None,
+        },
+    )
+
+    async with observability.agent_observation(
+        name="interview-rag",
+        agent_type="interview",
+        user_id="user-1",
+        session_id="session-1",
+        input_payload={"jd_length": 128, "resume_length": 256},
+    ) as observation:
+        observation.set_output({
+            "retrieval_mode": rag_result.retrieval_mode,
+            "evidence_count": len(rag_result.evidences),
+            "rag_trace": rag_result.retrieval_trace,
+        })
+
+    output = client.observations[0][1].updates[0]["output"]
+    assert output["retrieval_mode"] == "structured"
+    assert output["evidence_count"] == 1
+    assert output["rag_trace"]["source_counts"] == {"candidate_material": 1}
+
+    output_text = repr(output)
+    assert "候选人私密项目细节" not in output_text
+    assert "原始 JD 正文" not in output_text
+    assert attributes[0]["metadata"]["agent_type"] == "interview"

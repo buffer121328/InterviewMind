@@ -20,7 +20,7 @@ class ModeStrategy(ABC):
     @abstractmethod
     def get_feedback_prompt(self) -> str:
         """获取反馈提示词 (用于生成面试总结报告)"""
-        pass
+        raise NotImplementedError("ModeStrategy 子类必须实现 get_feedback_prompt")
 
 
 class MockModeStrategy(ModeStrategy):

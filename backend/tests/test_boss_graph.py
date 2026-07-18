@@ -64,6 +64,7 @@ async def test_boss_graph_uses_fixed_route_and_only_processes_top_n():
             resume_content="Python",
             api_config={"fast": {"api_key": "not-in-state"}},
             guard=guard,
+            audit_events=[],
         ).compile()
         result = await graph.ainvoke({"query": "Python", "city": "上海", "top_n": 2})
 
@@ -87,7 +88,7 @@ async def test_boss_graph_stops_after_environment_failure():
         patch("app.services.jobs.boss_tools.open_boss_search_page", new=AsyncMock()) as open_page,
     ):
         result = await _build_boss_graph(
-            user_id="user-1", resume_content="", api_config={}, guard=guard
+            user_id="user-1", resume_content="", api_config={}, guard=guard, audit_events=[]
         ).compile().ainvoke({"query": "Python", "city": "", "top_n": 2})
 
     assert result["error"].startswith("环境问题")

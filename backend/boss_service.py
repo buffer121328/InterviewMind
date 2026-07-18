@@ -13,7 +13,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 ROOT_ENV = Path(__file__).resolve().parent.parent / ".env"
 load_dotenv(ROOT_ENV, override=False)
@@ -34,7 +34,9 @@ bearer = HTTPBearer(auto_error=False)
 
 
 class EmptyRequest(BaseModel):
-    pass
+    """显式的空请求体模型；拒绝误传字段。"""
+
+    model_config = ConfigDict(extra="forbid")
 
 
 class ScrapeRequest(BaseModel):
