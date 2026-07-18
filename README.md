@@ -10,7 +10,6 @@
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-336791.svg)](https://www.postgresql.org/)
 [![License: NC](https://img.shields.io/badge/License-Non--Commercial-yellow.svg)](LICENSE)
 
-
 > 🚀 **零环境快速体验**：不想配 Docker、PostgreSQL、API Key？试试 **[lite 分支](https://github.com/buffer121328/InterviewMind/tree/lite)**——核心求职工作流（模拟面试、简历优化、STAR 改写、面试复盘、BOSS 半自动化）已打包为 codex Agent 技能，2 行命令安装，零基础设施。详见 [lite 分支 README](https://github.com/buffer121328/InterviewMind/blob/lite/README.md)。
 
 ---
@@ -102,7 +101,6 @@ LangGraph → SSE(plan / step_update / token / state_update / done)
 #### Agent 可观测性与评测
 Langfuse 可关联 Agent、工具和模型调用；DeepEval 提供离线工具正确性检查与可选的 LLM-as-Judge 质量评测。离线 DeepEval 断言在 pytest 中默认使用同步执行路径，避免混合 async 测试集产生 event loop deprecation warning。两者均可按环境变量和测试标记按需启用，不影响核心业务链路。
 
-
 ### Agent Runtime、生命周期与事件
 
 四类持久化任务通过版本化 `AgentDefinition` 注册，AgentRun 保存 `agent_name` 与 `agent_version`。当前生命周期为：
@@ -124,19 +122,6 @@ event_id / run_id / sequence / type / stage / payload / schema_version / timesta
 API 启动后会周期扫描所有用户的陈旧任务，任务恢复不再依赖用户打开任务中心。Worker 对运行中任务轮询取消请求，并取消当前异步执行协程；长任务同时维护 Redis 锁续租与数据库心跳。
 
 LangGraph checkpoint 使用 `AsyncPostgresSaver` 并由 FastAPI lifespan 持有异步连接上下文；初始化失败时才回退到 `MemorySaver`。
-
-本地提交前建议执行：
-
-```bash
-cd web && npm run check
-cd backend && uv run pytest -q
-```
-
-本地开发默认 `AUTO_CREATE_TABLES=true`，后端启动时会自动同步 ORM 表结构。需要严格验证 Alembic 迁移链时，可临时设置：
-
-```bash
-cd backend && AUTO_CREATE_TABLES=false uv run alembic upgrade head
-```
 
 ---
 
@@ -418,161 +403,6 @@ agent-interview/
 ├── docs/                            # 本地文档，不纳入 Git 跟踪
 └── README.md
 ```
-
----
-
-## API 接口
-
-后端提供以下主要 API 路由：
-
-| 路由 | 说明 |
-|------|------|
-| `POST /api/chat/stream` | 面试对话 SSE；发送 plan、step_update、token、state_update、done 等事件 |
-| `POST /api/agent-runs/interview-start` | 创建首题生成任务；队列关闭时同步执行 |
-| `POST /api/agent-runs/resume-optimize` | 创建可恢复的简历优化任务 |
-| `POST /api/agent-runs/interview-report` | 创建本轮画像 + 短板报告任务 |
-| `POST /api/agent-runs/job-assets` | 创建岗位投递资产任务 |
-| `GET /api/agent-runs` | 任务中心分页列表；支持 status、task_type、limit、offset |
-| `GET /api/agent-runs/{run_id}/events` | 按 sequence 查询可重放运行事件 |
-| `GET /api/agent-runs/{run_id}/events/stream` | 支持 `Last-Event-ID` 的任务事件 SSE |
-| `GET /api/agent-runs/{run_id}` | 查询任务状态、执行计划、尝试次数和结果 |
-| `POST /api/agent-runs/{run_id}/cancel` | 取消等待任务，或对运行中任务发起协作取消 |
-| `POST /api/agent-runs/{run_id}/retry` | 重试失败/取消且未超过次数上限的任务 |
-| `POST /api/jobs/apply/preview` | 填入文案并生成投递截图，不点击发送；返回短期一次性许可 |
-| `POST /api/jobs/apply/send` | 显式确认并消费预览许可后执行一次发送 |
-| `POST /api/voice/start` | 创建或恢复语音面试会话 |
-| `POST /api/voice/chat` | 语音问答（SSE 文本与音频流） |
-| `POST /api/voice/summary` | 生成语音面试复盘 |
-| `/api/sessions` | 会话 CRUD |
-| `POST /api/resume/analyze` | 简历竞争力分析（6维度评分） |
-| `POST /api/resume/optimize` | 简历优化（pipeline → API schema 映射） |
-| `POST /api/resume/optimize/stream` | 兼容的简历优化 SSE 接口；当前主前端使用统一任务中心 |
-| `GET /api/resume/results` | 简历分析/优化历史列表；支持 result_type、limit、offset、include_data |
-| `GET /api/resume/results/{result_id}` | 获取完整简历分析/优化详情 |
-| `/api/resume/jd-match` | JD 匹配分析 |
-| `/api/resume/materials` | 候选人素材库管理 |
-| `/api/resume/generation` | 简历生成 |
-| `/api/upload/resume` | 文件上传（PDF/DOCX/TXT） |
-| `GET /api/applications` | 投递记录分页列表；支持 status、limit、offset |
-| `GET /api/applications/{id}` | 投递记录详情，包含状态事件流水 |
-| `POST /api/applications/{id}/events` | 新增投递状态或备注事件 |
-| `POST /api/jobs/capture` | 单个岗位采集 |
-| `POST /api/jobs/capture-recommendations` | ⭐ BOSS 搜索页批量抓取 + 创建每岗位资产任务 |
-| `GET /api/jobs` {/{id}} | 岗位列表 / 详情 |
-| `DELETE /api/jobs/{id}` | 删除岗位 |
-| `/api/question-bank` | 题库管理 |
-| `/api/memory` | 长期记忆管理 |
-| `POST /api/config/validate` | 验证 LLM API 配置连通性 |
-| `GET /health`、`/`、`/docs`、`/redoc` | 健康检查 / 文档 |
-
-完整 API 文档访问：`http://localhost:8000/docs`
-
----
-
-## BOSS 半自动化使用指南
-
-### 使用前提
-
-1. 主后端继续通过 Docker Compose 运行；BOSS 浏览器服务在能显示桌面窗口的宿主机运行
-2. 安装 Playwright Chromium：`cd backend && uv run playwright install chromium`
-3. 在根目录 `.env` 配置 `BOSS_AUTOMATION_SERVICE_TOKEN`（至少 32 字符）
-4. 首次操作时，在项目弹出的专用浏览器中登录 BOSS；后续采集、预览和发送复用该登录状态
-5. `.env` 中至少配置一个 LLM 通道（如 DashScope/DeepSeek 等 OpenAI 兼容接口）
-
-生成共享令牌并启动宿主机服务：
-
-```bash
-openssl rand -hex 32
-# 将输出写入根目录 .env 的 BOSS_AUTOMATION_SERVICE_TOKEN，勿提交或粘贴到日志
-cd backend
-uv run uvicorn boss_service:app --host 0.0.0.0 --port 8765
-```
-
-另一个终端启动 Docker 编排：
-
-```bash
-docker compose --env-file .env up -d --build
-```
-
-`BOSS_AUTOMATION_SERVICE_URL` 在 Compose 中默认是 `http://host.docker.internal:8765`，Linux 通过 `host-gateway` 映射。`BOSS_BROWSER_PROFILE_DIR` 可选，只由宿主机服务读取；留空时使用 `backend/data/browser_profiles/boss`。该目录包含登录凭据，不能提交、同步或多人共用，也不要指向日常 Chrome 默认 profile。
-
-### 工作流程
-
-```
-前端「BOSS 半自动化」tab
-     ↓ 用户填入关键词 "Java架构师" + 简历内容
-     ↓
-POST /api/jobs/capture-recommendations
-     ↓
-Docker 后端通过鉴权 HTTP RPC 请求宿主机 Playwright 服务打开 BOSS 搜索页:
-   https://www.zhipin.com/web/geek/job?query=Java架构师
-     ↓
-【登录/反爬处理】若需要登录或触发验证，在项目专用浏览器中手动完成，
-                 最长等待 3 分钟 → 继续
-     ↓
-LLM 提取搜索结果中所有岗位卡片（最多 15 张）
-     ↓
-用 fast 通道一次性给所有卡片做轻量匹配度打分
-     ↓
-按分数降序取前 N 个（默认 5）
-     ↓
-对每张卡片依次调用：
-  • capture_from_text → 标准化 + 入 captured_jobs 表
-  • generate_assets  → JD 匹配分析 + 定制简历 + 3 条打招呼文案
-     ↓
-返回完整结果至前端
-```
-
-### 调用示例
-
-```bash
-curl -X POST http://localhost:8000/api/jobs/capture-recommendations \
-  -H "Content-Type: application/json" \
-  -H "X-User-ID: your_user_id" \
-  -H "Cookie: ..." \
-  -d '{
-    "query": "Java架构师",
-    "resume_content": "张工 | 8年Java开发经验 | Spring Cloud微服务 | MySQL调优 | 带过10人团队",
-    "top_n": 5,
-    "api_config": {
-      "smart": {"api_key": "sk-xxx", "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1", "model": "qwen3.7-max-2026-05-17"},
-      "fast": {"api_key": "sk-xxx", "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1", "model": "qwen3.6-flash-2026-04-16"}
-    }
-  }'
-```
-
-返回示例：
-```json
-{
-  "success": true,
-  "total": 5,
-  "jobs": [
-    {
-      "job_id": 12,
-      "company_name": "字节跳动",
-      "job_title": "Java架构师",
-      "salary_text": "40-70K·15薪",
-      "city": "北京",
-      "match_score": 92.5,
-      "custom_resume_id": 8,
-      "greetings": [
-        {"tone": "professional", "message_text": "您好，我拥有8年Java架构经验..."},
-        {"tone": "technical", "message_text": "您好，对贵司分布式系统设计岗位..."},
-        {"tone": "thoughtful", "message_text": "您好，关注到贵司在高并发场景的挑战..."}
-      ],
-      "risk_flags": []
-    }
-  ]
-}
-```
-
-### 反爬说明
-
-后端**不会自动绕过验证码**，而是采用「半自动化」策略：
-- 检测到滑动验证码 → 进入等待状态
-- 用户在 Chrome 中**手动滑动完成验证** → 后端自动检测到并继续
-- 最长等待 180 秒，超时则返回失败提示
-- 验证完成后约 30 秒内即可返回所有岗位 + 投递资产
 
 ---
 
