@@ -2,8 +2,8 @@
 
 import pytest
 
-from app.application.interview.start import InterviewStartUseCases
-from app.services.error_classification import ErrorCategory, classify_error_message
+from app.workflows.interview.start import InterviewStartUseCases
+from app.infrastructure.runtime.error_classification import ErrorCategory, classify_error_message
 
 
 @pytest.mark.parametrize(

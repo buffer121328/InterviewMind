@@ -20,18 +20,18 @@ def _imports(path: Path) -> list[str]:
 
 def test_repositories_do_not_depend_on_upper_layers():
     violations: list[str] = []
-    forbidden = ("app.services", "app.api", "app.agents", "app.agent_runtime")
-    for path in (BACKEND_APP / "repositories").rglob("*.py"):
+    forbidden = ("app.api", "app.agents", "app.workflows", "app.infrastructure.runtime")
+    for path in (BACKEND_APP / "infrastructure" / "db" / "repositories").rglob("*.py"):
         for module in _imports(path):
             if module.startswith(forbidden):
                 violations.append(f"{path.relative_to(BACKEND_APP)} -> {module}")
     assert violations == []
 
 
-def test_agent_runtime_does_not_import_api_or_repositories():
+def test_runtime_does_not_import_api_layer():
     violations: list[str] = []
-    forbidden = ("app.api", "app.repositories")
-    for path in (BACKEND_APP / "agent_runtime").rglob("*.py"):
+    forbidden = ("app.api",)
+    for path in (BACKEND_APP / "infrastructure" / "runtime").rglob("*.py"):
         for module in _imports(path):
             if module.startswith(forbidden):
                 violations.append(f"{path.relative_to(BACKEND_APP)} -> {module}")

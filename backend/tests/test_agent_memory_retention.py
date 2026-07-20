@@ -1,6 +1,6 @@
 """长期记忆有效期和删除同步契约测试。"""
 
-from app.services.agent_memory.service import _retention_metadata
+from app.infrastructure.memory.service import _retention_metadata
 
 
 def test_retention_metadata_has_expiry_and_delete_policy(monkeypatch):

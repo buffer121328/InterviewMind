@@ -15,10 +15,10 @@ from app.schemas.voice import (
     VoiceCloneRequest,
 )
 
-from app.services.interview.voice_interview import generate_voice_summary
+from app.agents.interview.voice_interview import generate_voice_summary
 from app.api.deps import get_current_user_id
-from app.application.interview.voice import VoiceInterviewUseCaseError, voice_interview_use_cases
-from app.application.interview.voice_stream import VoiceStreamUseCaseError, voice_stream_use_cases
+from app.workflows.interview.voice import VoiceInterviewUseCaseError, voice_interview_use_cases
+from app.workflows.interview.voice_stream import VoiceStreamUseCaseError, voice_stream_use_cases
 
 logger = logging.getLogger(__name__)
 

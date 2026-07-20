@@ -1,6 +1,6 @@
 """AgentRun SSE 断线重放契约。"""
 
-from app.services.agent_runs.event_stream import replay_cursor
+from app.infrastructure.runtime.agent_runs.event_stream import replay_cursor
 
 
 def test_replay_cursor_uses_after_sequence_without_last_event_id():
@@ -25,7 +25,7 @@ def test_replay_cursor_never_goes_negative():
 
 
 def test_build_run_event_envelope_uses_inline_defaults():
-    from app.services.agent_runs.event_stream import build_run_event_envelope
+    from app.infrastructure.runtime.agent_runs.event_stream import build_run_event_envelope
 
     event = build_run_event_envelope(
         run_id="run-1",

@@ -12,14 +12,14 @@ from contextlib import asynccontextmanager
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-from app.services.interview.interview_output_contract import (
+from app.schemas.interview import (
     InterviewerAction,
     InterviewPhase,
     InterviewerOutput,
     OpeningOutput,
     EvaluatingOutput,
 )
-from app.services.interview.interview_runtime import InterviewRuntime, memo_hint
+from app.agents.interview.interview_runtime import InterviewRuntime, memo_hint
 
 
 # ============================================================================
@@ -120,7 +120,7 @@ class TestInterviewRuntimeStateMachine:
             )
         )
         monkeypatch.setattr(
-            "app.services.interview.interview_runtime.agent_observation",
+            "app.agents.interview.interview_runtime.agent_observation",
             fake_agent_observation,
             raising=False,
         )

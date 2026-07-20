@@ -39,7 +39,7 @@ import json
 
 import pytest
 
-from app.application.resume import optimization as resume_optimization
+from app.workflows.resume import optimization as resume_optimization
 from app.schemas.resume_schemas import ResumeAnalyzeRequest, ResumeOptimizeRequest
 
 

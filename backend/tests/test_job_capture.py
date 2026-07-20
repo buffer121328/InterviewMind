@@ -9,7 +9,7 @@ from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch, MagicMock
 
-from app.models.agent_run import AgentRunModel
+from app.infrastructure.db.models.agent_run import AgentRunModel
 
 
 MOCK_JD_TEXT = """
@@ -32,39 +32,39 @@ class TestJobNormalizer:
     """岗位标准化测试"""
 
     def test_normalize_company_name_simple(self):
-        from app.services.jobs.job_normalizer import normalize_company_name
+        from app.infrastructure.browser.job_normalizer import normalize_company_name
         assert normalize_company_name("北京字节跳动科技有限公司") == "字节跳动"
 
     def test_normalize_company_name_nickname(self):
-        from app.services.jobs.job_normalizer import normalize_company_name
+        from app.infrastructure.browser.job_normalizer import normalize_company_name
         assert normalize_company_name("字节") == "字节跳动"
 
     def test_normalize_salary_range(self):
-        from app.services.jobs.job_normalizer import normalize_salary
+        from app.infrastructure.browser.job_normalizer import normalize_salary
         result = normalize_salary("25K-40K")
         assert result["min"] == 25
         assert result["max"] == 40
 
     def test_normalize_salary_single(self):
-        from app.services.jobs.job_normalizer import normalize_salary
+        from app.infrastructure.browser.job_normalizer import normalize_salary
         result = normalize_salary("20K以上")
         assert result["min"] == 20
         assert result["max"] is None
 
     def test_normalize_salary_wan(self):
-        from app.services.jobs.job_normalizer import normalize_salary
+        from app.infrastructure.browser.job_normalizer import normalize_salary
         result = normalize_salary("1.5-2.5万")
         assert result["min"] == 15
         assert result["max"] == 25
 
     def test_normalize_salary_unparseable(self):
-        from app.services.jobs.job_normalizer import normalize_salary
+        from app.infrastructure.browser.job_normalizer import normalize_salary
         result = normalize_salary("面议")
         assert result["text"] == "面议"
         assert result["min"] is None
 
     def test_extract_keywords(self):
-        from app.services.jobs.job_normalizer import extract_keywords
+        from app.infrastructure.browser.job_normalizer import extract_keywords
         keywords = extract_keywords(MOCK_JD_TEXT)
         assert "Java" in keywords
         assert "Spring Boot" in keywords
@@ -74,23 +74,23 @@ class TestJobNormalizer:
         assert "Kafka" in keywords
 
     def test_extract_keywords_empty(self):
-        from app.services.jobs.job_normalizer import extract_keywords
+        from app.infrastructure.browser.job_normalizer import extract_keywords
         assert extract_keywords("") == []
 
     def test_compute_source_hash_with_url(self):
-        from app.services.jobs.job_normalizer import compute_source_hash
+        from app.infrastructure.browser.job_normalizer import compute_source_hash
         h1 = compute_source_hash("字节跳动", "Java", "https://boss.com/job/123")
         h2 = compute_source_hash("字节跳动", "Java", "https://boss.com/job/123")
         assert h1 == h2  # 相同输入得到相同哈希
 
     def test_compute_source_hash_different(self):
-        from app.services.jobs.job_normalizer import compute_source_hash
+        from app.infrastructure.browser.job_normalizer import compute_source_hash
         h1 = compute_source_hash("字节跳动", "Java", "https://boss.com/job/123")
         h2 = compute_source_hash("字节跳动", "Java", "https://boss.com/job/456")
         assert h1 != h2  # 不同URL得到不同哈希
 
     def test_compute_source_hash_no_url(self):
-        from app.services.jobs.job_normalizer import compute_source_hash
+        from app.infrastructure.browser.job_normalizer import compute_source_hash
         h1 = compute_source_hash("字节跳动", "Java", "", "boss")
         h2 = compute_source_hash("字节跳动", "Java", "", "boss")
         assert h1 == h2  # 相同company+title+platform得到相同哈希
@@ -101,10 +101,10 @@ class TestJobDeduper:
 
     @pytest.mark.asyncio
     async def test_is_duplicate_true(self):
-        from app.services.jobs.job_deduper import is_duplicate
+        from app.infrastructure.browser.job_deduper import is_duplicate
 
         with patch(
-            "app.repositories.jobs.job_capture_repo.get_job_capture_repo"
+            "app.infrastructure.db.repositories.jobs.job_capture_repo.get_job_capture_repo"
         ) as mock_repo:
             mock_instance = AsyncMock()
             mock_instance.find_by_hash.return_value = {"id": 1}
@@ -115,10 +115,10 @@ class TestJobDeduper:
 
     @pytest.mark.asyncio
     async def test_is_duplicate_false(self):
-        from app.services.jobs.job_deduper import is_duplicate
+        from app.infrastructure.browser.job_deduper import is_duplicate
 
         with patch(
-            "app.repositories.jobs.job_capture_repo.get_job_capture_repo"
+            "app.infrastructure.db.repositories.jobs.job_capture_repo.get_job_capture_repo"
         ) as mock_repo:
             mock_instance = AsyncMock()
             mock_instance.find_by_hash.return_value = None
@@ -128,12 +128,12 @@ class TestJobDeduper:
             assert result is False
 
     def test_similarity_exact_match(self):
-        from app.services.jobs.job_deduper import _calculate_similarity
+        from app.infrastructure.browser.job_deduper import _calculate_similarity
         sim = _calculate_similarity("字节跳动", "Java开发", "字节跳动", "Java开发")
         assert sim == 1.0
 
     def test_similarity_different(self):
-        from app.services.jobs.job_deduper import _calculate_similarity
+        from app.infrastructure.browser.job_deduper import _calculate_similarity
         sim = _calculate_similarity("字节跳动", "Java开发", "阿里巴巴", "Python开发")
         assert sim < 0.5
 
@@ -143,10 +143,10 @@ class TestJobCaptureService:
 
     @pytest.mark.asyncio
     async def test_capture_from_text_success(self):
-        from app.services.jobs.job_capture_service import capture_from_text
+        from app.infrastructure.browser.job_capture_service import capture_from_text
 
         with patch(
-            "app.services.llm_utils.invoke_structured",
+            "app.infrastructure.llm.llm_utils.invoke_structured",
             new=AsyncMock(),
         ) as mock_llm:
             mock_llm.return_value = MagicMock()
@@ -159,7 +159,7 @@ class TestJobCaptureService:
             }
 
             with patch(
-                "app.repositories.jobs.job_capture_repo.get_job_capture_repo"
+                "app.infrastructure.db.repositories.jobs.job_capture_repo.get_job_capture_repo"
             ) as mock_repo:
                 mock_instance = AsyncMock()
                 mock_instance.find_by_hash.return_value = None
@@ -177,10 +177,10 @@ class TestJobCaptureService:
 
     @pytest.mark.asyncio
     async def test_capture_from_text_duplicate(self):
-        from app.services.jobs.job_capture_service import capture_from_text
+        from app.infrastructure.browser.job_capture_service import capture_from_text
 
         with patch(
-            "app.services.llm_utils.invoke_structured",
+            "app.infrastructure.llm.llm_utils.invoke_structured",
             new=AsyncMock(),
         ) as mock_llm:
             mock_llm.return_value = MagicMock()
@@ -193,7 +193,7 @@ class TestJobCaptureService:
             }
 
             with patch(
-                "app.repositories.jobs.job_capture_repo.get_job_capture_repo"
+                "app.infrastructure.db.repositories.jobs.job_capture_repo.get_job_capture_repo"
             ) as mock_repo:
                 mock_instance = AsyncMock()
                 mock_instance.find_by_hash.return_value = {"id": 1}
@@ -208,7 +208,7 @@ class TestJobCaptureService:
 
     @pytest.mark.asyncio
     async def test_browser_capture_uses_host_service(self):
-        from app.services.jobs.job_capture_service import _fetch_page_text_browser
+        from app.infrastructure.browser.job_capture_service import _fetch_page_text_browser
 
         client = MagicMock()
         client.scrape = AsyncMock(
@@ -216,7 +216,7 @@ class TestJobCaptureService:
         )
 
         with patch(
-            "app.services.jobs.boss_automation_client.get_boss_automation_client",
+            "app.infrastructure.browser.boss_automation_client.get_boss_automation_client",
             return_value=client,
         ):
             text = await _fetch_page_text_browser(
@@ -233,15 +233,15 @@ class TestJobCaptureService:
 
     @pytest.mark.asyncio
     async def test_recommendation_capture_no_longer_uses_applescript(self):
-        from app.services.jobs.job_capture_service import capture_from_recommendations
+        from app.infrastructure.browser.job_capture_service import capture_from_recommendations
 
         with (
             patch(
-                "app.services.jobs.job_capture_service._fetch_page_text_browser",
+                "app.infrastructure.browser.job_capture_service._fetch_page_text_browser",
                 new=AsyncMock(return_value=""),
             ) as shared_capture,
             patch(
-                "app.services.jobs.job_capture_service._open_and_read_in_chrome",
+                "app.infrastructure.browser.job_capture_service._open_and_read_in_chrome",
                 new=AsyncMock(side_effect=AssertionError("不应调用 AppleScript")),
             ),
         ):
@@ -257,9 +257,9 @@ class TestJobCaptureService:
 
     @pytest.mark.asyncio
     async def test_recommendation_capture_enqueues_recoverable_asset_task(self, monkeypatch):
-        from app.services.jobs.job_capture_service import capture_from_recommendations
-        from app.services.agent_runs import service as run_service_module
-        from app.services.agent_runs import dispatcher
+        from app.infrastructure.browser.job_capture_service import capture_from_recommendations
+        from app.infrastructure.runtime.agent_runs import service as run_service_module
+        from app.infrastructure.runtime.agent_runs import dispatcher
 
         card = SimpleNamespace(model_dump=lambda: {
             "company_name": "示例公司",
@@ -282,15 +282,15 @@ class TestJobCaptureService:
 
         with (
             patch(
-                "app.services.jobs.job_capture_service._fetch_page_text_browser",
+                "app.infrastructure.browser.job_capture_service._fetch_page_text_browser",
                 new=AsyncMock(return_value="BOSS直聘 Python 招聘 综合排序"),
             ),
             patch(
-                "app.services.llm_utils.invoke_structured",
+                "app.infrastructure.llm.llm_utils.invoke_structured",
                 new=AsyncMock(return_value=SimpleNamespace(cards=[card])),
             ),
             patch(
-                "app.services.jobs.job_capture_service.capture_from_text",
+                "app.infrastructure.browser.job_capture_service.capture_from_text",
                 new=AsyncMock(return_value={"success": True, "job_id": 7}),
             ),
         ):

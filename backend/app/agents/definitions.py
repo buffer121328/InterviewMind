@@ -1,6 +1,6 @@
 """项目中已投入生产使用的 Agent 定义。"""
 
-from app.agent_runtime.definitions import AgentDefinition, agent_definition_registry
+from app.infrastructure.runtime.definitions import AgentDefinition, agent_definition_registry
 
 _DEFINITIONS = (
     AgentDefinition(

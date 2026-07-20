@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 import pytest
 
-from app.services.interview.agentic_retrieval import (
+from app.agents.interview.agentic_retrieval import (
     AgenticSearchContext,
     build_search_plan,
     grade_evidences,

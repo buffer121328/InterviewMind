@@ -14,13 +14,13 @@ from app.api.deps import create_sse_response, get_current_user_id
 from app.schemas.job_schemas import AssetGenerateRequest
 from app.schemas.resume_schemas import ResumeOptimizeRequest
 from app.schemas.schemas import ApiConfig, InterviewStartRequest
-from app.services.agent_runs.crypto import TaskPayloadConfigurationError
-from app.services.agent_runs.dispatcher import enqueue_agent_run, enqueue_interview_start
-from app.services.agent_runs.event_stream import replay_cursor
-from app.services.agent_runs.executors import execute_registered_task
-from app.services.agent_runs.interview_start import execute_interview_start
-from app.services.agent_runs.outbox import dispatch_pending_outbox
-from app.services.agent_runs.service import (
+from app.infrastructure.runtime.agent_runs.crypto import TaskPayloadConfigurationError
+from app.infrastructure.runtime.agent_runs.dispatcher import enqueue_agent_run, enqueue_interview_start
+from app.infrastructure.runtime.agent_runs.event_stream import replay_cursor
+from app.infrastructure.runtime.agent_runs.executors import execute_registered_task
+from app.infrastructure.runtime.agent_runs.interview_start import execute_interview_start
+from app.infrastructure.runtime.agent_runs.outbox import dispatch_pending_outbox
+from app.infrastructure.runtime.agent_runs.service import (
     AgentRunService,
     TASK_DEFINITIONS,
     TASK_TYPE_INTERVIEW_REPORT,
@@ -32,7 +32,7 @@ from app.services.agent_runs.service import (
     TERMINAL_STATUSES,
     task_queue_enabled,
 )
-from app.services.runtime_gate import get_run_gate
+from app.infrastructure.runtime.runtime_gate import get_run_gate
 
 router = APIRouter(prefix="/api/agent-runs", tags=["Agent 任务"])
 service = AgentRunService()

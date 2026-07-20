@@ -2,8 +2,8 @@ import zipfile
 
 import pytest
 
-from app.services.file_service import FileService, FileServiceError
-from app.services.question_bank.import_parser import parse_question_document
+from app.infrastructure.files.file_service import FileService, FileServiceError
+from app.workflows.question_bank_support.import_parser import parse_question_document
 
 
 def test_parse_markdown_questions_and_multiline_answers():

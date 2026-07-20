@@ -30,7 +30,7 @@ class FakeLangfuseClient:
 
 @pytest.fixture(autouse=True)
 def reset_observability(monkeypatch):
-    from app.services import observability
+    from app.observability import langfuse as observability
 
     for key in (
         "LANGFUSE_ENABLED",
@@ -46,7 +46,7 @@ def reset_observability(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_agent_observation_is_noop_without_langfuse_configuration():
-    from app.services import observability
+    from app.observability import langfuse as observability
 
     async with observability.agent_observation(
         name="interview-runtime",
@@ -62,7 +62,7 @@ async def test_agent_observation_is_noop_without_langfuse_configuration():
 
 @pytest.mark.asyncio
 async def test_agent_observation_records_safe_input_output_and_trace_attributes(monkeypatch):
-    from app.services import observability
+    from app.observability import langfuse as observability
 
     client = FakeLangfuseClient()
     attributes = []
@@ -119,7 +119,7 @@ async def test_agent_observation_records_safe_input_output_and_trace_attributes(
 
 @pytest.mark.asyncio
 async def test_agent_observation_links_langfuse_trace_to_agent_run(monkeypatch):
-    from app.services import observability
+    from app.observability import langfuse as observability
 
     client = FakeLangfuseClient()
     attributes = []
@@ -190,7 +190,7 @@ async def test_agent_observation_links_langfuse_trace_to_agent_run(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_agent_observation_collects_model_events_without_langfuse():
-    from app.services import observability
+    from app.observability import langfuse as observability
 
     async with observability.agent_observation(
         name="voice-interview",
@@ -220,7 +220,7 @@ async def test_agent_observation_collects_model_events_without_langfuse():
 
 @pytest.mark.asyncio
 async def test_agent_observation_preserves_business_exception(monkeypatch):
-    from app.services import observability
+    from app.observability import langfuse as observability
 
     client = FakeLangfuseClient()
 
@@ -251,7 +251,7 @@ async def test_agent_observation_preserves_business_exception(monkeypatch):
 
 
 def test_llm_factory_attaches_langfuse_callback_only_when_active(monkeypatch):
-    from app.services import llms
+    from app.infrastructure.llm import llms
 
     created = {}
 
@@ -274,7 +274,7 @@ def test_llm_factory_attaches_langfuse_callback_only_when_active(monkeypatch):
 
 
 def test_langfuse_callback_handler_dependency_is_available():
-    from app.services.observability import _get_callback_handler
+    from app.observability import _get_callback_handler
 
     callback_handler = _get_callback_handler()
 
@@ -282,7 +282,7 @@ def test_langfuse_callback_handler_dependency_is_available():
 
 
 def test_shutdown_observability_closes_client(monkeypatch):
-    from app.services import observability
+    from app.observability import langfuse as observability
 
     client = FakeLangfuseClient()
     monkeypatch.setattr(observability, "_create_langfuse_client", lambda config: client)
@@ -299,8 +299,8 @@ def test_shutdown_observability_closes_client(monkeypatch):
 @pytest.mark.asyncio
 async def test_agent_observation_records_rag_trace_without_raw_private_content(monkeypatch):
     """RAG 观测只记录模式、计数和 trace，不把 JD/简历/证据正文写入 Langfuse 输出。"""
-    from app.services import observability
-    from app.services.interview.interview_rag import RagEvidence, RagResult
+    from app.observability import langfuse as observability
+    from app.agents.interview.interview_rag import RagEvidence, RagResult
 
     client = FakeLangfuseClient()
     attributes = []

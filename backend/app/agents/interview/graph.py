@@ -1,6 +1,6 @@
 """Interview Agent 图的稳定入口。"""
 
-from app.services.interview.interview_graph import (
+from app.agents.interview.interview_graph import (
     InterviewState,
     build_interview_graph,
     clear_graph_instances,

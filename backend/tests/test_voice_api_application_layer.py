@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.api import voice_chat as voice_api
-from app.application.interview.voice import VoiceInterviewUseCases
+from app.workflows.interview.voice import VoiceInterviewUseCases
 from app.schemas.voice import VoiceCloneRequest, VoiceStartRequest, VoiceStartResponse
 
 

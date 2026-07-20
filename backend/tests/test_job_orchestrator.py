@@ -17,7 +17,7 @@ class TestAssetOrchestrator:
     @pytest.mark.asyncio
     async def test_generate_assets_full_flow(self):
         """完整资产生成流程：JD分析 → 简历 → 文案"""
-        from app.services.jobs.job_asset_orchestrator import generate_assets
+        from app.infrastructure.browser.job_asset_orchestrator import generate_assets
 
         # Mock 岗位仓库
         mock_job = {
@@ -31,7 +31,7 @@ class TestAssetOrchestrator:
         }
 
         with patch(
-            "app.repositories.jobs.job_capture_repo.get_job_capture_repo"
+            "app.infrastructure.db.repositories.jobs.job_capture_repo.get_job_capture_repo"
         ) as mock_repo:
             mock_repo_instance = AsyncMock()
             mock_repo_instance.get_job.return_value = mock_job
@@ -39,7 +39,7 @@ class TestAssetOrchestrator:
             mock_repo.return_value = mock_repo_instance
 
             # Mock JD分析
-            with patch("app.services.resume.jd_matcher.analyze_jd_match") as mock_jd:
+            with patch("app.agents.resume.jd_matcher.analyze_jd_match") as mock_jd:
                 mock_jd.return_value = {
                     "overall_match_score": 75,
                     "matched_keywords": ["Java", "Spring"],
@@ -50,7 +50,7 @@ class TestAssetOrchestrator:
 
                 # Mock 简历生成
                 with patch(
-                    "app.services.resume.resume_generation_graph.init_generation_session"
+                    "app.agents.resume.resume_generation_graph.init_generation_session"
                 ) as mock_gen:
                     mock_gen.return_value = {
                         "needs_input": False,
@@ -62,7 +62,7 @@ class TestAssetOrchestrator:
 
                     # Mock 文案生成
                     with patch(
-                        "app.services.jobs.greeting_generator.generate_greetings"
+                        "app.infrastructure.browser.greeting_generator.generate_greetings"
                     ) as mock_greet:
                         mock_greet.return_value = [
                             {"tone": "professional", "message_text": "您好...", "highlights_used": [], "risk_notes": ""},
@@ -83,10 +83,10 @@ class TestAssetOrchestrator:
 
     @pytest.mark.asyncio
     async def test_generate_assets_job_not_found(self):
-        from app.services.jobs.job_asset_orchestrator import generate_assets
+        from app.infrastructure.browser.job_asset_orchestrator import generate_assets
 
         with patch(
-            "app.repositories.jobs.job_capture_repo.get_job_capture_repo"
+            "app.infrastructure.db.repositories.jobs.job_capture_repo.get_job_capture_repo"
         ) as mock_repo:
             mock_repo_instance = AsyncMock()
             mock_repo_instance.get_job.return_value = None
@@ -104,7 +104,7 @@ class TestAssetOrchestrator:
     @pytest.mark.asyncio
     async def test_low_match_risk_flag(self):
         """匹配度过低时生成风险标记"""
-        from app.services.jobs.job_asset_orchestrator import generate_assets
+        from app.infrastructure.browser.job_asset_orchestrator import generate_assets
 
         mock_job = {
             "id": 1, "company_name": "字节", "job_title": "Java",
@@ -112,23 +112,23 @@ class TestAssetOrchestrator:
         }
 
         with patch(
-            "app.repositories.jobs.job_capture_repo.get_job_capture_repo"
+            "app.infrastructure.db.repositories.jobs.job_capture_repo.get_job_capture_repo"
         ) as mock_repo:
             mock_repo_instance = AsyncMock()
             mock_repo_instance.get_job.return_value = mock_job
             mock_repo_instance.update_status.return_value = True
             mock_repo.return_value = mock_repo_instance
 
-            with patch("app.services.resume.jd_matcher.analyze_jd_match") as mock_jd:
+            with patch("app.agents.resume.jd_matcher.analyze_jd_match") as mock_jd:
                 mock_jd.return_value = {"overall_match_score": 15}
 
                 with patch(
-                    "app.services.resume.resume_generation_graph.init_generation_session"
+                    "app.agents.resume.resume_generation_graph.init_generation_session"
                 ) as mock_gen:
                     mock_gen.return_value = {"needs_input": False, "result": {}}
 
                     with patch(
-                        "app.services.jobs.greeting_generator.generate_greetings"
+                        "app.infrastructure.browser.greeting_generator.generate_greetings"
                     ) as mock_greet:
                         mock_greet.return_value = []
 
@@ -149,14 +149,14 @@ class TestRateLimiter:
 
     @pytest.mark.asyncio
     async def test_allow_first_request(self):
-        from app.services.jobs.rate_limiter import check_rate, RateLimitType
+        from app.infrastructure.browser.rate_limiter import check_rate, RateLimitType
 
         can, msg = await check_rate("user-test", RateLimitType.CAPTURE)
         assert can is True
 
     @pytest.mark.asyncio
     async def test_record_and_reset_failures(self):
-        from app.services.jobs.rate_limiter import record_failure, record_success, get_rate_status
+        from app.infrastructure.browser.rate_limiter import record_failure, record_success, get_rate_status
 
         await record_failure("user-test")
         await record_failure("user-test")
@@ -170,7 +170,7 @@ class TestRateLimiter:
 
     @pytest.mark.asyncio
     async def test_auto_pause_on_consecutive_failures(self):
-        from app.services.jobs.rate_limiter import (
+        from app.infrastructure.browser.rate_limiter import (
             record_failure, get_rate_status,
             MAX_CONSECUTIVE_FAILURES,
         )
@@ -184,7 +184,7 @@ class TestRateLimiter:
 
     @pytest.mark.asyncio
     async def test_blocked_when_paused(self):
-        from app.services.jobs.rate_limiter import (
+        from app.infrastructure.browser.rate_limiter import (
             check_rate, record_failure, RateLimitType,
             MAX_CONSECUTIVE_FAILURES,
         )
@@ -206,7 +206,7 @@ class TestAuditLogger:
 
     @pytest.mark.asyncio
     async def test_create_audit_record(self):
-        from app.services.jobs.audit_logger import create_audit_record
+        from app.infrastructure.browser.audit_logger import create_audit_record
 
         record = await create_audit_record(
             user_id="user-1",
@@ -230,7 +230,7 @@ class TestAuditLogger:
 
     @pytest.mark.asyncio
     async def test_get_audit_logs(self):
-        from app.services.jobs.audit_logger import create_audit_record, get_audit_logs
+        from app.infrastructure.browser.audit_logger import create_audit_record, get_audit_logs
 
         await create_audit_record(
             user_id="user-log",
@@ -253,7 +253,7 @@ class TestAuditLogger:
 
     @pytest.mark.asyncio
     async def test_get_last_audit(self):
-        from app.services.jobs.audit_logger import create_audit_record, get_last_audit
+        from app.infrastructure.browser.audit_logger import create_audit_record, get_last_audit
 
         await create_audit_record(user_id="user-last", action="capture", job_id=1)
         await create_audit_record(user_id="user-last", action="send", job_id=1)
@@ -264,7 +264,7 @@ class TestAuditLogger:
 
     @pytest.mark.asyncio
     async def test_audit_record_fields(self):
-        from app.services.jobs.audit_logger import AuditRecord, AuditStep
+        from app.infrastructure.browser.audit_logger import AuditRecord, AuditStep
 
         step1 = AuditStep(step="open_page", status="success")
         step2 = AuditStep(step="fill_greeting", status="success", detail="selector: textarea")

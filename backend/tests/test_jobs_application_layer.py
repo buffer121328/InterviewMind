@@ -20,6 +20,6 @@ def _imports(path: Path) -> list[str]:
 
 def test_jobs_api_uses_application_layer_instead_of_repositories_or_job_services():
     modules = _imports(BACKEND_APP / "api" / "jobs.py")
-    assert not any(module.startswith("app.repositories") for module in modules)
-    assert not any(module.startswith("app.services.jobs") for module in modules)
-    assert any(module.startswith("app.application") for module in modules)
+    assert not any(module.startswith("app.infrastructure.db.repositories") for module in modules)
+    assert not any(module.startswith("app.infrastructure.browser") for module in modules)
+    assert any(module.startswith("app.workflows") for module in modules)
