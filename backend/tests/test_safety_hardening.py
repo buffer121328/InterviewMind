@@ -5,7 +5,7 @@ import pytest
 
 @pytest.mark.asyncio
 async def test_redis_rate_limit_keys_do_not_expose_user_id():
-    from app.services.jobs.rate_limiter import RedisRateLimitStore, RateLimitType
+    from app.infrastructure.browser.rate_limiter import RedisRateLimitStore, RateLimitType
 
     store = object.__new__(RedisRateLimitStore)
     store._client = AsyncMock()
@@ -23,7 +23,7 @@ async def test_redis_rate_limit_keys_do_not_expose_user_id():
 
 @pytest.mark.asyncio
 async def test_redis_rate_limit_failure_is_fail_closed():
-    from app.services.jobs import rate_limiter
+    from app.infrastructure.browser import rate_limiter
 
     store = AsyncMock()
     store.check_rate.side_effect = ConnectionError("redis unavailable")
@@ -38,7 +38,7 @@ async def test_redis_rate_limit_failure_is_fail_closed():
 
 @pytest.mark.asyncio
 async def test_application_audit_does_not_persist_full_greeting():
-    from app.services.jobs.boss_apply_service import _save_application_record
+    from app.infrastructure.browser.boss_apply_service import _save_application_record
 
     application_repo = AsyncMock()
     application_repo.create_application.return_value.id = 42
@@ -47,11 +47,11 @@ async def test_application_audit_does_not_persist_full_greeting():
 
     with (
         patch(
-            "app.repositories.application.job_application_repo.job_application_repo",
+            "app.infrastructure.db.repositories.application.job_application_repo.job_application_repo",
             application_repo,
         ),
         patch(
-            "app.repositories.application.application_event_repo.application_event_repo",
+            "app.infrastructure.db.repositories.application.application_event_repo.application_event_repo",
             event_repo,
         ),
     ):
@@ -82,7 +82,7 @@ async def test_resume_generation_cannot_bypass_pending_review():
 
     from app.api.resume import init_resume_generation
     from app.schemas.resume_schemas import ResumeGenerateInitRequest
-    from app.services.resume.resume_review import initialize_review
+    from app.agents.resume.resume_review import initialize_review
 
     request = ResumeGenerateInitRequest(
         optimization_result_id=7,
@@ -115,8 +115,8 @@ async def test_resume_generation_cannot_bypass_pending_review():
     }
 
     with (
-        patch("app.application.resume.generation.get_resume_repo", return_value=repo),
-        patch("app.application.resume.generation.init_generation_session", new=AsyncMock()) as start_generation,
+        patch("app.workflows.resume.generation.get_resume_repo", return_value=repo),
+        patch("app.workflows.resume.generation.init_generation_session", new=AsyncMock()) as start_generation,
     ):
         with pytest.raises(HTTPException) as exc_info:
             await init_resume_generation(request, user_id="user-1")
@@ -129,7 +129,7 @@ async def test_resume_generation_cannot_bypass_pending_review():
 async def test_resume_generation_submit_and_status_are_user_scoped(monkeypatch):
     from types import SimpleNamespace
     from app.api import resume as resume_api
-    from app.application.resume import generation as resume_generation
+    from app.workflows.resume import generation as resume_generation
 
     submit_calls = []
     status_calls = []

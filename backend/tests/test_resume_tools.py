@@ -2,7 +2,7 @@
 
 import pytest
 
-from app.services.tools.resume_tools import analyze_jd_keyword_match
+from app.tools.resume_tools import analyze_jd_keyword_match
 
 
 @pytest.mark.asyncio

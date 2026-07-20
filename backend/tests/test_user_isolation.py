@@ -33,11 +33,11 @@ class TestSessionIsolation:
     async def test_user_a_cannot_get_user_b_session(self):
         """用户A不能获取用户B的会话"""
         with patch(
-            "app.repositories.session.repo_impl.session_mgmt.SessionManagementService.get_session"
+            "app.infrastructure.db.repositories.session.repo_impl.session_mgmt.SessionManagementService.get_session"
         ) as mock_get:
             mock_get.return_value = None  # 返回 None 表示无权访问
 
-            from app.repositories.session.session_repo import SessionRepo
+            from app.infrastructure.db.repositories.session.session_repo import SessionRepo
             repo = SessionRepo()
 
             result = await repo.get_session(SESSION_B, user_id=USER_A)
@@ -50,11 +50,11 @@ class TestSessionIsolation:
         mock_session.session_id = SESSION_A
 
         with patch(
-            "app.repositories.session.repo_impl.session_mgmt.SessionManagementService.get_session"
+            "app.infrastructure.db.repositories.session.repo_impl.session_mgmt.SessionManagementService.get_session"
         ) as mock_get:
             mock_get.return_value = mock_session
 
-            from app.repositories.session.session_repo import SessionRepo
+            from app.infrastructure.db.repositories.session.session_repo import SessionRepo
             repo = SessionRepo()
 
             result = await repo.get_session(SESSION_A, user_id=USER_A)
@@ -65,11 +65,11 @@ class TestSessionIsolation:
     async def test_list_sessions_filtered_by_user(self):
         """列表查询按 user_id 过滤"""
         with patch(
-            "app.repositories.session.repo_impl.session_mgmt.SessionManagementService.list_sessions"
+            "app.infrastructure.db.repositories.session.repo_impl.session_mgmt.SessionManagementService.list_sessions"
         ) as mock_list:
             mock_list.return_value = []
 
-            from app.repositories.session.session_repo import SessionRepo
+            from app.infrastructure.db.repositories.session.session_repo import SessionRepo
             repo = SessionRepo()
 
             result = await repo.list_sessions(user_id=USER_A)
@@ -87,11 +87,11 @@ class TestProfileIsolation:
     async def test_user_profile_scoped(self):
         """用户画像按 user_id 隔离"""
         with patch(
-            "app.repositories.session.repo_impl.profile_mgmt.ProfileService.get_user_profile"
+            "app.infrastructure.db.repositories.session.repo_impl.profile_mgmt.ProfileService.get_user_profile"
         ) as mock_get:
             mock_get.return_value = {"profile": {"skill_tags": ["Java"]}, "updated_at": "2024-01-01"}
 
-            from app.repositories.session.session_repo import SessionRepo
+            from app.infrastructure.db.repositories.session.session_repo import SessionRepo
             repo = SessionRepo()
 
             # 用户A获取自己的画像
@@ -113,13 +113,13 @@ class TestWeaknessReportIsolation:
     async def test_weakness_report_by_user(self):
         """短板报告查询需要 user_id"""
         with patch(
-            "app.repositories.interview.weakness_report_repo.get_weakness_report_repo"
+            "app.infrastructure.db.repositories.interview.weakness_report_repo.get_weakness_report_repo"
         ) as mock_repo:
             mock_instance = AsyncMock()
             mock_instance.get_report_by_session.return_value = None
             mock_repo.return_value = mock_instance
 
-            from app.repositories.interview.weakness_report_repo import get_weakness_report_repo
+            from app.infrastructure.db.repositories.interview.weakness_report_repo import get_weakness_report_repo
             repo = get_weakness_report_repo()
 
             result = await repo.get_report_by_session(SESSION_A, user_id=USER_A)
@@ -138,7 +138,7 @@ class TestInterviewStateUserId:
 
     def test_state_has_user_id(self):
         """验证 InterviewState 包含 user_id 和 run_id"""
-        from app.services.interview.interview_graph import InterviewState
+        from app.agents.interview.interview_graph import InterviewState
         state: InterviewState = {
             "messages": [],
             "resume_context": "test",
@@ -177,13 +177,13 @@ class TestNextRoundUserIdPropagation:
     async def test_next_round_inherits_parent_user_id(self):
         """下一轮面试应该继承父会话的 user_id"""
         with patch(
-            "app.repositories.session.repo_impl.session_advanced.SessionAdvancedService.create_next_round"
+            "app.infrastructure.db.repositories.session.repo_impl.session_advanced.SessionAdvancedService.create_next_round"
         ) as mock_create:
             mock_session = MagicMock()
             mock_session.session_id = "new-session-id"
             mock_create.return_value = mock_session
 
-            from app.repositories.session.session_repo import SessionRepo
+            from app.infrastructure.db.repositories.session.session_repo import SessionRepo
             repo = SessionRepo()
 
             result = await repo.create_next_round(SESSION_A, user_id=USER_A)

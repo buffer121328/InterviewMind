@@ -8,8 +8,8 @@ from fastapi import APIRouter
 
 from app.config import get_settings
 from app.schemas.schemas import ApiConfigValidateRequest
-from app.services.llms import create_llm_from_config
-from app.services.url_security import UnsafeOutboundUrl
+from app.infrastructure.llm.llms import create_llm_from_config
+from app.infrastructure.security.url_security import UnsafeOutboundUrl
 
 logger = logging.getLogger(__name__)
 

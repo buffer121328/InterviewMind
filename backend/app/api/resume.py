@@ -39,31 +39,31 @@ from app.schemas.project_rewrite_schemas import (
     ProjectRewriteDetailResponse,
 )
 from app.api.deps import get_current_user_id  # 统一用户ID提取
-from app.application.resume.history import ResumeHistoryNotFound, resume_history_use_cases
-from app.application.resume.optimization import (
+from app.workflows.resume.history import ResumeHistoryNotFound, resume_history_use_cases
+from app.workflows.resume.optimization import (
     ResumeOptimizationBadRequest,
     ResumeOptimizationNotFound,
     ResumeReviewConflict,
     resume_optimization_use_cases,
 )
-from app.application.resume.project_rewrite import (
+from app.workflows.resume.project_rewrite import (
     ProjectRewriteBadRequest,
     ProjectRewriteNotFound,
     project_rewrite_use_cases,
 )
-from app.application.resume.assembly import (
+from app.workflows.resume.assembly import (
     ResumeAssemblyBadRequest,
     ResumeAssemblyNotFound,
     resume_assembly_use_cases,
 )
-from app.application.resume.jd_match import JDMatchBadRequest, JDMatchNotFound, jd_match_use_cases
-from app.application.resume.generation import (
+from app.workflows.resume.jd_match import JDMatchBadRequest, JDMatchNotFound, jd_match_use_cases
+from app.workflows.resume.generation import (
     ResumeGenerationBadRequest,
     ResumeGenerationConflict,
     ResumeGenerationNotFound,
     resume_generation_use_cases,
 )
-from app.application.resume.materials import (
+from app.workflows.resume.materials import (
     ResumeMaterialBadRequest,
     ResumeMaterialImportFormatError,
     ResumeMaterialNotFound,

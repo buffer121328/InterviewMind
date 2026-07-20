@@ -6,21 +6,21 @@ import json
 import pytest
 from cryptography.fernet import Fernet
 
-from app.models.agent_run import AgentRunModel
+from app.infrastructure.db.models.agent_run import AgentRunModel
 from app.schemas.schemas import InterviewStartRequest
-from app.services.agent_runs.crypto import (
+from app.infrastructure.runtime.agent_runs.crypto import (
     TaskPayloadConfigurationError,
     decrypt_payload,
     encrypt_payload,
 )
-from app.services.agent_runs.service import (
+from app.infrastructure.runtime.agent_runs.service import (
     TASK_TYPE_INTERVIEW_REPORT,
     TASK_TYPE_RESUME_OPTIMIZE,
     build_interview_start_plan,
     build_task_plan,
     serialize_run,
 )
-from app.services.runtime_gate import LocalRunGate
+from app.infrastructure.runtime.runtime_gate import LocalRunGate
 
 
 def test_task_payload_is_encrypted_and_round_trips(monkeypatch):
@@ -55,7 +55,7 @@ async def test_local_run_gate_allows_only_one_active_task():
 
 
 def test_sync_mode_uses_local_gate_even_with_redis_url(monkeypatch):
-    from app.services import runtime_gate
+    from app.infrastructure.runtime import runtime_gate
 
     monkeypatch.setenv("TASK_QUEUE_ENABLED", "false")
     monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
@@ -248,7 +248,7 @@ async def test_existing_queued_run_is_not_dispatched_twice(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_redis_run_gate_renews_owned_lock(monkeypatch):
-    from app.services import runtime_gate
+    from app.infrastructure.runtime import runtime_gate
 
     class FakeRedis:
         def __init__(self):
@@ -288,8 +288,8 @@ def test_serialized_running_run_can_be_cancelled():
 
 
 def test_serialized_run_event_has_replay_envelope():
-    from app.models.agent_run import AgentRunEventModel
-    from app.services.agent_runs.service import serialize_event
+    from app.infrastructure.db.models.agent_run import AgentRunEventModel
+    from app.infrastructure.runtime.agent_runs.service import serialize_event
 
     now = datetime.now()
     event = AgentRunEventModel(
@@ -342,7 +342,7 @@ async def test_cancel_api_returns_cancel_requested_for_running_run(monkeypatch):
 @pytest.mark.asyncio
 async def test_recovery_loop_dispatches_recovered_runs(monkeypatch):
     from types import SimpleNamespace
-    from app.services.agent_runs import recovery
+    from app.infrastructure.runtime.agent_runs import recovery
 
     dispatch_calls = []
 
@@ -371,7 +371,7 @@ async def test_recovery_loop_dispatches_recovered_runs(monkeypatch):
 @pytest.mark.asyncio
 async def test_recovery_loop_marks_failed_dispatch_and_continues(monkeypatch):
     from types import SimpleNamespace
-    from app.services.agent_runs import recovery
+    from app.infrastructure.runtime.agent_runs import recovery
 
     dispatch_calls: list[int] = []
 
@@ -402,7 +402,7 @@ async def test_recovery_loop_marks_failed_dispatch_and_continues(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_succeed_turns_cancel_requested_run_into_cancelled(monkeypatch):
-    from app.services.agent_runs import service as service_module
+    from app.infrastructure.runtime.agent_runs import service as service_module
 
     now = datetime.now()
     run = AgentRunModel(
@@ -446,7 +446,7 @@ async def test_succeed_turns_cancel_requested_run_into_cancelled(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_succeed_with_result_writer_uses_same_uow_session(monkeypatch):
-    from app.services.agent_runs import service as service_module
+    from app.infrastructure.runtime.agent_runs import service as service_module
 
     now = datetime.now()
     run = AgentRunModel(
@@ -497,7 +497,7 @@ async def test_succeed_with_result_writer_uses_same_uow_session(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_record_observation_persists_summary_and_model_events(monkeypatch):
-    from app.services.agent_runs import service as service_module
+    from app.infrastructure.runtime.agent_runs import service as service_module
 
     now = datetime.now()
     run = AgentRunModel(
@@ -608,7 +608,7 @@ async def test_record_observation_persists_summary_and_model_events(monkeypatch)
 
 @pytest.mark.asyncio
 async def test_create_or_get_emits_prompt_version_in_created_event(monkeypatch):
-    from app.services.agent_runs import service as service_module
+    from app.infrastructure.runtime.agent_runs import service as service_module
 
     appended: list[tuple[str, dict | None]] = []
 
@@ -709,7 +709,7 @@ async def test_event_stream_replays_from_last_event_id_when_larger(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_mark_cancelled_uses_cancelled_state_and_event(monkeypatch):
-    from app.services.agent_runs import service as service_module
+    from app.infrastructure.runtime.agent_runs import service as service_module
 
     now = datetime.now()
     run = AgentRunModel(

@@ -29,7 +29,7 @@ class TestBrowserRunner:
     @pytest.mark.asyncio
     async def test_selector_strategies_defined(self):
         """验证选择器策略已定义"""
-        from app.services.jobs.browser_runner import BOSS_SELECTORS
+        from app.infrastructure.browser.browser_runner import BOSS_SELECTORS
 
         assert "chat_input" in BOSS_SELECTORS
         assert "send_button" in BOSS_SELECTORS
@@ -38,7 +38,7 @@ class TestBrowserRunner:
     @pytest.mark.asyncio
     async def test_start_browser_mock(self):
         """Mock 启动浏览器流程"""
-        from app.services.jobs.browser_runner import start_browser
+        from app.infrastructure.browser.browser_runner import start_browser
 
         mock_browser = AsyncMock()
         mock_context = AsyncMock()
@@ -47,7 +47,7 @@ class TestBrowserRunner:
         mock_browser.new_context.return_value = mock_context
 
         with patch(
-            "app.services.jobs.browser_runner.async_playwright"
+            "app.infrastructure.browser.browser_runner.async_playwright"
         ) as mock_async_pw:
             mock_async_pw.return_value = mock_pw_instance
             mock_async_pw.return_value.start.return_value = mock_pw_instance
@@ -61,10 +61,10 @@ class TestBrowserRunner:
     @pytest.mark.asyncio
     async def test_playwright_not_installed(self):
         """Playwright 未安装时的错误处理"""
-        from app.services.jobs.browser_runner import start_browser
+        from app.infrastructure.browser.browser_runner import start_browser
 
         with patch(
-            "app.services.jobs.browser_runner.async_playwright",
+            "app.infrastructure.browser.browser_runner.async_playwright",
             None,
         ):
             with pytest.raises(RuntimeError):
@@ -73,13 +73,13 @@ class TestBrowserRunner:
     @pytest.mark.asyncio
     async def test_start_browser_with_persistent_profile(self):
         """显式配置 profile 时复用登录会话。"""
-        from app.services.jobs.browser_runner import start_browser
+        from app.infrastructure.browser.browser_runner import start_browser
 
         mock_context = AsyncMock()
         mock_pw_instance = AsyncMock()
         mock_pw_instance.chromium.launch_persistent_context.return_value = mock_context
 
-        with patch("app.services.jobs.browser_runner.async_playwright") as mock_async_pw:
+        with patch("app.infrastructure.browser.browser_runner.async_playwright") as mock_async_pw:
             mock_async_pw.return_value = mock_pw_instance
             mock_async_pw.return_value.start.return_value = mock_pw_instance
             _, browser, context = await start_browser(
@@ -93,7 +93,7 @@ class TestBrowserRunner:
 
     def test_default_boss_profile_is_in_runtime_data(self):
         """未配置 profile 时仍返回稳定且不会入库的运行目录。"""
-        from app.services.jobs.browser_runner import resolve_boss_browser_profile_dir
+        from app.infrastructure.browser.browser_runner import resolve_boss_browser_profile_dir
 
         with patch.dict("os.environ", {"BOSS_BROWSER_PROFILE_DIR": ""}):
             profile_dir = resolve_boss_browser_profile_dir()
@@ -102,7 +102,7 @@ class TestBrowserRunner:
 
     @pytest.mark.asyncio
     async def test_boss_session_uses_persistent_profile_and_releases_lock(self, tmp_path):
-        from app.services.jobs.browser_runner import open_boss_browser_session
+        from app.infrastructure.browser.browser_runner import open_boss_browser_session
 
         context = AsyncMock()
         pw = AsyncMock()
@@ -110,7 +110,7 @@ class TestBrowserRunner:
         playwright_manager = MagicMock()
         playwright_manager.start = AsyncMock(return_value=pw)
 
-        with patch("app.services.jobs.browser_runner.async_playwright") as mock_async_pw:
+        with patch("app.infrastructure.browser.browser_runner.async_playwright") as mock_async_pw:
             mock_async_pw.return_value = playwright_manager
             session = await open_boss_browser_session(
                 headless=True,
@@ -137,7 +137,7 @@ class TestBrowserRunner:
         ],
     )
     async def test_inspect_page_state(self, body_text, url, expected):
-        from app.services.jobs.browser_runner import inspect_page_state
+        from app.infrastructure.browser.browser_runner import inspect_page_state
 
         page = AsyncMock()
         page.url = url
@@ -149,7 +149,7 @@ class TestBrowserRunner:
 
     @pytest.mark.asyncio
     async def test_verify_send_result_from_cleared_input(self):
-        from app.services.jobs.browser_runner import verify_send_result
+        from app.infrastructure.browser.browser_runner import verify_send_result
 
         page = AsyncMock()
         page.evaluate.return_value = "聊天页面"
@@ -164,7 +164,7 @@ class TestBrowserRunner:
     @pytest.mark.asyncio
     async def test_scrape_page_text(self):
         """模拟页面文本抓取"""
-        from app.services.jobs.browser_runner import scrape_page_text
+        from app.infrastructure.browser.browser_runner import scrape_page_text
 
         mock_page = AsyncMock()
         mock_page.evaluate.return_value = "页面文本内容..."
@@ -174,7 +174,7 @@ class TestBrowserRunner:
 
     def test_boss_selectors_order(self):
         """验证选择器按优先级排序（通用 → 特定）"""
-        from app.services.jobs.browser_runner import BOSS_SELECTORS
+        from app.infrastructure.browser.browser_runner import BOSS_SELECTORS
 
         send_selectors = BOSS_SELECTORS["send_button"]
         # 至少包含几个关键选择器
@@ -192,10 +192,10 @@ class TestBossApplyService:
     @pytest.mark.asyncio
     async def test_apply_preview_no_url(self):
         """无来源链接时无法自动投递"""
-        from app.services.jobs.boss_apply_service import execute_apply_preview
+        from app.infrastructure.browser.boss_apply_service import execute_apply_preview
 
         with patch(
-            "app.repositories.jobs.job_capture_repo.get_job_capture_repo"
+            "app.infrastructure.db.repositories.jobs.job_capture_repo.get_job_capture_repo"
         ) as mock_repo:
             mock_repo_instance = AsyncMock()
             mock_repo_instance.get_job.return_value = {
@@ -216,10 +216,10 @@ class TestBossApplyService:
     @pytest.mark.asyncio
     async def test_apply_preview_rate_limited(self):
         """被限流时无法预览"""
-        from app.services.jobs.boss_apply_service import execute_apply_preview
+        from app.infrastructure.browser.boss_apply_service import execute_apply_preview
 
         with patch(
-            "app.repositories.jobs.job_capture_repo.get_job_capture_repo"
+            "app.infrastructure.db.repositories.jobs.job_capture_repo.get_job_capture_repo"
         ) as mock_repo:
             mock_repo_instance = AsyncMock()
             mock_repo_instance.get_job.return_value = {
@@ -229,7 +229,7 @@ class TestBossApplyService:
             mock_repo.return_value = mock_repo_instance
 
             with patch(
-                "app.services.jobs.rate_limiter.check_rate"
+                "app.infrastructure.browser.rate_limiter.check_rate"
             ) as mock_check:
                 mock_check.return_value = (False, "频率限制")
 
@@ -244,7 +244,7 @@ class TestBossApplyService:
 
     @pytest.mark.asyncio
     async def test_apply_preview_uses_host_service_and_issues_approval(self):
-        from app.services.jobs.boss_apply_service import execute_apply_preview
+        from app.infrastructure.browser.boss_apply_service import execute_apply_preview
 
         source_url = "https://www.zhipin.com/job_detail/1.html"
         repo = AsyncMock()
@@ -261,15 +261,15 @@ class TestBossApplyService:
 
         with (
             patch(
-                "app.repositories.jobs.job_capture_repo.get_job_capture_repo",
+                "app.infrastructure.db.repositories.jobs.job_capture_repo.get_job_capture_repo",
                 return_value=repo,
             ),
             patch(
-                "app.services.jobs.rate_limiter.check_rate",
+                "app.infrastructure.browser.rate_limiter.check_rate",
                 new=AsyncMock(return_value=(True, "ok")),
             ),
             patch(
-                "app.services.jobs.boss_apply_service.get_boss_automation_client",
+                "app.infrastructure.browser.boss_apply_service.get_boss_automation_client",
                 return_value=client,
             ),
         ):
@@ -281,7 +281,7 @@ class TestBossApplyService:
 
     @pytest.mark.asyncio
     async def test_apply_send_requires_explicit_confirmation(self):
-        from app.services.jobs.boss_apply_service import execute_apply_send
+        from app.infrastructure.browser.boss_apply_service import execute_apply_send
 
         result = await execute_apply_send(
             job_id=1,
@@ -296,8 +296,8 @@ class TestBossApplyService:
 
     @pytest.mark.asyncio
     async def test_apply_send_claims_verifies_and_marks_applied(self):
-        from app.services.jobs.apply_approval import apply_approval_registry
-        from app.services.jobs.boss_apply_service import execute_apply_send
+        from app.infrastructure.browser.apply_approval import apply_approval_registry
+        from app.infrastructure.browser.boss_apply_service import execute_apply_send
 
         source_url = "https://www.zhipin.com/job_detail/1.html"
         token, _ = await apply_approval_registry.issue(
@@ -331,26 +331,26 @@ class TestBossApplyService:
 
         with (
             patch(
-                "app.repositories.jobs.job_capture_repo.get_job_capture_repo",
+                "app.infrastructure.db.repositories.jobs.job_capture_repo.get_job_capture_repo",
                 return_value=repo,
             ),
             patch(
-                "app.services.jobs.rate_limiter.check_rate",
+                "app.infrastructure.browser.rate_limiter.check_rate",
                 new=AsyncMock(return_value=(True, "ok")),
             ),
             patch(
-                "app.services.jobs.rate_limiter.record_success",
+                "app.infrastructure.browser.rate_limiter.record_success",
                 new=AsyncMock(),
             ),
             patch(
-                "app.services.jobs.boss_apply_service.get_boss_automation_client",
+                "app.infrastructure.browser.boss_apply_service.get_boss_automation_client",
                 return_value=client,
             ),
             patch(
-                "app.services.jobs.boss_apply_service._save_application_record",
+                "app.infrastructure.browser.boss_apply_service._save_application_record",
                 new=AsyncMock(),
             ),
-            patch("app.models.async_session", new=lambda: fake_session),
+            patch("app.infrastructure.db.models.async_session", new=lambda: fake_session),
         ):
             result = await execute_apply_send(
                 job_id=1,
@@ -368,9 +368,9 @@ class TestBossApplyService:
 
     @pytest.mark.asyncio
     async def test_apply_send_rpc_timeout_requires_manual_takeover(self):
-        from app.services.jobs.apply_approval import apply_approval_registry
-        from app.services.jobs.boss_apply_service import execute_apply_send
-        from app.services.jobs.boss_automation_client import BossAutomationError
+        from app.infrastructure.browser.apply_approval import apply_approval_registry
+        from app.infrastructure.browser.boss_apply_service import execute_apply_send
+        from app.infrastructure.browser.boss_automation_client import BossAutomationError
 
         source_url = "https://www.zhipin.com/job_detail/2.html"
         token, _ = await apply_approval_registry.issue(
@@ -395,26 +395,26 @@ class TestBossApplyService:
 
         with (
             patch(
-                "app.repositories.jobs.job_capture_repo.get_job_capture_repo",
+                "app.infrastructure.db.repositories.jobs.job_capture_repo.get_job_capture_repo",
                 return_value=repo,
             ),
             patch(
-                "app.services.jobs.rate_limiter.check_rate",
+                "app.infrastructure.browser.rate_limiter.check_rate",
                 new=AsyncMock(return_value=(True, "ok")),
             ),
             patch(
-                "app.services.jobs.rate_limiter.record_failure",
+                "app.infrastructure.browser.rate_limiter.record_failure",
                 new=AsyncMock(),
             ),
             patch(
-                "app.services.jobs.boss_apply_service.get_boss_automation_client",
+                "app.infrastructure.browser.boss_apply_service.get_boss_automation_client",
                 return_value=client,
             ),
             patch(
-                "app.services.jobs.boss_apply_service._save_application_record",
+                "app.infrastructure.browser.boss_apply_service._save_application_record",
                 new=AsyncMock(),
             ),
-            patch("app.models.async_session", new=lambda: fake_session),
+            patch("app.infrastructure.db.models.async_session", new=lambda: fake_session),
         ):
             result = await execute_apply_send(
                 job_id=2,
@@ -439,13 +439,13 @@ class TestApplyApprovalRegistry:
         ],
     )
     def test_apply_url_allowlist(self, url, expected):
-        from app.services.jobs.apply_approval import is_allowed_apply_url
+        from app.infrastructure.browser.apply_approval import is_allowed_apply_url
 
         assert is_allowed_apply_url(url) is expected
 
     @pytest.mark.asyncio
     async def test_token_is_bound_and_single_use(self):
-        from app.services.jobs.apply_approval import ApplyApprovalRegistry, ApprovalError
+        from app.infrastructure.browser.apply_approval import ApplyApprovalRegistry, ApprovalError
 
         registry = ApplyApprovalRegistry(ttl_seconds=300)
         token, expires_in = await registry.issue(
@@ -477,7 +477,7 @@ class TestApplyApprovalRegistry:
 
     @pytest.mark.asyncio
     async def test_token_rejects_changed_content(self):
-        from app.services.jobs.apply_approval import ApplyApprovalRegistry, ApprovalError
+        from app.infrastructure.browser.apply_approval import ApplyApprovalRegistry, ApprovalError
 
         registry = ApplyApprovalRegistry(ttl_seconds=300)
         token, _ = await registry.issue(
@@ -500,7 +500,7 @@ class TestApplyApprovalRegistry:
 
     @pytest.mark.asyncio
     async def test_new_preview_invalidates_previous_token_for_same_job(self):
-        from app.services.jobs.apply_approval import ApplyApprovalRegistry, ApprovalError
+        from app.infrastructure.browser.apply_approval import ApplyApprovalRegistry, ApprovalError
 
         registry = ApplyApprovalRegistry(ttl_seconds=300)
         first, _ = await registry.issue(
@@ -530,7 +530,7 @@ class TestApplyApprovalRegistry:
 
     @pytest.mark.asyncio
     async def test_token_expires_closed(self):
-        from app.services.jobs.apply_approval import ApplyApprovalRegistry, ApprovalError
+        from app.infrastructure.browser.apply_approval import ApplyApprovalRegistry, ApprovalError
 
         registry = ApplyApprovalRegistry(ttl_seconds=-1)
         token, _ = await registry.issue(
@@ -572,10 +572,10 @@ class TestJobUserIsolation:
 
     @pytest.mark.asyncio
     async def test_user_a_cannot_get_user_b_job(self):
-        from app.repositories.jobs.job_capture_repo import get_job_capture_repo
+        from app.infrastructure.db.repositories.jobs.job_capture_repo import get_job_capture_repo
 
         with patch(
-            "app.repositories.jobs.job_capture_repo.JobCaptureRepo.get_job"
+            "app.infrastructure.db.repositories.jobs.job_capture_repo.JobCaptureRepo.get_job"
         ) as mock_get:
             mock_get.return_value = None
 
@@ -586,10 +586,10 @@ class TestJobUserIsolation:
 
     @pytest.mark.asyncio
     async def test_user_a_cannot_delete_user_b_job(self):
-        from app.repositories.jobs.job_capture_repo import get_job_capture_repo
+        from app.infrastructure.db.repositories.jobs.job_capture_repo import get_job_capture_repo
 
         with patch(
-            "app.repositories.jobs.job_capture_repo.JobCaptureRepo.delete_job"
+            "app.infrastructure.db.repositories.jobs.job_capture_repo.JobCaptureRepo.delete_job"
         ) as mock_delete:
             mock_delete.return_value = False
 
@@ -600,7 +600,7 @@ class TestJobUserIsolation:
 
     def test_captured_job_model_fields(self):
         """验证 CapturedJobModel 包含所有关键字段"""
-        from app.models.job_capture import CapturedJobModel
+        from app.infrastructure.db.models.job_capture import CapturedJobModel
 
         # 验证类属性
         assert hasattr(CapturedJobModel, "user_id")

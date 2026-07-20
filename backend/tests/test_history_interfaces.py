@@ -6,8 +6,8 @@ from types import SimpleNamespace
 import pytest
 
 from app.api import resume
-from app.application.resume import history as resume_history
-from app.repositories.resume.resume_repo import ResumeRepo
+from app.workflows.resume import history as resume_history
+from app.infrastructure.db.repositories.resume.resume_repo import ResumeRepo
 from app.schemas.resume_schemas import ResumeHistoryDetailResponse, ResumeHistoryListResponse
 from app.schemas.job_application import ApplicationListResponse
 

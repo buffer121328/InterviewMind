@@ -1,4 +1,4 @@
-"""投递追踪 API 的应用层依赖边界。"""
+"""投递追踪 API 的 workflow 依赖边界。"""
 
 import ast
 
@@ -20,17 +20,18 @@ def _imports(path: Path) -> list[str]:
     return modules
 
 
-def test_applications_api_uses_application_layer_instead_of_repositories():
+def test_applications_api_uses_workflow_layer_instead_of_repositories():
     modules = _imports(BACKEND_APP / "api" / "applications.py")
-    assert not any(module.startswith("app.repositories") for module in modules)
-    assert any(module.startswith("app.application") for module in modules)
+    assert not any(module.startswith("app.infrastructure.db.repositories") for module in modules)
+    assert not any(module.startswith("app.infrastructure.db.repositories") for module in modules)
+    assert any(module.startswith("app.workflows") for module in modules)
 
 
 @pytest.mark.asyncio
 async def test_add_event_to_application_uses_unit_of_work_session(monkeypatch):
     from types import SimpleNamespace
 
-    from app.application import applications
+    from app.workflows import applications
 
     fake_session = object()
     calls = []

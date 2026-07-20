@@ -1,0 +1,23 @@
+# DeepEval 全局配置
+model:
+  # judge 模型配置（使用与被测不同的模型避免偏差）
+  judge_model: gpt-4o-mini
+  temperature: 0
+
+evaluation:
+  # 默认阈值（0-1，越高越严格）
+  default_threshold: 0.7
+
+  # 各指标阈值覆盖
+  thresholds:
+    hallucination: 0.8
+    faithfulness: 0.7
+    answer_relevancy: 0.7
+    jd_relevancy: 0.7
+    question_clarity: 0.7
+
+# Golden Dataset 路径
+datasets:
+  interview: datasets/interview_golden.json
+  resume: datasets/resume_golden.json
+  scoring: datasets/scoring_benchmarks.json

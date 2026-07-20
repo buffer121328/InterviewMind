@@ -6,7 +6,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.deps import get_current_user_id
-from app.application.interview.experience_imports import interview_experience_import_use_cases
+from app.workflows.interview.experience_imports import interview_experience_import_use_cases
 from app.schemas.interview_experience import (
     ExperienceCollectRequest,
     ExperienceCollectResponse,

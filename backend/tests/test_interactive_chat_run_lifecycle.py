@@ -6,11 +6,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.application.interview import stream as chat_stream
-from app.application.interview.checkpoints import interview_turn_checkpoint_thread_id
-from app.application.interview.stream import ChatStreamUseCases
+from app.workflows.interview import stream as chat_stream
+from app.workflows.interview.checkpoints import interview_turn_checkpoint_thread_id
+from app.workflows.interview.stream import ChatStreamUseCases
 from app.schemas.schemas import ChatRequest
-from app.services.agent_runs.service import TASK_TYPE_INTERVIEW_TURN, get_task_definition
+from app.infrastructure.runtime.agent_runs.service import TASK_TYPE_INTERVIEW_TURN, get_task_definition
 
 
 def _agent_run_events(chunks):

@@ -7,8 +7,8 @@ RAG 层单元测试
 import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
 
-import app.services.interview.interview_rag as rag_module
-from app.services.interview.interview_rag import (
+import app.agents.interview.interview_rag as rag_module
+from app.agents.interview.interview_rag import (
     RagEvidence,
     RagResult,
     build_queries,
@@ -402,7 +402,7 @@ async def test_retrieve_queries_injects_user_boundary_and_private_namespace(monk
 
 @pytest.mark.asyncio
 async def test_agentic_shadow_records_trace_without_replacing_result(monkeypatch):
-    from app.repositories.interview import rag_index_repo
+    from app.infrastructure.db.repositories.interview import rag_index_repo
 
     repo = _FakeRagRepo()
     monkeypatch.setattr(rag_index_repo, "get_rag_index_repo", lambda: repo)
@@ -424,7 +424,7 @@ async def test_agentic_shadow_records_trace_without_replacing_result(monkeypatch
 
 @pytest.mark.asyncio
 async def test_agentic_active_adopts_only_improved_evidence(monkeypatch):
-    from app.repositories.interview import rag_index_repo
+    from app.infrastructure.db.repositories.interview import rag_index_repo
 
     repo = _FakeRagRepo()
     monkeypatch.setattr(rag_index_repo, "get_rag_index_repo", lambda: repo)
@@ -445,7 +445,7 @@ async def test_agentic_active_adopts_only_improved_evidence(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_memory_adapter_filters_prompt_injection(monkeypatch):
-    from app.services.tools import memory_tools
+    from app.tools import memory_tools
 
     async def fake_search_memory(**kwargs):
         return [

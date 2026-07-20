@@ -24,7 +24,7 @@ class TestDbConfigBehavior:
             "POSTGRES_DB": "",
         }
         with patch.dict(os.environ, env, clear=False):
-            import app.db.config as cfg
+            import app.infrastructure.db.config as cfg
             importlib.reload(cfg)
             config = cfg.get_postgres_config()
 
@@ -40,7 +40,7 @@ class TestDbConfigBehavior:
             "POSTGRES_PASSWORD": "test_secret_42",
         }
         with patch.dict(os.environ, env, clear=False):
-            import app.db.config as cfg
+            import app.infrastructure.db.config as cfg
             importlib.reload(cfg)
             config = cfg.get_postgres_config()
 
@@ -52,7 +52,7 @@ class TestDbConfigBehavior:
             "DATABASE_URL": "postgresql://myuser:mypass@dbhost:5555/mydb",
         }
         with patch.dict(os.environ, env, clear=False):
-            import app.db.config as cfg
+            import app.infrastructure.db.config as cfg
             importlib.reload(cfg)
             config = cfg.get_postgres_config()
 
@@ -68,7 +68,7 @@ class TestDbConfigBehavior:
             "DATABASE_URL": "postgresql+asyncpg://user:pw@host:5432/db",
         }
         with patch.dict(os.environ, env, clear=False):
-            import app.db.config as cfg
+            import app.infrastructure.db.config as cfg
             importlib.reload(cfg)
             config = cfg.get_postgres_config()
 
@@ -128,7 +128,7 @@ class TestAgentMemoryConfigBehavior:
             "POSTGRES_PASSWORD": "",
         }
         with patch.dict(os.environ, env, clear=False):
-            import app.services.agent_memory.config as mem_cfg
+            import app.infrastructure.memory.config as mem_cfg
             importlib.reload(mem_cfg)
             config = mem_cfg.get_mem0_config()
 
@@ -148,7 +148,7 @@ class TestAgentMemoryConfigBehavior:
             "POSTGRES_PASSWORD": "custom_pass",
         }
         with patch.dict(os.environ, env, clear=False):
-            import app.services.agent_memory.config as mem_cfg
+            import app.infrastructure.memory.config as mem_cfg
             importlib.reload(mem_cfg)
             config = mem_cfg.get_mem0_config()
 
@@ -168,7 +168,7 @@ class TestAgentMemoryConfigBehavior:
             "POSTGRES_PASSWORD": "cheng123",
         }
         with patch.dict(os.environ, env, clear=False):
-            import app.services.agent_memory.config as mem_cfg
+            import app.infrastructure.memory.config as mem_cfg
             importlib.reload(mem_cfg)
             config = mem_cfg.get_mem0_config()
 

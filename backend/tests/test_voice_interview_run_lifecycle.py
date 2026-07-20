@@ -5,10 +5,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.application.interview import voice_stream
-from app.application.interview.voice_stream import VoiceStreamUseCases
+from app.workflows.interview import voice_stream
+from app.workflows.interview.voice_stream import VoiceStreamUseCases
 from app.schemas.voice import VoiceChatRequest
-from app.services.agent_runs.service import TASK_TYPE_VOICE_INTERVIEW_TURN, get_task_definition
+from app.infrastructure.runtime.agent_runs.service import TASK_TYPE_VOICE_INTERVIEW_TURN, get_task_definition
 
 
 def _agent_run_events(chunks):

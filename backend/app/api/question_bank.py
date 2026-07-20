@@ -10,7 +10,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 
 from app.api.deps import get_current_user_id
-from app.application.question_bank import QuestionBankNotFound, question_bank_use_cases
+from app.workflows.question_bank import QuestionBankNotFound, question_bank_use_cases
 from app.schemas.question_bank import (
     QuestionBankCreateRequest,
     QuestionBankImportRequest,
@@ -32,8 +32,8 @@ async def preview_question_file(
     user_id: str = Depends(get_current_user_id),
 ):
     """解析 PDF/Markdown 并返回候选题；此步骤不写入题库。"""
-    from app.services.file_service import FileServiceError, file_service
-    from app.services.question_bank import parse_question_document
+    from app.infrastructure.files.file_service import FileServiceError, file_service
+    from app.workflows.question_bank_support import parse_question_document
 
     filename = (file.filename or "questions").strip()[:255]
     try:

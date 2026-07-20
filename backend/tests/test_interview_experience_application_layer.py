@@ -16,8 +16,8 @@ def test_interview_experience_import_route_delegates_to_application_layer():
         for node in ast.walk(tree)
         if isinstance(node, ast.ImportFrom) and node.module
     ]
-    assert not any(module.startswith("app.repositories") for module in modules)
-    assert "app.application.interview.experience_imports" in modules
+    assert not any(module.startswith("app.infrastructure.db.repositories") for module in modules)
+    assert "app.workflows.interview.experience_imports" in modules
 
     checked = set()
     for node in ast.walk(tree):

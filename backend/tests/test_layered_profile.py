@@ -11,7 +11,7 @@
 
 import pytest
 from unittest.mock import AsyncMock, patch
-from app.services.interview.round_summary_service import (
+from app.agents.interview.round_summary_service import (
     LAYERED_PROFILE,
     ProfileLayer,
     generate_final_summary,

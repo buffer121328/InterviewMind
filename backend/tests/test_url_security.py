@@ -2,7 +2,7 @@ import socket
 
 import pytest
 
-from app.services.url_security import UnsafeOutboundUrl, validate_outbound_url
+from app.infrastructure.security.url_security import UnsafeOutboundUrl, validate_outbound_url
 
 
 def test_rejects_cloud_metadata_even_when_private_models_allowed():

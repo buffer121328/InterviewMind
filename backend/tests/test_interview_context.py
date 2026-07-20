@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.services.interview import interview_context, interview_planner, voice_interview
+from app.agents.interview import interview_context, interview_planner, voice_interview
 
 
 class _Question:

@@ -1,4 +1,4 @@
-from app.services.resume.resume_optimizer_graph import (
+from app.agents.resume.resume_optimizer_graph import (
     ResumeOptimizerState,
     build_resume_optimizer_graph,
     optimize_resume,

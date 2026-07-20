@@ -1,6 +1,6 @@
 """AgentRun 生命周期语义。"""
 
-from app.services.agent_runs.lifecycle import (
+from app.infrastructure.runtime.agent_runs.lifecycle import (
     ACTIVE_STATUSES,
     TERMINAL_STATUSES,
     can_request_cancel,

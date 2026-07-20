@@ -56,12 +56,12 @@ def _pre_mock():
             return getattr(object.__getattribute__(self, "_mock"), name)
 
     _sub_paths = [
-        "app.repositories.session.repo_impl.base",
-        "app.repositories.session.repo_impl.session_mgmt",
-        "app.repositories.session.repo_impl.session_advanced",
-        "app.repositories.session.repo_impl.message_mgmt",
-        "app.repositories.session.repo_impl.profile_mgmt",
-        "app.repositories.session.repo_impl.interview_plan",
+        "app.infrastructure.db.repositories.session.repo_impl.base",
+        "app.infrastructure.db.repositories.session.repo_impl.session_mgmt",
+        "app.infrastructure.db.repositories.session.repo_impl.session_advanced",
+        "app.infrastructure.db.repositories.session.repo_impl.message_mgmt",
+        "app.infrastructure.db.repositories.session.repo_impl.profile_mgmt",
+        "app.infrastructure.db.repositories.session.repo_impl.interview_plan",
     ]
     _names = [
         "SessionManagementService", "SessionAdvancedService",
@@ -73,7 +73,7 @@ def _pre_mock():
             for name in _names:
                 setattr(mod, name, _FakeService)
             sys.modules[path] = mod
-        # 同时注入 backend.app.repositories... 路径
+        # 同时注入 backend.app.infrastructure.db.repositories... 路径
         backend_path = "backend." + path
         if backend_path not in sys.modules:
             sys.modules[backend_path] = sys.modules[path]
@@ -146,14 +146,14 @@ def _pre_mock():
         if not hasattr(apg, "connect") or isinstance(apg.connect, MagicMock):
             apg.connect = AsyncMock(return_value=_FakeAsyncpgConnection())
 
-    # -- 3. 预先导入 app.models，避免 backend.app.models 双重定义 --
+    # -- 3. 预先导入 app.infrastructure.db.models，避免 backend.app.infrastructure.db.models 双重定义 --
     # （conftest 把 backend/ 加入 sys.path，导致两条导入路径）
     try:
-        import app.models  # noqa: F401
+        import app.infrastructure.db.models  # noqa: F401
     except Exception:
         pass
-    if "app.models" in sys.modules:
-        sys.modules.setdefault("backend.app.models", sys.modules["app.models"])
+    if "app.infrastructure.db.models" in sys.modules:
+        sys.modules.setdefault("backend.app.infrastructure.db.models", sys.modules["app.infrastructure.db.models"])
 
 
 _pre_mock()
@@ -174,16 +174,16 @@ def _enter_test_client(app) -> TestClient:
     用于跳过真实数据库连接。
     """
     # 关键 mock 路径（这些都是 lifespan 中调用的函数）
-    # 注意：lifespan 内通过 `from app.models import init_db` 导入，
-    # 所以需要 patch app.models.init_db（而非 app.models.base.init_db）
+    # 注意：lifespan 内通过 `from app.infrastructure.db.models import init_db` 导入，
+    # 所以需要 patch app.infrastructure.db.models.init_db（而非 app.infrastructure.db.models.base.init_db）
     lifespan_patches = [
-        patch("app.models.init_db", new_callable=AsyncMock),
-        patch("app.services.agent_memory.get_agent_memory_service",
+        patch("app.infrastructure.db.models.init_db", new_callable=AsyncMock),
+        patch("app.infrastructure.memory.get_agent_memory_service",
               new_callable=lambda: AsyncMock(return_value=_FakeMemoryService())),
-        patch("app.services.agent_memory.close_agent_memory_service", new_callable=AsyncMock),
-        patch("app.services.memory.close_checkpointer", new_callable=AsyncMock),
-        patch("app.services.background_tasks.drain_background_tasks", new_callable=AsyncMock),
-        patch("app.services.interview.interview_graph.clear_graph_instances", MagicMock),
+        patch("app.infrastructure.memory.close_agent_memory_service", new_callable=AsyncMock),
+        patch("app.infrastructure.memory.memory.close_checkpointer", new_callable=AsyncMock),
+        patch("app.infrastructure.runtime.background_tasks.drain_background_tasks", new_callable=AsyncMock),
+        patch("app.agents.interview.interview_graph.clear_graph_instances", MagicMock),
     ]
 
     # 启动所有 patch
@@ -518,7 +518,7 @@ class TestErrorResponseFormat:
     @pytest.fixture(autouse=True)
     def _mock_session(self):
         """Mock 当前会话管理用例，确保 get_session 走 404 分支。"""
-        from app.application.interview.sessions import SessionManagementNotFound
+        from app.workflows.interview.sessions import SessionManagementNotFound
 
         mock_use_cases = MagicMock()
         mock_use_cases.get_session = AsyncMock(

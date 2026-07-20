@@ -1,1 +1,1 @@
-from app.services.prompts.interview import *  # noqa: F403
+from app.prompts.interview import *  # noqa: F401,F403

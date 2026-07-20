@@ -1,0 +1,327 @@
+[
+  {
+    "id": "interview_001",
+    "name": "Java后端工程师-初级",
+    "resume": "张三，2022年毕业于北京大学计算机科学专业。熟悉Java、Spring Boot、MySQL。在某互联网公司实习6个月，参与了电商平台后端开发，负责订单模块的接口设计与实现，使用Redis缓存优化了查询性能。",
+    "job_description": "招聘Java后端开发工程师，要求：1. 熟悉Java和Spring Boot框架 2. 了解MySQL数据库设计 3. 有良好的编码习惯 4. 具备团队协作能力 5. 了解常用中间件如Redis、MQ",
+    "company_info": "某互联网科技公司，专注于电商领域，团队规模50人",
+    "max_questions": 5,
+    "round_type": "tech_initial",
+    "expected_question_count": 5,
+    "must_contain_keywords": ["Java", "Spring Boot", "MySQL"],
+    "expected_types": ["intro", "tech", "behavior"],
+    "expected_questions": [
+      {
+        "topic": "自我介绍",
+        "type": "intro",
+        "reference_content": "请做一个简短的自我介绍，包括你的教育背景、技术栈和实习经历。",
+        "ideal_answer": "面试官您好，我是张三，2022年毕业于北京大学计算机科学专业。我的技术栈以Java为主，熟悉Spring Boot框架和MySQL数据库。在某互联网公司实习了6个月，主要参与电商平台的后端开发，负责订单模块的接口设计与实现。实习期间我使用Redis缓存优化了订单查询接口的性能，将响应时间从200ms降到了50ms。我对后端开发有浓厚的兴趣，希望能在贵公司继续深入学习和成长。",
+        "evaluation_criteria": "1. 是否清晰介绍教育背景和技术栈 2. 是否有具体项目经历 3. 是否有量化成果 4. 表达是否流畅自信"
+      },
+      {
+        "topic": "Spring Boot",
+        "type": "tech",
+        "reference_content": "请介绍一下Spring Boot的自动配置原理，以及@SpringBootApplication注解的作用。",
+        "ideal_answer": "@SpringBootApplication是一个组合注解，包含@SpringBootConfiguration、@EnableAutoConfiguration和@ComponentScan三个核心注解。自动配置的核心是@EnableAutoConfiguration，它通过SpringFactoriesLoader加载META-INF/spring.factories中定义的自动配置类。每个配置类使用@Conditional系列注解（如@ConditionalOnClass、@ConditionalOnMissingBean）进行条件判断，只有满足条件时才会生效。比如当classpath中有DataSource.class时，DataSourceAutoConfiguration才会自动配置数据源。开发者可以通过application.yml覆盖默认配置，也可以使用@EnableAutoConfiguration的exclude属性排除特定的自动配置类。",
+        "evaluation_criteria": "1. 是否理解组合注解的构成 2. 是否了解spring.factories机制 3. 是否知道条件注解的作用 4. 能否举例说明"
+      },
+      {
+        "topic": "MySQL索引",
+        "type": "tech",
+        "reference_content": "请解释MySQL中B+树索引的结构特点，以及联合索引的最左匹配原则。",
+        "ideal_answer": "B+树索引的特点：1. 非叶子节点只存储索引键，不存储数据，这样每个节点可以容纳更多索引项，树的高度更低 2. 叶子节点存储完整数据，并通过双向链表连接，支持高效的范围查询 3. 所有查询都要走到叶子节点，查询性能稳定。联合索引最左匹配原则：索引(a,b,c)可以被查询条件WHERE a=1、WHERE a=1 AND b=2、WHERE a=1 AND b=2 AND c=3使用，但不能被WHERE b=2或WHERE c=3使用。这是因为B+树是按照索引列的顺序构建的，必须从最左列开始匹配。在实际优化中，我会把选择性高的列放在前面，并利用覆盖索引减少回表查询。",
+        "evaluation_criteria": "1. 是否理解B+树结构特点 2. 是否理解最左匹配原则 3. 能否举例说明 4. 是否有实际优化经验"
+      },
+      {
+        "topic": "Redis应用",
+        "type": "tech",
+        "reference_content": "你在实习中使用了Redis缓存，请介绍一下Redis的持久化机制和缓存穿透问题的解决方案。",
+        "ideal_answer": "Redis有两种持久化方式：RDB和AOF。RDB是定时快照，适合备份和恢复，但可能丢失最后一次快照后的数据。AOF记录每个写命令，数据更完整但文件更大，可以通过bgrewriteaof压缩。Redis 4.0后支持混合持久化，RDB做全量+AOF记录增量。缓存穿透是指查询不存在的数据，请求直接打到数据库。解决方案：1. 布隆过滤器，在缓存前加一层过滤 2. 缓存空值，对不存在的key也缓存一个空值，设置较短过期时间 3. 接口层做参数校验和限流。在我的实习项目中，商品详情接口就用了布隆过滤器防止恶意查询不存在的商品ID。",
+        "evaluation_criteria": "1. 是否了解两种持久化方式 2. 是否理解缓存穿透及解决方案 3. 能否结合实际项目说明 4. 回答是否有条理"
+      },
+      {
+        "topic": "团队协作",
+        "type": "behavior",
+        "reference_content": "请描述一次你在团队中遇到技术分歧的经历，你是如何处理的？",
+        "ideal_answer": "在实习期间，我和另一位同事在订单状态机的设计上产生了分歧。他主张用简单的if-else判断，我认为应该用状态模式。我没有直接否定他的方案，而是先理解了他的考虑——他担心状态模式会增加代码复杂度。然后我做了一个简单的对比Demo，展示了两种方案在新增状态时的代码改动量。通过代码对比，我们达成共识：当前状态较少用if-else足够，但考虑到后续会增加售后状态，状态模式更可维护。最终我们采用了状态模式，后来新增退款、换货状态时确实方便很多。这件事让我认识到，技术分歧要用数据和Demo来解决，而不是争论。",
+        "evaluation_criteria": "1. 是否有具体的分歧场景 2. 处理方式是否成熟理性 3. 是否有具体行动和结果 4. 是否有反思和成长"
+      }
+    ],
+    "dialogue_cases": [
+      {
+        "candidate_answer": "我在实习期间主要负责订单模块的开发，使用了Spring Boot和MyBatis，处理了高并发下的库存扣减问题，通过Redis分布式锁解决了超卖问题。",
+        "expected_action": "follow_up",
+        "description": "候选人提到了具体技术细节和解决方案，应该追问分布式锁的实现细节"
+      },
+      {
+        "candidate_answer": "我对这方面不太了解，之前没有接触过。",
+        "expected_action": "next_question",
+        "description": "候选人无法回答，应该切换到下一题"
+      },
+      {
+        "candidate_answer": "我觉得代码规范很重要，我会写单元测试，也会做Code Review。",
+        "expected_action": "follow_up",
+        "description": "候选人回答比较笼统，应该追问具体实践细节"
+      }
+    ]
+  },
+  {
+    "id": "interview_002",
+    "name": "前端工程师-中级",
+    "resume": "王五，3年前端开发经验。精通React、TypeScript、Webpack。在某科技公司负责中后台系统开发，主导了组件库建设，优化了首屏加载速度从3秒降到1.2秒。熟悉Node.js，有全栈开发经验。",
+    "job_description": "招聘中级前端工程师，要求：1. 精通React或Vue框架 2. 熟悉TypeScript 3. 了解前端工程化和性能优化 4. 有组件库或工具库开发经验优先 5. 良好的沟通能力和团队协作精神",
+    "company_info": "某SaaS企业服务公司，提供CRM解决方案，技术团队100人",
+    "max_questions": 5,
+    "round_type": "tech_initial",
+    "expected_question_count": 5,
+    "must_contain_keywords": ["React", "TypeScript", "性能优化"],
+    "expected_types": ["intro", "tech", "behavior"],
+    "expected_questions": [
+      {
+        "topic": "自我介绍",
+        "type": "intro",
+        "reference_content": "请做一个简短的自我介绍，包括你的前端技术栈和代表性项目。",
+        "ideal_answer": "面试官您好，我叫王五，有3年前端开发经验。我的技术栈以React和TypeScript为主，熟悉Webpack工程化配置。在某科技公司负责中后台系统开发期间，我主导建设了团队的组件库，包含50+业务组件，被3个项目复用。另一个代表性项目是首屏性能优化，通过代码分割、图片懒加载、Tree Shaking等手段，将首屏加载时间从3秒优化到1.2秒。我也熟悉Node.js，有BFF层开发经验，能独立完成前后端联调。",
+        "evaluation_criteria": "1. 技术栈是否匹配JD要求 2. 是否有量化成果 3. 是否展示了技术深度 4. 表达是否清晰"
+      },
+      {
+        "topic": "React Hooks",
+        "type": "tech",
+        "reference_content": "请解释React Hooks的执行原理，useEffect和useLayoutEffect的区别是什么？",
+        "ideal_answer": "React Hooks的原理是基于链表实现的。每个组件实例有一个memoizedState链表，每次调用Hook时从链表中取出对应的state，调用完成后指针前移。这就是为什么Hook不能放在条件语句中——会打乱链表顺序。useEffect和useLayoutEffect的区别在于执行时机：useEffect在浏览器完成布局和绘制后异步执行，不会阻塞渲染；useLayoutEffect在DOM更新后、浏览器绘制前同步执行，会阻塞渲染。适用场景不同：useEffect适合数据获取、订阅等不需要同步的操作；useLayoutEffect适合需要同步读取DOM布局或避免视觉闪烁的场景，比如手动修改DOM、测量元素尺寸等。在实际开发中，我99%的情况都用useEffect，只有在遇到闪烁问题时才用useLayoutEffect。",
+        "evaluation_criteria": "1. 是否理解Hook底层原理 2. 是否清楚两者的执行时机差异 3. 能否说明适用场景 4. 是否有实际使用经验"
+      },
+      {
+        "topic": "TypeScript",
+        "type": "tech",
+        "reference_content": "TypeScript中type和interface有什么区别？请举例说明各自的使用场景。",
+        "ideal_answer": "type和interface的主要区别：1. interface可以声明合并（同名自动合并），type不行 2. type可以定义联合类型、交叉类型、元组、映射类型等更复杂的类型 3. interface只能描述对象结构。使用场景：定义对象结构优先用interface，因为支持声明合并和extends继承，适合定义API响应、组件Props等。type适合定义联合类型如type Status = 'loading' | 'success' | 'error'，工具类型如type Partial<T>，以及函数类型。在实际项目中，我一般遵循：组件Props和API接口用interface，状态类型和工具类型用type。",
+        "evaluation_criteria": "1. 是否清楚两者的核心区别 2. 能否举例说明使用场景 3. 是否有实际编码经验 4. 回答是否有条理"
+      },
+      {
+        "topic": "性能优化",
+        "type": "tech",
+        "reference_content": "你将首屏加载时间从3秒优化到1.2秒，具体做了哪些优化措施？",
+        "ideal_answer": "我从网络、资源、渲染三个层面做了优化。网络层：1. 路由级代码分割，用React.lazy+Suspense实现按需加载 2. 第三方库单独打包成vendor chunk，利用浏览器缓存 3. 开启Gzip压缩，资源体积减少60%。资源层：1. 图片懒加载，使用IntersectionObserver API 2. 大图片转WebP格式，体积减少30% 3. 图标使用SVG Sprite替代IconFont。渲染层：1. 关键CSS内联，减少首屏阻塞 2. 非关键JS添加defer/async属性 3. 使用React.memo和useMemo减少不必要的重渲染。效果：首屏LCP从3秒降到1.2秒，FCP从1.8秒降到0.6秒，打包体积从2.5MB降到800KB。",
+        "evaluation_criteria": "1. 是否有系统性的优化思路 2. 措施是否具体可操作 3. 是否有量化数据支撑 4. 是否覆盖多个优化层面"
+      },
+      {
+        "topic": "组件库设计",
+        "type": "behavior",
+        "reference_content": "请介绍一下你主导的组件库项目的架构设计和技术选型。",
+        "ideal_answer": "组件库采用Monorepo架构，使用pnpm workspace管理多个包。目录结构分为：core（核心工具函数）、components（UI组件）、hooks（业务hooks）、utils（工具库）。技术选型：构建工具用Rollup（比Webpack更适合库开发），样式方案用CSS Modules+CSS Variables（支持主题定制），文档用Docusaurus，测试用Jest+Testing Library。组件设计原则：1. 组合优于继承，用Hooks复用逻辑 2. Props设计参考Ant Design API，降低学习成本 3. 支持ref转发和TypeScript类型推导。发布流程：Changesets管理版本号，GitHub Actions自动发布到npm。目前组件库有50+组件，被3个项目复用，累计下载量1万+。",
+        "evaluation_criteria": "1. 架构设计是否合理 2. 技术选型是否有依据 3. 是否考虑了可维护性 4. 是否有实际使用数据"
+      }
+    ],
+    "dialogue_cases": [
+      {
+        "candidate_answer": "我们组件库采用Monorepo架构，使用Lerna管理包，每个组件独立发布。设计上参考了Ant Design的API设计，但针对我们业务场景做了定制。",
+        "expected_action": "follow_up",
+        "description": "候选人提到了具体架构方案，应该追问技术选型的考量和遇到的挑战"
+      },
+      {
+        "candidate_answer": "性能优化方面，我主要做了代码分割、图片懒加载、虚拟列表，还有服务端渲染的尝试。",
+        "expected_action": "follow_up",
+        "description": "候选人列举了多项优化措施，应该深入追问某一项的具体实现和效果"
+      }
+    ]
+  },
+  {
+    "id": "interview_003",
+    "name": "数据工程师-高级",
+    "resume": "赵六，7年大数据开发经验。精通Spark、Flink、Hadoop生态。曾主导搭建日处理10TB数据的实时数仓，设计了数据质量监控体系。熟悉数据建模方法论，有Data Mesh架构实践经验。在某头部互联网公司担任数据平台负责人。",
+    "job_description": "招聘高级数据工程师，要求：1. 5年以上大数据开发经验 2. 精通Spark/Flink等计算框架 3. 有实时数仓建设经验 4. 熟悉数据治理和数据质量体系 5. 具备架构设计能力 6. 有团队管理经验优先",
+    "company_info": "某金融科技公司，数据驱动业务决策，数据团队30人",
+    "max_questions": 5,
+    "round_type": "tech_deep",
+    "expected_question_count": 5,
+    "must_contain_keywords": ["Spark", "Flink", "数仓", "数据治理"],
+    "expected_types": ["intro", "tech", "scenario"],
+    "expected_questions": [
+      {
+        "topic": "项目经验",
+        "type": "intro",
+        "reference_content": "请介绍你主导搭建的实时数仓项目，包括架构设计和技术选型。",
+        "ideal_answer": "这个项目的背景是业务需要实时看板，原来T+1的离线数仓无法满足需求。我设计了Lambda架构：离线层用Spark做T+1全量计算，实时层用Flink做分钟级增量更新，服务层用Doris做OLAP查询。数据分层采用ODS-DWD-DWS-ADS的标准模型。实时链路：Kafka采集业务Binlog → Flink CDC实时入仓 → Flink SQL做实时ETL → 写入Doris。离线链路：Sqoop/DataX抽取 → Hive ODS → Spark ETL → Hive DWD/DWS → 同步Doris。通过双链路保证数据一致性和可用性。日处理数据量10TB+，实时链路延迟控制在1分钟内。",
+        "evaluation_criteria": "1. 架构设计是否合理 2. 技术选型是否有依据 3. 是否考虑了数据一致性 4. 是否有量化数据"
+      },
+      {
+        "topic": "Flink核心技术",
+        "type": "tech",
+        "reference_content": "请解释Flink的Checkpoint机制，以及如何保证Exactly-Once语义。",
+        "ideal_answer": "Flink的Checkpoint基于Chandy-Lamport分布式快照算法实现。JobManager定期向Source节点注入Barrier，Barrier随数据流向下游传播。当算子收到所有输入流的Barrier时，对当前状态做快照并持久化到State Backend（如RocksDB+HDFS）。当所有算子都完成快照后，这次Checkpoint标记为完成。Exactly-Once保证：1. Source端：Kafka Consumer记录offset到Checkpoint，故障恢复时从offset重放 2. 算子端：状态从Checkpoint恢复，保证状态一致性 3. Sink端：使用两阶段提交（2PC），如Kafka Producer的事务写入，确保不重复不丢失。实际调优：Checkpoint间隔根据业务容忍度设置（我们用30秒），开启增量Checkpoint减少IO，设置合理的超时时间。",
+        "evaluation_criteria": "1. 是否理解Barrier机制 2. 是否理解Exactly-Once的实现原理 3. 是否了解State Backend 4. 是否有调优经验"
+      },
+      {
+        "topic": "数据质量",
+        "type": "tech",
+        "reference_content": "你设计的数据质量监控体系包含哪些维度？如何落地？",
+        "ideal_answer": "数据质量体系从六个维度建设：1. 完整性：数据量对比，源端和目标端记录数是否一致，用SQL做count校验 2. 准确性：字段值校验，如金额不能为负、日期格式正确，用正则和范围检查 3. 一致性：跨表数据一致性，如订单表的用户ID必须在用户表中存在 4. 及时性：数据产出时间监控，超时自动告警 5. 唯一性：主键去重检查 6. 波动性：数据量环比/同比波动超过阈值告警。落地方式：开发了DQC平台，规则配置化，支持SQL规则和模板规则。每条数据管道都挂载DQC规则，检查失败自动阻断下游依赖并告警。通过飞书机器人实时通知负责人。目前覆盖了200+数据表，500+条规则，数据问题发现时间从小时级降到分钟级。",
+        "evaluation_criteria": "1. 维度是否全面 2. 落地方式是否具体 3. 是否有平台化思维 4. 是否有量化效果"
+      },
+      {
+        "topic": "架构演进",
+        "type": "scenario",
+        "reference_content": "如果让你从零开始建设一个实时数仓，你会如何规划技术选型和分步实施路径？",
+        "ideal_answer": "分三个阶段实施。第一阶段（1-2月）：搭建基础架构，选型Flink+Kafka+Doris，完成数据采集链路（Flink CDC），实现核心业务表的实时入仓。第二阶段（3-4月）：完善数据模型，按照维度建模方法论设计DWD/DWS层，开发通用的实时ETL模板，建设数据质量监控。第三阶段（5-6月）：平台化建设，开发自助查询平台、数据血缘、元数据管理，降低使用门槛。技术选型考虑：1. 计算引擎选Flink而非Spark Streaming，因为Flink的流处理语义更完善 2. OLAP引擎选Doris而非ClickHouse，因为Doris支持更新和事务 3. 消息队列选Kafka，生态成熟。风险控制：先在非核心业务验证，灰度推广。",
+        "evaluation_criteria": "1. 实施路径是否合理 2. 技术选型是否有依据 3. 是否考虑了风险 4. 是否有阶段性目标"
+      },
+      {
+        "topic": "团队管理",
+        "type": "behavior",
+        "reference_content": "作为数据平台负责人，你如何管理团队和分配工作？",
+        "ideal_answer": "我的管理理念是目标驱动+技术赋能。目标管理：每季度和团队一起制定OKR，拆解到月度里程碑，每周review进度。工作分配：根据成员的技术特长和发展意愿分配任务，比如对流计算感兴趣的同事负责Flink相关项目。技术赋能：1. 建立技术分享机制，每周一次内部分享 2. Code Review制度，保证代码质量 3. 鼓励参与开源社区和外部技术会议。团队成长：为每位成员制定IDP（个人发展计划），定期1:1沟通职业规划。遇到的问题：有个成员技术能力强但沟通弱，我安排他做技术方案评审的主持人，锻炼表达能力，半年后明显改善。团队成果：2年内从5人扩展到15人，培养了3名技术骨干。",
+        "evaluation_criteria": "1. 管理理念是否清晰 2. 是否有具体方法和工具 3. 是否关注团队成长 4. 是否有实际成果"
+      }
+    ],
+    "dialogue_cases": [
+      {
+        "candidate_answer": "我们采用Lambda架构，离线层用Spark做T+1的全量计算，实时层用Flink做分钟级增量更新，通过服务层合并两者结果。后来演进到Kappa架构，统一用Flink处理。",
+        "expected_action": "follow_up",
+        "description": "候选人展示了深厚的架构理解，应该追问架构演进的原因和收益"
+      },
+      {
+        "candidate_answer": "数据质量监控我们从完整性、准确性、一致性、及时性四个维度建设，每条数据管道都有对应的DQC规则，异常时自动告警并触发修复流程。",
+        "expected_action": "follow_up",
+        "description": "候选人给出了系统性的回答，应该追问具体的实现细节和踩过的坑"
+      },
+      {
+        "candidate_answer": "关于Data Mesh，我觉得核心是数据所有权的去中心化，让业务团队自己负责数据产品，平台团队提供基础设施支持。",
+        "expected_action": "follow_up",
+        "description": "候选人给出了理论回答，可以挑战性地追问实际落地的困难和权衡"
+      }
+    ]
+  },
+  {
+    "id": "interview_004",
+    "name": "产品经理",
+    "resume": "孙七，5年产品经理经验，3年B端产品经验。主导过企业级SaaS产品从0到1的建设，负责用户增长策略使MAU提升150%。擅长用户研究和数据分析，有敏捷开发实践经验。曾在某独角兽公司担任高级产品经理。",
+    "job_description": "招聘高级产品经理，要求：1. 3年以上B端产品经验 2. 有从0到1产品建设经验 3. 优秀的用户研究和需求分析能力 4. 数据驱动决策思维 5. 良好的跨部门沟通协调能力 6. 有SaaS行业经验优先",
+    "company_info": "某企业服务SaaS公司，提供项目管理工具，产品团队15人",
+    "max_questions": 5,
+    "round_type": "hr_comprehensive",
+    "expected_question_count": 5,
+    "must_contain_keywords": ["需求分析", "用户研究", "数据驱动"],
+    "expected_types": ["intro", "behavior", "scenario"],
+    "expected_questions": [
+      {
+        "topic": "自我介绍",
+        "type": "intro",
+        "reference_content": "请做一个简短的自我介绍，包括你的产品经验和代表性项目。",
+        "ideal_answer": "面试官您好，我叫孙七，有5年产品经理经验，其中3年专注于B端SaaS产品。我最有成就感的项目是主导了一款企业级协作工具从0到1的建设，从需求调研、MVP设计到正式上线，历时8个月。上线后我负责用户增长策略，通过优化新用户引导流程和建立用户分层运营体系，6个月内将MAU从5万提升到12.5万，增长了150%。我的核心能力是用户研究和数据驱动决策，善于通过用户访谈和数据漏斗分析发现问题并制定解决方案。",
+        "evaluation_criteria": "1. 是否清晰介绍产品经验 2. 是否有量化成果 3. 是否展示了核心能力 4. 表达是否流畅"
+      },
+      {
+        "topic": "需求分析",
+        "type": "tech",
+        "reference_content": "你是如何做需求分析和优先级排序的？请举例说明。",
+        "ideal_answer": "需求分析我遵循四步法：1. 收集：通过用户访谈、工单分析、销售反馈、竞品研究等多渠道收集需求 2. 分类：按KANO模型分类为基本型、期望型、兴奋型 3. 评估：用RICE模型（Reach影响范围、Impact影响力、Confidence信心度、Effort开发成本）量化打分 4. 排序：结合战略目标和资源约束确定优先级。举例：之前有三个需求——导出报表（销售强烈要求）、暗黑模式（用户呼声高）、批量操作（效率提升大）。RICE打分后，导出报表得分最高（影响所有客户、开发成本低），优先实现。暗黑模式虽然呼声高但影响面小，排到后面。上线后客户满意度提升了15%。",
+        "evaluation_criteria": "1. 方法论是否系统 2. 工具使用是否恰当 3. 是否有具体案例 4. 决策依据是否合理"
+      },
+      {
+        "topic": "用户研究",
+        "type": "tech",
+        "reference_content": "你提到擅长用户研究，请介绍一次深度用户访谈的经历和发现。",
+        "ideal_answer": "在协作工具项目中，我发现新用户7日留存只有30%，需要找到流失原因。我设计了用户访谈计划：1. 目标：了解新用户的首次使用体验和流失节点 2. 样本：招募了15位最近注册但7天内未活跃的用户 3. 方法：半结构化访谈，每次45分钟 4. 问题设计：从用户创建团队的动机开始，逐步引导到使用过程中的困惑。关键发现：1. 60%的用户在创建团队后不知道下一步做什么，引导流程过于复杂 2. 30%的用户找不到核心功能（任务分配），导航设计有问题 3. 10%的用户因为邀请同事失败而放弃。改进措施：简化引导流程为3步、重新设计导航结构、优化邀请链接机制。改版后7日留存从30%提升到55%。",
+        "evaluation_criteria": "1. 研究方法是否专业 2. 样本选择是否合理 3. 发现是否有价值 4. 是否有改进效果"
+      },
+      {
+        "topic": "跨部门沟通",
+        "type": "behavior",
+        "reference_content": "请描述一次你与研发团队产生分歧的经历，你是如何处理的？",
+        "ideal_answer": "有一次我提了一个需求：用户可以在任务中@同事并发送通知。研发评估后认为开发成本高，需要改造消息系统，建议放到下个迭代。但我认为这是提升协作效率的关键功能，希望当期实现。我的处理方式：1. 先理解研发的顾虑：消息系统改造确实复杂，而且他们正在处理技术债务 2. 用数据说明价值：调研显示60%的用户反馈找不到协作入口，这个功能可以提升任务完成率20% 3. 提出折中方案：先实现@功能的UI和基础逻辑，消息通知用现有的邮件通知代替，下个迭代再做站内消息 4. 达成共识：研发同意这个方案，开发成本降低60%。结果：功能上线后任务完成率提升了15%，用户反馈很好。这件事让我认识到，产品和研发的目标是一致的，关键是找到双方都能接受的平衡点。",
+        "evaluation_criteria": "1. 是否有具体分歧场景 2. 处理方式是否成熟 3. 是否有数据支撑 4. 是否有反思和成长"
+      },
+      {
+        "topic": "产品规划",
+        "type": "scenario",
+        "reference_content": "如果让你负责我们公司的项目管理工具产品，你会如何制定产品规划？",
+        "ideal_answer": "我会分四步制定产品规划。第一步，现状诊断（1-2周）：1. 分析现有数据：用户画像、使用漏斗、功能热度 2. 用户访谈：覆盖活跃用户、流失用户、潜在用户各10位 3. 竞品分析：对标Jira、飞书项目、Teambition等 4. 梳理现有问题和机会点。第二步，目标设定（1周）：基于公司战略设定年度目标，如用户增长50%、续费率提升到90%，拆解为季度OKR。第三步，路线图制定（1周）：按季度规划主题，Q1聚焦核心体验优化（解决留存问题），Q2增加高级功能（甘特图、报表），Q3拓展集成能力（开放API），Q4探索AI能力（智能排期）。第四步，执行保障：建立双周迭代节奏，每季度review路线图并根据数据调整。关键原则：用户价值优先、数据驱动决策、小步快跑验证。",
+        "evaluation_criteria": "1. 规划方法是否系统 2. 是否有数据驱动思维 3. 节奏是否合理 4. 是否考虑了风险和调整机制"
+      }
+    ],
+    "dialogue_cases": [
+      {
+        "candidate_answer": "做用户研究时，我会结合定量和定性方法。定量方面看数据漏斗和留存，定性方面做深度用户访谈和可用性测试。上次项目中通过访谈发现了用户流失的关键节点，针对性优化后次月留存提升了20%。",
+        "expected_action": "follow_up",
+        "description": "候选人展示了系统性的方法论和数据意识，应该追问具体的访谈方法和发现过程"
+      },
+      {
+        "candidate_answer": "跨部门沟通确实是个挑战。我的做法是先对齐目标，建立共同的OKR，然后定期同步进度，遇到分歧时用数据说话。",
+        "expected_action": "follow_up",
+        "description": "候选人回答较为通用，应该追问一个具体的冲突案例和解决过程"
+      },
+      {
+        "candidate_answer": "如果要从0到1做一个新功能，我会先做市场调研和竞品分析，然后定义MVP，快速验证假设。",
+        "expected_action": "follow_up",
+        "description": "候选人给出了标准流程，可以给一个具体场景挑战其实际操作能力"
+      }
+    ]
+  },
+  {
+    "id": "interview_005",
+    "name": "算法工程师",
+    "resume": "周八，计算机视觉方向博士，4年算法落地经验。精通PyTorch、TensorFlow，熟悉模型压缩和部署优化。发表顶会论文5篇，拥有2项发明专利。主导过推荐系统和图像识别项目的算法设计与工程化，在某AI独角兽公司担任算法专家。",
+    "job_description": "招聘高级算法工程师，要求：1. 硕士及以上学历，计算机视觉或NLP方向优先 2. 精通深度学习框架 3. 有算法落地和工程化经验 4. 熟悉模型优化和部署 5. 有顶会论文或专利优先 6. 良好的技术视野和创新能力",
+    "company_info": "某AI科技公司，专注于计算机视觉和智能安防，算法团队20人",
+    "max_questions": 5,
+    "round_type": "tech_deep",
+    "expected_question_count": 5,
+    "must_contain_keywords": ["深度学习", "模型优化", "PyTorch"],
+    "expected_types": ["intro", "tech", "research"],
+    "expected_questions": [
+      {
+        "topic": "自我介绍",
+        "type": "intro",
+        "reference_content": "请介绍一下你的研究方向和算法落地经验。",
+        "ideal_answer": "面试官您好，我是周八，计算机视觉方向博士，有4年算法落地经验。我的研究方向是小样本学习和模型压缩，发表了5篇顶会论文，包括CVPR和ICCV，有2项发明专利。在工程化方面，我主导过两个核心项目：一是推荐系统，设计了多路召回+精排的架构，线上CTR提升了25%；二是工业质检的图像识别项目，通过知识蒸馏和模型压缩，将模型从500MB压缩到30MB，推理速度提升5倍，在端侧部署实现了毫秒级响应。我擅长将学术研究转化为工程实践，希望能在贵公司继续深耕AI落地。",
+        "evaluation_criteria": "1. 研究方向是否匹配 2. 是否有高质量成果 3. 工程化经验是否丰富 4. 表达是否清晰"
+      },
+      {
+        "topic": "模型压缩",
+        "type": "tech",
+        "reference_content": "请详细介绍你在模型压缩方面的经验，包括具体方法和效果。",
+        "ideal_answer": "模型压缩我主要用四种方法：1. 知识蒸馏：用大模型（Teacher）的软标签训练小模型（Student），保留大模型的知识。我用ResNet152蒸馏到MobileNetV3，精度只下降1% 2. 量化：将FP32参数量化为INT8，模型体积减少75%，推理速度提升2-3倍。我用PyTorch的动态量化，对卷积层和全连接层做量化 3. 剪枝：移除不重要的权重或通道，我用L1范数做结构化剪枝，剪掉30%的通道后精度下降0.5% 4. 架构搜索：用NAS自动搜索高效的网络结构。实际项目中我通常组合使用：先蒸馏到小模型，再做量化，最后剪枝。在端侧部署场景下，模型从500MB压缩到30MB，推理速度从200ms降到40ms，精度损失控制在2%以内。",
+        "evaluation_criteria": "1. 方法是否全面 2. 是否有具体数据 3. 是否有组合使用经验 4. 是否考虑了精度-效率权衡"
+      },
+      {
+        "topic": "推荐系统",
+        "type": "tech",
+        "reference_content": "请介绍你设计的推荐系统架构，以及如何解决冷启动问题。",
+        "ideal_answer": "推荐系统采用经典的召回-粗排-精排-重排四层架构。召回层：多路召回，包括双塔模型（用户向量和物品向量的相似度）、ItemCF（基于行为的协同过滤）、热门召回（兜底）。粗排：轻量级模型快速筛选，从万级候选集筛到千级。精排：DeepFM模型，融合用户特征、物品特征、交叉特征，输出CTR预估。重排：考虑多样性、时效性、商业规则等因素。冷启动解决方案：1. 新用户：收集注册信息（行业、职位）做群体推荐，用Bandit算法快速探索用户兴趣 2. 新物品：利用物品的内容特征（标题、标签）做内容召回，不依赖行为数据 3. 整体：引入知识图谱，利用实体关系做补充推荐。效果：推荐CTR从2%提升到5%，GMV提升了30%。",
+        "evaluation_criteria": "1. 架构是否完整 2. 冷启动方案是否具体 3. 是否有业务效果数据 4. 技术深度是否足够"
+      },
+      {
+        "topic": "论文研究",
+        "type": "research",
+        "reference_content": "请介绍一下你最有代表性的一篇论文，包括研究动机、方法和创新点。",
+        "ideal_answer": "我最有代表性的是CVPR 2022的一篇小样本学习论文。研究动机：工业质检场景中，缺陷样本非常稀缺，传统深度学习需要大量标注数据，而收集和标注缺陷样本成本极高。方法：提出了基于元学习的快速适配方法ProtoNet++。核心创新：1. 引入任务自适应的特征提取器，根据不同任务动态调整特征空间 2. 设计了多尺度原型融合机制，同时考虑全局和局部特征 3. 提出了不确定性感知的距离度量，对低置信度样本做加权处理。实验结果：在Mini-ImageNet上5-way 5-shot准确率达到82.3%，比baseline提升5%。在工业质检数据集上，只有10个样本就能达到90%以上的检测精度，满足产线部署要求。论文被引用50+次，方法已申请专利。",
+        "evaluation_criteria": "1. 研究动机是否清晰 2. 方法是否有创新 3. 实验是否充分 4. 是否有实际影响力"
+      },
+      {
+        "topic": "工程化",
+        "type": "tech",
+        "reference_content": "算法模型从训练到上线部署，你经历了哪些挑战？如何解决？",
+        "ideal_answer": "算法工程化的主要挑战和解决方案：1. 训练-推理一致性：训练用PyTorch，推理用ONNX Runtime，算子不一致导致精度下降。解决：建立端到端的精度验证流水线，导出ONNX后自动对比推理结果 2. 模型版本管理：模型迭代频繁，需要管理多个版本。解决：用MLflow做实验管理，模型注册中心统一管理版本 3. 在线服务性能：单次推理需要50ms，但业务要求20ms。解决：模型量化+TensorRT加速，推理时间降到15ms 4. 数据漂移：线上数据分布和训练数据不同，模型效果下降。解决：建立监控体系，跟踪特征分布和模型指标，触发重训练 5. A/B测试：新模型上线需要验证效果。解决：搭建A/B测试平台，支持流量分割和指标统计。这些经验让我认识到，算法落地不仅是模型问题，更是工程问题。",
+        "evaluation_criteria": "1. 挑战是否真实具体 2. 解决方案是否有效 3. 是否有系统性思维 4. 是否有工程化意识"
+      }
+    ],
+    "dialogue_cases": [
+      {
+        "candidate_answer": "模型压缩方面，我通常采用知识蒸馏加量化结合的方案。先用大模型蒸馏到小模型，再做INT8量化，最后通过剪枝进一步压缩。在端侧部署场景下，模型大小可以从500MB压缩到30MB，推理速度提升5倍。",
+        "expected_action": "follow_up",
+        "description": "候选人展示了丰富的工程经验，应该追问精度损失的控制和具体业务指标"
+      },
+      {
+        "candidate_answer": "我的论文主要研究小样本学习在工业质检场景的应用，提出了基于元学习的快速适配方法，在只有10个样本的情况下就能达到90%以上的检测精度。",
+        "expected_action": "follow_up",
+        "description": "候选人展示了研究能力，应该追问方法的创新点和与现有方法的对比"
+      },
+      {
+        "candidate_answer": "推荐系统项目中，我设计了多路召回加精排的架构，召回层用双塔模型，精排层用DeepFM，通过AB测试持续迭代。",
+        "expected_action": "follow_up",
+        "description": "候选人描述了系统架构，可以挑战性地追问冷启动问题或效果瓶颈"
+      }
+    ]
+  }
+]

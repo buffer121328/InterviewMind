@@ -2,7 +2,7 @@
 
 import pytest
 
-from app.repositories.resume.jd_analysis_repo import JDAnalysisRepo
+from app.infrastructure.db.repositories.resume.jd_analysis_repo import JDAnalysisRepo
 
 
 class _FakeSession:
@@ -60,7 +60,7 @@ async def test_jd_save_result_uses_external_session_without_commit():
 
 @pytest.mark.asyncio
 async def test_jd_save_result_owns_session_commits_and_refreshes(monkeypatch):
-    from app.repositories.resume import jd_analysis_repo
+    from app.infrastructure.db.repositories.resume import jd_analysis_repo
 
     repo = JDAnalysisRepo()
     session = _FakeSession()

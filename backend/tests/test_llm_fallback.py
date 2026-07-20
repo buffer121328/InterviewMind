@@ -5,8 +5,8 @@ import asyncio
 import pytest
 from pydantic import BaseModel
 
-from app.services import llms
-from app.services.llm_utils import invoke_structured
+from app.infrastructure.llm import llms
+from app.infrastructure.llm.llm_utils import invoke_structured
 
 
 class _Output(BaseModel):

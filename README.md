@@ -252,7 +252,7 @@ uv run python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 
 ```bash
 cd backend
-uv run dramatiq app.services.agent_runs.worker --processes 1 --threads 1
+uv run dramatiq app.infrastructure.runtime.agent_runs.worker --processes 1 --threads 1
 ```
 
 若设置 `TASK_QUEUE_ENABLED=false`，无需启动 Redis 或 Worker；首题、简历优化、报告和岗位资产会走同步兼容路径，并使用进程内互斥锁。
@@ -328,48 +328,31 @@ agent-interview/
 ├── backend/                         # Python FastAPI 后端
 │   ├── main.py                      # 应用入口
 │   ├── app/
-│   │   ├── agent_runtime/           # 模型、工具、中间件、图与记忆基础设施
-│   │   ├── agents/                  # 按业务域组织的 Agent
-│   │   ├── api/                     # 接口路由层
-│   │   │   ├── chat.py              # 面试对话 SSE 接口
-│   │   │   ├── agent_runs.py        # 统一任务列表、详情、取消、重试与创建接口
-│   │   │   ├── voice_chat.py        # 语音面试实时流接口
-│   │   │   ├── resume.py            # 简历优化与生成接口
-│   │   │   ├── sessions.py          # 会话管理接口
-│   │   │   ├── upload.py            # 文件上传接口
-│   │   │   ├── applications.py      # 求职管理接口
-│   │   │   ├── jobs.py              # BOSS 岗位自动化接口
-│   │   │   ├── question_bank.py     # 题库管理接口
-│   │   │   ├── memory.py            # 长期记忆接口
-│   │   │   └── config.py            # API 配置管理
-│   │   ├── services/                # 核心业务逻辑
-│   │   │   ├── interview/           # 面试流程 Agent
-│   │   │   │   └── agentic_retrieval.py # 有界 Agentic Retrieval
-│   │   │   ├── agent_runs/          # Dramatiq 执行器、加密载荷、恢复与状态服务
-│   │   │   ├── resume/              # 简历优化 Agent
-│   │   │   ├── jobs/                # 岗位采集与 BOSS 半自动化
-│   │   │   │   ├── job_capture_service.py
-│   │   │   │   ├── job_asset_orchestrator.py
-│   │   │   │   ├── greeting_generator.py
-│   │   │   │   ├── jd_matcher.py
-│   │   │   │   └── browser_runner.py
-│   │   │   ├── agent_memory/        # mem0 长期记忆
-│   │   │   ├── analysis/            # 报告生成服务
-│   │   │   ├── interview_experience/ # 面经导入与检索
-│   │   │   ├── question_bank/       # 题库导入、抽题与归档
-│   │   │   ├── rag/                 # RAG 检索增强
-│   │   │   ├── tools/               # 可复用业务工具
-│   │   │   ├── llms.py              # 模型网关、模型池调度与客户端工厂
-│   │   │   ├── llm_utils.py         # 结构化输出、重试与 fallback
-│   │   │   └── observability.py     # Langfuse 可观测性适配
-│   │   ├── models/                  # 数据库模型
-│   │   ├── schemas/                 # Pydantic 数据模型
-│   │   ├── config.py                # 服务端统一运行配置
-│   │   └── repositories/            # 数据访问层
-│   ├── tests/                       # 测试套件
-│   │   ├── test_api_integration.py  # API 集成测试
-│   │   ├── test_interview_runtime.py
-│   │   └── ...                      # 其他单测
+│   │   ├── agents/                  # Agent 实现（面试、简历等）
+│   │   ├── api/                     # HTTP 接口路由层
+│   │   ├── infrastructure/         # DB、LLM、浏览器、文件、记忆、运行时、安全
+│   │   │   ├── browser/
+│   │   │   ├── db/
+│   │   │   ├── files/
+│   │   │   ├── llm/
+│   │   │   ├── memory/
+│   │   │   ├── rag/
+│   │   │   ├── runtime/
+│   │   │   └── security/
+│   │   ├── observability/           # Langfuse / trace / model event 观测
+│   │   ├── prompts/                 # Prompt 管理
+│   │   │   └── runtime/
+│   │   ├── schemas/                 # 请求 / 响应 / 共享数据结构
+│   │   ├── tools/                   # 业务工具管理
+│   │   │   └── runtime/
+│   │   └── workflows/               # 业务流程编排
+│   │       ├── analysis/
+│   │       ├── interview/
+│   │       ├── interview_experience/
+│   │       ├── question_bank_support/
+│   │       └── resume/
+│   ├── evaluation/                  # DeepEval 回归与基准
+│   │   └── deepeval_tests/
 │   ├── pyproject.toml               # Python 项目配置
 │   └── Dockerfile
 │
@@ -398,10 +381,8 @@ agent-interview/
 │
 ├── nginx/                           # Nginx 配置
 │   └── nginx.conf
-├── docker-compose.yml               # 容器编排配置
-├── env_example                      # 可直接复制的全量环境变量模板
-├── docs/                            # 本地文档，不纳入 Git 跟踪
-└── README.md
+├── docker-compose.yml               # 容器编排
+└── env_example                      # 环境变量模板
 ```
 
 ---

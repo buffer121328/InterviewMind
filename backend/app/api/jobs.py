@@ -10,7 +10,7 @@ from typing import Optional, TypeVar
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.deps import get_current_user_id
-from app.application.jobs import JobBadRequest, JobNotFound, JobsUseCaseError, jobs_use_cases
+from app.workflows.jobs import JobBadRequest, JobNotFound, JobsUseCaseError, jobs_use_cases
 from app.schemas.job_schemas import (
     ApplyPreviewRequest,
     ApplyResponse,

@@ -5,7 +5,7 @@
 import logging
 from fastapi import APIRouter, HTTPException, UploadFile, File
 
-from app.services.file_service import FileService, FileServiceError, UnsupportedFileTypeError, FileSizeExceededError
+from app.infrastructure.files.file_service import FileService, FileServiceError, UnsupportedFileTypeError, FileSizeExceededError
 from app.schemas.schemas import FileUploadResponse
 
 # 配置日志

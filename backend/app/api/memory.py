@@ -8,8 +8,8 @@ import logging
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Header, Query, Body
 
-from app.services.agent_memory import get_agent_memory_service
-from app.services.agent_memory.schemas import (
+from app.infrastructure.memory import get_agent_memory_service
+from app.schemas.memory import (
     MemoryItem,
     MemorySearchResponse,
     MemoryListResponse,
