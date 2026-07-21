@@ -4,8 +4,10 @@ Pydantic 数据模型定义
 """
 
 from typing import List, Literal, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from enum import Enum
+
+from app.agents.interview.question_defaults import resolve_max_questions, resolve_round_type
 
 
 # ============================================================================
@@ -60,7 +62,14 @@ class ChatRequest(BaseModel):
     resume_context: str = Field(..., description="简历上下文")
     job_description: str = Field(..., description="岗位描述")
     company_info: str = Field(default="未知", description="公司背景信息")
-    max_questions: int = Field(default=5, ge=1, le=20, description="最大问题数量")
+    max_questions: int | None = Field(default=None, ge=1, le=20, description="最大问题数量；不传时按面试类型默认")
+    round_type: str = Field(default="tech_initial", description="面试类型：tech_initial/tech_deep/hr_comprehensive")
+
+    @model_validator(mode="after")
+    def resolve_question_defaults(self):
+        self.round_type = resolve_round_type(self.round_type)
+        self.max_questions = resolve_max_questions(self.round_type, self.max_questions)
+        return self
     # 用户配置（可选）
     user_id: Optional[str] = Field(default=None, description="用户标识")
     api_config: Optional[ApiConfig] = Field(default=None, description="用户自定义 API 配置")
@@ -113,7 +122,14 @@ class InterviewStartRequest(BaseModel):
     resume_filename: str = Field(default="", description="简历文件名")
     job_description: Optional[str] = Field(default=None, description="岗位描述（下一轮面试时可从数据库加载）")
     company_info: str = Field(default="未知", description="公司背景信息")
-    max_questions: int = Field(default=5, ge=1, le=20, description="最大问题数量")
+    max_questions: int | None = Field(default=None, ge=1, le=20, description="最大问题数量；不传时按面试类型默认")
+    round_type: str = Field(default="tech_initial", description="面试类型：tech_initial/tech_deep/hr_comprehensive")
+
+    @model_validator(mode="after")
+    def resolve_question_defaults(self):
+        self.round_type = resolve_round_type(self.round_type)
+        self.max_questions = resolve_max_questions(self.round_type, self.max_questions)
+        return self
     question_bank_count: int = Field(default=0, ge=0, le=20, description="从个人题库抽取的题数")
     experience_questions: List[InterviewCandidateQuestion] = Field(
         default_factory=list,

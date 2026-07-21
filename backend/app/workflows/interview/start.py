@@ -64,6 +64,7 @@ class InterviewStartUseCases:
                     job_description=request.job_description,
                     company_info=getattr(request, "company_info", "未知"),
                     max_questions=request.max_questions,
+                    round_type=request.round_type,
                     user_id=user_id,
                 )
                 session_created = True
@@ -74,6 +75,7 @@ class InterviewStartUseCases:
                 job_description=request.job_description,
                 company_info=request.company_info,
                 max_questions=request.max_questions,
+                round_type=request.round_type,
                 question_bank_count=request.question_bank_count,
                 experience_questions=request.experience_questions,
                 session_metadata=session.metadata if session else None,
@@ -120,7 +122,7 @@ class InterviewStartUseCases:
                 "message": "面试会话已初始化",
                 "thread_id": request.thread_id,
                 "mode": request.mode,
-                "max_questions": request.max_questions,
+                "max_questions": context.max_questions,
                 "session_title": title,
                 "first_question": first_question,
                 "has_memory_context": bool(context.memory_context),

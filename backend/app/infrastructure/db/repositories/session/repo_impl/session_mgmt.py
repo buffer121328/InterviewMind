@@ -11,6 +11,7 @@ from app.schemas.session import (
     MessageItem
 )
 from app.infrastructure.db.models import async_session, SessionModel, MessageModel
+from app.agents.interview.question_defaults import resolve_max_questions, resolve_round_type
 from .base import BaseService
 
 logger = logging.getLogger(__name__)
@@ -27,10 +28,13 @@ class SessionManagementService(BaseService):
         resume_content: Optional[str] = None,
         job_description: Optional[str] = None,
         company_info: Optional[str] = None,
-        max_questions: int = 5,
+        max_questions: int | None = None,
+        round_type: str = "tech_initial",
         user_id: str = "default_user"
     ) -> InterviewSession:
         """创建新会话"""
+        round_type = resolve_round_type(round_type)
+        max_questions = resolve_max_questions(round_type, max_questions)
         if title is None:
             mode_text = "辅导模式" if mode == "coach" else "模拟面试"
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -54,6 +58,7 @@ class SessionManagementService(BaseService):
                     question_count=0,
                     max_questions=max_questions,
                     status='active',
+                    round_type=round_type,
                     pinned=False,
                 )
                 db.add(db_obj)
@@ -152,7 +157,7 @@ class SessionManagementService(BaseService):
             
             if metadata_updates:
                 for key, value in metadata_updates.items():
-                    if key in ['question_count', 'max_questions', 'resume_filename', 'job_description', 'pinned']:
+                    if key in ['question_count', 'max_questions', 'resume_filename', 'job_description', 'pinned', 'round_type']:
                         values[key] = bool(value) if key == 'pinned' else value
             if values:
                 stmt = update(SessionModel).where(SessionModel.session_id == session_id).values(**values)

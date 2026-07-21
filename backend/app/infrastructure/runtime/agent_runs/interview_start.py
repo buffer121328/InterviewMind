@@ -9,6 +9,7 @@ from fastapi import HTTPException
 from app.infrastructure.db.repositories.session.session_repo import SessionRepo
 from app.agents.interview.interview_context import build_interview_context
 from app.agents.interview.interview_graph import build_interview_graph
+from app.agents.interview.question_defaults import resolve_max_questions, resolve_round_type
 
 logger = logging.getLogger(__name__)
 _Progress = Callable[[str], Awaitable[None]] | None
@@ -25,6 +26,8 @@ async def execute_interview_start(payload: dict, user_id: str, progress: _Progre
 
     try:
         graph = await build_interview_graph(request["mode"])
+        requested_round_type = resolve_round_type(request.get("round_type", "tech_initial"))
+        requested_max_questions = resolve_max_questions(requested_round_type, request.get("max_questions"))
         session = await session_repo.get_session(thread_id, include_resume_content=True, user_id=user_id)
         if session is None:
             existing = await session_repo.get_session(thread_id)
@@ -33,7 +36,8 @@ async def execute_interview_start(payload: dict, user_id: str, progress: _Progre
             await session_repo.create_session(
                 session_id=thread_id, mode=request["mode"], resume_filename=request.get("resume_filename", ""),
                 resume_content=request.get("resume_context"), job_description=request.get("job_description"),
-                company_info=request.get("company_info", "未知"), max_questions=request["max_questions"], user_id=user_id,
+                company_info=request.get("company_info", "未知"), max_questions=requested_max_questions,
+                round_type=requested_round_type, user_id=user_id,
             )
             session_created = True
         context = await build_interview_context(
@@ -41,7 +45,8 @@ async def execute_interview_start(payload: dict, user_id: str, progress: _Progre
             resume_context=request.get("resume_context"),
             job_description=request.get("job_description"),
             company_info=request.get("company_info"),
-            max_questions=request["max_questions"],
+            max_questions=requested_max_questions,
+            round_type=requested_round_type,
             question_bank_count=request.get("question_bank_count", 0),
             experience_questions=request.get("experience_questions", []),
             session_metadata=session.metadata if session else None,
@@ -70,7 +75,7 @@ async def execute_interview_start(payload: dict, user_id: str, progress: _Progre
             await session_repo.add_message(thread_id, "assistant", first_question, question_index=0, user_id=user_id)
         return {
             "success": True, "message": "面试会话已初始化", "thread_id": thread_id,
-            "mode": request["mode"], "max_questions": request["max_questions"], "session_title": title,
+            "mode": request["mode"], "max_questions": context.max_questions, "session_title": title,
             "first_question": first_question, "has_memory_context": bool(context.memory_context),
         }
     except Exception:

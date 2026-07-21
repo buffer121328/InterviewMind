@@ -8,6 +8,7 @@ from sqlalchemy import select, update, delete, func, text
 from app.infrastructure.db.models import async_session, SessionModel, MessageModel
 from .base import BaseService
 from .session_mgmt import SessionManagementService
+from app.agents.interview.question_defaults import resolve_max_questions, resolve_round_type
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +21,8 @@ class SessionAdvancedService(BaseService):
     async def create_next_round(
         self,
         parent_session_id: str,
-        max_questions: int = 5,
+        max_questions: int | None = None,
+        round_type: Optional[str] = None,
         user_id: Optional[str] = None
     ) -> InterviewSession:
         """从已完成的面试创建下一轮面试
@@ -36,8 +38,8 @@ class SessionAdvancedService(BaseService):
             raise ValueError(f"只能从已完成的面试创建下一轮（当前状态: {parent.metadata.status}）")
         
         new_round_index = parent.metadata.round_index + 1
-        round_type_map = {1: "tech_initial", 2: "tech_deep", 3: "hr_comprehensive"}
-        new_round_type = round_type_map.get(new_round_index, "hr_comprehensive")
+        new_round_type = resolve_round_type(round_type, round_index=new_round_index)
+        resolved_max_questions = resolve_max_questions(new_round_type, max_questions, round_index=new_round_index)
         
         series_id = parent.metadata.series_id
         if not series_id:
@@ -67,7 +69,7 @@ class SessionAdvancedService(BaseService):
                 session_id=new_session_id, user_id=effective_user_id, title=title, created_at=now, updated_at=now,
                 mode=parent.metadata.mode, resume_filename=parent.metadata.resume_filename, resume_content=parent.metadata.resume_content,
                 job_description=parent.metadata.job_description, company_info=parent.metadata.company_info,
-                question_count=0, max_questions=max_questions, status='active', pinned=False,
+                question_count=0, max_questions=resolved_max_questions, status='active', pinned=False,
                 series_id=series_id, round_index=new_round_index, round_type=new_round_type, parent_session_id=parent_session_id
             ))
             await db.commit()

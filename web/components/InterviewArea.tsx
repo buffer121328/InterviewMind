@@ -9,6 +9,7 @@ import { SessionProfileDialog } from "./SessionProfileDialog";
 import { toast } from "sonner";
 import { getUserId } from "@/hooks/useUserIdentity";
 import { getRequestApiConfig } from "@/store/interviewFacade";
+import { QUESTION_COUNT_OPTIONS, defaultQuestionsForRoundIndex } from "@/lib/interview/questionDefaults";
 
 interface InterviewAreaProps {
     children: ReactNode;
@@ -24,7 +25,6 @@ export function InterviewArea({ children }: InterviewAreaProps) {
     const executionPlan = useInterviewStore((state) => state.executionPlan);
     const fetchSessions = useInterviewStore((state) => state.fetchSessions);
     const selectSession = useInterviewStore((state) => state.selectSession);
-    const maxQuestions = useInterviewStore((state) => state.maxQuestions);
     const setMaxQuestions = useInterviewStore((state) => state.setMaxQuestions);
     const setInitializing = useInterviewStore((state) => state.setInitializing);
     const clearVoiceState = useInterviewStore((state) => state.clearVoiceState);
@@ -32,6 +32,7 @@ export function InterviewArea({ children }: InterviewAreaProps) {
     const [showSessionProfileDialog, setShowSessionProfileDialog] = useState(false);
     const [iscloning, setIsCloning] = useState(false);
     const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
+    const [nextRoundQuestionOverride, setNextRoundQuestionOverride] = useState<number | null>(null);
 
     // 1. 如果处于语音模式
     if (isVoiceMode) {
@@ -79,7 +80,7 @@ export function InterviewArea({ children }: InterviewAreaProps) {
                         'X-User-ID': getUserId()
                     },
                     body: JSON.stringify({
-                        max_questions: maxQuestions
+                        max_questions: nextRoundQuestionOverride ?? defaultQuestionsForRoundIndex((currentSession.metadata.round_index || 1) + 1),
                     })
                 });
 
@@ -207,10 +208,14 @@ export function InterviewArea({ children }: InterviewAreaProps) {
                                             <div className="flex items-center gap-2 bg-white p-1 rounded-lg border border-indigo-100 shadow-sm">
                                                 <select
                                                     className="h-8 px-2 rounded bg-transparent text-sm focus:outline-none text-indigo-900"
-                                                    value={maxQuestions}
-                                                    onChange={(e) => setMaxQuestions(parseInt(e.target.value))}
+                                                    value={nextRoundQuestionOverride ?? defaultQuestionsForRoundIndex((currentSession.metadata.round_index || 1) + 1)}
+                                                    onChange={(e) => {
+                                                        const count = parseInt(e.target.value);
+                                                        setNextRoundQuestionOverride(count);
+                                                        setMaxQuestions(count);
+                                                    }}
                                                 >
-                                                    {[3, 4, 5, 6, 7, 8, 9, 10].map(n => (
+                                                    {QUESTION_COUNT_OPTIONS.map(n => (
                                                         <option key={n} value={n}>{n} 题</option>
                                                     ))}
                                                 </select>

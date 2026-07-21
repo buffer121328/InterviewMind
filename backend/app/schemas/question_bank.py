@@ -8,6 +8,18 @@ from typing import List, Optional, Dict, Any, Literal
 from datetime import datetime
 
 
+class QuestionBankFollowup(BaseModel):
+    """题库主问题沉淀的追问。"""
+    id: Optional[int] = Field(default=None, description="追问 ID")
+    parent_question_id: int = Field(description="主问题 ID")
+    question_text: str = Field(description="追问内容")
+    reference_answer: Optional[str] = Field(default=None, description="追问参考答案")
+    trigger_condition: Optional[str] = Field(default=None, description="触发该追问的条件")
+    source_session_id: Optional[str] = Field(default=None, description="来源面试会话 ID")
+    created_at: Optional[str] = Field(default=None, description="创建时间")
+    updated_at: Optional[str] = Field(default=None, description="更新时间")
+
+
 class QuestionBankItem(BaseModel):
     """题库条目"""
     id: Optional[int] = Field(default=None, description="条目 ID")
@@ -34,6 +46,7 @@ class QuestionBankItem(BaseModel):
     usage_count: int = Field(default=0, description="使用次数")
     created_at: Optional[str] = Field(default=None, description="创建时间")
     updated_at: Optional[str] = Field(default=None, description="更新时间")
+    followups: List[QuestionBankFollowup] = Field(default_factory=list, description="关联追问列表")
 
 
 class QuestionBankImport(BaseModel):

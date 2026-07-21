@@ -45,6 +45,7 @@ export function buildVoiceStartRequestPayload(sessionId: string, apiConfig: NonN
         job_description: state.jobDescription,
         company_info: state.companyInfo,
         max_questions: state.maxQuestions,
+        round_type: state.interviewType,
         question_bank_count: state.questionBankCount,
         experience_questions: state.experienceQuestions.slice(0, state.maxQuestions),
     };

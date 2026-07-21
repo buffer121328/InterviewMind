@@ -96,6 +96,7 @@ export const createSessionSlice = (set: SetState, get: GetState): SessionSlice =
                     total: session.metadata.max_questions
                 },
                 maxQuestions: session.metadata.max_questions,
+                interviewType: session.metadata.round_type || 'tech_initial',
                 showAbilityProfile: false,
             });
         } catch (error) {

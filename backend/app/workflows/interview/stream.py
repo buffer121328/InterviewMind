@@ -18,6 +18,7 @@ from app.schemas.schemas import ChatRequest, ChatStreamResponse
 from app.agents.interview.interview_graph import build_interview_graph
 from app.infrastructure.runtime.runtime_gate import get_run_gate
 from app.infrastructure.security.security import safe_error_message
+from app.agents.interview.question_defaults import resolve_max_questions
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +79,20 @@ class ChatStreamUseCases:
             memory_types=["preference", "candidate_fact", "weakness", "practice_goal"],
         )
         api_config = request.api_config.model_dump() if request.api_config else None
+        current_question_index = session.messages[-1].question_index if session.messages else 0
+        same_question_answer_count = sum(
+            1
+            for msg in session.messages
+            if msg.role == "user" and (msg.question_index or 0) == current_question_index
+        )
+        # 与归档表口径保持一致：同一 question_index 下，第 1 次作答对应主问题，后续作答对应追问。
+        # 这里在保存“当前用户回答”之前恢复状态，因此已有作答数就是当前题已发生的追问次数。
+        restored_follow_up_count = same_question_answer_count
+        session_max_questions = resolve_max_questions(
+            session.metadata.round_type,
+            session.metadata.max_questions if session.metadata.max_questions is not None else request.max_questions,
+            round_index=session.metadata.round_index,
+        )
         inputs = {
             "messages": hydrated_messages + [HumanMessage(content=request.message)],
             "resume_context": request.resume_context,
@@ -87,10 +102,12 @@ class ChatStreamUseCases:
             "session_id": request.thread_id,
             "user_id": user_id,
             "run_id": str(uuid.uuid4()),
-            "max_questions": request.max_questions,
+            "max_questions": session_max_questions,
             "interview_plan": interview_plan if interview_plan else [],
-            "question_count": session.messages[-1].question_index if session.messages else 0,
-            "current_question_index": session.messages[-1].question_index if session.messages else 0,
+            "question_count": current_question_index,
+            "current_question_index": current_question_index,
+            "follow_up_count": restored_follow_up_count,
+            "max_follow_ups": 2,
             "turn_phase": "feedback",
             "api_config": api_config,
             "round_index": session.metadata.round_index,

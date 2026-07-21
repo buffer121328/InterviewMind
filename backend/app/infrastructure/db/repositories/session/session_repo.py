@@ -43,7 +43,8 @@ class SessionRepo:
         resume_content: Optional[str] = None,
         job_description: Optional[str] = None,
         company_info: Optional[str] = None,
-        max_questions: int = 5,
+        max_questions: int | None = None,
+        round_type: str = "tech_initial",
         user_id: str = "default_user"
     ) -> InterviewSession:
         return await self.mgmt.create_session(
@@ -55,6 +56,7 @@ class SessionRepo:
             job_description=job_description,
             company_info=company_info,
             max_questions=max_questions,
+            round_type=round_type,
             user_id=user_id
         )
 
@@ -109,12 +111,14 @@ class SessionRepo:
     async def create_next_round(
         self,
         parent_session_id: str,
-        max_questions: int = 5,
+        max_questions: int | None = None,
+        round_type: Optional[str] = None,
         user_id: Optional[str] = None
     ) -> InterviewSession:
         return await self.advanced.create_next_round(
             parent_session_id=parent_session_id,
             max_questions=max_questions,
+            round_type=round_type,
             user_id=user_id
         )
 

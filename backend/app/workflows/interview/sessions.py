@@ -36,6 +36,7 @@ class SessionManagementUseCases:
             resume_filename=request.resume_filename,
             job_description=request.job_description,
             max_questions=request.max_questions,
+            round_type=request.round_type,
             user_id=user_id,
         )
 
@@ -87,10 +88,11 @@ class SessionManagementUseCases:
             raise SessionManagementNotFound(message=f"会话 {session_id} 不存在")
         return session
 
-    async def create_next_round(self, *, session_id: str, max_questions: int, user_id: str):
+    async def create_next_round(self, *, session_id: str, max_questions: int | None, user_id: str, round_type: str | None = None):
         return await self._session_repo.create_next_round(
             parent_session_id=session_id,
             max_questions=max_questions,
+            round_type=round_type,
             user_id=user_id,
         )
 

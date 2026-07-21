@@ -16,6 +16,7 @@ def normalize_candidate(candidate: dict[str, Any]) -> dict[str, Any] | None:
         "source_id": candidate.get("source_id"),
         "tags": candidate.get("tags") if isinstance(candidate.get("tags"), list) else [],
         "difficulty": str(candidate.get("difficulty") or "medium"),
+        "followups": candidate.get("followups") if isinstance(candidate.get("followups"), list) else [],
     }
     if candidate.get("id") is not None:
         item["question_bank_item_id"] = candidate["id"]

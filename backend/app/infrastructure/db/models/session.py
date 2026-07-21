@@ -25,7 +25,7 @@ class SessionModel(Base):
     company_info: Mapped[str | None] = mapped_column(Text, nullable=True)
     interview_plan: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     question_count: Mapped[int] = mapped_column(Integer, default=0)
-    max_questions: Mapped[int] = mapped_column(Integer, default=5)
+    max_questions: Mapped[int] = mapped_column(Integer, default=10)
     status: Mapped[str] = mapped_column(String, default="active")
     pinned: Mapped[bool] = mapped_column(Boolean, default=False)
     candidate_profile: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
