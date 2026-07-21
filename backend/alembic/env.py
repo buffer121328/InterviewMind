@@ -4,6 +4,8 @@ Alembic 异步迁移环境
 
 import asyncio
 import os
+import sys
+from pathlib import Path
 from logging.config import fileConfig
 
 from sqlalchemy import pool
@@ -11,6 +13,8 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 # Alembic Config object
 config = context.config
@@ -28,7 +32,7 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 # 导入 ORM 模型的 Base，让 Alembic 能自动检测表结构变化
-from app.models import Base
+from app.infrastructure.db.models import Base
 
 target_metadata = Base.metadata
 

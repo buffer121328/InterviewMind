@@ -10,6 +10,8 @@ import { JsonObject, ResumeAnalyzeResult, ResumeOptimizeResult } from '@/lib/api
 // 类型定义
 // ============================================================================
 
+export type InterviewType = 'tech_initial' | 'tech_deep' | 'hr_comprehensive';
+
 export interface Message {
     role: 'user' | 'assistant' | 'system';
     content: string;
@@ -26,6 +28,7 @@ export interface SessionMetadata {
     status: 'active' | 'completed' | 'archived';
     pinned?: boolean;
     round_index?: number;
+    round_type?: InterviewType | string;
 }
 
 export interface InterviewSession {
@@ -48,7 +51,7 @@ export interface SessionListItem {
     question_count: number;
     pinned?: boolean;
     round_index?: number;
-    round_type?: string;
+    round_type?: InterviewType | string;
 }
 
 export interface ResumeInfo {

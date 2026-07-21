@@ -4,8 +4,10 @@
 """
 
 from typing import List, Literal, Optional, Dict, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from datetime import datetime
+
+from app.agents.interview.question_defaults import resolve_max_questions, resolve_round_type
 
 
 class MessageItem(BaseModel):
@@ -25,7 +27,7 @@ class SessionMetadata(BaseModel):
     job_description: Optional[str] = Field(None, description="岗位描述")
     company_info: Optional[str] = Field(None, description="公司信息")
     question_count: int = Field(default=0, description="当前主线题目进度（已完成题数/下一题索引）")
-    max_questions: int = Field(default=5, ge=1, le=20, description="最大问题数量")
+    max_questions: int = Field(default=10, ge=1, le=20, description="最大问题数量")
     status: Literal["active", "completed", "archived"] = Field(default="active", description="会话状态")
     pinned: bool = Field(default=False, description="是否置顶")
     # 多轮面试字段
@@ -68,7 +70,14 @@ class SessionCreateRequest(BaseModel):
     mode: Literal["mock", "voice"] = Field(..., description="面试模式")
     resume_filename: Optional[str] = Field(None, description="简历文件名")
     job_description: Optional[str] = Field(None, description="岗位描述")
-    max_questions: int = Field(default=5, description="最大问题数量")
+    max_questions: int | None = Field(default=None, ge=1, le=20, description="最大问题数量；不传时按面试类型默认")
+    round_type: str = Field(default="tech_initial", description="面试类型")
+
+    @model_validator(mode="after")
+    def resolve_question_defaults(self):
+        self.round_type = resolve_round_type(self.round_type)
+        self.max_questions = resolve_max_questions(self.round_type, self.max_questions)
+        return self
     user_id: Optional[str] = Field(None, description="用户标识")
 
 

@@ -27,6 +27,7 @@ import { ApplicationBoard } from "@/components/ApplicationBoard";
 import { ApplicationDetailDrawer } from "@/components/ApplicationDetailDrawer";
 import QuestionBankPage from "@/components/QuestionBankPage";
 import { BossCenter } from "@/components/BossCenter";
+import { QUESTION_COUNT_OPTIONS, defaultQuestionsForRoundIndex } from "@/lib/interview/questionDefaults";
 
 // 定义视图类型，包含 'landing'
 type ViewType = MainView;
@@ -57,6 +58,7 @@ export default function InterviewPage() {
   const [isLoadingHint, setIsLoadingHint] = useState(false);
   const [selectedApplicationId, setSelectedApplicationId] = useState<number | null>(null);
   const [historyDetailSessionId, setHistoryDetailSessionId] = useState<string | null>(null);
+  const [nextRoundQuestionOverride, setNextRoundQuestionOverride] = useState<number | null>(null);
 
   useEffect(() => {
     localStorage.setItem("activeMainTab", activeMainTab);
@@ -77,6 +79,7 @@ export default function InterviewPage() {
     companyInfo,
     interviewProgress,
     maxQuestions,
+    interviewType,
     questionBankCount,
     experienceQuestions,
     currentSession,
@@ -93,6 +96,7 @@ export default function InterviewPage() {
     setJobDescription,
     setCompanyInfo,
     setMaxQuestions,
+    setInterviewType,
     setQuestionBankCount,
     uploadResume,
     startInterview,
@@ -145,8 +149,11 @@ export default function InterviewPage() {
     return !!getVoiceModel?.();
   }, [getVoiceModel]);
 
-  const handleStartInterview = async (mode: 'text' | 'voice' = 'text') => {
+  const handleStartInterview = async (mode: 'text' | 'voice' = 'text', options?: { interviewType: 'tech_initial' | 'tech_deep' | 'hr_comprehensive'; maxQuestions: number }) => {
     try {
+      if (options) {
+        useInterviewStore.setState({ interviewType: options.interviewType, maxQuestions: options.maxQuestions });
+      }
       if (mode === 'voice') {
         // 语音模式：仅进行本地状态初始化，不触发文字版后端
         await startInterview('voice');
@@ -579,6 +586,8 @@ export default function InterviewPage() {
                 onCompanyInfoChange={setCompanyInfo}
                 maxQuestions={maxQuestions}
                 onMaxQuestionsChange={setMaxQuestions}
+                interviewType={interviewType}
+                onInterviewTypeChange={setInterviewType}
                 questionBankCount={questionBankCount}
                 onQuestionBankCountChange={setQuestionBankCount}
                 experienceQuestionCount={experienceQuestions.length}
@@ -745,13 +754,14 @@ export default function InterviewPage() {
                                   <select
                                     id="next-round-questions"
                                     className="h-8 px-2 rounded-md bg-transparent text-sm focus:outline-none text-orange-900"
-                                    defaultValue={5}
+                                    defaultValue={defaultQuestionsForRoundIndex((currentSession.metadata.round_index ?? 1) + 1)}
                                     onChange={(e) => {
                                       // 更新全局状态中的 maxQuestions
+                                      setNextRoundQuestionOverride(parseInt(e.target.value));
                                       useInterviewStore.setState({ maxQuestions: parseInt(e.target.value) });
                                     }}
                                   >
-                                    {[3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
+                                    {QUESTION_COUNT_OPTIONS.map((n) => (
                                       <option key={n} value={n}>{n} 道题</option>
                                     ))}
                                   </select>
@@ -759,7 +769,7 @@ export default function InterviewPage() {
                                     onClick={async () => {
                                       try {
                                         // 从 store 获取最新的题目数量
-                                        const nextRoundQuestions = useInterviewStore.getState().maxQuestions;
+                                        const nextRoundQuestions = nextRoundQuestionOverride ?? defaultQuestionsForRoundIndex((currentSession.metadata.round_index ?? 1) + 1);
 
                                         // 设置加载状态，清空消息以显示加载动画
                                         useInterviewStore.setState({
@@ -777,7 +787,7 @@ export default function InterviewPage() {
                                             'X-User-ID': getUserId()
                                           },
                                           body: JSON.stringify({
-                                            max_questions: nextRoundQuestions
+                                            max_questions: nextRoundQuestions,
                                           })
                                         });
 

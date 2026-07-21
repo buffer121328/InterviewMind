@@ -7,9 +7,10 @@ import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.api.deps import get_current_user_id
+from app.agents.interview.question_defaults import resolve_max_questions, resolve_round_type
 from app.workflows.interview.sessions import (
     SessionManagementNotFound,
     SessionManagementPersistenceError,
@@ -30,7 +31,15 @@ router = APIRouter(prefix="/api/sessions", tags=["会话管理"])
 class NextRoundRequest(BaseModel):
     """下一轮面试请求"""
 
-    max_questions: int = Field(default=5, ge=1, le=20)
+    max_questions: int | None = Field(default=None, ge=1, le=20)
+    round_type: Optional[str] = Field(default=None, description="面试类型：tech_initial/tech_deep/hr_comprehensive")
+
+    @model_validator(mode="after")
+    def validate_next_round(self):
+        if self.round_type is not None:
+            self.round_type = resolve_round_type(self.round_type)
+            self.max_questions = resolve_max_questions(self.round_type, self.max_questions)
+        return self
 
 
 def _not_found(message: str) -> HTTPException:
@@ -173,6 +182,7 @@ async def create_next_round(
         new_session = await session_management_use_cases.create_next_round(
             session_id=session_id,
             max_questions=request.max_questions,
+            round_type=request.round_type,
             user_id=user_id,
         )
         return SessionDetailResponse(success=True, session=new_session)

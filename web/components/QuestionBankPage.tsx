@@ -142,13 +142,13 @@ function QuestionCard({
             )}
 
             {/* Expand toggle */}
-            {(item.reference_answer || item.tags.length > 0) && (
+            {(item.reference_answer || item.tags.length > 0 || item.followups.length > 0) && (
                 <button
                     className="mt-3 flex items-center gap-1 text-xs text-orange-600 hover:text-orange-700 transition-colors"
                     onClick={() => setExpanded(!expanded)}
                 >
                     {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-                    {expanded ? "收起" : "展开参考答案"}
+                    {expanded ? "收起" : "展开参考答案/追问"}
                 </button>
             )}
 
@@ -162,6 +162,16 @@ function QuestionCard({
                 {item.reference_answer && (
                     <div className="rounded-xl bg-orange-50/60 p-3 text-sm text-stone-700 leading-relaxed whitespace-pre-wrap">
                         {item.reference_answer}
+                    </div>
+                )}
+                {item.followups.length > 0 && (
+                    <div className="mt-2 rounded-xl border border-blue-100 bg-blue-50/50 p-3">
+                        <p className="mb-2 text-xs font-medium text-blue-700">历史追问沉淀</p>
+                        <ul className="space-y-1.5 text-sm text-stone-700">
+                            {item.followups.map((followup) => (
+                                <li key={followup.id} className="leading-relaxed">• {followup.question_text}</li>
+                            ))}
+                        </ul>
                     </div>
                 )}
                 {item.tags.length > 0 && (

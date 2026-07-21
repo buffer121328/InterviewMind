@@ -6,7 +6,7 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { getUserId } from '@/hooks/useUserIdentity';
-import type { Message, ResumeInfo, InterviewProgress, InterviewSession, ExecutionPlanStep } from '../types';
+import type { Message, ResumeInfo, InterviewProgress, InterviewSession, ExecutionPlanStep, InterviewType } from '../types';
 import { API_BASE_URL } from '../types';
 import type { ExperienceQuestionCandidate } from '@/lib/api/interviewExperience';
 import { listAgentRunEvents } from '@/lib/api/agentRunEvents';
@@ -28,6 +28,7 @@ export interface InterviewFlowState {
     companyInfo: string;
     interviewProgress: InterviewProgress | null;
     maxQuestions: number;
+    interviewType: InterviewType;
     questionBankCount: number;
     experienceQuestions: ExperienceQuestionCandidate[];
     showAbilityProfile: boolean;
@@ -48,6 +49,7 @@ export interface InterviewFlowActions {
     setJobDescription: (jobDescription: string) => void;
     setCompanyInfo: (companyInfo: string) => void;
     setMaxQuestions: (maxQuestions: number) => void;
+    setInterviewType: (interviewType: InterviewType) => void;
     setQuestionBankCount: (count: number) => void;
     setExperienceQuestions: (questions: ExperienceQuestionCandidate[]) => void;
     uploadResume: (file: File) => Promise<void>;
@@ -97,7 +99,8 @@ export const createInterviewSlice = (set: SetState, get: GetState): InterviewFlo
     jobDescription: '',
     companyInfo: '',
     interviewProgress: null,
-    maxQuestions: 5,
+    maxQuestions: 10,
+    interviewType: 'tech_initial',
     questionBankCount: 0,
     experienceQuestions: [],
     showAbilityProfile: false,
@@ -118,6 +121,7 @@ export const createInterviewSlice = (set: SetState, get: GetState): InterviewFlo
     setJobDescription: (jobDescription: string) => set({ jobDescription }),
     setCompanyInfo: (companyInfo: string) => set({ companyInfo }),
     setMaxQuestions: (maxQuestions: number) => set({ maxQuestions }),
+    setInterviewType: (interviewType: InterviewType) => set({ interviewType }),
     setQuestionBankCount: (count: number) => set((state) => ({
         questionBankCount: Math.max(0, Math.min(count, state.maxQuestions)),
     })),
@@ -157,7 +161,7 @@ export const createInterviewSlice = (set: SetState, get: GetState): InterviewFlo
 
     startInterview: async (mode: 'mock' | 'voice' = 'mock') => {
         const {
-            resume, jobDescription, companyInfo, maxQuestions, questionBankCount,
+            resume, jobDescription, companyInfo, maxQuestions, interviewType, questionBankCount,
             experienceQuestions, getApiConfigForRequest,
         } = get();
 
@@ -200,6 +204,7 @@ export const createInterviewSlice = (set: SetState, get: GetState): InterviewFlo
                 question_count: 0,
                 max_questions: maxQuestions,
                 status: 'active',
+                round_type: interviewType,
             },
             messages: [],
         };
@@ -233,6 +238,7 @@ export const createInterviewSlice = (set: SetState, get: GetState): InterviewFlo
             company_info: companyInfo || '未知',
             mode: 'mock',
             max_questions: maxQuestions,
+            round_type: interviewType,
             question_bank_count: Math.min(questionBankCount, maxQuestions),
             experience_questions: experienceQuestions.slice(0, maxQuestions),
             api_config: apiConfig,
@@ -325,7 +331,7 @@ export const createInterviewSlice = (set: SetState, get: GetState): InterviewFlo
     },
 
     sendMessage: async (content: string) => {
-        const { threadId, jobDescription, companyInfo, getApiConfigForRequest, messages, resume, maxQuestions } = get();
+        const { threadId, jobDescription, companyInfo, getApiConfigForRequest, messages, resume, maxQuestions, interviewType, currentSession } = get();
 
         const apiConfig = getApiConfigForRequest();
         if (!apiConfig) {
@@ -358,6 +364,7 @@ export const createInterviewSlice = (set: SetState, get: GetState): InterviewFlo
                     job_description: jobDescription,
                     company_info: companyInfo || '未知',
                     max_questions: maxQuestions,
+                    round_type: currentSession?.metadata.round_type || interviewType,
                     api_config: apiConfig,
                 }),
                 signal: abortController.signal,

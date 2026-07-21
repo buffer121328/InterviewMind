@@ -15,6 +15,17 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 
 type InterviewMode = "text" | "voice";
+type InterviewType = "tech_initial" | "tech_deep" | "hr_comprehensive";
+
+const INTERVIEW_TYPE_OPTIONS: Array<{ value: InterviewType; label: string; description: string; defaultQuestions: number }> = [
+    { value: "tech_initial", label: "综合面", description: "技术、项目、行为与岗位匹配均衡考察", defaultQuestions: 10 },
+    { value: "tech_deep", label: "技术面", description: "深挖技术原理、项目架构与工程取舍", defaultQuestions: 20 },
+    { value: "hr_comprehensive", label: "HR面", description: "关注动机、沟通、稳定性与文化匹配", defaultQuestions: 5 },
+];
+
+const getDefaultQuestionCount = (interviewType: InterviewType): number => (
+    INTERVIEW_TYPE_OPTIONS.find((option) => option.value === interviewType)?.defaultQuestions ?? 10
+);
 
 interface InterviewSetupProps {
     resume: { original_name: string; content?: string } | null;
@@ -25,12 +36,14 @@ interface InterviewSetupProps {
     onCompanyInfoChange: (value: string) => void;
     maxQuestions: number;
     onMaxQuestionsChange: (value: number) => void;
+    interviewType: InterviewType;
+    onInterviewTypeChange: (value: InterviewType) => void;
     questionBankCount: number;
     onQuestionBankCountChange: (value: number) => void;
     experienceQuestionCount?: number;
     isLoading: boolean;
     hasApiConfig: boolean;
-    onStartInterview: (mode: InterviewMode) => Promise<void>;
+    onStartInterview: (mode: InterviewMode, options?: { interviewType: InterviewType; maxQuestions: number }) => Promise<void>;
     onConfigureApi: () => void;
     hasVoiceConfig?: boolean;  // 是否配置了语音模型
 }
@@ -44,6 +57,8 @@ export function InterviewSetup({
     onCompanyInfoChange,
     maxQuestions,
     onMaxQuestionsChange,
+    interviewType,
+    onInterviewTypeChange,
     questionBankCount,
     onQuestionBankCountChange,
     experienceQuestionCount = 0,
@@ -56,6 +71,9 @@ export function InterviewSetup({
     const [isJobDialogOpen, setIsJobDialogOpen] = useState(false);
     const [tempJobDescription, setTempJobDescription] = useState("");
     const [selectedMode, setSelectedMode] = useState<InterviewMode>("text");
+    const [isStartDialogOpen, setIsStartDialogOpen] = useState(false);
+    const [draftInterviewType, setDraftInterviewType] = useState<InterviewType>(interviewType);
+    const [draftQuestionCount, setDraftQuestionCount] = useState("");
 
     const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
@@ -73,8 +91,25 @@ export function InterviewSetup({
         setIsJobDialogOpen(false);
     };
 
-    const handleStartInterview = async () => {
-        await onStartInterview(selectedMode);
+    const handleStartInterview = () => {
+        setDraftInterviewType(interviewType);
+        setDraftQuestionCount("");
+        setIsStartDialogOpen(true);
+    };
+
+    const handleConfirmStartInterview = async () => {
+        const parsedCount = Number.parseInt(draftQuestionCount, 10);
+        const finalQuestionCount = Number.isFinite(parsedCount) && parsedCount > 0
+            ? Math.min(parsedCount, 20)
+            : getDefaultQuestionCount(draftInterviewType);
+
+        onInterviewTypeChange(draftInterviewType);
+        onMaxQuestionsChange(finalQuestionCount);
+        setIsStartDialogOpen(false);
+        await onStartInterview(selectedMode, {
+            interviewType: draftInterviewType,
+            maxQuestions: finalQuestionCount,
+        });
     };
 
     return (
@@ -168,30 +203,24 @@ export function InterviewSetup({
                     </p>
                 </div>
 
-                {/* 3. 设置问题数量 */}
+                {/* 3. 面试类型与题数 */}
                 <div className="space-y-3">
                     <label className="text-sm font-medium text-gray-700 flex items-center gap-2">
                         <span className="flex items-center justify-center w-5 h-5 rounded-full bg-orange-100 text-orange-600 text-xs font-bold">3</span>
-                        面试问题数量 (3-10)
+                        面试类型与题数
                     </label>
 
-                    <div className="flex items-center gap-4">
-                        <input
-                            type="range"
-                            min="3"
-                            max="10"
-                            step="1"
-                            value={maxQuestions}
-                            onChange={(e) => onMaxQuestionsChange(parseInt(e.target.value))}
-                            className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-orange-600"
-                        />
-                        <div className="w-12 h-10 flex items-center justify-center bg-orange-50 border border-orange-100 rounded-lg text-orange-700 font-semibold">
-                            {maxQuestions}
+                    <div className="rounded-xl border border-orange-100 bg-orange-50/50 px-4 py-3 text-sm text-orange-900">
+                        <div className="flex items-center justify-between gap-3">
+                            <span className="font-medium">{INTERVIEW_TYPE_OPTIONS.find((option) => option.value === interviewType)?.label ?? "综合面"}</span>
+                            <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-orange-700 shadow-sm">
+                                {maxQuestions} 道主问题
+                            </span>
                         </div>
+                        <p className="mt-2 text-xs text-orange-700/80">
+                            点击开始面试后会弹窗确认；题数可留空，默认 HR 面 5 道、技术面 20 道、综合面 10 道。追问不单独计数。
+                        </p>
                     </div>
-                    <p className="text-xs text-gray-400">
-                        建议设置为 5 个问题，既能充分展示能力，又不会过于疲劳
-                    </p>
                 </div>
 
                 <div className="space-y-3">
@@ -390,6 +419,68 @@ export function InterviewSetup({
                     {selectedMode === "voice" ? "开始语音面试" : "开始面试"}
                 </Button>
             </div>
+
+            {/* 开始面试参数弹窗 */}
+            <Dialog open={isStartDialogOpen} onOpenChange={setIsStartDialogOpen}>
+                <DialogContent className="sm:max-w-[520px]">
+                    <DialogHeader>
+                        <DialogTitle>本次面试怎么安排？</DialogTitle>
+                        <DialogDescription>
+                            请选择面试类型，并填写本次打算练习多少道主问题。题数留空时会按类型使用默认值，追问不单独计数。
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <div className="space-y-5 py-2">
+                        <div className="space-y-2">
+                            <label className="text-sm font-medium text-gray-700">面试类型</label>
+                            <div className="grid gap-2 sm:grid-cols-3">
+                                {INTERVIEW_TYPE_OPTIONS.map((option) => (
+                                    <button
+                                        key={option.value}
+                                        type="button"
+                                        onClick={() => setDraftInterviewType(option.value)}
+                                        className={cn(
+                                            "rounded-xl border p-3 text-left transition-all",
+                                            draftInterviewType === option.value
+                                                ? "border-orange-500 bg-orange-50 ring-2 ring-orange-100"
+                                                : "border-gray-200 bg-white hover:border-orange-200"
+                                        )}
+                                    >
+                                        <div className="font-semibold text-gray-900">{option.label}</div>
+                                        <div className="mt-1 text-xs text-gray-500">默认 {option.defaultQuestions} 道</div>
+                                    </button>
+                                ))}
+                            </div>
+                            <p className="text-xs text-gray-500">
+                                {INTERVIEW_TYPE_OPTIONS.find((option) => option.value === draftInterviewType)?.description}
+                            </p>
+                        </div>
+
+                        <div className="space-y-2">
+                            <label className="text-sm font-medium text-gray-700">本次面试题数</label>
+                            <input
+                                type="number"
+                                min="1"
+                                max="20"
+                                value={draftQuestionCount}
+                                onChange={(e) => setDraftQuestionCount(e.target.value)}
+                                className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm transition-all focus:border-orange-500 focus:outline-none focus:ring-2 focus:ring-orange-50"
+                                placeholder={`不填默认 ${getDefaultQuestionCount(draftInterviewType)} 道`}
+                            />
+                            <p className="text-xs text-gray-400">
+                                支持 1-20 道主问题；追问最多 2 次且不单独计入题数。
+                            </p>
+                        </div>
+                    </div>
+
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setIsStartDialogOpen(false)}>取消</Button>
+                        <Button onClick={handleConfirmStartInterview} className="bg-orange-600 hover:bg-orange-700">
+                            开始{selectedMode === "voice" ? "语音" : "文字"}面试
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
 
             {/* 职位描述弹窗 */}
             <Dialog open={isJobDialogOpen} onOpenChange={setIsJobDialogOpen}>

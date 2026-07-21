@@ -23,3 +23,19 @@ def test_merge_question_plan_deduplicates_and_reindexes():
 
     assert [item["content"] for item in merged] == ["解释 GIL", "说明协程"]
     assert [item["id"] for item in merged] == [1, 2]
+
+
+def test_candidates_carry_followups_for_runtime_reuse():
+    candidates = prepare_candidates(
+        [],
+        [
+            {
+                "id": 9,
+                "question_text": "题库题",
+                "followups": [{"id": 1, "question_text": "你如何验证这个方案？"}],
+            }
+        ],
+        max_questions=1,
+    )
+
+    assert candidates[0]["followups"][0]["question_text"] == "你如何验证这个方案？"

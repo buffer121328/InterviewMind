@@ -8,6 +8,7 @@ from typing import Any
 from app.infrastructure.db.repositories.session.session_repo import SessionRepo
 from app.schemas.voice import VoiceCloneRequest, VoiceStartRequest, VoiceStartResponse
 from app.agents.interview.interview_context import build_interview_context
+from app.agents.interview.question_defaults import resolve_max_questions
 from app.agents.interview.voice_interview import (
     build_system_prompt,
     generate_interview_plan,
@@ -68,6 +69,7 @@ class VoiceInterviewUseCases:
                 job_description=request.job_description,
                 company_info=request.company_info or "未知",
                 max_questions=request.max_questions,
+                round_type=request.round_type,
                 user_id=user_id,
             )
             session = await self._session_repo.get_session(session_id, include_resume_content=True)
@@ -150,7 +152,7 @@ class VoiceInterviewUseCases:
                     history=history_messages,
                     round_index=round_index,
                     question_count=getattr(session.metadata, "question_count", 0),
-                    max_questions=session.metadata.max_questions or 5,
+                    max_questions=resolve_max_questions(session.metadata.round_type, session.metadata.max_questions, round_index=round_index),
                 )
 
         return VoiceStartResponse(
@@ -163,7 +165,7 @@ class VoiceInterviewUseCases:
             history=history_messages,
             round_index=round_index,
             question_count=getattr(session.metadata, "question_count", 0),
-            max_questions=session.metadata.max_questions or 5,
+            max_questions=resolve_max_questions(session.metadata.round_type, session.metadata.max_questions, round_index=round_index),
         )
 
     async def clone(self, *, request: VoiceCloneRequest, user_id: str) -> dict[str, object]:

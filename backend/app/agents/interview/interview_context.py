@@ -9,6 +9,8 @@ from typing import Any, Iterable, Mapping
 
 from fastapi import HTTPException
 
+from app.agents.interview.question_defaults import resolve_max_questions, resolve_round_type
+
 logger = logging.getLogger(__name__)
 
 _MEMORY_TYPES = [
@@ -91,6 +93,7 @@ async def build_interview_context(
     job_description: str | None,
     company_info: str | None,
     max_questions: int | None,
+    round_type: str | None = None,
     question_bank_count: int = 0,
     experience_questions: Iterable[Any] = (),
     session_metadata: Any | None = None,
@@ -105,7 +108,9 @@ async def build_interview_context(
     resolved_jd = job_description or stored_jd or ""
     # 下一轮与语音切换沿用已落库的公司信息，保持原有行为。
     resolved_company = stored_company or company_info or "未知"
-    resolved_max = max_questions or stored_max or 5
+    resolved_round_type = resolve_round_type(getattr(session_metadata, "round_type", None) or round_type)
+    # 已有会话恢复/语音切换时优先使用落库题数，请求值仅作为新会话或兼容兜底。
+    resolved_max = resolve_max_questions(resolved_round_type, stored_max if stored_max is not None else max_questions)
     resolved_bank_count = min(max(question_bank_count, 0), resolved_max)
     resolved_questions = tuple(_question_dict(item) for item in experience_questions)
     memory_context, memory_items = await load_interview_memory(
@@ -124,5 +129,5 @@ async def build_interview_context(
         memory_context=memory_context,
         memory_items=tuple(deepcopy(memory_items)),
         round_index=getattr(session_metadata, "round_index", None) or 1,
-        round_type=getattr(session_metadata, "round_type", None) or "tech_initial",
+        round_type=resolved_round_type,
     )

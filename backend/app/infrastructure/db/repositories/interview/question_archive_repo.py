@@ -1,6 +1,7 @@
 """已完成面试的题目、追问和作答归档。"""
 
 from datetime import datetime
+import hashlib
 from typing import Any
 
 from sqlalchemy import select
@@ -13,6 +14,7 @@ from app.infrastructure.db.models.interview import (
 )
 from app.infrastructure.db.models.session import MessageModel, SessionModel
 from app.infrastructure.db.repositories.interview.archive_mapper import build_archived_turns
+from app.infrastructure.db.repositories.interview.rag_index_repo import get_rag_index_repo
 
 
 class QuestionArchiveRepo:
@@ -85,6 +87,11 @@ class QuestionArchiveRepo:
                         await db.flush()
                         counts["followups"] += 1
                     followup_id = followup.id
+                    await self._index_followup_chunk(
+                        user_id=user_id,
+                        question=question,
+                        followup=followup,
+                    )
 
                 db.add(
                     InterviewQuestionAttemptModel(
@@ -107,6 +114,35 @@ class QuestionArchiveRepo:
 
             await db.commit()
             return counts
+
+    async def _index_followup_chunk(self, user_id: str, question: QuestionBankItemModel, followup: QuestionBankFollowupModel) -> None:
+        """把沉淀追问纳入 RAG 索引；失败不阻断归档主链路。"""
+        try:
+            content = f"主问题：{question.question_text}\n追问：{followup.question_text}"
+            content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
+            await get_rag_index_repo().upsert_chunk(
+                user_id=user_id,
+                namespace="user_private",
+                source_type="question_bank_followup",
+                source_id=str(followup.id),
+                chunk_key="followup",
+                content=content,
+                content_hash=content_hash,
+                metadata={
+                    "user_id": user_id,
+                    "parent_question_id": question.id,
+                    "question_bank_item_id": question.id,
+                    "followup_id": followup.id,
+                    "target_skill": question.target_skill,
+                    "difficulty": question.difficulty,
+                    "tags": question.tags or [],
+                    "source_session_id": followup.source_session_id,
+                    "is_verified": question.is_verified,
+                },
+            )
+        except Exception:
+            # RAG 索引是派生数据，不应影响 attempts/followups 归档事务。
+            pass
 
     async def _get_or_create_question(
         self,

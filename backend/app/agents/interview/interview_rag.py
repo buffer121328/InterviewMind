@@ -111,7 +111,7 @@ class RagResult:
         jd_keywords = []
 
         for ev in self.evidences:
-            if ev.source_type == "question_bank":
+            if ev.source_type in {"question_bank", "question_bank_followup"}:
                 bank_questions.append({
                     "id": ev.source_id,
                     "question_text": ev.evidence,
@@ -162,6 +162,7 @@ _SOURCE_PRIORITY = {
     "weakness_report": 1.0,
     "candidate_material": 0.9,
     "question_bank": 0.85,
+    "question_bank_followup": 0.83,
     "jd_analysis": 0.8,
     "memory": 0.75,
     "historical_question": 0.6,
@@ -197,7 +198,7 @@ def build_queries(
     # Query 1: JD 定向（核心 query）
     jd_text = (job_description or "")[:300]
     if jd_text.strip():
-        source_types = ["candidate_material", "question_bank", "jd_analysis"]
+        source_types = ["candidate_material", "question_bank", "question_bank_followup", "jd_analysis"]
         if target_skills:
             source_types.append("question_bank")
         queries.append(RetrievalQuery(
@@ -216,7 +217,7 @@ def build_queries(
             if weakness_text.strip():
                 queries.append(RetrievalQuery(
                     text=weakness_text,
-                    source_types=["weakness_report", "question_bank", "historical_question"],
+                    source_types=["weakness_report", "question_bank", "question_bank_followup", "historical_question"],
                 ))
 
     # Query 3: 简历素材匹配

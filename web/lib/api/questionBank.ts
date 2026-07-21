@@ -4,6 +4,17 @@
 
 import { API_BASE_URL, getUserId } from './config';
 
+export interface QuestionBankFollowup {
+    id: number;
+    parent_question_id: number;
+    question_text: string;
+    reference_answer?: string;
+    trigger_condition?: string;
+    source_session_id?: string;
+    created_at?: string;
+    updated_at?: string;
+}
+
 // 题库条目
 export interface QuestionBankItem {
     id: number;
@@ -21,6 +32,7 @@ export interface QuestionBankItem {
     usage_count: number;
     created_at: string;
     updated_at: string;
+    followups: QuestionBankFollowup[];
 }
 
 // 创建请求

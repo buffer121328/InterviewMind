@@ -10,7 +10,7 @@ from datetime import datetime
 from sqlalchemy import select, update, delete, text
 
 from app.infrastructure.db.models import async_session
-from app.infrastructure.db.models.interview import QuestionBankItemModel, QuestionBankImportModel
+from app.infrastructure.db.models.interview import QuestionBankItemModel, QuestionBankImportModel, QuestionBankFollowupModel
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +69,9 @@ class QuestionBankRepo:
             obj = result.scalar_one_or_none()
             if not obj:
                 return None
-            return self._row_to_dict(obj)
+            item = self._row_to_dict(obj)
+            await self._attach_followups(db, [item])
+            return item
     
     async def list_items(
         self,
@@ -92,7 +94,9 @@ class QuestionBankRepo:
                 stmt = stmt.where(QuestionBankItemModel.is_verified == is_verified)
             stmt = stmt.order_by(QuestionBankItemModel.created_at.desc()).limit(limit).offset(offset)
             rows = (await db.execute(stmt)).scalars().all()
-            return [self._row_to_dict(row) for row in rows]
+            items = [self._row_to_dict(row) for row in rows]
+            await self._attach_followups(db, items)
+            return items
     
     async def search_items(
         self,
@@ -129,7 +133,9 @@ class QuestionBankRepo:
                 "pattern": f"%{query}%",
                 "limit": limit,
             })).mappings().all()
-            return [self._row_to_dict(row) for row in rows]
+            items = [self._row_to_dict(row) for row in rows]
+            await self._attach_followups(db, items)
+            return items
     
     async def update_item(
         self,
@@ -194,7 +200,9 @@ class QuestionBankRepo:
                 .limit(limit)
             )
             rows = (await db.execute(stmt)).scalars().all()
-            return [self._row_to_dict(row) for row in rows]
+            items = [self._row_to_dict(row) for row in rows]
+            await self._attach_followups(db, items)
+            return items
 
     async def get_items_by_skill(
         self,
@@ -211,8 +219,70 @@ class QuestionBankRepo:
                 .limit(limit)
             )
             rows = (await db.execute(stmt)).scalars().all()
-            return [self._row_to_dict(row) for row in rows]
+            items = [self._row_to_dict(row) for row in rows]
+            await self._attach_followups(db, items)
+            return items
     
+    async def get_followups_by_parent_ids(
+        self,
+        user_id: str,
+        parent_question_ids: List[int],
+        limit_per_question: int = 5,
+    ) -> Dict[int, List[Dict[str, Any]]]:
+        """批量读取主问题下沉淀的追问。"""
+        ids = [int(item_id) for item_id in parent_question_ids if item_id is not None]
+        if not ids:
+            return {}
+        async with async_session() as db:
+            stmt = (
+                select(QuestionBankFollowupModel)
+                .where(
+                    QuestionBankFollowupModel.user_id == user_id,
+                    QuestionBankFollowupModel.parent_question_id.in_(ids),
+                )
+                .order_by(
+                    QuestionBankFollowupModel.parent_question_id.asc(),
+                    QuestionBankFollowupModel.created_at.desc(),
+                )
+            )
+            rows = (await db.execute(stmt)).scalars().all()
+            grouped: Dict[int, List[Dict[str, Any]]] = {item_id: [] for item_id in ids}
+            for row in rows:
+                bucket = grouped.setdefault(row.parent_question_id, [])
+                if len(bucket) >= limit_per_question:
+                    continue
+                bucket.append(self._followup_to_dict(row))
+            return grouped
+
+    async def _attach_followups(self, db, items: List[Dict[str, Any]], limit_per_question: int = 5) -> None:
+        """在同一事务中为题库条目补齐 followups 字段。"""
+        ids = [int(item["id"]) for item in items if item.get("id") is not None]
+        if not ids:
+            for item in items:
+                item["followups"] = []
+            return
+        user_id = str(items[0].get("user_id") or "")
+        stmt = (
+            select(QuestionBankFollowupModel)
+            .where(
+                QuestionBankFollowupModel.user_id == user_id,
+                QuestionBankFollowupModel.parent_question_id.in_(ids),
+            )
+            .order_by(
+                QuestionBankFollowupModel.parent_question_id.asc(),
+                QuestionBankFollowupModel.created_at.desc(),
+            )
+        )
+        rows = (await db.execute(stmt)).scalars().all()
+        grouped: Dict[int, List[Dict[str, Any]]] = {item_id: [] for item_id in ids}
+        for row in rows:
+            bucket = grouped.setdefault(row.parent_question_id, [])
+            if len(bucket) >= limit_per_question:
+                continue
+            bucket.append(self._followup_to_dict(row))
+        for item in items:
+            item["followups"] = grouped.get(item.get("id"), [])
+
     async def save_import_record(
         self,
         user_id: str,
@@ -261,9 +331,27 @@ class QuestionBankRepo:
                 'usage_count': getattr(row, 'usage_count', None),
                 'created_at': getattr(row, 'created_at', None),
                 'updated_at': getattr(row, 'updated_at', None),
+                'followups': [],
             }
+        data.setdefault('followups', [])
         for field in ['created_at', 'updated_at']:
             if field in data and isinstance(data[field], datetime):
+                data[field] = data[field].isoformat()
+        return data
+
+    def _followup_to_dict(self, row) -> Dict[str, Any]:
+        data = {
+            "id": row.id,
+            "parent_question_id": row.parent_question_id,
+            "question_text": row.question_text,
+            "reference_answer": row.reference_answer,
+            "trigger_condition": row.trigger_condition,
+            "source_session_id": row.source_session_id,
+            "created_at": row.created_at,
+            "updated_at": row.updated_at,
+        }
+        for field in ["created_at", "updated_at"]:
+            if isinstance(data[field], datetime):
                 data[field] = data[field].isoformat()
         return data
 

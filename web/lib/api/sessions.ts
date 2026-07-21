@@ -216,7 +216,7 @@ export async function getCompletedSessionsForResume(limit: number = 10): Promise
  */
 export async function createNextRound(
     sessionId: string,
-    maxQuestions: number = 5
+    maxQuestions: number = 10
 ): Promise<SessionDetail | null> {
     try {
         const response = await fetch(`${API_BASE_URL}/api/sessions/${sessionId}/next-round`, {

@@ -384,6 +384,29 @@ class InterviewRuntime:
 {memo_hint(self.memory_context)}"""
         return prompt
 
+    def _format_historical_followups(self) -> str:
+        """格式化当前主问题已沉淀的历史追问候选。"""
+        if self.current_idx < 0 or self.current_idx >= len(self.plan):
+            return ""
+        raw_followups = self.plan[self.current_idx].get("followups") or []
+        if not isinstance(raw_followups, list):
+            return ""
+        lines: list[str] = []
+        for idx, item in enumerate(raw_followups[:5], start=1):
+            if isinstance(item, dict):
+                text = str(item.get("question_text") or item.get("content") or "").strip()
+                trigger = str(item.get("trigger_condition") or "").strip()
+            else:
+                text = str(item).strip()
+                trigger = ""
+            if not text:
+                continue
+            suffix = f"（适用条件：{trigger}）" if trigger else ""
+            lines.append(f"{idx}. {text}{suffix}")
+        if not lines:
+            return ""
+        return "【历史追问候选】：\n" + "\n".join(lines) + "\n可优先参考这些已沉淀追问，但必须结合候选人当前回答改写，不要机械照搬。"
+
     def _build_evaluating_prompt(
         self,
         user_answer: str,
@@ -404,6 +427,7 @@ class InterviewRuntime:
 【当前题目】：{current_q}
 【下一题目】：{next_q if next_q else '已是最后一题'}
 【当前追问次数】：{self.follow_up_count}/{self.max_follow_ups}
+{self._format_historical_followups()}
 
 【候选人回答】：
 {user_answer}
