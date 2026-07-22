@@ -7,7 +7,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { getUserId } from '@/hooks/useUserIdentity';
 import type { Message, ResumeInfo, InterviewProgress, InterviewSession, ExecutionPlanStep, InterviewType } from '../types';
-import { API_BASE_URL } from '../types';
+import { API_BASE_URL } from '@/lib/api/config';
 import type { ExperienceQuestionCandidate } from '@/lib/api/interviewExperience';
 import { listAgentRunEvents } from '@/lib/api/agentRunEvents';
 import { parseStreamEvent, reduceExecutionPlanStreamEvent } from '@/lib/streamEvents';

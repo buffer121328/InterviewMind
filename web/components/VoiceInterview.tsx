@@ -10,6 +10,8 @@ import { type Message } from '@/store/types';
 import { useVoiceSseStream } from '@/hooks/useVoiceSseStream';
 import { useVoicePlaybackFlow } from '@/hooks/useVoicePlaybackFlow';
 import { useVoiceInterviewSession, type VoiceInterviewStatus } from '@/hooks/useVoiceInterviewSession';
+import { API_BASE_URL } from '@/lib/api/config';
+import { getUserId } from '@/hooks/useUserIdentity';
 import {
     getVoiceGreetingHistorySnapshot,
     getVoiceTurnContext,
@@ -122,9 +124,9 @@ export function VoiceInterview({ sessionId, onEnd }: VoiceInterviewProps) {
             if (abortControllerRef.current) abortControllerRef.current.abort();
             abortControllerRef.current = new AbortController();
 
-            const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/voice/chat`, {
+            const response = await fetch(`${API_BASE_URL}/api/voice/chat`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', 'X-User-ID': getUserId() },
                 signal: abortControllerRef.current.signal,
                 body: JSON.stringify({
                     session_id: sessionId,
@@ -236,9 +238,9 @@ export function VoiceInterview({ sessionId, onEnd }: VoiceInterviewProps) {
             if (abortControllerRef.current) abortControllerRef.current.abort();
             abortControllerRef.current = new AbortController();
 
-            const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/voice/chat`, {
+            const response = await fetch(`${API_BASE_URL}/api/voice/chat`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', 'X-User-ID': getUserId() },
                 signal: abortControllerRef.current.signal,
                 body: JSON.stringify({
                     session_id: sessionId,

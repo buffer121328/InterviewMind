@@ -8,6 +8,7 @@ import { Button } from "./ui/button";
 import { SessionProfileDialog } from "./SessionProfileDialog";
 import { toast } from "sonner";
 import { getUserId } from "@/hooks/useUserIdentity";
+import { API_BASE_URL } from "@/lib/api/config";
 import { getRequestApiConfig } from "@/store/interviewFacade";
 import { QUESTION_COUNT_OPTIONS, defaultQuestionsForRoundIndex } from "@/lib/interview/questionDefaults";
 
@@ -73,7 +74,7 @@ export function InterviewArea({ children }: InterviewAreaProps) {
             if (iscloning) return;
             setIsCloning(true);
             try {
-                const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/sessions/${currentSession.session_id}/next-round`, {
+                const response = await fetch(`${API_BASE_URL}/api/sessions/${currentSession.session_id}/next-round`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -115,9 +116,9 @@ export function InterviewArea({ children }: InterviewAreaProps) {
             const apiConfig = getRequestApiConfig();
 
             try {
-                const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/voice/summary`, {
+                const response = await fetch(`${API_BASE_URL}/api/voice/summary`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json', 'X-User-ID': getUserId() },
                     body: JSON.stringify({
                         session_id: currentSession.session_id,
                         api_config: apiConfig

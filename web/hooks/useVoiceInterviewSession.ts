@@ -1,6 +1,7 @@
 import { useEffect, useEffectEvent, useRef, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
 import { toast } from 'sonner';
 import { getUserId } from '@/hooks/useUserIdentity';
+import { API_BASE_URL } from '@/lib/api/config';
 import { useInterviewStore } from '@/store/useInterviewStore';
 import type { Message } from '@/store/types';
 import {
@@ -74,7 +75,7 @@ export function useVoiceInterviewSession({
                 return;
             }
 
-            const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/voice/start`, {
+            const response = await fetch(`${API_BASE_URL}/api/voice/start`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
