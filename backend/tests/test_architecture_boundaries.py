@@ -36,3 +36,47 @@ def test_runtime_does_not_import_api_layer():
             if module.startswith(forbidden):
                 violations.append(f"{path.relative_to(BACKEND_APP)} -> {module}")
     assert violations == []
+
+
+def test_app_code_uses_app_package_imports():
+    violations: list[str] = []
+    forbidden = ("backend.",)
+    for path in BACKEND_APP.rglob("*.py"):
+        for module in _imports(path):
+            if module.startswith(forbidden) or module == "backend":
+                violations.append(f"{path.relative_to(BACKEND_APP)} -> {module}")
+    assert violations == []
+
+
+def test_agents_do_not_depend_on_agent_run_runtime():
+    """Agent 图/工具层不应该反向认识 AgentRun 队列、worker、dispatcher。"""
+    violations: list[str] = []
+    forbidden = ("app.infrastructure.runtime.agent_runs",)
+    for path in (BACKEND_APP / "agents").rglob("*.py"):
+        for module in _imports(path):
+            if module.startswith(forbidden):
+                violations.append(f"{path.relative_to(BACKEND_APP)} -> {module}")
+    assert violations == []
+
+
+def test_agent_run_runtime_does_not_host_business_agent_tasks():
+    """AgentRun runtime 只负责状态/队列；具体业务任务应放在 workflows.agent_tasks。"""
+    violations: list[str] = []
+    allowed = {
+        "infrastructure/runtime/agent_runs/service.py -> app.agents.definitions",
+    }
+    for path in (BACKEND_APP / "infrastructure" / "runtime" / "agent_runs").rglob("*.py"):
+        for module in _imports(path):
+            if module.startswith("app.agents"):
+                item = f"{path.relative_to(BACKEND_APP)} -> {module}"
+                if item not in allowed:
+                    violations.append(item)
+    assert violations == []
+
+
+def test_agent_task_registry_uses_domain_task_constants_not_runtime_service():
+    """任务注册表不应为拿常量而依赖 AgentRunService，避免 worker 启动期耦合。"""
+    registry = BACKEND_APP / "workflows" / "agent_tasks" / "registry.py"
+    forbidden = ("app.infrastructure.runtime.agent_runs.service",)
+    violations = [module for module in _imports(registry) if module.startswith(forbidden)]
+    assert violations == []
