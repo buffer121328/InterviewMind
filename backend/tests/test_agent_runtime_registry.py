@@ -244,7 +244,7 @@ async def test_tool_guard_redacts_nested_secrets():
 
 
 def test_production_agent_definitions_are_registered():
-    from app.agents.definitions import get_agent_definitions
+    from app.domain.agent_definitions import get_agent_definitions
 
     definitions = {item.task_type: item for item in get_agent_definitions()}
 

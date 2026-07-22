@@ -10,7 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.agents.definitions import get_agent_definition, get_agent_definitions
+from app.domain.agent_definitions import get_agent_definition, get_agent_definitions
 from app.infrastructure.db.unit_of_work import UnitOfWork
 from app.infrastructure.db.models import AgentRunEventModel, AgentRunModel, async_session
 from app.infrastructure.runtime.agent_runs.crypto import decrypt_payload, encrypt_payload
