@@ -35,6 +35,25 @@ services:
       timeout: 5s
       retries: 5
 
+  # 在 API 和 Worker 启动前执行可重复的 schema 初始化/增量迁移。
+  migrate:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: agent_interview_migrate
+    restart: "no"
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-agent_interview}:${POSTGRES_PASSWORD:-cheng123}@postgres:5432/${POSTGRES_DB:-agent_interview}
+      REDIS_URL: redis://redis:6379/0
+    command: ["python", "-m", "app.entrypoints.deployment", "migrate"]
+    networks:
+      - agent_interview_network
+
   # 后端 API
   backend:
     build:
@@ -49,39 +68,42 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     environment:
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-agent_interview}:${POSTGRES_PASSWORD:-cheng123}@postgres:5432/${POSTGRES_DB:-agent_interview}
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.openai.com/v1}
-      - TASK_QUEUE_ENABLED=true
-      - REDIS_URL=redis://redis:6379/0
-      - TASK_PAYLOAD_ENCRYPTION_KEY=${TASK_PAYLOAD_ENCRYPTION_KEY:-}
-      - LLM_REQUEST_TIMEOUT_SECONDS=${LLM_REQUEST_TIMEOUT_SECONDS:-45}
-      - AGENT_RUN_LOCK_TTL_SECONDS=${AGENT_RUN_LOCK_TTL_SECONDS:-600}
-      - AGENT_RUN_MAX_ATTEMPTS=${AGENT_RUN_MAX_ATTEMPTS:-3}
-      - AGENT_RUN_STALE_SECONDS=${AGENT_RUN_STALE_SECONDS:-1800}
-      - AGENT_RUN_HEARTBEAT_SECONDS=${AGENT_RUN_HEARTBEAT_SECONDS:-30}
-      - AGENT_RUN_CANCEL_POLL_SECONDS=${AGENT_RUN_CANCEL_POLL_SECONDS:-2}
-      - AGENT_RUN_RECOVERY_INTERVAL_SECONDS=${AGENT_RUN_RECOVERY_INTERVAL_SECONDS:-60}
-      - RESUME_GENERATION_SESSION_TTL_HOURS=${RESUME_GENERATION_SESSION_TTL_HOURS:-24}
-      - LLM_POOL_REDIS_ENABLED=${LLM_POOL_REDIS_ENABLED:-true}
-      - LLM_POOL_INFLIGHT_TTL_SECONDS=${LLM_POOL_INFLIGHT_TTL_SECONDS:-600}
-      - ALLOW_PRIVATE_MODEL_BASE_URLS=${ALLOW_PRIVATE_MODEL_BASE_URLS:-true}
-      - BOSS_AUTOMATION_SERVICE_URL=${BOSS_AUTOMATION_SERVICE_URL:-http://host.docker.internal:8765}
-      - BOSS_AUTOMATION_SERVICE_TOKEN=${BOSS_AUTOMATION_SERVICE_TOKEN:-}
-      - BOSS_AUTOMATION_REQUEST_TIMEOUT_SECONDS=${BOSS_AUTOMATION_REQUEST_TIMEOUT_SECONDS:-240}
-      - JOB_CAPTURE_MAX_RESPONSE_BYTES=${JOB_CAPTURE_MAX_RESPONSE_BYTES:-2097152}
-      - MEM0_PGVECTOR_HOST=postgres
-      - MEM0_PGVECTOR_PORT=5432
-      - MEM0_PGVECTOR_DBNAME=${POSTGRES_DB:-agent_interview}
-      - MEM0_PGVECTOR_USER=${POSTGRES_USER:-agent_interview}
-      - MEM0_PGVECTOR_PASSWORD=${POSTGRES_PASSWORD:-cheng123}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-agent_interview}:${POSTGRES_PASSWORD:-cheng123}@postgres:5432/${POSTGRES_DB:-agent_interview}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      AUTO_CREATE_TABLES: "false"
+      TASK_QUEUE_ENABLED: ${TASK_QUEUE_ENABLED:-true}
+      REDIS_URL: redis://redis:6379/0
+      TASK_PAYLOAD_ENCRYPTION_KEY: ${TASK_PAYLOAD_ENCRYPTION_KEY:-}
+      LLM_REQUEST_TIMEOUT_SECONDS: ${LLM_REQUEST_TIMEOUT_SECONDS:-45}
+      AGENT_RUN_LOCK_TTL_SECONDS: ${AGENT_RUN_LOCK_TTL_SECONDS:-600}
+      AGENT_RUN_MAX_ATTEMPTS: ${AGENT_RUN_MAX_ATTEMPTS:-3}
+      AGENT_RUN_STALE_SECONDS: ${AGENT_RUN_STALE_SECONDS:-1800}
+      AGENT_RUN_HEARTBEAT_SECONDS: ${AGENT_RUN_HEARTBEAT_SECONDS:-30}
+      AGENT_RUN_CANCEL_POLL_SECONDS: ${AGENT_RUN_CANCEL_POLL_SECONDS:-2}
+      AGENT_RUN_RECOVERY_INTERVAL_SECONDS: ${AGENT_RUN_RECOVERY_INTERVAL_SECONDS:-60}
+      RESUME_GENERATION_SESSION_TTL_HOURS: ${RESUME_GENERATION_SESSION_TTL_HOURS:-24}
+      LLM_POOL_REDIS_ENABLED: ${LLM_POOL_REDIS_ENABLED:-true}
+      LLM_POOL_INFLIGHT_TTL_SECONDS: ${LLM_POOL_INFLIGHT_TTL_SECONDS:-600}
+      ALLOW_PRIVATE_MODEL_BASE_URLS: ${ALLOW_PRIVATE_MODEL_BASE_URLS:-true}
+      BOSS_AUTOMATION_SERVICE_URL: ${BOSS_AUTOMATION_SERVICE_URL:-http://host.docker.internal:8765}
+      BOSS_AUTOMATION_SERVICE_TOKEN: ${BOSS_AUTOMATION_SERVICE_TOKEN:-}
+      BOSS_AUTOMATION_REQUEST_TIMEOUT_SECONDS: ${BOSS_AUTOMATION_REQUEST_TIMEOUT_SECONDS:-240}
+      JOB_CAPTURE_MAX_RESPONSE_BYTES: ${JOB_CAPTURE_MAX_RESPONSE_BYTES:-2097152}
+      MEM0_PGVECTOR_HOST: postgres
+      MEM0_PGVECTOR_PORT: 5432
+      MEM0_PGVECTOR_DBNAME: ${POSTGRES_DB:-agent_interview}
+      MEM0_PGVECTOR_USER: ${POSTGRES_USER:-agent_interview}
+      MEM0_PGVECTOR_PASSWORD: ${POSTGRES_PASSWORD:-cheng123}
     networks:
       - agent_interview_network
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD-SHELL", "python -m app.entrypoints.deployment readiness && curl -fsS http://localhost:8000/health > /dev/null"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -91,44 +113,51 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: agent_interview_worker
-    restart: always
+    restart: on-failure
     env_file:
       - .env
-    command: ["dramatiq", "app.services.agent_runs.worker", "--processes", "1", "--threads", "1"]
+    command: ["/app/scripts/run-worker.sh"]
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     environment:
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-agent_interview}:${POSTGRES_PASSWORD:-cheng123}@postgres:5432/${POSTGRES_DB:-agent_interview}
-      - TASK_QUEUE_ENABLED=true
-      - REDIS_URL=redis://redis:6379/0
-      - TASK_PAYLOAD_ENCRYPTION_KEY=${TASK_PAYLOAD_ENCRYPTION_KEY:-}
-      - LLM_REQUEST_TIMEOUT_SECONDS=${LLM_REQUEST_TIMEOUT_SECONDS:-45}
-      - AGENT_RUN_LOCK_TTL_SECONDS=${AGENT_RUN_LOCK_TTL_SECONDS:-600}
-      - AGENT_RUN_MAX_ATTEMPTS=${AGENT_RUN_MAX_ATTEMPTS:-3}
-      - AGENT_RUN_STALE_SECONDS=${AGENT_RUN_STALE_SECONDS:-1800}
-      - AGENT_RUN_HEARTBEAT_SECONDS=${AGENT_RUN_HEARTBEAT_SECONDS:-30}
-      - AGENT_RUN_CANCEL_POLL_SECONDS=${AGENT_RUN_CANCEL_POLL_SECONDS:-2}
-      - AGENT_RUN_RECOVERY_INTERVAL_SECONDS=${AGENT_RUN_RECOVERY_INTERVAL_SECONDS:-60}
-      - RESUME_GENERATION_SESSION_TTL_HOURS=${RESUME_GENERATION_SESSION_TTL_HOURS:-24}
-      - LLM_POOL_REDIS_ENABLED=${LLM_POOL_REDIS_ENABLED:-true}
-      - LLM_POOL_INFLIGHT_TTL_SECONDS=${LLM_POOL_INFLIGHT_TTL_SECONDS:-600}
-      - ALLOW_PRIVATE_MODEL_BASE_URLS=${ALLOW_PRIVATE_MODEL_BASE_URLS:-true}
-      - BOSS_AUTOMATION_SERVICE_URL=${BOSS_AUTOMATION_SERVICE_URL:-http://host.docker.internal:8765}
-      - BOSS_AUTOMATION_SERVICE_TOKEN=${BOSS_AUTOMATION_SERVICE_TOKEN:-}
-      - BOSS_AUTOMATION_REQUEST_TIMEOUT_SECONDS=${BOSS_AUTOMATION_REQUEST_TIMEOUT_SECONDS:-240}
-      - JOB_CAPTURE_MAX_RESPONSE_BYTES=${JOB_CAPTURE_MAX_RESPONSE_BYTES:-2097152}
-      - MEM0_PGVECTOR_HOST=postgres
-      - MEM0_PGVECTOR_PORT=5432
-      - MEM0_PGVECTOR_DBNAME=${POSTGRES_DB:-agent_interview}
-      - MEM0_PGVECTOR_USER=${POSTGRES_USER:-agent_interview}
-      - MEM0_PGVECTOR_PASSWORD=${POSTGRES_PASSWORD:-cheng123}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-agent_interview}:${POSTGRES_PASSWORD:-cheng123}@postgres:5432/${POSTGRES_DB:-agent_interview}
+      TASK_QUEUE_ENABLED: ${TASK_QUEUE_ENABLED:-true}
+      REDIS_URL: redis://redis:6379/0
+      TASK_PAYLOAD_ENCRYPTION_KEY: ${TASK_PAYLOAD_ENCRYPTION_KEY:-}
+      LLM_REQUEST_TIMEOUT_SECONDS: ${LLM_REQUEST_TIMEOUT_SECONDS:-45}
+      AGENT_RUN_LOCK_TTL_SECONDS: ${AGENT_RUN_LOCK_TTL_SECONDS:-600}
+      AGENT_RUN_MAX_ATTEMPTS: ${AGENT_RUN_MAX_ATTEMPTS:-3}
+      AGENT_RUN_STALE_SECONDS: ${AGENT_RUN_STALE_SECONDS:-1800}
+      AGENT_RUN_HEARTBEAT_SECONDS: ${AGENT_RUN_HEARTBEAT_SECONDS:-30}
+      AGENT_RUN_CANCEL_POLL_SECONDS: ${AGENT_RUN_CANCEL_POLL_SECONDS:-2}
+      AGENT_RUN_RECOVERY_INTERVAL_SECONDS: ${AGENT_RUN_RECOVERY_INTERVAL_SECONDS:-60}
+      RESUME_GENERATION_SESSION_TTL_HOURS: ${RESUME_GENERATION_SESSION_TTL_HOURS:-24}
+      LLM_POOL_REDIS_ENABLED: ${LLM_POOL_REDIS_ENABLED:-true}
+      LLM_POOL_INFLIGHT_TTL_SECONDS: ${LLM_POOL_INFLIGHT_TTL_SECONDS:-600}
+      ALLOW_PRIVATE_MODEL_BASE_URLS: ${ALLOW_PRIVATE_MODEL_BASE_URLS:-true}
+      BOSS_AUTOMATION_SERVICE_URL: ${BOSS_AUTOMATION_SERVICE_URL:-http://host.docker.internal:8765}
+      BOSS_AUTOMATION_SERVICE_TOKEN: ${BOSS_AUTOMATION_SERVICE_TOKEN:-}
+      BOSS_AUTOMATION_REQUEST_TIMEOUT_SECONDS: ${BOSS_AUTOMATION_REQUEST_TIMEOUT_SECONDS:-240}
+      JOB_CAPTURE_MAX_RESPONSE_BYTES: ${JOB_CAPTURE_MAX_RESPONSE_BYTES:-2097152}
+      MEM0_PGVECTOR_HOST: postgres
+      MEM0_PGVECTOR_PORT: 5432
+      MEM0_PGVECTOR_DBNAME: ${POSTGRES_DB:-agent_interview}
+      MEM0_PGVECTOR_USER: ${POSTGRES_USER:-agent_interview}
+      MEM0_PGVECTOR_PASSWORD: ${POSTGRES_PASSWORD:-cheng123}
     networks:
       - agent_interview_network
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD-SHELL", "python -m app.entrypoints.deployment readiness"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   # 前端
   frontend:
@@ -136,7 +165,7 @@ services:
       context: ./web
       dockerfile: Dockerfile
       args:
-        - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-/api}
     container_name: agent_interview_frontend
     restart: always
     depends_on:
@@ -151,10 +180,8 @@ services:
     restart: always
     ports:
       - "80:80"
-      - "443:443"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./nginx/ssl:/etc/nginx/ssl:ro
       - ./nginx/logs:/var/log/nginx
     depends_on:
       - frontend

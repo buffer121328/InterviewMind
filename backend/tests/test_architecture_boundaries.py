@@ -4,7 +4,24 @@ import ast
 from pathlib import Path
 
 
-BACKEND_APP = Path(__file__).resolve().parents[1] / "app"
+BACKEND_ROOT = Path(__file__).resolve().parents[1]
+BACKEND_APP = BACKEND_ROOT / "app"
+
+
+def test_backend_root_only_contains_project_config_files():
+    """后端根目录只保留项目/构建/测试配置；应用入口放入 app 或 scripts。"""
+    allowed = {
+        ".dockerignore",
+        "Dockerfile",
+        "__init__.py",
+        "alembic.ini",
+        "conftest.py",
+        "pyproject.toml",
+        "pytest.ini",
+        "uv.lock",
+    }
+    actual = {path.name for path in BACKEND_ROOT.iterdir() if path.is_file()}
+    assert actual <= allowed
 
 
 def _imports(path: Path) -> list[str]:
