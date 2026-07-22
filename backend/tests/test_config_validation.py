@@ -4,6 +4,7 @@ import pytest
 
 from app.api import config as config_api
 from app.schemas.schemas import ApiConfigValidateRequest
+from app.workflows import config as config_workflow
 
 
 class _FakeLLM:
@@ -25,7 +26,7 @@ async def test_validate_api_config_uses_unified_llm_factory(monkeypatch):
         captured.update(kwargs)
         return fake_llm
 
-    monkeypatch.setattr(config_api, "create_llm_from_config", fake_create_llm_from_config)
+    monkeypatch.setattr(config_workflow, "create_llm_from_config", fake_create_llm_from_config)
 
     result = await config_api.validate_api_config(
         ApiConfigValidateRequest(
@@ -53,7 +54,7 @@ async def test_validate_api_config_keeps_friendly_error_message(monkeypatch):
         async def ainvoke(self, _value):
             raise RuntimeError("401 Unauthorized")
 
-    monkeypatch.setattr(config_api, "create_llm_from_config", lambda **_kwargs: FailingLLM())
+    monkeypatch.setattr(config_workflow, "create_llm_from_config", lambda **_kwargs: FailingLLM())
 
     result = await config_api.validate_api_config(
         ApiConfigValidateRequest(

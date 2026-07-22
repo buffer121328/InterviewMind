@@ -8,12 +8,10 @@ from typing import Any
 from app.infrastructure.db.repositories.session.session_repo import SessionRepo
 from app.schemas.voice import VoiceCloneRequest, VoiceStartRequest, VoiceStartResponse
 from app.agents.interview.interview_context import build_interview_context
-from app.agents.interview.question_defaults import resolve_max_questions
-from app.agents.interview.voice_interview import (
-    build_system_prompt,
-    generate_interview_plan,
-    get_opening_message,
-)
+from app.domain.interview_rounds import resolve_max_questions
+from app.agents.interview.voice_interview import generate_interview_plan, generate_voice_summary
+from app.prompts.voice import build_interview_voice_system_prompt as build_system_prompt
+from app.prompts.voice import get_opening_message
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +20,12 @@ class VoiceInterviewUseCaseError(Exception):
     """语音面试应用层错误。"""
 
     def __init__(self, message: str, *, status_code: int = 500) -> None:
+        """初始化当前对象实例。
+
+        Args:
+            message: 消息内容。
+            status_code: 调用方传入的 `status_code` 参数。
+        """
         super().__init__(message)
         self.message = message
         self.status_code = status_code
@@ -31,9 +35,16 @@ class VoiceInterviewUseCases:
     """语音面试非流式应用层门面。"""
 
     def __init__(self) -> None:
+        """初始化当前对象实例。"""
         self._session_repo = SessionRepo()
 
     async def start(self, *, request: VoiceStartRequest, user_id: str) -> VoiceStartResponse:
+        """启动 当前对象。
+
+        Args:
+            request: 请求对象。
+            user_id: 当前用户标识。
+        """
         session_id = request.thread_id
         api_config: dict[str, Any] = request.api_config
 
@@ -47,7 +58,8 @@ class VoiceInterviewUseCases:
         if not session and await self._session_repo.get_session(session_id) is not None:
             raise VoiceInterviewUseCaseError("会话不存在或无权访问", status_code=404)
 
-        is_switching_from_text = bool(session and session.metadata.mode == "mock")
+        metadata = getattr(session, "metadata", None) if session else None
+        is_switching_from_text = bool(session and getattr(metadata, "mode", None) == "mock")
 
         if is_switching_from_text:
             logger.info("[Voice] 检测到文字面试切换: %s，执行复用逻辑...", session_id)
@@ -97,7 +109,7 @@ class VoiceInterviewUseCases:
                 max_questions=None,
                 question_bank_count=request.question_bank_count,
                 experience_questions=request.experience_questions,
-                session_metadata=session.metadata,
+                session_metadata=metadata,
             )
             interview_plan = await generate_interview_plan(
                 resume=context.resume_context,
@@ -115,12 +127,18 @@ class VoiceInterviewUseCases:
         else:
             logger.info("[Voice] 已有面试计划, 共 %s 道题", len(interview_plan))
 
-        round_index = getattr(session.metadata, "round_index", 1) or 1
-        first_question_content = None
+        round_index = getattr(metadata, "round_index", 1) or 1
+        round_type = getattr(metadata, "round_type", None)
+        max_questions = resolve_max_questions(
+            round_type,
+            getattr(metadata, "max_questions", None),
+            round_index=round_index,
+        )
+        first_question_content = ""
         if interview_plan:
-            current_q_idx = getattr(session.metadata, "question_count", 0)
+            current_q_idx = getattr(metadata, "question_count", 0)
             if current_q_idx < len(interview_plan):
-                first_question_content = interview_plan[current_q_idx].get("content")
+                first_question_content = str(interview_plan[current_q_idx].get("content") or "")
 
         if is_switching_from_text:
             opening_msg_text = "好的，那我们切换到语音模式继续。关于刚才的话题，或者我们换个方向，我想请问一下：" + (
@@ -151,8 +169,8 @@ class VoiceInterviewUseCases:
                     greeting_text=None,
                     history=history_messages,
                     round_index=round_index,
-                    question_count=getattr(session.metadata, "question_count", 0),
-                    max_questions=resolve_max_questions(session.metadata.round_type, session.metadata.max_questions, round_index=round_index),
+                    question_count=getattr(metadata, "question_count", 0),
+                    max_questions=max_questions,
                 )
 
         return VoiceStartResponse(
@@ -164,11 +182,25 @@ class VoiceInterviewUseCases:
             greeting_text=opening_msg_text,
             history=history_messages,
             round_index=round_index,
-            question_count=getattr(session.metadata, "question_count", 0),
-            max_questions=resolve_max_questions(session.metadata.round_type, session.metadata.max_questions, round_index=round_index),
+            question_count=getattr(metadata, "question_count", 0),
+            max_questions=max_questions,
+        )
+
+    def stream_summary(self, *, session_id: str, api_config: dict[str, Any], user_id: str):
+        """Stream a voice-interview summary."""
+        return generate_voice_summary(
+            session_id=session_id,
+            api_config=api_config,
+            user_id=user_id,
         )
 
     async def clone(self, *, request: VoiceCloneRequest, user_id: str) -> dict[str, object]:
+        """异步执行 `clone` 相关逻辑。
+
+        Args:
+            request: 请求对象。
+            user_id: 当前用户标识。
+        """
         new_session = await self._session_repo.clone_session_for_voice(
             request.source_session_id,
             user_id=user_id,

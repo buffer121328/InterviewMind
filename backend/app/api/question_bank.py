@@ -3,21 +3,19 @@
 提供题库条目的 CRUD、检索、导入功能
 """
 
-import hashlib
 import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 
 from app.api.deps import get_current_user_id
-from app.workflows.question_bank import QuestionBankNotFound, question_bank_use_cases
+from app.workflows.question_bank import QuestionBankNotFound, QuestionBankUseCaseError, question_bank_use_cases
 from app.schemas.question_bank import (
     QuestionBankCreateRequest,
     QuestionBankImportRequest,
     QuestionBankImportResponse,
     QuestionBankItem,
     QuestionBankListResponse,
-    QuestionFileCandidate,
     QuestionFilePreviewResponse,
 )
 
@@ -32,22 +30,10 @@ async def preview_question_file(
     user_id: str = Depends(get_current_user_id),
 ):
     """解析 PDF/Markdown 并返回候选题；此步骤不写入题库。"""
-    from app.infrastructure.files.file_service import FileServiceError, file_service
-    from app.workflows.question_bank_support import parse_question_document
-
-    filename = (file.filename or "questions").strip()[:255]
     try:
-        content = await file_service.process_fastapi_file(file)
-        source_id = hashlib.sha256(f"{user_id}\0{filename}\0{content}".encode("utf-8")).hexdigest()[:32]
-        questions = parse_question_document(content=content, filename=filename, source_id=source_id)
-        return QuestionFilePreviewResponse(
-            success=True,
-            filename=filename,
-            questions=[QuestionFileCandidate(**question) for question in questions],
-            message=f"解析出 {len(questions)} 道候选题",
-        )
-    except FileServiceError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return await question_bank_use_cases.preview_upload_file(file=file, user_id=user_id)
+    except QuestionBankUseCaseError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
 
 
 @router.post("/items", response_model=dict)

@@ -15,7 +15,6 @@ from app.schemas.voice import (
     VoiceCloneRequest,
 )
 
-from app.agents.interview.voice_interview import generate_voice_summary
 from app.api.deps import get_current_user_id
 from app.workflows.interview.voice import VoiceInterviewUseCaseError, voice_interview_use_cases
 from app.workflows.interview.voice_stream import VoiceStreamUseCaseError, voice_stream_use_cases
@@ -87,6 +86,7 @@ async def clone_voice_session(
 
 
 class VoiceSummaryRequest(BaseModel):
+    """表示 `VoiceSummaryRequest` 的接口数据模型。"""
     session_id: str
     api_config: dict[str, Any]
 
@@ -98,15 +98,15 @@ async def voice_summary_endpoint(
 ):
     """
     生成语音面试总结（SSE 流式输出）
-    
+
     在面试完成后调用此接口生成面试反馈总结。
     """
-    generator = generate_voice_summary(
+    generator = voice_interview_use_cases.stream_summary(
         session_id=request.session_id,
         api_config=request.api_config,
-        user_id=user_id
+        user_id=user_id,
     )
-    
+
     return StreamingResponse(
         generator,
         media_type="text/event-stream",
