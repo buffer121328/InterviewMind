@@ -17,10 +17,11 @@ logger = logging.getLogger(__name__)
 
 class QuestionBankRepo:
     """题库服务类"""
-    
+
     def __init__(self):
+        """初始化当前对象实例。"""
         logger.info("QuestionBankService 初始化")
-    
+
     async def create_item(
         self,
         user_id: str,
@@ -58,7 +59,7 @@ class QuestionBankRepo:
             await db.refresh(obj)
             logger.info(f"创建题库条目: ID={obj.id}, user={user_id}")
             return obj.id
-    
+
     async def get_item(self, item_id: int, user_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """获取题库条目"""
         async with async_session() as db:
@@ -72,7 +73,7 @@ class QuestionBankRepo:
             item = self._row_to_dict(obj)
             await self._attach_followups(db, [item])
             return item
-    
+
     async def list_items(
         self,
         user_id: str,
@@ -97,7 +98,7 @@ class QuestionBankRepo:
             items = [self._row_to_dict(row) for row in rows]
             await self._attach_followups(db, items)
             return items
-    
+
     async def search_items(
         self,
         user_id: str,
@@ -136,7 +137,7 @@ class QuestionBankRepo:
             items = [self._row_to_dict(row) for row in rows]
             await self._attach_followups(db, items)
             return items
-    
+
     async def update_item(
         self,
         item_id: int,
@@ -161,7 +162,7 @@ class QuestionBankRepo:
             result = await db.execute(stmt)
             await db.commit()
             return result.rowcount > 0
-    
+
     async def delete_item(self, item_id: int, user_id: str) -> bool:
         """删除题库条目"""
         async with async_session() as db:
@@ -173,7 +174,7 @@ class QuestionBankRepo:
             )
             await db.commit()
             return result.rowcount > 0
-    
+
     async def increment_usage(self, item_id: int) -> None:
         """增加使用次数"""
         async with async_session() as db:
@@ -222,7 +223,7 @@ class QuestionBankRepo:
             items = [self._row_to_dict(row) for row in rows]
             await self._attach_followups(db, items)
             return items
-    
+
     async def get_followups_by_parent_ids(
         self,
         user_id: str,
@@ -309,7 +310,7 @@ class QuestionBankRepo:
             await db.commit()
             await db.refresh(obj)
             return obj.id
-    
+
     def _row_to_dict(self, row) -> Dict[str, Any]:
         """将数据库行转换为字典"""
         if hasattr(row, '_mapping'):
@@ -340,6 +341,11 @@ class QuestionBankRepo:
         return data
 
     def _followup_to_dict(self, row) -> Dict[str, Any]:
+        """执行 `_followup_to_dict` 相关逻辑。
+
+        Args:
+            row: 调用方传入的 `row` 参数。
+        """
         data = {
             "id": row.id,
             "parent_question_id": row.parent_question_id,

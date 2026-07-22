@@ -55,6 +55,7 @@ class CapturedJobModel(Base):
     )
 
     def to_dict(self) -> dict:
+        """转换 `dict`。"""
         return {
             "id": self.id,
             "user_id": self.user_id,

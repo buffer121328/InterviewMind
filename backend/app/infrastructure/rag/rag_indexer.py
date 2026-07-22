@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 def _utcnow() -> datetime:
+    """执行 `_utcnow` 相关逻辑。"""
     return datetime.now(timezone.utc)
 
 
@@ -267,6 +268,7 @@ class RagIndexer:
     """
 
     def __init__(self):
+        """初始化当前对象实例。"""
         self._repo = get_rag_index_repo()
         self._config = get_embedding_config()
 
@@ -439,6 +441,7 @@ _rag_indexer: Optional[RagIndexer] = None
 
 
 def get_rag_indexer() -> RagIndexer:
+    """获取 `rag indexer`。"""
     global _rag_indexer
     if _rag_indexer is None:
         _rag_indexer = RagIndexer()

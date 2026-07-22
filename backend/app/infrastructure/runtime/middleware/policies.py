@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True, slots=True)
 class RuntimePolicy:
+    """定义策略规则。"""
     redact_secrets: bool = True
     trace_calls: bool = True
     require_confirmation_for_external_tools: bool = True

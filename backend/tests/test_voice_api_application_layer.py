@@ -114,3 +114,4 @@ async def test_voice_start_use_case_silent_resume_reuses_existing_history():
     ]
     assert response.round_index == 2
     assert response.question_count == 1
+    assert response.max_questions == 5

@@ -22,7 +22,7 @@ from deepeval.test_case import LLMTestCase
 
 import app.agents.interview.interview_rag as rag_module
 
-_DATASET = json.loads((Path(__file__).resolve().parents[1] / "datasets" / "rag_golden.json").read_text())
+_DATASET = json.loads((Path(__file__).resolve().parent / "datasets" / "rag_golden.json").read_text())
 CORPUS = _DATASET["corpus"]
 
 

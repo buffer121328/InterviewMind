@@ -80,6 +80,7 @@ class BrowserSession:
     errors: List[str] = None
 
     def __post_init__(self):
+        """实现 `__post_init__` 协议方法。"""
         self.started_at = datetime.now().isoformat()
         self.screenshots = []
         self.errors = []
@@ -96,6 +97,7 @@ class BossBrowserSessionHandle:
     _closed: bool = False
 
     async def close(self) -> None:
+        """关闭 当前对象。"""
         if self._closed:
             return
         try:
@@ -116,7 +118,7 @@ async def start_browser(
 ) -> Tuple[Any, Any, Any]:
     """
     启动浏览器实例。
-    
+
     Returns:
         (playwright_instance, browser, context)
     """
@@ -243,9 +245,9 @@ async def locate_and_fill_greeting(
 ) -> Dict[str, Any]:
     """
     定位输入框并填入打招呼文案。
-    
+
     选择器策略：按优先级尝试 BOSS直聘常见选择器。
-    
+
     Returns:
         {"success": bool, "filled": bool, "selector_used": str, "error": str}
     """
@@ -279,7 +281,7 @@ async def locate_and_fill_greeting(
 async def locate_and_click_send(page: Any) -> Dict[str, Any]:
     """
     定位并点击发送按钮（不执行实际点击，仅定位验证）。
-    
+
     Returns:
         {"success": bool, "found": bool, "selector_used": str, "element": Any}
     """
@@ -330,7 +332,7 @@ async def verify_send_result(page: Any) -> Dict[str, Any]:
 async def take_screenshot(page: Any, label: str = "screenshot") -> str:
     """
     截图并返回 base64 编码。
-    
+
     Returns:
         base64 编码的截图数据
     """

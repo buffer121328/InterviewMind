@@ -5,6 +5,8 @@ import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import type { ResumeOptimizeMode } from '@/lib/api/resume';
 
 type ResumeInputMode = 'analyze' | 'optimize' | 'jd-match';
 
@@ -20,11 +22,13 @@ interface ResumeInputPanelProps {
     optimizeProgress?: string;
     sessionPicker?: ReactNode;
     includeProfile?: boolean;
+    optimizeMode?: ResumeOptimizeMode;
     fileInputRef: RefObject<HTMLInputElement | null>;
     onResumeChange: (value: string) => void;
     onJobDescriptionChange: (value: string) => void;
     onSubmit: () => void;
     onIncludeProfileChange?: (value: boolean) => void;
+    onOptimizeModeChange?: (value: ResumeOptimizeMode) => void;
 }
 
 export function ResumeInputPanel({
@@ -39,11 +43,13 @@ export function ResumeInputPanel({
     optimizeProgress,
     sessionPicker,
     includeProfile = false,
+    optimizeMode = 'balanced',
     fileInputRef,
     onResumeChange,
     onJobDescriptionChange,
     onSubmit,
     onIncludeProfileChange,
+    onOptimizeModeChange,
 }: ResumeInputPanelProps) {
     const SubmitIcon = mode === 'analyze' ? BarChart3 : mode === 'jd-match' ? Target : FileText;
     const requiresJD = mode !== 'analyze';
@@ -101,6 +107,30 @@ export function ResumeInputPanel({
                         </div>
 
                         {sessionPicker}
+
+
+                        {mode === 'optimize' && onOptimizeModeChange && (
+                            <div className="space-y-2 rounded-lg border border-gray-100 bg-white p-3">
+                                <Label className="text-xs font-normal text-gray-500">优化模式</Label>
+                                <Select value={optimizeMode} onValueChange={(value) => onOptimizeModeChange(value as ResumeOptimizeMode)}>
+                                    <SelectTrigger className="h-9 border-gray-200 bg-white">
+                                        <SelectValue placeholder="选择优化模式" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="fast">快速预览 · 更快给建议</SelectItem>
+                                        <SelectItem value="balanced">智能优化 · 速度质量均衡</SelectItem>
+                                        <SelectItem value="quality">高质量精修 · 原流水线</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                                <p className="text-xs text-gray-400 leading-relaxed">
+                                    {optimizeMode === 'fast'
+                                        ? '适合快速查看可优化点，模型调用更少。'
+                                        : optimizeMode === 'quality'
+                                            ? '保留原 6 阶段确定性流水线，适合最终投递前精修。'
+                                            : '默认推荐：使用受控 Agent 改写节点，并保留事实核验与质量闸门。'}
+                                </p>
+                            </div>
+                        )}
 
                         {mode === 'optimize' && onIncludeProfileChange && (
                             <div className="flex items-center justify-between p-3 border border-gray-100 rounded-lg hover:bg-gray-50 bg-white cursor-pointer select-none" onClick={() => onIncludeProfileChange(!includeProfile)}>

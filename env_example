@@ -40,7 +40,9 @@ RESUME_GENERATION_SESSION_TTL_HOURS=24
 HOST=0.0.0.0
 PORT=8000
 DEBUG=false
-NEXT_PUBLIC_API_URL=http://localhost:8000
+# 全容器部署通过 Nginx 同源访问 API；本地前端直连后端时改为 http://localhost:8000。
+NEXT_PUBLIC_API_URL=/api
+# Docker Compose 会在 API/Worker 启动前执行迁移，因此全容器部署保持 false。
 # 本地开发保持 true；需要严格验证 Alembic 迁移链时设为 false。
 AUTO_CREATE_TABLES=true
 
@@ -150,4 +152,6 @@ MEM0_EMBEDDING_DIMS=1536
 
 MEM0_SEARCH_LIMIT=5
 MEM0_CONTEXT_CHAR_LIMIT=1200
+# 长期记忆默认保留天数；到期记忆不再参与检索。
+MEM0_RETENTION_DAYS=180
 MEM0_BACKGROUND_WRITE=true

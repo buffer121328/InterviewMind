@@ -21,16 +21,16 @@ class UnifiedReport(BaseModel):
 def normalize_to_unified_report(data: Dict[str, Any], report_type: str = "generic") -> UnifiedReport:
     """
     将不同来源的报告数据标准化为统一结构
-    
+
     Args:
         data: 原始报告数据
         report_type: 报告类型 (profile/weakness/resume_optimize/jd_match)
-        
+
     Returns:
         UnifiedReport: 标准化后的报告
     """
     report = UnifiedReport(raw_data=data)
-    
+
     if report_type == "profile":
         report.summary = data.get("overall_assessment", "")
         report.strengths = data.get("key_strengths", [])
@@ -38,7 +38,7 @@ def normalize_to_unified_report(data: Dict[str, Any], report_type: str = "generi
         report.recommendations = [data.get("recommendation", "")]
         report.risks = []
         report.next_actions = []
-        
+
     elif report_type == "weakness":
         categories = data.get("weakness_categories", [])
         report.weaknesses = [c.get("description", "") for c in categories]
@@ -47,7 +47,7 @@ def normalize_to_unified_report(data: Dict[str, Any], report_type: str = "generi
         report.next_actions = [a.get("action", "") for a in actions]
         report.recommendations = data.get("recommended_questions", [])
         report.summary = f"发现 {len(categories)} 个短板类别，{len(actions)} 个改进行动项"
-        
+
     elif report_type == "resume_optimize":
         report.summary = data.get("overall_strategy", "")
         improvements = data.get("key_improvements", [])
@@ -57,7 +57,7 @@ def normalize_to_unified_report(data: Dict[str, Any], report_type: str = "generi
         report.risks = hr_feedback.get("concerns", [])
         report.weaknesses = []
         report.next_actions = []
-        
+
     elif report_type == "jd_match":
         report.summary = f"匹配度: {data.get('overall_match_score', 0)}%"
         report.strengths = data.get("strengths", [])
@@ -65,5 +65,5 @@ def normalize_to_unified_report(data: Dict[str, Any], report_type: str = "generi
         report.weaknesses = data.get("missing_keywords", [])
         report.recommendations = data.get("priority_actions", [])
         report.next_actions = data.get("priority_actions", [])
-    
+
     return report

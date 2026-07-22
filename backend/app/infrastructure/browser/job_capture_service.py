@@ -8,25 +8,20 @@
 采集后自动标准化 + 去重检测 + 按匹配度排序。
 """
 
-import asyncio
 from hashlib import sha256
-import os
-import platform as _platform
 
 import logging
 from typing import Dict, Any, Optional
-from datetime import datetime
 
 from app.infrastructure.security.security import safe_error_message
-from app.infrastructure.security.url_security import validate_outbound_url
 
-from .job_normalizer import (
-    normalize_company_name,
-    normalize_salary,
-    extract_keywords,
-    compute_source_hash,
+from .job_capture_persistence import normalize_and_save_job as _normalize_and_save
+from .job_page_fetcher import (
+    _fetch_page_text,
+    _fetch_page_text_browser,
+    _fetch_via_existing_chrome,
+    _open_and_read_in_chrome,
 )
-from .job_deduper import is_duplicate
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +56,7 @@ async def capture_from_url(
     from pydantic import BaseModel
 
     class JobExtractionOutput(BaseModel):
+        """表示 `JobExtractionOutput` 的接口数据模型。"""
         company_name: str
         job_title: str
         job_description: str
@@ -146,7 +142,7 @@ async def capture_from_text(
 ) -> Dict[str, Any]:
     """
     从用户手动粘贴的 JD 文本采集岗位信息。
-    
+
     Args:
         jd_text: JD 文本
         user_id: 用户 ID
@@ -154,7 +150,7 @@ async def capture_from_text(
         company_name_hint: 公司名提示
         job_title_hint: 岗位名提示
         api_config: API 配置
-        
+
     Returns:
         {"success": bool, "job_id": int, "normalized_job": dict, "is_duplicate": bool}
     """
@@ -162,6 +158,7 @@ async def capture_from_text(
     from pydantic import BaseModel
 
     class JobExtractionOutput(BaseModel):
+        """表示 `JobExtractionOutput` 的接口数据模型。"""
         company_name: str
         job_title: str
         job_description: str
@@ -196,237 +193,6 @@ async def capture_from_text(
 # ============================================================================
 # 内部函数
 # ============================================================================
-
-async def _normalize_and_save(
-    raw_data: dict,
-    user_id: str,
-    platform: str,
-    source_url: str = "",
-    source_text: str = "",
-) -> Dict[str, Any]:
-    """标准化、去重并保存岗位记录"""
-    from app.infrastructure.db.repositories.jobs.job_capture_repo import get_job_capture_repo
-
-    company_name = normalize_company_name(
-        raw_data.get("company_name", "")
-    )
-    job_title = raw_data.get("job_title", "").strip()
-    job_description = raw_data.get("job_description", source_text)
-    salary_info = normalize_salary(raw_data.get("salary_text", ""))
-    city = raw_data.get("city", "").strip()
-    keywords = extract_keywords(job_description)
-
-    # 计算去重哈希
-    source_hash = compute_source_hash(
-        company_name=company_name,
-        job_title=job_title,
-        source_url=source_url,
-        platform=platform,
-    )
-
-    # 去重检测
-    duplicated = await is_duplicate(source_hash, user_id)
-    if duplicated:
-        return {
-            "success": True,
-            "message": "该岗位已采集过",
-            "is_duplicate": True,
-        }
-
-    # 保存到数据库
-    try:
-        repo = get_job_capture_repo()
-        job_id = await repo.save_job(
-            user_id=user_id,
-            job_data={
-                "platform": platform,
-                "source_url": source_url,
-                "source_text": source_text,
-                "company_name": company_name,
-                "job_title": job_title,
-                "job_description": job_description,
-                "salary_text": salary_info["text"],
-                "salary_min": salary_info["min"],
-                "salary_max": salary_info["max"],
-                "city": city,
-                "tags": keywords,
-                "source_hash": source_hash,
-                "status": "pending",
-                "captured_at": datetime.now().isoformat(),
-            },
-        )
-    except Exception as e:
-        logger.error(f"[JobCapture] 保存岗位失败: {e}")
-        return {
-            "success": False,
-            "message": f"保存岗位失败: {e}",
-            "is_duplicate": False,
-        }
-
-    normalized_job = {
-        "company_name": company_name,
-        "job_title": job_title,
-        "job_description": job_description,
-        "salary_text": salary_info["text"],
-        "salary_min": salary_info["min"],
-        "salary_max": salary_info["max"],
-        "city": city,
-        "tags": keywords,
-        "source_hash": source_hash,
-    }
-
-    return {
-        "success": True,
-        "job_id": job_id,
-        "normalized_job": normalized_job,
-        "is_duplicate": False,
-        "message": "岗位采集成功",
-    }
-
-
-async def _fetch_via_existing_chrome(url: str) -> str:
-    """
-    通过 AppleScript 连接用户已打开的 Chrome 浏览器，读取已存在 tab 的页面文本。
-    仅 macOS 可用。绕过反爬最有效——使用用户真实浏览器、真实登录态。
-
-    Args:
-        url: 目标岗位 URL（用于在所有 tab 中匹配）
-    """
-    if _platform.system() != "Darwin":
-        return ""
-
-    # 提取 URL 关键段用于匹配（例如 zhipin.com/job_detail/afa3101d...）
-    import re
-    match = re.search(r"(zhipin\.com/job_detail/[a-zA-Z0-9]+)", url)
-    if not match:
-        return ""
-    url_key = match.group(1)
-
-    script = f"""
-    on findAndRead()
-        tell application "Google Chrome"
-            repeat with w in windows
-                repeat with t in tabs of w
-                    set tabURL to URL of t
-                    if tabURL contains "{url_key}" then
-                        try
-                            tell t to execute javascript "document.body.innerText"
-                            return result
-                        on error
-                            return ""
-                        end try
-                    end if
-                end repeat
-            end repeat
-        end tell
-        return ""
-    end findAndRead
-    findAndRead()
-    """
-
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            "osascript", "-e", script,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=15)
-        text = stdout.decode("utf-8", errors="ignore").strip()
-        if text and len(text) > 200 and "请稍候" not in text:
-            return text
-        return ""
-    except Exception as e:
-        logger.debug(f"[JobCapture] AppleScript Chrome 读取失败: {e}")
-        return ""
-
-
-async def _fetch_page_text_browser(
-    url: str,
-    cookies: Optional[list] = None,
-    headless: bool = True,
-    manual_wait_seconds: int = 90,
-) -> str:
-    """
-    通过宿主机 BOSS 服务的持久化 Playwright profile 抓取页面文本。
-
-    Args:
-        url: 岗位页面 URL
-        cookies: 兼容旧调用；不会经 RPC 传输，宿主机统一使用持久化 profile。
-        headless: 是否无头模式。False 时可在宿主机窗口完成验证码/登录。
-    """
-    try:
-        from app.infrastructure.browser.boss_automation_client import get_boss_automation_client
-
-        if cookies:
-            logger.warning("[JobCapture] 远程 BOSS 服务不接收 Cookie，改用宿主机持久化 profile")
-        result = await get_boss_automation_client().scrape(
-            url,
-            headless=headless,
-            manual_wait_seconds=manual_wait_seconds,
-        )
-        text = result.get("text", "") if result.get("success") else ""
-        if text:
-            logger.info("[JobCapture] 宿主机浏览器抓取成功, %s 字符", len(text))
-        return text
-    except Exception as e:
-        logger.warning("[JobCapture] 宿主机浏览器抓取失败: %s", safe_error_message(e))
-        return ""
-
-
-async def _fetch_page_text(url: str) -> str:
-    """通过 HTTP 抓取页面文本（降级方案，优先用浏览器）"""
-    try:
-        import httpx
-        from urllib.parse import urljoin
-
-        headers = {
-                    "User-Agent": (
-                        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                        "AppleWebKit/537.36 (KHTML, like Gecko) "
-                        "Chrome/120.0.0.0 Safari/537.36"
-                    ),
-                    "Accept": "text/html,application/xhtml+xml",
-                    "Accept-Language": "zh-CN,zh;q=0.9",
-                }
-        current_url = url
-        max_response_bytes = max(64 * 1024, int(os.getenv("JOB_CAPTURE_MAX_RESPONSE_BYTES", str(2 * 1024 * 1024))))
-        async with httpx.AsyncClient(timeout=15, follow_redirects=False) as client:
-            for _ in range(6):
-                await asyncio.to_thread(validate_outbound_url, current_url, allow_private=False)
-                async with client.stream("GET", current_url, headers=headers) as resp:
-                    if resp.is_redirect:
-                        location = resp.headers.get("location")
-                        if not location:
-                            return ""
-                        current_url = urljoin(current_url, location)
-                        continue
-                    resp.raise_for_status()
-                    body = bytearray()
-                    async for chunk in resp.aiter_bytes():
-                        body.extend(chunk)
-                        if len(body) > max_response_bytes:
-                            raise ValueError("岗位页面响应内容过大")
-                    encoding = resp.encoding or "utf-8"
-                    html = body.decode(encoding, errors="replace")
-                    break
-            else:
-                raise ValueError("岗位链接重定向次数过多")
-
-            # 简单提取可见文本
-            import re
-            # 去除 script/style 标签
-            text = re.sub(r"<script[^>]*>.*?</script>", "", html, flags=re.DOTALL)
-            text = re.sub(r"<style[^>]*>.*?</style>", "", text, flags=re.DOTALL)
-            # 去除 HTML 标签
-            text = re.sub(r"<[^>]+>", " ", text)
-            # 去除多余空白
-            text = re.sub(r"\s+", " ", text).strip()
-
-            return text[:5000]  # 取前 5000 字符
-    except Exception as e:
-        logger.warning(f"[JobCapture] HTTP 抓取失败: {e}")
-        return ""
-
 
 def _build_extraction_prompt(
     page_text: str,
@@ -468,117 +234,6 @@ def _build_extraction_prompt(
 # ============================================================================
 # BOSS 推荐页批量抓取（半自动化）
 # ============================================================================
-
-async def _open_and_read_in_chrome(
-    url: str,
-    wait_seconds: int = 8,
-    wait_for_user_captcha: bool = False,
-    captcha_timeout: int = 120,
-) -> str:
-    """
-    通过 AppleScript 让用户已打开的 Chrome 在当前窗口新开 tab 访问 url，
-    等待若干秒后读取 body innerText（不关闭 tab）。
-
-    Args:
-        url: 目标 URL
-        wait_seconds: 初次等待页面加载秒数
-        wait_for_user_captcha: True 时检测到反爬页后阻塞等待用户手动完成验证，
-                               最长 captcha_timeout 秒；每隔 5 秒重读一次页面。
-        captcha_timeout: 等待用户完成验证码的最长秒数
-
-    仅 macOS 可用。若 Chrome 未开启 AppleScript JS 权限则返回空字符串。
-    """
-    if _platform.system() != "Darwin":
-        return ""
-
-    def _build_script(target_url: str, sec: int) -> str:
-        return f'''
-        on run
-            tell application "Google Chrome"
-                if (count of windows) = 0 then
-                    make new window
-                end if
-                tell window 1
-                    set newTab to make new tab with properties {{URL:"{target_url}"}}
-                end tell
-                delay {sec}
-                try
-                    tell newTab to execute javascript "document.body.innerText"
-                    set pageText to result
-                    return pageText
-                on error errMsg
-                    return ""
-                end try
-            end tell
-        end run
-        '''
-
-    def _build_recheck_script() -> str:
-        # 读取最后一个 tab（刚开的那个）的当前内容
-        return '''
-        on run
-            tell application "Google Chrome"
-                if (count of windows) = 0 then return ""
-                tell window 1
-                    set t to active tab
-                    try
-                        tell t to execute javascript "document.body.innerText"
-                        return result
-                    on error
-                        return ""
-                    end try
-                end tell
-            end tell
-        end run
-        '''
-
-    async def _run_applescript(script: str, timeout: int) -> str:
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "osascript", "-e", script,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-            return stdout.decode("utf-8", errors="ignore").strip()
-        except Exception as e:
-            logger.warning(f"[JobCapture] AppleScript 调用失败: {e}")
-            return ""
-
-    # Step 1: 新开 tab 访问 url，初次等待
-    text = await _run_applescript(_build_script(url, wait_seconds), wait_seconds + 20)
-
-    # Step 2: 若未启用反爬等待模式，直接返回
-    if not wait_for_user_captcha:
-        return text
-
-    # Step 3: 检测反爬页，若被拦截则循环等待
-    is_captcha = bool(text) and ("请稍候" in text or "安全验证" in text or "verify.html" in text or len(text) < 200)
-    if not is_captcha:
-        return text
-
-    logger.info(f"[JobCapture] 检测到反爬验证页，等待用户在 Chrome 中手动完成验证（最多 {captcha_timeout}秒）...")
-
-    waited = 0
-    recheck_script = _build_recheck_script()
-    while waited < captcha_timeout:
-        await asyncio.sleep(5)
-        waited += 5
-        text = await _run_applescript(recheck_script, 15)
-        if not text:
-            continue
-        # 仍是验证页 → 继续等
-        if "请稍候" in text or "安全验证" in text or "verify.html" in text:
-            continue
-        if len(text) < 200:
-            continue
-        # 验证完成，回到目标页（或被重定向回业务页）
-        logger.info(f"[JobCapture] 用户已完成验证（耗时 {waited} 秒），抓到 {len(text)} 字符")
-        return text
-
-    logger.warning(f"[JobCapture] 用户验证超时（{captcha_timeout}秒），放弃抓取")
-    return ""
-
 
 async def _llm_extract_job_cards(
     page_text: str,
@@ -814,6 +469,13 @@ async def capture_from_recommendations(
     _orig_extract = _llm_extract_job_cards
 
     async def _extract_with_api_config(page_text_arg, top_n_arg, query_filter_arg):
+        """异步执行 `_extract_with_api_config` 相关逻辑。
+
+        Args:
+            page_text_arg: 调用方传入的 `page_text_arg` 参数。
+            top_n_arg: 调用方传入的 `top_n_arg` 参数。
+            query_filter_arg: 调用方传入的 `query_filter_arg` 参数。
+        """
         from app.infrastructure.llm.llm_utils import invoke_structured
         from app.schemas.llm_outputs import JobCardList
 

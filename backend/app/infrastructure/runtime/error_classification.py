@@ -7,6 +7,7 @@ from enum import StrEnum
 
 
 class ErrorCategory(StrEnum):
+    """表示 `ErrorCategory` 相关的数据或行为。"""
     NETWORK = "network_failure"
     AUTHENTICATION = "authentication_failure"
     RATE_LIMIT = "rate_limited"
@@ -18,6 +19,7 @@ class ErrorCategory(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class ClassifiedError:
+    """表示业务或运行时错误。"""
     category: ErrorCategory
     code: str
     user_message: str

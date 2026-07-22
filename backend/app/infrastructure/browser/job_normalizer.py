@@ -191,7 +191,7 @@ def compute_source_hash(
 ) -> str:
     """
     计算岗位去重哈希。
-    
+
     策略：source_url 优先 → company_name + job_title + platform 兜底。
     确保同一岗位不会重复采集。
     """

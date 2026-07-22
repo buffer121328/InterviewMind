@@ -13,6 +13,11 @@ __all__ = [
 
 
 def __getattr__(name: str):
+    """实现 `__getattr__` 协议方法。
+
+    Args:
+        name: 名称。
+    """
     if name in {"build_default_middleware", "permission_middleware"}:
         from .langchain import build_default_middleware, permission_middleware
 

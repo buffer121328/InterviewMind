@@ -16,12 +16,20 @@ class ArchivedTurn:
 
     @property
     def turn_key(self) -> str:
+        """返回 `turn key` 属性值。"""
         prefix = "main" if self.followup_order == 0 else "followup"
         suffix = "" if self.followup_order == 0 else f":{self.followup_order}"
         return f"{prefix}:{self.question_index}{suffix}"
 
 
 def _value(item: Any, name: str, default: Any = None) -> Any:
+    """执行 `_value` 相关逻辑。
+
+    Args:
+        item: 单条数据。
+        name: 名称。
+        default: 调用方传入的 `default` 参数。
+    """
     if isinstance(item, Mapping):
         return item.get(name, default)
     return getattr(item, name, default)

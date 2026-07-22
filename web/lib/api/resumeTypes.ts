@@ -4,6 +4,8 @@
 
 export type JsonObject = Record<string, unknown>;
 
+export type ResumeOptimizeMode = 'fast' | 'balanced' | 'quality';
+
 export interface DimensionScore {
     score: number;
     comment: string;
@@ -54,6 +56,8 @@ export interface ResumeChangeItem {
 }
 
 export interface ResumeOptimizeResult {
+    /** 后端优化运行模式 */
+    mode?: ResumeOptimizeMode;
     match_score: number;
     hr_pass_rate: number;
     optimized_sections: OptimizedSection[];

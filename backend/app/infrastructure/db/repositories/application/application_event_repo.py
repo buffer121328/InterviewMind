@@ -21,6 +21,7 @@ class ApplicationEventRepo:
     """投递事件流水服务类"""
 
     def __init__(self):
+        """初始化当前对象实例。"""
         logger.info("ApplicationEventRepo 初始化")
 
     async def add_event(
@@ -32,6 +33,12 @@ class ApplicationEventRepo:
         """新增投递事件，并在必要时更新主表状态；可接入外层 UnitOfWork。"""
 
         async def _add(db: AsyncSession, *, owns_session: bool) -> ApplicationEventRow:
+            """新增 当前对象。
+
+            Args:
+                db: 数据库会话。
+                owns_session: 调用方传入的 `owns_session` 参数。
+            """
             try:
                 now = datetime.now()
                 event_time = request.event_time or now

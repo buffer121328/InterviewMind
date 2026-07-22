@@ -18,10 +18,11 @@ logger = logging.getLogger(__name__)
 
 class WeaknessReportRepo:
     """面试短板地图报告服务类"""
-    
+
     def __init__(self):
+        """初始化当前对象实例。"""
         logger.info("WeaknessReportService 初始化")
-    
+
     async def save_report(
         self,
         user_id: str,
@@ -31,13 +32,13 @@ class WeaknessReportRepo:
     ) -> int:
         """
         保存短板地图报告（UPSERT：同一 session 只保留最新一份）
-        
+
         Args:
             user_id: 用户 ID
             session_id: 会话 ID
             report_data: 报告数据 JSON
             series_id: 系列 ID（可选）
-            
+
         Returns:
             int: 报告 ID
         """
@@ -67,7 +68,7 @@ class WeaknessReportRepo:
                 await db.rollback()
                 logger.error(f"保存短板报告失败: {e}")
                 raise
-    
+
     async def get_report_by_session(
         self,
         session_id: str,
@@ -75,11 +76,11 @@ class WeaknessReportRepo:
     ) -> Optional[Dict[str, Any]]:
         """
         获取指定会话的短板报告
-        
+
         Args:
             session_id: 会话 ID
             user_id: 用户 ID（可选，用于权限校验）
-            
+
         Returns:
             报告数据字典，不存在返回 None
         """
@@ -91,7 +92,7 @@ class WeaknessReportRepo:
             if not obj:
                 return None
             return self._row_to_dict(obj)
-    
+
     async def list_reports(
         self,
         user_id: str,
@@ -99,11 +100,11 @@ class WeaknessReportRepo:
     ) -> List[Dict[str, Any]]:
         """
         获取用户的短板报告历史列表
-        
+
         Args:
             user_id: 用户 ID
             limit: 最大返回数量
-            
+
         Returns:
             报告列表
         """
@@ -116,15 +117,15 @@ class WeaknessReportRepo:
             )
             rows = (await db.execute(stmt)).scalars().all()
             return [self._row_to_dict(row) for row in rows]
-    
+
     async def delete_report(self, report_id: int, user_id: str) -> bool:
         """
         删除短板报告
-        
+
         Args:
             report_id: 报告 ID
             user_id: 用户 ID（用于权限校验）
-            
+
         Returns:
             是否删除成功
         """
@@ -145,7 +146,7 @@ class WeaknessReportRepo:
                 await db.rollback()
                 logger.error(f"删除短板报告失败: {e}")
                 return False
-    
+
     def _row_to_dict(self, row) -> Dict[str, Any]:
         """将数据库行转换为字典"""
         report_data = row.report_data if hasattr(row, 'report_data') else row['report_data']

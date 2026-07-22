@@ -43,6 +43,11 @@ class ApplicationUseCases:
 
     @staticmethod
     def resolve_user_id(user_id: Optional[str]) -> str:
+        """解析 `user id`。
+
+        Args:
+            user_id: 当前用户标识。
+        """
         return user_id or DEFAULT_USER_ID
 
     async def create_application(
@@ -51,6 +56,12 @@ class ApplicationUseCases:
         user_id: Optional[str],
         request: ApplicationCreateRequest,
     ) -> ApplicationDetailResponse:
+        """创建 `application`。
+
+        Args:
+            user_id: 当前用户标识。
+            request: 请求对象。
+        """
         application = await job_application_repo.create_application(
             user_id=self.resolve_user_id(user_id),
             request=request,
@@ -65,6 +76,14 @@ class ApplicationUseCases:
         limit: int,
         offset: int,
     ) -> ApplicationListResponse:
+        """列出 `applications`。
+
+        Args:
+            user_id: 当前用户标识。
+            status: 调用方传入的 `status` 参数。
+            limit: 返回数量上限。
+            offset: 分页偏移量。
+        """
         resolved_user_id = self.resolve_user_id(user_id)
         applications = await job_application_repo.list_applications(
             user_id=resolved_user_id,
@@ -90,6 +109,12 @@ class ApplicationUseCases:
         application_id: int,
         user_id: Optional[str],
     ) -> ApplicationDetailResponse:
+        """获取 `application`。
+
+        Args:
+            application_id: 投递记录标识。
+            user_id: 当前用户标识。
+        """
         application = await self._get_application_or_raise(application_id, user_id)
         return ApplicationDetailResponse(success=True, application=application)
 
@@ -100,6 +125,13 @@ class ApplicationUseCases:
         user_id: Optional[str],
         request: ApplicationUpdateRequest,
     ) -> ApplicationDetailResponse:
+        """更新 `application`。
+
+        Args:
+            application_id: 投递记录标识。
+            user_id: 当前用户标识。
+            request: 请求对象。
+        """
         application = await job_application_repo.update_application(
             application_id=application_id,
             user_id=self.resolve_user_id(user_id),
@@ -115,6 +147,12 @@ class ApplicationUseCases:
         application_id: int,
         user_id: Optional[str],
     ) -> dict[str, object]:
+        """删除 `application`。
+
+        Args:
+            application_id: 投递记录标识。
+            user_id: 当前用户标识。
+        """
         await self._get_application_or_raise(application_id, user_id)
         success = await job_application_repo.delete_application(
             application_id=application_id,
@@ -134,6 +172,13 @@ class ApplicationUseCases:
         user_id: Optional[str],
         request: EventCreateRequest,
     ) -> dict[str, object]:
+        """新增 `event to application`。
+
+        Args:
+            application_id: 投递记录标识。
+            user_id: 当前用户标识。
+            request: 请求对象。
+        """
         await self._get_application_or_raise(application_id, user_id)
         async with UnitOfWork(async_session) as uow:
             event_row = await application_event_repo.add_event(
@@ -149,11 +194,23 @@ class ApplicationUseCases:
         application_id: int,
         user_id: Optional[str],
     ) -> EventListResponse:
+        """列出 `application events`。
+
+        Args:
+            application_id: 投递记录标识。
+            user_id: 当前用户标识。
+        """
         await self._get_application_or_raise(application_id, user_id)
         events = await application_event_repo.list_events(application_id=application_id)
         return EventListResponse(success=True, events=events)
 
     async def _get_application_or_raise(self, application_id: int, user_id: Optional[str]):
+        """获取 `application or raise`。
+
+        Args:
+            application_id: 投递记录标识。
+            user_id: 当前用户标识。
+        """
         application = await job_application_repo.get_application(
             application_id,
             user_id=self.resolve_user_id(user_id),
@@ -164,6 +221,11 @@ class ApplicationUseCases:
 
     @staticmethod
     def _not_found(application_id: int) -> ApplicationNotFound:
+        """执行 `_not_found` 相关逻辑。
+
+        Args:
+            application_id: 投递记录标识。
+        """
         return ApplicationNotFound(
             error="NotFound",
             message=f"投递记录 {application_id} 不存在或无权访问",

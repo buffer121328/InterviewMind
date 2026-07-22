@@ -11,6 +11,7 @@ T = TypeVar("T", bound=BaseModel)
 
 
 class ModelInvoker:
+    """表示 `ModelInvoker` 相关的数据或行为。"""
     async def structured(
         self,
         input_value: Any,
@@ -20,6 +21,15 @@ class ModelInvoker:
         *,
         max_retries: int = 2,
     ) -> T:
+        """异步执行 `structured` 相关逻辑。
+
+        Args:
+            input_value: 调用方传入的 `input_value` 参数。
+            output_model: 调用方传入的 `output_model` 参数。
+            context: 运行上下文。
+            request: 请求对象。
+            max_retries: 调用方传入的 `max_retries` 参数。
+        """
         from app.infrastructure.llm.llm_utils import invoke_structured, invoke_structured_with_messages
 
         current = request or ModelRequest()

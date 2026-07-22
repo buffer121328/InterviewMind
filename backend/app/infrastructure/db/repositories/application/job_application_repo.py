@@ -41,6 +41,12 @@ class JobApplicationRepo:
         now = datetime.now()
 
         async def _create(db: AsyncSession, *, owns_session: bool) -> ApplicationDetail:
+            """创建 当前对象。
+
+            Args:
+                db: 数据库会话。
+                owns_session: 调用方传入的 `owns_session` 参数。
+            """
             db_obj = JobApplicationModel(
                 user_id=user_id,
                 company_name=request.company_name,

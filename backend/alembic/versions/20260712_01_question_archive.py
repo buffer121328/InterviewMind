@@ -1,7 +1,7 @@
 """add question followups and interview attempts
 
 Revision ID: 20260712_01
-Revises:
+Revises: 20260711_00
 Create Date: 2026-07-12
 """
 
@@ -12,12 +12,13 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 revision: str = "20260712_01"
-down_revision: Union[str, Sequence[str], None] = None
+down_revision: Union[str, Sequence[str], None] = "20260711_00"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    """执行 `upgrade` 相关逻辑。"""
     op.create_table(
         "question_bank_followups",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
@@ -58,6 +59,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """执行 `downgrade` 相关逻辑。"""
     op.drop_index("idx_interview_attempts_question", table_name="interview_question_attempts")
     op.drop_index("idx_interview_attempts_session", table_name="interview_question_attempts")
     op.drop_table("interview_question_attempts")

@@ -18,6 +18,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    """执行 `upgrade` 相关逻辑。"""
     op.create_table(
         "agent_runs",
         sa.Column("id", sa.String(), nullable=False),
@@ -42,6 +43,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """执行 `downgrade` 相关逻辑。"""
     op.drop_index("idx_agent_runs_status_created", table_name="agent_runs")
     op.drop_index("ix_agent_runs_user_id", table_name="agent_runs")
     op.drop_table("agent_runs")

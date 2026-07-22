@@ -18,12 +18,13 @@ logger = logging.getLogger(__name__)
 
 class CandidateAnalysisService:
     """候选人画像分析服务（后台异步运行）"""
-    
+
     def __init__(self):
+        """初始化当前对象实例。"""
         self.session_repo = SessionRepo()
         # 缓存：session_id -> CandidateProfile
         self._profile_cache: Dict[str, CandidateProfile] = {}
-    
+
     async def analyze_candidate(
         self,
         session_id: str,
@@ -35,7 +36,7 @@ class CandidateAnalysisService:
     ) -> CandidateProfile:
         """
         异步分析候选人能力画像
-        
+
         Args:
             session_id: 会话ID
             resume: 简历内容
@@ -43,14 +44,14 @@ class CandidateAnalysisService:
             company_info: 公司信息
             qa_history: 问答历史 [{"question": "...", "answer": "..."}]
             api_config: 用户的 API 配置
-            
+
         Returns:
             CandidateProfile: 更新后的能力画像
         """
         try:
             # 获取之前的画像（优先从缓存，其次从数据库）
             previous_profile = await self.get_cached_profile(session_id)
-            
+
             # 构建分析上下文
             context = AnalysisContext(
                 resume=resume,
@@ -59,30 +60,30 @@ class CandidateAnalysisService:
                 qa_history=qa_history,
                 previous_profile=previous_profile
             )
-            
+
             # 调用 Smart LLM 进行分析（使用用户配置的 API）
             profile = await self._perform_analysis(context, api_config)
-            
+
             # 更新缓存
             self._profile_cache[session_id] = profile
-            
+
             # 持久化到数据库
             await self.session_repo.save_profile(session_id, profile.model_dump())
-            
+
             logger.info(f"[AnalysisService] 完成会话 {session_id} 的画像分析，共分析 {len(qa_history)} 轮对话")
-            
+
             return profile
-            
+
         except Exception as e:
             logger.error(f"[AnalysisService] 分析失败: {str(e)}")
             # 返回默认画像
             return self._get_default_profile()
-    
+
     async def _perform_analysis(self, context: AnalysisContext, api_config: Optional[Dict] = None) -> CandidateProfile:
         """执行实际的 LLM 分析"""
         # 构建 Prompt
         prompt = self._build_analysis_prompt(context)
-        
+
         try:
             result = await invoke_structured(prompt, CandidateProfileOutput, api_config, channel="smart")
 
@@ -138,22 +139,22 @@ class CandidateAnalysisService:
                 recommendation=result.recommendation,
                 confidence=result.confidence,
             )
-            
+
             logger.info(f"[AnalysisService] 成功解析画像数据")
             return profile
         except Exception as e:
             logger.error(f"[AnalysisService] 分析执行失败: {e}", exc_info=True)
             return self._get_default_profile()
-    
+
     def _build_analysis_prompt(self, context: AnalysisContext) -> str:
         """构建分析 Prompt"""
-        
+
         # 格式化问答历史
         qa_text = "\n\n".join([
             f"Q{i+1}: {qa['question']}\nA{i+1}: {qa['answer']}"
             for i, qa in enumerate(context.qa_history)
         ])
-        
+
         # 增量分析提示
         previous_hint = ""
         if context.previous_profile:
@@ -164,7 +165,7 @@ class CandidateAnalysisService:
 - 沟通表达力: {context.previous_profile.communication.score}/10
 请在此基础上进行增量更新。
 """
-        
+
         prompt = f"""你是一位资深的技术面试官和人才评估专家。请对候选人进行全面、客观的多维度能力分析。
 
 【简历信息】：
@@ -274,7 +275,7 @@ class CandidateAnalysisService:
 请客观、公正地进行评估，避免主观臆断。"""
 
         return prompt
-    
+
     def _get_default_profile(self) -> CandidateProfile:
         """返回默认画像（分析失败时使用）"""
         return CandidateProfile(
@@ -288,13 +289,13 @@ class CandidateAnalysisService:
             total_questions_analyzed=0,
             last_updated=datetime.now().isoformat()
         )
-    
+
     async def get_cached_profile(self, session_id: str) -> Optional[CandidateProfile]:
         """获取画像（缓存 -> 数据库）"""
         # 1. 查缓存
         if session_id in self._profile_cache:
             return self._profile_cache[session_id]
-            
+
         # 2. 查数据库
         profile_data = await self.session_repo.get_profile(session_id)
         if profile_data:
@@ -305,9 +306,9 @@ class CandidateAnalysisService:
             except Exception as e:
                 logger.error(f"反序列化画像失败: {e}")
                 return None
-                
+
         return None
-    
+
     def clear_cache(self, session_id: str):
         """清除缓存"""
         if session_id in self._profile_cache:
@@ -344,7 +345,7 @@ class WeaknessAnalysisService:
     ) -> Dict[str, Any]:
         """
         生成面试短板地图报告
-        
+
         Args:
             session_id: 会话 ID
             resume: 简历内容
@@ -353,7 +354,7 @@ class WeaknessAnalysisService:
             qa_history: 问答历史
             candidate_profile: 已有的候选人画像（可选）
             api_config: API 配置
-            
+
         Returns:
             短板地图报告数据字典
         """
@@ -361,17 +362,17 @@ class WeaknessAnalysisService:
             prompt = self._build_weakness_prompt(
                 resume, job_description, company_info, qa_history, candidate_profile
             )
-            
+
             result = await invoke_structured(prompt, WeaknessReportOutput, api_config, channel="smart")
             report_data = result.model_dump()
-            
+
             logger.info(f"[WeaknessAnalysis] 成功生成短板地图，session={session_id}")
             return report_data
-            
+
         except Exception as e:
             logger.error(f"[WeaknessAnalysis] 生成短板地图失败: {e}", exc_info=True)
             return self._get_default_report()
-    
+
     def _build_weakness_prompt(
         self,
         resume: str,
@@ -381,13 +382,13 @@ class WeaknessAnalysisService:
         candidate_profile: Optional[Dict[str, Any]] = None
     ) -> str:
         """构建短板地图分析 Prompt"""
-        
+
         # 格式化问答历史
         qa_text = "\n\n".join([
             f"Q{i+1}: {qa['question']}\nA{i+1}: {qa['answer']}"
             for i, qa in enumerate(qa_history)
         ])
-        
+
         # 画像上下文
         profile_hint = ""
         if candidate_profile:
@@ -399,7 +400,7 @@ class WeaknessAnalysisService:
 
 请结合这些已知薄弱项进行更精准的短板分析。
 """
-        
+
         prompt = f"""你是一位资深的技术面试复盘专家。请根据面试问答记录，生成一份详细的"面试短板地图"报告。
 
 【简历信息】：
@@ -472,7 +473,7 @@ class WeaknessAnalysisService:
 请客观、精准地分析，避免泛化建议。证据引用不要太长。"""
 
         return prompt
-    
+
     def _get_default_report(self) -> Dict[str, Any]:
         """返回默认报告（分析失败时使用）"""
         return {

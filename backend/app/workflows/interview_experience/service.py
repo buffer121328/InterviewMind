@@ -8,7 +8,13 @@ from .providers import ExportedContentProvider, NowcoderProvider
 
 
 class InterviewExperienceService:
+    """封装业务服务能力。"""
     def __init__(self, providers: dict[str, ExperienceProvider] | None = None):
+        """初始化当前对象实例。
+
+        Args:
+            providers: 调用方传入的 `providers` 参数。
+        """
         self.providers = providers or {
             "nowcoder": NowcoderProvider(),
             "xiaohongshu": ExportedContentProvider("xiaohongshu"),
@@ -22,6 +28,14 @@ class InterviewExperienceService:
         max_pages: int,
         exported_items: list[dict[str, Any]],
     ) -> tuple[list[ExperienceDocument], list[dict[str, object]]]:
+        """异步执行 `collect` 相关逻辑。
+
+        Args:
+            source: 调用方传入的 `source` 参数。
+            queries: 调用方传入的 `queries` 参数。
+            max_pages: 调用方传入的 `max_pages` 参数。
+            exported_items: 调用方传入的 `exported_items` 参数。
+        """
         provider = self.providers.get(source)
         if provider is None:
             raise ValueError(f"不支持的面经来源: {source}")

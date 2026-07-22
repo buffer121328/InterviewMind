@@ -1,10 +1,9 @@
 """简历历史端点的应用层迁移边界。"""
 
 import ast
-from pathlib import Path
 
+from tests.route_source_helpers import resume_route_function_nodes
 
-BACKEND_APP = Path(__file__).resolve().parents[1] / "app"
 MIGRATED_FUNCTIONS = {
     "get_completed_sessions",
     "list_resume_results",
@@ -15,12 +14,10 @@ FORBIDDEN_NAMES = {"get_resume_repo", "session_repo", "SessionRepo"}
 
 
 def test_resume_history_routes_delegate_to_application_layer():
-    tree = ast.parse((BACKEND_APP / "api" / "resume.py").read_text())
     checked = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.AsyncFunctionDef) and node.name in MIGRATED_FUNCTIONS:
-            checked.add(node.name)
-            names = {child.id for child in ast.walk(node) if isinstance(child, ast.Name)}
-            assert "resume_history_use_cases" in names
-            assert names.isdisjoint(FORBIDDEN_NAMES)
+    for node in resume_route_function_nodes(MIGRATED_FUNCTIONS).values():
+        checked.add(node.name)
+        names = {child.id for child in ast.walk(node) if isinstance(child, ast.Name)}
+        assert "resume_history_use_cases" in names
+        assert names.isdisjoint(FORBIDDEN_NAMES)
     assert checked == MIGRATED_FUNCTIONS

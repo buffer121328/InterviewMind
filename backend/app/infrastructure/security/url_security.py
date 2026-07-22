@@ -20,6 +20,12 @@ _BLOCKED_HOSTS = {
 
 def _is_blocked_address(address: ipaddress.IPv4Address | ipaddress.IPv6Address, *, allow_private: bool) -> bool:
     # 链路本地地址包含常见云元数据端点，即使允许本地模型也始终拒绝。
+    """判断 `blocked address` 是否满足条件。
+
+    Args:
+        address: 调用方传入的 `address` 参数。
+        allow_private: 调用方传入的 `allow_private` 参数。
+    """
     if address.is_link_local or address.is_multicast or address.is_unspecified or address.is_reserved:
         return True
     if not allow_private and (address.is_private or address.is_loopback):

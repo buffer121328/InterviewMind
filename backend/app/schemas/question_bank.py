@@ -112,6 +112,7 @@ class QuestionFileCandidate(BaseModel):
 
 
 class QuestionFilePreviewResponse(BaseModel):
+    """表示 `QuestionFilePreviewResponse` 的接口数据模型。"""
     success: bool
     filename: str
     questions: List[QuestionFileCandidate] = Field(default_factory=list)

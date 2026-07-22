@@ -28,10 +28,20 @@ def child_run_payload(
 
 
 def get_parent_run_id(payload: Mapping[str, Any] | None) -> str | None:
+    """获取 `parent run id`。
+
+    Args:
+        payload: 请求载荷。
+    """
     value = (payload or {}).get(PARENT_RUN_ID_KEY)
     return value if isinstance(value, str) and value else None
 
 
 def get_run_relationship(payload: Mapping[str, Any] | None) -> str | None:
+    """获取 `run relationship`。
+
+    Args:
+        payload: 请求载荷。
+    """
     value = (payload or {}).get(RUN_RELATIONSHIP_KEY)
     return value if isinstance(value, str) and value else None

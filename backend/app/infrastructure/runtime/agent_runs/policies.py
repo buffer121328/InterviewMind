@@ -15,10 +15,10 @@ _RETRY_POLICIES: dict[str, RunRetryPolicy] = {
 
 
 def get_retry_policy(task_type: str) -> RunRetryPolicy:
-    """返回任务的重试策略，未知任务默认禁止整次重试。"""
+    """返回任务类型的重试策略，未知任务默认禁止整次重试。"""
     return _RETRY_POLICIES.get(task_type, "checkpoint_resume_only")
 
 
 def allows_whole_run_retry(task_type: str) -> bool:
-    """是否允许用户对整个 Run 重新执行。"""
+    """判断任务类型是否允许用户对整个 Run 发起重试。"""
     return get_retry_policy(task_type) == "whole_run_retry"

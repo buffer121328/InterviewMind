@@ -17,6 +17,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    """执行 `upgrade` 相关逻辑。"""
     op.add_column("task_outbox", sa.Column("last_attempt_at", sa.DateTime(), nullable=True))
     op.add_column("task_outbox", sa.Column("last_attempt_duration_ms", sa.Integer(), nullable=True))
     op.add_column("task_outbox", sa.Column("last_error_type", sa.String(), nullable=True))
@@ -24,6 +25,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """执行 `downgrade` 相关逻辑。"""
     op.drop_column("task_outbox", "last_failure_reason")
     op.drop_column("task_outbox", "last_error_type")
     op.drop_column("task_outbox", "last_attempt_duration_ms")

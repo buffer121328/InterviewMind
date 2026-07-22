@@ -17,6 +17,7 @@ class ResumeOptimizeRequest(BaseModel):
     job_description: str = Field(..., description="目标职位描述")
     session_ids: List[str] = Field(default=[], description="关联的面试 session_id 列表，最多3个")
     include_overall_profile: bool = Field(default=False, description="是否包含综合能力画像")
+    mode: Literal["fast", "balanced", "quality"] = Field(default="balanced", description="优化模式：fast 快速预览 / balanced 智能优化 / quality 高质量流水线")
     user_id: Optional[str] = Field(default=None, description="用户标识")
     api_config: Optional[ApiConfig] = Field(default=None, description="用户自定义 API 配置")
 
@@ -31,16 +32,19 @@ class ResumeAnalyzeRequest(BaseModel):
 
 
 class ResumeReviewDecision(BaseModel):
+    """表示 `ResumeReviewDecision` 的接口数据模型。"""
     item_id: str = Field(..., min_length=1, max_length=64)
     decision: Literal["approved", "rejected"]
 
 
 class ResumeReviewRequest(BaseModel):
+    """表示 `ResumeReviewRequest` 的接口数据模型。"""
     expected_version: int = Field(..., ge=1)
     decisions: List[ResumeReviewDecision] = Field(..., min_length=1, max_length=100)
 
 
 class ResumeReviewResponse(BaseModel):
+    """表示 `ResumeReviewResponse` 的接口数据模型。"""
     success: bool = True
     result_id: int
     review: Dict[str, Any]
@@ -129,6 +133,7 @@ class ResumeHistoryItem(BaseModel):
 
 
 class ResumeHistoryListResponse(BaseModel):
+    """表示 `ResumeHistoryListResponse` 的接口数据模型。"""
     success: bool
     results: List[ResumeHistoryItem] = Field(default_factory=list)
     total: int = 0
@@ -138,6 +143,7 @@ class ResumeHistoryListResponse(BaseModel):
 
 
 class ResumeHistoryDetail(BaseModel):
+    """表示 `ResumeHistoryDetail` 的接口数据模型。"""
     id: int
     user_id: str
     result_type: Literal["analyze", "optimize"]
@@ -150,6 +156,7 @@ class ResumeHistoryDetail(BaseModel):
 
 
 class ResumeHistoryDetailResponse(BaseModel):
+    """表示 `ResumeHistoryDetailResponse` 的接口数据模型。"""
     success: bool
     result: ResumeHistoryDetail
 

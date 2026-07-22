@@ -18,6 +18,7 @@ from app.infrastructure.db.repositories.interview.rag_index_repo import get_rag_
 
 
 class QuestionArchiveRepo:
+    """封装数据仓储访问能力。"""
     async def archive_session(self, session_id: str, user_id: str) -> dict[str, int]:
         """幂等归档一个用户的已完成面试。"""
         async with async_session() as db:
@@ -154,6 +155,17 @@ class QuestionArchiveRepo:
         asked_question: str,
         now: datetime,
     ) -> QuestionBankItemModel:
+        """获取 `or create question`。
+
+        Args:
+            db: 数据库会话。
+            user_id: 当前用户标识。
+            session_id: 会话标识。
+            question_index: 调用方传入的 `question_index` 参数。
+            plan_item: 调用方传入的 `plan_item` 参数。
+            asked_question: 调用方传入的 `asked_question` 参数。
+            now: 当前时间。
+        """
         item_id = plan_item.get("question_bank_item_id")
         question = None
         if item_id is not None:
@@ -217,6 +229,7 @@ _question_archive_repo: QuestionArchiveRepo | None = None
 
 
 def get_question_archive_repo() -> QuestionArchiveRepo:
+    """获取 `question archive repo`。"""
     global _question_archive_repo
     if _question_archive_repo is None:
         _question_archive_repo = QuestionArchiveRepo()

@@ -47,6 +47,12 @@ class JobsUseCases:
     """岗位自动化应用服务。"""
 
     async def capture_job(self, *, request: JobCaptureRequest, user_id: str) -> JobCaptureResponse:
+        """异步执行 `capture_job` 相关逻辑。
+
+        Args:
+            request: 请求对象。
+            user_id: 当前用户标识。
+        """
         if request.source_url:
             result = await capture_from_url(
                 url=request.source_url,
@@ -79,6 +85,12 @@ class JobsUseCases:
         )
 
     async def preview_job_application(self, *, request: ApplyPreviewRequest, user_id: str) -> ApplyResponse:
+        """预览 `job application`。
+
+        Args:
+            request: 请求对象。
+            user_id: 当前用户标识。
+        """
         return await execute_apply_preview(
             job_id=request.job_id,
             user_id=user_id,
@@ -87,6 +99,12 @@ class JobsUseCases:
         )
 
     async def send_job_application(self, *, request: ApplySendRequest, user_id: str) -> ApplyResponse:
+        """发送 `job application`。
+
+        Args:
+            request: 请求对象。
+            user_id: 当前用户标识。
+        """
         return await execute_apply_send(
             job_id=request.job_id,
             user_id=user_id,
@@ -97,6 +115,12 @@ class JobsUseCases:
         )
 
     async def get_job(self, *, job_id: int, user_id: str) -> JobDetailResponse:
+        """获取 `job`。
+
+        Args:
+            job_id: 岗位标识。
+            user_id: 当前用户标识。
+        """
         repo = get_job_capture_repo()
         job = await repo.get_job(job_id, user_id)
         if not job:
@@ -112,6 +136,15 @@ class JobsUseCases:
         limit: int,
         offset: int,
     ) -> JobListResponse:
+        """列出 `jobs`。
+
+        Args:
+            user_id: 当前用户标识。
+            platform: 调用方传入的 `platform` 参数。
+            status: 调用方传入的 `status` 参数。
+            limit: 返回数量上限。
+            offset: 分页偏移量。
+        """
         repo = get_job_capture_repo()
         jobs = await repo.list_jobs(
             user_id=user_id,
@@ -142,6 +175,12 @@ class JobsUseCases:
         return JobListResponse(success=True, jobs=items, total=total)
 
     async def delete_job(self, *, job_id: int, user_id: str) -> dict[str, object]:
+        """删除 `job`。
+
+        Args:
+            job_id: 岗位标识。
+            user_id: 当前用户标识。
+        """
         repo = get_job_capture_repo()
         deleted = await repo.delete_job(job_id, user_id)
         if not deleted:
@@ -154,6 +193,12 @@ class JobsUseCases:
         request: CaptureRecommendationsRequest,
         user_id: str,
     ) -> CaptureRecommendationsResponse:
+        """异步执行 `capture_recommendations` 相关逻辑。
+
+        Args:
+            request: 请求对象。
+            user_id: 当前用户标识。
+        """
         result = await capture_from_recommendations(
             user_id=user_id,
             query=request.query,

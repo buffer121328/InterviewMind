@@ -27,6 +27,7 @@ class RetrievalRepo:
     """
 
     def __init__(self):
+        """初始化当前对象实例。"""
         logger.info("RetrievalService 初始化")
 
     async def retrieve_for_question_generation(
@@ -87,6 +88,12 @@ class RetrievalRepo:
             return results
 
     async def _retrieve_jd_keywords(self, user_id: str, job_description: str) -> List[Dict[str, Any]]:
+        """检索 `jd keywords`。
+
+        Args:
+            user_id: 当前用户标识。
+            job_description: 调用方传入的 `job_description` 参数。
+        """
         async with async_session() as db:
             stmt = (
                 select(JdAnalysisResultModel.analysis_result)
@@ -102,6 +109,12 @@ class RetrievalRepo:
             return list(dict.fromkeys(keywords))[:20]
 
     async def _retrieve_weakness_categories(self, user_id: str, session_id: str) -> List[Dict[str, Any]]:
+        """检索 `weakness categories`。
+
+        Args:
+            user_id: 当前用户标识。
+            session_id: 会话标识。
+        """
         async with async_session() as db:
             stmt = select(WeaknessReportModel.report_data).where(
                 WeaknessReportModel.user_id == user_id,
@@ -114,6 +127,13 @@ class RetrievalRepo:
             return categories[:10]
 
     async def _retrieve_historical_questions(self, user_id: str, session_id: Optional[str] = None, limit: int = 10) -> List[str]:
+        """检索 `historical questions`。
+
+        Args:
+            user_id: 当前用户标识。
+            session_id: 会话标识。
+            limit: 返回数量上限。
+        """
         async with async_session() as db:
             if session_id:
                 series_stmt = select(SessionModel.series_id).where(SessionModel.session_id == session_id)
@@ -144,6 +164,13 @@ class RetrievalRepo:
             return questions[:limit]
 
     async def _retrieve_bank_questions(self, user_id: str, target_skills: List[str], limit: int = 5) -> List[Dict[str, Any]]:
+        """检索 `bank questions`。
+
+        Args:
+            user_id: 当前用户标识。
+            target_skills: 调用方传入的 `target_skills` 参数。
+            limit: 返回数量上限。
+        """
         if not target_skills:
             return []
         async with async_session() as db:
@@ -166,6 +193,12 @@ class RetrievalRepo:
             ]
 
     async def _retrieve_candidate_materials(self, user_id: str, limit: int = 5) -> List[Dict[str, Any]]:
+        """检索 `candidate materials`。
+
+        Args:
+            user_id: 当前用户标识。
+            limit: 返回数量上限。
+        """
         async with async_session() as db:
             stmt = (
                 select(CandidateMaterialModel)

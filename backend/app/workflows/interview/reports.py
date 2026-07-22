@@ -28,9 +28,16 @@ class InterviewReportUseCases:
     """面试画像和短板地图应用服务。"""
 
     def __init__(self) -> None:
+        """初始化当前对象实例。"""
         self._session_repo = SessionRepo()
 
     async def generate_profile(self, *, request: ProfileGenerateRequest | None, user_id: str) -> dict[str, object]:
+        """生成 `profile`。
+
+        Args:
+            request: 请求对象。
+            user_id: 当前用户标识。
+        """
         api_config_dict = request.api_config.model_dump() if (request and request.api_config) else None
         try:
             result = await get_ability_service().generate_overall_profile(user_id=user_id, api_config=api_config_dict)
@@ -48,12 +55,23 @@ class InterviewReportUseCases:
         return response
 
     async def get_overall_profile(self, *, user_id: str) -> dict[str, object]:
+        """获取 `overall profile`。
+
+        Args:
+            user_id: 当前用户标识。
+        """
         result = await get_ability_service().get_overall_profile(user_id=user_id)
         if result is None:
             return {"success": False, "message": "尚未生成综合能力画像。请点击「生成画像」按钮。"}
         return {"success": True, "profile": result["profile"], "generated_at": result["updated_at"]}
 
     async def get_session_profile(self, *, session_id: str, user_id: str) -> dict[str, object]:
+        """获取 `session profile`。
+
+        Args:
+            session_id: 会话标识。
+            user_id: 当前用户标识。
+        """
         session = await self._session_repo.get_session(session_id, user_id=user_id)
         if not session:
             raise InterviewReportNotFound(message="会话不存在或无权访问")
@@ -63,6 +81,12 @@ class InterviewReportUseCases:
         return {"success": True, "profile": profile}
 
     async def generate_weakness_report(self, *, request: WeaknessGenerateRequest, user_id: str) -> dict[str, object]:
+        """生成 `weakness report`。
+
+        Args:
+            request: 请求对象。
+            user_id: 当前用户标识。
+        """
         session_id = request.session_id
         if not session_id:
             raise InterviewReportBadRequest(message="session_id 不能为空")
@@ -78,12 +102,23 @@ class InterviewReportUseCases:
         return {"success": True, "message": "短板地图已生成", "report": report}
 
     async def get_weakness_by_session(self, *, session_id: str, user_id: str) -> dict[str, object]:
+        """获取 `weakness by session`。
+
+        Args:
+            session_id: 会话标识。
+            user_id: 当前用户标识。
+        """
         report = await get_weakness_report_repo().get_report_by_session(session_id, user_id=user_id)
         if not report:
             return {"success": False, "message": "该会话暂无短板地图，请先生成"}
         return {"success": True, "report": report}
 
     async def get_weakness_history(self, *, user_id: str) -> dict[str, object]:
+        """获取 `weakness history`。
+
+        Args:
+            user_id: 当前用户标识。
+        """
         reports = await get_weakness_report_repo().list_reports(user_id=user_id, limit=20)
         return {"success": True, "reports": reports}
 

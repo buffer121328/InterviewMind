@@ -34,22 +34,47 @@ RESUMABLE_STATUSES: frozenset[str] = frozenset({"pause_requested", "paused", "aw
 
 
 def is_active_status(status: str) -> bool:
+    """判断 `active status` 是否满足条件。
+
+    Args:
+        status: 调用方传入的 `status` 参数。
+    """
     return status in ACTIVE_STATUSES
 
 
 def is_terminal_status(status: str) -> bool:
+    """判断 `terminal status` 是否满足条件。
+
+    Args:
+        status: 调用方传入的 `status` 参数。
+    """
     return status in TERMINAL_STATUSES
 
 
 def can_request_cancel(status: str) -> bool:
+    """判断 `request cancel` 是否满足条件。
+
+    Args:
+        status: 调用方传入的 `status` 参数。
+    """
     return status in CANCELLABLE_STATUSES
 
 
 def can_request_pause(status: str) -> bool:
+    """判断 `request pause` 是否满足条件。
+
+    Args:
+        status: 调用方传入的 `status` 参数。
+    """
     return status in PAUSABLE_STATUSES
 
 
 def can_resume(status: str) -> bool:
+    """判断 `resume` 是否满足条件。
+
+    Args:
+        status: 调用方传入的 `status` 参数。
+    """
     return status in RESUMABLE_STATUSES
 
 
@@ -68,6 +93,11 @@ def cancel_transition(status: str) -> str | None:
 
 
 def pause_transition(status: str) -> str | None:
+    """执行 `pause_transition` 相关逻辑。
+
+    Args:
+        status: 调用方传入的 `status` 参数。
+    """
     if status in {"queued", "retrying", "awaiting_approval"}:
         return "paused"
     if status == "running":
@@ -76,6 +106,11 @@ def pause_transition(status: str) -> str | None:
 
 
 def resume_transition(status: str) -> str | None:
+    """执行 `resume_transition` 相关逻辑。
+
+    Args:
+        status: 调用方传入的 `status` 参数。
+    """
     if status in {"pause_requested", "paused", "awaiting_approval"}:
         return "running"
     return None

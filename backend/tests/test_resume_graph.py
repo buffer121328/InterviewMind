@@ -141,3 +141,82 @@ async def test_api_config_is_not_written_to_checkpoint(monkeypatch):
     assert "top-secret" not in serialized
     assert "api_config" not in serialized
 
+
+
+@pytest.mark.asyncio
+async def test_balanced_mode_uses_agent_rewrite_node(monkeypatch):
+    calls = {"agent": 0, "legacy": 0}
+
+    async def stage1(state):
+        state.jd_analysis = {"match_score": 90}
+        return state
+
+    async def stage2(state, session_ids=None, include_profile=False):
+        state.material_pool = {"resume": state.resume_content}
+        return state
+
+    async def agent_stage(state, mode="balanced"):
+        calls["agent"] += 1
+        assert mode == "balanced"
+        state.change_items = [{"optimized_text": "agent", "confidence": 0.9}]
+        return state
+
+    async def legacy_stage(state):
+        calls["legacy"] += 1
+        state.change_items = [{"optimized_text": "legacy", "confidence": 0.9}]
+        return state
+
+    monkeypatch.setattr(orchestrator, "stage1_jd_analysis", stage1)
+    monkeypatch.setattr(orchestrator, "stage2_material_selection", stage2)
+    monkeypatch.setattr(orchestrator, "stage3_rewrite_agent", agent_stage)
+    monkeypatch.setattr(orchestrator, "stage3_custom_rewrite", legacy_stage)
+    _patch_remaining_stages(monkeypatch)
+    monkeypatch.setattr(orchestrator, "stage3_rewrite_agent", agent_stage)
+    monkeypatch.setattr(orchestrator, "stage3_custom_rewrite", legacy_stage)
+
+    graph = orchestrator._build_resume_graph().compile(cache=InMemoryCache())
+    result = await graph.ainvoke(
+        _initial_state(), context=orchestrator.ResumeRuntimeContext(mode="balanced")
+    )
+
+    assert calls == {"agent": 1, "legacy": 0}
+    assert result["change_items"][0]["optimized_text"] == "agent"
+
+
+@pytest.mark.asyncio
+async def test_quality_mode_uses_legacy_rewrite_node(monkeypatch):
+    calls = {"agent": 0, "legacy": 0}
+
+    async def stage1(state):
+        state.jd_analysis = {"match_score": 90}
+        return state
+
+    async def stage2(state, session_ids=None, include_profile=False):
+        state.material_pool = {"resume": state.resume_content}
+        return state
+
+    async def agent_stage(state, mode="balanced"):
+        calls["agent"] += 1
+        state.change_items = [{"optimized_text": "agent", "confidence": 0.9}]
+        return state
+
+    async def legacy_stage(state):
+        calls["legacy"] += 1
+        state.change_items = [{"optimized_text": "legacy", "confidence": 0.9}]
+        return state
+
+    monkeypatch.setattr(orchestrator, "stage1_jd_analysis", stage1)
+    monkeypatch.setattr(orchestrator, "stage2_material_selection", stage2)
+    monkeypatch.setattr(orchestrator, "stage3_rewrite_agent", agent_stage)
+    monkeypatch.setattr(orchestrator, "stage3_custom_rewrite", legacy_stage)
+    _patch_remaining_stages(monkeypatch)
+    monkeypatch.setattr(orchestrator, "stage3_rewrite_agent", agent_stage)
+    monkeypatch.setattr(orchestrator, "stage3_custom_rewrite", legacy_stage)
+
+    graph = orchestrator._build_resume_graph().compile(cache=InMemoryCache())
+    result = await graph.ainvoke(
+        _initial_state(), context=orchestrator.ResumeRuntimeContext(mode="quality")
+    )
+
+    assert calls == {"agent": 0, "legacy": 1}
+    assert result["change_items"][0]["optimized_text"] == "legacy"

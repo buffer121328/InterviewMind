@@ -13,6 +13,11 @@ class MessageService(BaseService):
     """消息管理服务：负责消息的增删及对话内容提取"""
 
     def __init__(self, mgmt_service: SessionManagementService):
+        """初始化当前对象实例。
+
+        Args:
+            mgmt_service: mgmt 服务实例。
+        """
         self.mgmt = mgmt_service
 
     async def add_message(
@@ -28,12 +33,12 @@ class MessageService(BaseService):
         async with async_session() as db:
             if not await self._check_session_access(session_id, user_id):
                 return None
-            
+
             timestamp = datetime.now()
             db.add(MessageModel(session_id=session_id, role=role, content=content, timestamp=timestamp, question_index=question_index, audio_url=audio_url))
             await db.execute(update(SessionModel).where(SessionModel.session_id == session_id).values(updated_at=timestamp))
             await db.commit()
-            
+
             return await self.mgmt.get_session(session_id, user_id=user_id)
 
     async def get_session_conversations(
@@ -45,9 +50,9 @@ class MessageService(BaseService):
         async with async_session() as db:
             if not await self._check_session_access(session_id, user_id):
                 return []
-            
+
             rows = (await db.execute(select(MessageModel.role, MessageModel.content).where(MessageModel.session_id == session_id).order_by(MessageModel.timestamp.asc()))).all()
-            
+
             qa_pairs = []
             for i in range(len(rows) - 1):
                 msg = rows[i]
@@ -57,5 +62,5 @@ class MessageService(BaseService):
                     answer = next_msg.content.strip()
                     if question and answer:
                         qa_pairs.append({"question": question, "answer": answer})
-            
+
             return qa_pairs

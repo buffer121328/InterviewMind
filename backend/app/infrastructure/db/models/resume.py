@@ -12,6 +12,7 @@ from .base import Base
 
 
 class ResumeResultModel(Base):
+    """表示数据模型。"""
     __tablename__ = "resume_results"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -33,6 +34,7 @@ class ResumeResultModel(Base):
 
 
 class GeneratedResumeModel(Base):
+    """表示数据模型。"""
     __tablename__ = "generated_resumes"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -53,6 +55,7 @@ class GeneratedResumeModel(Base):
 
 
 class ResumeGenerationSessionModel(Base):
+    """表示数据模型。"""
     __tablename__ = "resume_generation_sessions"
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
@@ -80,6 +83,7 @@ class ResumeGenerationSessionModel(Base):
 
 
 class CandidateMaterialModel(Base):
+    """表示数据模型。"""
     __tablename__ = "candidate_materials"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -105,6 +109,7 @@ class CandidateMaterialModel(Base):
 
 
 class ResumeAssemblyResultModel(Base):
+    """表示数据模型。"""
     __tablename__ = "resume_assembly_results"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -123,6 +128,7 @@ class ResumeAssemblyResultModel(Base):
 
 
 class ProjectRewriteRecordModel(Base):
+    """表示数据模型。"""
     __tablename__ = "project_rewrite_records"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

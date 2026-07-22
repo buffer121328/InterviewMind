@@ -80,7 +80,7 @@ async def test_application_audit_does_not_persist_full_greeting():
 async def test_resume_generation_cannot_bypass_pending_review():
     from fastapi import HTTPException
 
-    from app.api.resume import init_resume_generation
+    from app.api.resume_generation import init_resume_generation
     from app.schemas.resume_schemas import ResumeGenerateInitRequest
     from app.agents.resume.resume_review import initialize_review
 
@@ -128,7 +128,7 @@ async def test_resume_generation_cannot_bypass_pending_review():
 @pytest.mark.asyncio
 async def test_resume_generation_submit_and_status_are_user_scoped(monkeypatch):
     from types import SimpleNamespace
-    from app.api import resume as resume_api
+    from app.api import resume_generation as resume_api
     from app.workflows.resume import generation as resume_generation
 
     submit_calls = []

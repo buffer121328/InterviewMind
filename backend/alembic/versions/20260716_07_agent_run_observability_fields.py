@@ -17,6 +17,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    """执行 `upgrade` 相关逻辑。"""
     op.add_column("agent_runs", sa.Column("trace_id", sa.String(), nullable=True))
     op.add_column("agent_runs", sa.Column("model_provider", sa.String(), nullable=True))
     op.add_column("agent_runs", sa.Column("model_name", sa.String(), nullable=True))
@@ -31,6 +32,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """执行 `downgrade` 相关逻辑。"""
     op.drop_column("agent_runs", "model_error_type")
     op.drop_column("agent_runs", "estimated_cost_usd")
     op.drop_column("agent_runs", "fallback_path")

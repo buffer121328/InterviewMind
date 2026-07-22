@@ -6,7 +6,7 @@ from pathlib import Path
 
 BACKEND_APP = Path(__file__).resolve().parents[1] / "app"
 ALLOWED_MODEL_CLIENT_FACTORIES = {
-    Path("services/llms.py"),
+    Path("infrastructure/llm/llms.py"),
 }
 FORBIDDEN_CALLS = {"ChatOpenAI", "AsyncOpenAI", "OpenAI"}
 

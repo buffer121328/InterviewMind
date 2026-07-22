@@ -1,6 +1,9 @@
 """面经题目导入用例。"""
 
 import logging
+from dataclasses import dataclass
+
+import httpx
 
 from app.infrastructure.db.repositories.interview.question_bank_repo import QuestionBankRepo
 from app.schemas.interview_experience import (
@@ -16,10 +19,33 @@ from app.workflows.interview_experience import InterviewExperienceService
 logger = logging.getLogger(__name__)
 
 
+@dataclass(slots=True)
+class InterviewExperienceUseCaseError(Exception):
+    """面经导入用例异常。"""
+
+    message: str
+    status_code: int = 400
+
+
+class InterviewExperienceBadRequest(InterviewExperienceUseCaseError):
+    """面经采集请求不合法。"""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message=message, status_code=422)
+
+
+class InterviewExperienceSourceUnavailable(InterviewExperienceUseCaseError):
+    """面经来源暂时不可用。"""
+
+    def __init__(self) -> None:
+        super().__init__(message="面经来源暂时不可用，请稍后重试", status_code=502)
+
+
 class InterviewExperienceImportUseCases:
     """面经题目导入应用服务。"""
 
     def __init__(self) -> None:
+        """初始化当前对象实例。"""
         self._question_bank_repo = QuestionBankRepo()
         self._experience_service = InterviewExperienceService()
 
@@ -28,12 +54,23 @@ class InterviewExperienceImportUseCases:
         *,
         request: ExperienceCollectRequest,
     ) -> ExperienceCollectResponse:
-        documents, questions = await self._experience_service.collect(
-            source=request.source,
-            queries=[query.strip() for query in request.queries if query.strip()],
-            max_pages=request.max_pages,
-            exported_items=[item.model_dump(mode="json", exclude_none=True) for item in request.exported_items],
-        )
+        """异步执行 `collect` 相关逻辑。
+
+        Args:
+            request: 请求对象。
+        """
+        try:
+            documents, questions = await self._experience_service.collect(
+                source=request.source,
+                queries=[query.strip() for query in request.queries if query.strip()],
+                max_pages=request.max_pages,
+                exported_items=[item.model_dump(mode="json", exclude_none=True) for item in request.exported_items],
+            )
+        except ValueError as exc:
+            raise InterviewExperienceBadRequest(str(exc)) from exc
+        except httpx.HTTPError as exc:
+            logger.warning("面经来源请求失败: %s", type(exc).__name__)
+            raise InterviewExperienceSourceUnavailable() from exc
         return ExperienceCollectResponse(
             experiences=[
                 ExperienceSummary(
@@ -56,6 +93,12 @@ class InterviewExperienceImportUseCases:
         request: ExperienceQuestionImportRequest,
         user_id: str,
     ) -> ExperienceQuestionImportResponse:
+        """异步执行 `import_questions` 相关逻辑。
+
+        Args:
+            request: 请求对象。
+            user_id: 当前用户标识。
+        """
         success_count = 0
         for question in request.questions:
             try:

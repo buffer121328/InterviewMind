@@ -11,6 +11,7 @@ from .base import Base
 
 
 class SessionModel(Base):
+    """表示数据模型。"""
     __tablename__ = "sessions"
 
     session_id: Mapped[str] = mapped_column(String, primary_key=True)
@@ -53,6 +54,7 @@ class SessionModel(Base):
 
 
 class MessageModel(Base):
+    """表示数据模型。"""
     __tablename__ = "messages"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -74,6 +76,7 @@ class MessageModel(Base):
 
 
 class UserProfileModel(Base):
+    """表示数据模型。"""
     __tablename__ = "user_profile"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

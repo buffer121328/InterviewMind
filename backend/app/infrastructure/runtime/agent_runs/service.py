@@ -11,20 +11,23 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.agent_definitions import get_agent_definition, get_agent_definitions
+from app.domain.agent_runs import (
+    ACTIVE_STATUSES,
+    TASK_TYPE_INTERVIEW_REPORT,
+    TASK_TYPE_INTERVIEW_START,
+    TASK_TYPE_INTERVIEW_TURN,
+    TASK_TYPE_JOB_ASSETS,
+    TASK_TYPE_RESUME_OPTIMIZE,
+    TASK_TYPE_VOICE_INTERVIEW_TURN,
+    TERMINAL_STATUSES,
+    build_task_plan_from_steps,
+    can_cancel_status,
+)
 from app.infrastructure.db.unit_of_work import UnitOfWork
 from app.infrastructure.db.models import AgentRunEventModel, AgentRunModel, async_session
 from app.infrastructure.runtime.agent_runs.crypto import decrypt_payload, encrypt_payload
 from app.infrastructure.runtime.agent_runs.outbox import enqueue_agent_run_outbox
 from app.infrastructure.runtime.agent_runs.policies import allows_whole_run_retry
-
-TASK_TYPE_INTERVIEW_START = "interview_start"
-TASK_TYPE_INTERVIEW_TURN = "interview_turn"
-TASK_TYPE_VOICE_INTERVIEW_TURN = "voice_interview_turn"
-TASK_TYPE_RESUME_OPTIMIZE = "resume_optimize"
-TASK_TYPE_INTERVIEW_REPORT = "interview_report"
-TASK_TYPE_JOB_ASSETS = "job_assets"
-ACTIVE_STATUSES = {"queued", "retrying", "running", "cancel_requested"}
-TERMINAL_STATUSES = {"succeeded", "failed", "cancelled"}
 
 TASK_DEFINITIONS: dict[str, dict] = {
     definition.task_type: {"title": definition.title, "steps": definition.steps}
@@ -33,54 +36,52 @@ TASK_DEFINITIONS: dict[str, dict] = {
 
 
 def task_queue_enabled() -> bool:
+    """判断是否启用异步任务队列。"""
     return os.getenv("TASK_QUEUE_ENABLED", "false").lower() == "true"
 
 
 def _now() -> datetime:
+    """当前时间快照（便于测试替换）。"""
     return datetime.now()
 
 
 def max_attempts() -> int:
+    """AgentRun 最大重试次数（环境变量配置）。"""
     return max(1, int(os.getenv("AGENT_RUN_MAX_ATTEMPTS", "3")))
 
 
 def stale_after_seconds() -> int:
+    """AgentRun 被视为"卡住"的超时秒数（环境变量配置）。"""
     return max(60, int(os.getenv("AGENT_RUN_STALE_SECONDS", "1800")))
 
 
 def get_task_definition(task_type: str) -> dict:
+    """获取任务类型的定义信息（标题 + 步骤列表），未知任务返回默认值。"""
     return TASK_DEFINITIONS.get(task_type, {"title": task_type, "steps": (("queued", "等待执行资源"),)})
 
 
 def first_running_stage(task_type: str) -> str:
+    """返回任务类型第一个"实际执行"阶段（跳过 queued）。"""
     steps = get_task_definition(task_type)["steps"]
     return steps[1][0] if len(steps) > 1 else steps[0][0]
 
 
 def build_task_plan(task_type: str, stage: str, status: str) -> list[dict]:
-    steps = get_task_definition(task_type)["steps"]
-    stage_index = next((index for index, item in enumerate(steps) if item[0] == stage), -1)
-    terminal_success = status == "succeeded"
-    terminal_failure = status in {"failed", "cancelled"}
-    if terminal_failure and stage_index < 0:
-        stage_index = 0
-    plan: list[dict] = []
-    for index, (step_id, title) in enumerate(steps):
-        if terminal_success or index < stage_index:
-            step_status = "completed"
-        elif index == stage_index:
-            step_status = "failed" if terminal_failure else "running"
-        else:
-            step_status = "pending"
-        plan.append({"id": step_id, "title": title, "status": step_status})
-    return plan
+    """构造前端可渲染的步骤计划列表，标记每个步骤的完成/运行/失败/等待状态。"""
+    return build_task_plan_from_steps(
+        get_task_definition(task_type)["steps"],
+        stage=stage,
+        status=status,
+    )
 
 
 def build_interview_start_plan(stage: str, status: str) -> list[dict]:
+    """构建面试启动任务的步骤计划。"""
     return build_task_plan(TASK_TYPE_INTERVIEW_START, stage, status)
 
 
 def serialize_run(run: AgentRunModel) -> dict:
+    """将 AgentRun 模型序列化为 API 响应格式。"""
     definition = get_task_definition(run.task_type)
     agent_definition = get_agent_definition(run.task_type)
     return {
@@ -95,20 +96,10 @@ def serialize_run(run: AgentRunModel) -> dict:
         "result": run.result,
         "error_message": run.error_message,
         "trace_id": getattr(run, "trace_id", None),
-        "model_provider": getattr(run, "model_provider", None),
-        "model_name": getattr(run, "model_name", None),
-        "model_member": getattr(run, "model_member", None),
-        "request_latency_ms": getattr(run, "request_latency_ms", None),
-        "input_tokens": getattr(run, "input_tokens", None),
-        "output_tokens": getattr(run, "output_tokens", None),
-        "fallback_count": getattr(run, "fallback_count", None),
-        "fallback_path": getattr(run, "fallback_path", None),
-        "estimated_cost_usd": getattr(run, "estimated_cost_usd", None),
-        "model_error_type": getattr(run, "model_error_type", None),
         "attempts": run.attempts,
         "max_attempts": max_attempts(),
         "can_retry": allows_whole_run_retry(run.task_type) and run.status in {"failed", "cancelled"} and run.attempts < max_attempts(),
-        "can_cancel": run.status in {"queued", "retrying", "running", "cancel_requested"},
+        "can_cancel": can_cancel_status(run.status),
         "created_at": run.created_at.isoformat(),
         "updated_at": run.updated_at.isoformat(),
         "started_at": run.started_at.isoformat() if run.started_at else None,
@@ -117,6 +108,7 @@ def serialize_run(run: AgentRunModel) -> dict:
 
 
 def serialize_event(event: AgentRunEventModel) -> dict:
+    """将 AgentRunEvent 模型序列化为 API 响应格式。"""
     return {
         "event_id": str(event.id),
         "run_id": event.run_id,
@@ -129,119 +121,15 @@ def serialize_event(event: AgentRunEventModel) -> dict:
     }
 
 
-def _as_non_negative_int(value: Any) -> int | None:
-    if value is None:
-        return None
-    try:
-        return max(0, int(value))
-    except (TypeError, ValueError):
-        return None
-
-
-def _summarize_model_events(model_events: list[dict[str, Any]]) -> dict[str, Any]:
-    """从模型事件聚合 AgentRun 的可查询观测字段。"""
-    summary: dict[str, Any] = {
-        "model_provider": None,
-        "model_name": None,
-        "model_member": None,
-        "request_latency_ms": None,
-        "input_tokens": None,
-        "output_tokens": None,
-        "fallback_count": 0,
-        "fallback_path": None,
-        "estimated_cost_usd": None,
-        "model_error_type": None,
-    }
-    total_latency = 0
-    total_input = 0
-    total_output = 0
-    has_latency = False
-    has_input = False
-    has_output = False
-    fallback_path: list[dict[str, Any]] = []
-    candidate_positions: dict[tuple[Any, ...], int] = {}
-
-    for event in model_events:
-        event_type = str(event.get("event_type") or "")
-        is_terminal = event_type.endswith(".completed") or event_type.endswith(".failed")
-        if is_terminal:
-            if event.get("channel"):
-                summary["model_provider"] = event.get("channel")
-            if event.get("model_name"):
-                summary["model_name"] = event.get("model_name")
-            if event.get("model_member"):
-                summary["model_member"] = event.get("model_member")
-
-            duration = _as_non_negative_int(event.get("duration_ms"))
-            if duration is not None:
-                has_latency = True
-                total_latency += duration
-
-            input_tokens = _as_non_negative_int(event.get("input_tokens"))
-            if input_tokens is not None:
-                has_input = True
-                total_input += input_tokens
-
-            output_tokens = _as_non_negative_int(event.get("output_tokens"))
-            if output_tokens is not None:
-                has_output = True
-                total_output += output_tokens
-
-            candidate_index = _as_non_negative_int(event.get("candidate_index")) or 0
-            candidate_key = (
-                event.get("channel"),
-                event.get("model_name"),
-                event.get("model_member"),
-                candidate_index,
-            )
-            path_item = {
-                "candidate_index": candidate_index or None,
-                "channel": event.get("channel"),
-                "model_name": event.get("model_name"),
-                "model_member": event.get("model_member"),
-                "status": "completed" if event_type.endswith(".completed") else "failed",
-                "duration_ms": duration,
-                "error_type": event.get("error_type"),
-            }
-            if candidate_key in candidate_positions:
-                fallback_path[candidate_positions[candidate_key]] = path_item
-            else:
-                candidate_positions[candidate_key] = len(fallback_path)
-                fallback_path.append(path_item)
-
-            if event_type.endswith(".failed") and event.get("error_type"):
-                summary["model_error_type"] = event.get("error_type")
-
-    summary["request_latency_ms"] = total_latency if has_latency else None
-    summary["input_tokens"] = total_input if has_input else None
-    summary["output_tokens"] = total_output if has_output else None
-    summary["fallback_path"] = fallback_path or None
-    summary["fallback_count"] = max(0, len(fallback_path) - 1)
-    summary["estimated_cost_usd"] = _estimate_cost_usd(summary["input_tokens"], summary["output_tokens"])
-    return summary
-
-
-def _estimate_cost_usd(input_tokens: Any, output_tokens: Any) -> float | None:
-    input_rate = _env_float("LLM_INPUT_COST_PER_1K_TOKENS_USD")
-    output_rate = _env_float("LLM_OUTPUT_COST_PER_1K_TOKENS_USD")
-    if input_rate is None and output_rate is None:
-        return None
-    input_count = _as_non_negative_int(input_tokens) or 0
-    output_count = _as_non_negative_int(output_tokens) or 0
-    return round((input_count / 1000 * (input_rate or 0.0)) + (output_count / 1000 * (output_rate or 0.0)), 8)
-
-
-def _env_float(name: str) -> float | None:
-    value = os.getenv(name)
-    if value is None or value == "":
-        return None
-    try:
-        return max(0.0, float(value))
-    except ValueError:
-        return None
 
 
 class AgentRunService:
+    """Agent 任务运行的生命周期管理服务。
+
+    提供任务的创建、领取、执行阶段推进、取消、重试、恢复、完成/失败
+    以及事件记录与查询等核心功能。
+    """
+
     async def _append_event(
         self,
         session: AsyncSession,
@@ -249,9 +137,11 @@ class AgentRunService:
         event_type: str,
         payload: dict[str, Any] | None = None,
     ) -> AgentRunEventModel:
+        """记录一条 AgentRun 事件到数据库。"""
+
         sequence = int(await session.scalar(
             select(func.coalesce(func.max(AgentRunEventModel.sequence), 0)).where(AgentRunEventModel.run_id == run.id)
-        ) or 0) + 1
+        ) or 0) + 1     # 计算新事件的 sequence（序列号），即当前已有事件的序号最大值 + 1。
         event = AgentRunEventModel(
             run_id=run.id,
             sequence=sequence,
@@ -271,30 +161,24 @@ class AgentRunService:
         trace_id: str,
         model_events: list[dict[str, Any]] | None = None,
     ) -> None:
-        """回填一次 Agent 观测到 AgentRun，并保存模型调用事件。"""
-        events = [dict(event) for event in (model_events or [])]
+        """回填 AgentRun 与 Langfuse 的 trace 关联。
+
+        `model_events` 由 Langfuse / LangChain 观测链路消费，业务数据库只保存
+        trace_id，避免把模型、token、时延、成本、fallback 等遥测数据重复写入
+        agent_runs 或 agent_run_events。保留参数是为了兼容 observability 适配层调用。
+        """
+        _ = model_events
         async with UnitOfWork(async_session) as uow:
             session = uow.db
             run = await session.get(AgentRunModel, run_id, with_for_update=True)
             if not run:
                 return
 
-            now = _now()
             run.trace_id = trace_id
-            if events:
-                summary = _summarize_model_events(events)
-                for field, value in summary.items():
-                    if value is not None or field == "fallback_count":
-                        setattr(run, field, value)
-            run.updated_at = now
-
-            for event in events:
-                event_type = str(event.get("event_type") or "model.event")
-                payload = {key: value for key, value in event.items() if key != "event_type"}
-                payload["trace_id"] = trace_id
-                await self._append_event(session, run, event_type, payload)
+            run.updated_at = _now()
 
     async def create_or_get(self, *, user_id: str, payload: dict, idempotency_key: str, task_type: str = TASK_TYPE_INTERVIEW_START) -> tuple[AgentRunModel, bool]:
+        """幂等方式创建 AgentRun：同 user+type+idempotency_key 返回已有记录。"""
         if task_type not in TASK_DEFINITIONS:
             raise ValueError(f"unknown task type: {task_type}")
         async with async_session() as session:
@@ -341,10 +225,12 @@ class AgentRunService:
             return run, True
 
     async def get(self, run_id: str, user_id: str) -> AgentRunModel | None:
+        """获取单个 AgentRun（带用户归属校验）。"""
         async with async_session() as session:
             return await session.scalar(select(AgentRunModel).where(AgentRunModel.id == run_id, AgentRunModel.user_id == user_id))
 
     async def list_runs(self, user_id: str, *, status: str | None = None, task_type: str | None = None, limit: int = 50, offset: int = 0) -> tuple[list[AgentRunModel], int]:
+        """分页查询用户的 AgentRun 列表，支持按状态和类型过滤。"""
         async with async_session() as session:
             filters = [AgentRunModel.user_id == user_id]
             if status:
@@ -356,6 +242,7 @@ class AgentRunService:
             return list(rows), int(total or 0)
 
     async def list_events(self, run_id: str, user_id: str, *, after_sequence: int = 0, limit: int = 200) -> list[AgentRunEventModel] | None:
+        """查询 AgentRun 的事件列表（支持增量游标）。"""
         async with async_session() as session:
             owned = await session.scalar(select(AgentRunModel.id).where(AgentRunModel.id == run_id, AgentRunModel.user_id == user_id))
             if not owned:
@@ -367,6 +254,7 @@ class AgentRunService:
             return list(rows)
 
     async def claim(self, run_id: str) -> tuple[AgentRunModel, dict] | None:
+        """领取一个 queued/retrying 状态的 AgentRun 开始执行。"""
         async with async_session() as session:
             run = await session.scalar(select(AgentRunModel).where(AgentRunModel.id == run_id).with_for_update())
             if not run or run.status not in {"queued", "retrying"}:
@@ -384,6 +272,7 @@ class AgentRunService:
             return run, decrypt_payload(run.payload_encrypted)
 
     async def mark_stage(self, run_id: str, stage: str) -> None:
+        """更新运行中 AgentRun 的阶段进度。"""
         async with async_session() as session:
             run = await session.get(AgentRunModel, run_id, with_for_update=True)
             if not run or run.status != "running":
@@ -399,6 +288,7 @@ class AgentRunService:
             await session.commit()
 
     async def touch(self, run_id: str) -> None:
+        """更新 AgentRun 的 updated_at 时间戳，防止被判定为"卡住"。"""
         async with async_session() as session:
             run = await session.get(AgentRunModel, run_id, with_for_update=True)
             if not run or run.status not in {"running", "cancel_requested"}:
@@ -407,11 +297,13 @@ class AgentRunService:
             await session.commit()
 
     async def is_cancel_requested(self, run_id: str) -> bool:
+        """检查任务是否已被请求取消。"""
         async with async_session() as session:
             status = await session.scalar(select(AgentRunModel.status).where(AgentRunModel.id == run_id))
             return status == "cancel_requested"
 
     async def requeue(self, run_id: str) -> None:
+        """将运行中的 AgentRun 重新放回队列（被取消请求时回退）。"""
         async with async_session() as session:
             run = await session.get(AgentRunModel, run_id, with_for_update=True)
             if not run or run.status not in {"running", "cancel_requested"}:
@@ -425,6 +317,7 @@ class AgentRunService:
             await session.commit()
 
     async def retry(self, run_id: str, user_id: str) -> AgentRunModel | None:
+        """重试一个失败或被取消的 AgentRun（检查重试策略和次数限制）。"""
         async with async_session() as session:
             run = await session.scalar(select(AgentRunModel).where(AgentRunModel.id == run_id, AgentRunModel.user_id == user_id).with_for_update())
             if (
@@ -448,6 +341,7 @@ class AgentRunService:
             return run
 
     async def _recover(self, *, user_id: str | None, limit: int) -> list[AgentRunModel]:
+        """恢复卡住的 AgentRun：处理取消请求、重新投递未领取或执行中断的任务。"""
         cutoff = _now() - timedelta(seconds=stale_after_seconds())
         recovered: list[AgentRunModel] = []
         async with async_session() as session:
@@ -492,9 +386,11 @@ class AgentRunService:
         return recovered
 
     async def recover_stale_runs(self, user_id: str) -> list[AgentRunModel]:
+        """恢复当前用户所有卡住的 AgentRun。"""
         return await self._recover(user_id=user_id, limit=200)
 
     async def recover_all_stale_runs(self, limit: int = 200) -> list[AgentRunModel]:
+        """恢复系统中所有卡住的 AgentRun（管理员/Worker 使用）。"""
         return await self._recover(user_id=None, limit=limit)
 
     async def _succeed_in_session(
@@ -503,6 +399,7 @@ class AgentRunService:
         run_id: str,
         result_writer: Callable[[AsyncSession], Awaitable[dict]],
     ) -> None:
+        """在事务内标记 AgentRun 成功：处理取消竞态，写入业务结果。"""
         run = await session.get(AgentRunModel, run_id, with_for_update=True)
         if not run or run.status == "cancelled":
             return
@@ -525,7 +422,13 @@ class AgentRunService:
             await self._append_event(session, run, "run.completed")
 
     async def succeed(self, run_id: str, result: dict) -> None:
+        """标记 AgentRun 为成功状态，直接设置结果。"""
         async def result_writer(_session: AsyncSession) -> dict:
+            """异步执行 `result_writer` 相关逻辑。
+
+            Args:
+                _session: 调用方传入的 `_session` 参数。
+            """
             return result
 
         await self.succeed_with_result_writer(run_id, result_writer)
@@ -535,10 +438,12 @@ class AgentRunService:
         run_id: str,
         result_writer: Callable[[AsyncSession], Awaitable[dict]],
     ) -> None:
+        """使用延迟持久化回调标记 AgentRun 成功（业务结果和 AgentRun 同一事务）。"""
         async with UnitOfWork(async_session) as uow:
             await self._succeed_in_session(uow.db, run_id, result_writer)
 
     async def fail(self, run_id: str, message: str) -> None:
+        """标记 AgentRun 为失败状态（处理取消竞态）。"""
         async with UnitOfWork(async_session) as uow:
             session = uow.db
             run = await session.get(AgentRunModel, run_id, with_for_update=True)
@@ -559,6 +464,7 @@ class AgentRunService:
             await self._append_event(session, run, event_type, {"message": run.error_message})
 
     async def mark_cancelled(self, run_id: str, message: str = "任务已取消") -> None:
+        """强制标记 AgentRun 为已取消（Worker 内部使用）。"""
         async with UnitOfWork(async_session) as uow:
             session = uow.db
             run = await session.get(AgentRunModel, run_id, with_for_update=True)
@@ -573,6 +479,7 @@ class AgentRunService:
             await self._append_event(session, run, "run.cancelled", {"message": message})
 
     async def cancel(self, run_id: str, user_id: str) -> AgentRunModel | None:
+        """取消 AgentRun：队列中直接取消，运行中发取消请求。"""
         async with async_session() as session:
             run = await session.scalar(select(AgentRunModel).where(AgentRunModel.id == run_id, AgentRunModel.user_id == user_id).with_for_update())
             if not run or run.status not in {"queued", "retrying", "running", "cancel_requested"}:

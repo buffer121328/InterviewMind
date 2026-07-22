@@ -6,7 +6,7 @@ import pytest
 @pytest.mark.asyncio
 async def test_resume_optimize_executor_reuses_saved_result_after_worker_crash(monkeypatch):
     """业务结果已落库但 Worker 未标记成功时，重试应复用结果而不是二次生成。"""
-    from app.infrastructure.runtime.agent_runs import executors
+    from app.workflows import agent_tasks as executors
     from app.agents.resume import resume_orchestrator
 
     progress_stages: list[str] = []
@@ -70,7 +70,7 @@ async def test_resume_optimize_executor_reuses_saved_result_after_worker_crash(m
 @pytest.mark.asyncio
 async def test_resume_optimize_executor_defers_save_for_agent_run_transaction(monkeypatch):
     """有 agent_run_id 时，业务结果保存交给 AgentRun 完成事务统一提交。"""
-    from app.infrastructure.runtime.agent_runs import executors
+    from app.workflows import agent_tasks as executors
     from app.agents.resume import resume_orchestrator
 
     progress_stages: list[str] = []
@@ -87,7 +87,10 @@ async def test_resume_optimize_executor_defers_save_for_agent_run_transaction(mo
             save_calls.append(kwargs)
             return 101
 
-    async def fake_pipeline(**_kwargs):
+    pipeline_kwargs = {}
+
+    async def fake_pipeline(**kwargs):
+        pipeline_kwargs.update(kwargs)
         return {
             "jd_analysis": {"match_score": 91, "hr_pass_rate": 80, "keywords_required": ["Python"]},
             "change_items": [
@@ -116,6 +119,7 @@ async def test_resume_optimize_executor_defers_save_for_agent_run_transaction(mo
             "job_description": "jd",
             "session_ids": ["s1"],
             "include_overall_profile": True,
+            "mode": "quality",
         },
         "user-1",
         progress,
@@ -135,6 +139,7 @@ async def test_resume_optimize_executor_defers_save_for_agent_run_transaction(mo
     assert save_calls[0]["session"] is tx_session
     assert save_calls[0]["session_ids"] == ["s1"]
     assert save_calls[0]["include_profile"] is True
+    assert pipeline_kwargs["mode"] == "quality"
 
 
 @pytest.mark.asyncio
@@ -142,7 +147,7 @@ async def test_job_assets_executor_defers_job_status_for_agent_run_transaction(m
     """岗位资产 AgentRun 的岗位状态更新应和完成态共用事务。"""
     from types import SimpleNamespace
 
-    from app.infrastructure.runtime.agent_runs import executors
+    from app.workflows import agent_tasks as executors
 
     progress_stages: list[str] = []
     generate_calls: list[dict] = []

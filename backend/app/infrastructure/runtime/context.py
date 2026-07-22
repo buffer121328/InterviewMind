@@ -19,9 +19,15 @@ class AgentContext:
     locale: str = "zh-CN"
 
     def __post_init__(self) -> None:
+        """实现 `__post_init__` 协议方法。"""
         if not self.user_id.strip():
             raise ValueError("user_id must not be empty")
         object.__setattr__(self, "api_config", MappingProxyType(deepcopy(dict(self.api_config))))
 
     def has_permission(self, permission: str) -> bool:
+        """判断 `permission` 是否满足条件。
+
+        Args:
+            permission: 调用方传入的 `permission` 参数。
+        """
         return permission in self.permissions

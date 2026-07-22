@@ -25,6 +25,11 @@ logger = logging.getLogger(__name__)
 
 
 def _require_allowed_url(source_url: str) -> None:
+    """校验 `allowed url`。
+
+    Args:
+        source_url: source URL。
+    """
     if not is_allowed_apply_url(source_url):
         raise ValueError("仅允许访问 BOSS 直聘官方 HTTPS 链接")
 

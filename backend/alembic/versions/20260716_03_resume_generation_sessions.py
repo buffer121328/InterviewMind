@@ -18,6 +18,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    """执行 `upgrade` 相关逻辑。"""
     op.add_column("resume_results", sa.Column("agent_run_id", sa.String(), nullable=True))
     op.create_unique_constraint("uq_resume_results_agent_run", "resume_results", ["agent_run_id"])
     op.add_column("generated_resumes", sa.Column("generation_session_id", sa.String(), nullable=True))
@@ -52,6 +53,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """执行 `downgrade` 相关逻辑。"""
     op.drop_index("idx_resume_generation_sessions_status", table_name="resume_generation_sessions")
     op.drop_index("idx_resume_generation_sessions_user", table_name="resume_generation_sessions")
     op.drop_index("ix_resume_generation_sessions_user_id", table_name="resume_generation_sessions")

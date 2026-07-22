@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 class Base(DeclarativeBase):
+    """表示 `Base` 相关的数据或行为。"""
     pass
 
 
