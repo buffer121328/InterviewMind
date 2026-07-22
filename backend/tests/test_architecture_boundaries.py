@@ -62,9 +62,7 @@ def test_agents_do_not_depend_on_agent_run_runtime():
 def test_agent_run_runtime_does_not_host_business_agent_tasks():
     """AgentRun runtime 只负责状态/队列；具体业务任务应放在 workflows.agent_tasks。"""
     violations: list[str] = []
-    allowed = {
-        "infrastructure/runtime/agent_runs/service.py -> app.agents.definitions",
-    }
+    allowed: set[str] = set()
     for path in (BACKEND_APP / "infrastructure" / "runtime" / "agent_runs").rglob("*.py"):
         for module in _imports(path):
             if module.startswith("app.agents"):
