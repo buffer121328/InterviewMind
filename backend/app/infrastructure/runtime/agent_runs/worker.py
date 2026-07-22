@@ -9,7 +9,8 @@ import dramatiq
 from dramatiq.brokers.redis import RedisBroker
 from dramatiq.middleware import AsyncIO
 
-from app.infrastructure.runtime.agent_runs.executors import DeferredExecutionResult, execute_registered_task
+from app.workflows.agent_tasks.registry import execute_registered_task
+from app.workflows.agent_tasks.types import DeferredExecutionResult
 from app.infrastructure.runtime.agent_runs.service import AgentRunService
 from app.infrastructure.runtime.runtime_gate import get_run_gate
 from app.infrastructure.security.security import safe_error_message
@@ -23,6 +24,11 @@ dramatiq.set_broker(broker)
 
 @dramatiq.actor(queue_name="interactive", max_retries=10, min_backoff=1000)
 async def execute_agent_run(run_id: str) -> None:
+    """执行 `agent run`。
+
+    Args:
+        run_id: 运行标识。
+    """
     service = AgentRunService()
     lease = await get_run_gate().acquire()
     if lease is None:
@@ -39,6 +45,7 @@ async def execute_agent_run(run_id: str) -> None:
         cancel_poll_seconds = max(1, int(os.getenv("AGENT_RUN_CANCEL_POLL_SECONDS", "2")))
 
         async def heartbeat() -> None:
+            """异步执行 `heartbeat` 相关逻辑。"""
             while True:
                 await asyncio.sleep(heartbeat_seconds)
                 try:
@@ -57,6 +64,7 @@ async def execute_agent_run(run_id: str) -> None:
         )
 
         async def watch_cancellation() -> None:
+            """异步执行 `watch_cancellation` 相关逻辑。"""
             while not execution_task.done():
                 await asyncio.sleep(cancel_poll_seconds)
                 if await service.is_cancel_requested(run_id):

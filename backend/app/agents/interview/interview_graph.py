@@ -132,21 +132,21 @@ class InterviewState(TypedDict):
     # 统计信息
     question_count: int  # 已完成的问题数（不含追问）
     follow_up_count: int  # 当前主线问题的追问次数
-    
+
     # 阶段控制
     turn_phase: Literal["opening", "feedback"]
-    
+
     # 追问控制
     current_sub_question: Optional[str]
     max_follow_ups: int
-    
+
     # 用户 API 配置（可选）
     api_config: Optional[dict]
-    
+
     # 轮次信息
     round_index: int
     round_type: str
-    
+
     # 长期记忆上下文（来自 mem0）
     memory_context: str  # 格式化后的记忆上下文，注入到 prompt
     memory_items: List[dict]  # 原始记忆列表，用于日志和调试
@@ -172,7 +172,7 @@ async def node_planner(state: InterviewState):
     7. 长期记忆上下文
     """
     from . import interview_planner
-    
+
     job_desc = state["job_description"]
     resume = state["resume_context"]
     company_info = state.get("company_info", "")
@@ -181,7 +181,7 @@ async def node_planner(state: InterviewState):
     api_config = state.get("api_config") or {}
     user_id = state.get("user_id", "default_user")  # 从 state 读取 user_id
     run_id = state.get("run_id", str(uuid.uuid4()))  # 从 state 读取 run_id
-    
+
     # 获取长期记忆上下文
     memory_context = state.get("memory_context", "")
 
@@ -202,7 +202,7 @@ async def node_planner(state: InterviewState):
         max_q,
     )
     remaining_questions = max_q - len(candidates)
-    
+
     # 获取轮次信息
     round_index = 1
     round_type = "tech_initial"
@@ -210,7 +210,7 @@ async def node_planner(state: InterviewState):
     previous_questions = []
     weakness_report = None
     previous_session_summary = None
-    
+
     if session_id:
         try:
             from app.infrastructure.db.repositories.session.session_repo import SessionRepo
@@ -219,14 +219,14 @@ async def node_planner(state: InterviewState):
             if session:
                 round_index = session.metadata.round_index
                 round_type = session.metadata.round_type
-                
+
                 # 获取上一轮画像和问题（如果是第二轮及以后）
                 if round_index > 1 and session.metadata.parent_session_id:
                     previous_profile = await service.get_profile(session.metadata.parent_session_id)
                     parent_plan = await service.get_interview_plan(session.metadata.parent_session_id)
                     if parent_plan:
                         previous_questions = [q.get("content", q.get("topic", "")) for q in parent_plan]
-                    
+
                     # 获取上一轮表现摘要
                     parent_session = await service.get_session(
                         session.metadata.parent_session_id, user_id=user_id
@@ -237,7 +237,7 @@ async def node_planner(state: InterviewState):
                             if msg.role == "assistant" and len(msg.content) > 100:
                                 previous_session_summary = msg.content[:500]
                                 break
-                    
+
                     # 获取上一轮短板报告（用于多轮上下文继承）
                     try:
                         from app.infrastructure.db.repositories.interview.weakness_report_repo import get_weakness_report_repo
@@ -296,9 +296,9 @@ async def node_planner(state: InterviewState):
         from app.infrastructure.db.repositories.session.session_repo import SessionRepo
 
         await SessionRepo().save_interview_plan(session_id, interview_plan)
-    
+
     logger.info(f"[Planner] run_id={run_id} user_id={user_id} round={round_index}/{round_type} 生成 {len(interview_plan)} 题")
-    
+
     return {
         "interview_plan": interview_plan,
         "current_question_index": 0,
@@ -319,24 +319,30 @@ interview_tools = [search_question_bank, get_candidate_profile, get_interview_hi
 async def node_responder(state: InterviewState):
     """
     回复节点：使用 InterviewRuntime 状态机替代 ReAct agent。
-    
+
     状态机流程：
       opening → asking → awaiting_reply → evaluating
         ├─ follow_up (追问 ≤ 2 次)
         ├─ advance (下一题)
         └─ end_round (本轮结束)
-    
+
     每个状态调用 invoke_structured() 输出 InterviewerOutput，
     action 字段决定状态转移 —— 不再靠自然语言猜测。
     """
     from .interview_runtime import InterviewRuntime
     from app.schemas.interview import OpeningOutput, EvaluatingOutput
     from app.infrastructure.llm.llm_utils import invoke_structured
-    
+
     api_config = state.get("api_config")
-    
+
     # 构建 LLM 调用器：封装 invoke_structured，自动注入 api_config
     async def llm_invoker(prompt: str, output_model):
+        """异步执行 `llm_invoker` 相关逻辑。
+
+        Args:
+            prompt: 调用方传入的 `prompt` 参数。
+            output_model: 调用方传入的 `output_model` 参数。
+        """
         return await invoke_structured(
             prompt=prompt,
             output_model=output_model,
@@ -344,30 +350,30 @@ async def node_responder(state: InterviewState):
             channel="fast",
             max_retries=2,
         )
-    
+
     # 构建工具执行器（状态机在 evaluating 状态时显式调用）
     tool_executor = make_interview_tool_executor(
         user_id=state.get("user_id", ""),
         session_id=state.get("session_id"),
     )
-    
+
     # 创建状态机
     runtime = InterviewRuntime(
         state=dict(state),
         llm_invoker=llm_invoker,
         tool_executor=tool_executor,
     )
-    
+
     # 执行状态机主循环
     result = await runtime.run()
-    
+
     # 转换消息格式（dict → AIMessage）
     messages_out = result.get("messages", [])
     langchain_messages = []
     for msg in messages_out:
         content = msg.get("content", "") if isinstance(msg, dict) else str(msg)
         langchain_messages.append(AIMessage(content=content))
-    
+
     # 返回状态更新
     return {
         **result,
@@ -378,26 +384,26 @@ async def node_responder(state: InterviewState):
 async def node_summary(state: InterviewState):
     """
     总结节点：生成面试报告
-    使用统一的 interview_analysis 模块
-    
+    使用 workflow completion 用例编排总结与报告触发
+
     同时触发：轮后总结 + 分层画像更新 + 短板地图分析
     """
-    from . import interview_analysis
+    from app.workflows.interview.completion import process_interview_summary
     from langchain_core.messages import AIMessage
-    
+
     mode = state.get("mode", "mock")
     session_id = state.get("session_id")
     api_config = state.get("api_config")
     user_id = state.get("user_id", "default_user")
     run_id = state.get("run_id", "unknown")
-    
+
     # 获取长期记忆上下文
     memory_context = state.get("memory_context", "")
-    
+
     logger.info(f"[Summary] run_id={run_id} user_id={user_id} session={session_id} 开始生成总结")
-    
+
     # 执行统一流程（生成文本 + 状态更新 + 画像分析）
-    summary = await interview_analysis.process_interview_summary(
+    summary = await process_interview_summary(
         session_id=session_id,
         messages=state["messages"],
         mode=mode,
@@ -406,7 +412,7 @@ async def node_summary(state: InterviewState):
         memory_context=memory_context,
         user_id=user_id,  # 传递 user_id 用于后台分析隔离
     )
-    
+
     return {
         "messages": [AIMessage(content=summary)],
         "question_count": state.get("question_count"),
@@ -423,11 +429,11 @@ def route_entry(state: InterviewState):
     入口路由：根据当前状态决定进入哪个节点
     """
     plan = state.get("interview_plan", [])
-    
+
     # 如果没有计划，进入规划
     if not plan:
         return "planner"
-            
+
     # 其他情况，进入 Responder 处理
     return "responder"
 
@@ -438,12 +444,12 @@ def route_after_responder(state: InterviewState):
     """
     idx = state.get("current_question_index", 0)
     plan = state.get("interview_plan", [])
-    
+
     # 检查是否所有题目都问完了
     if idx >= len(plan):
         # 所有题目都问完了，去总结
         return "summary"
-        
+
     # 还有题目，等待用户回答
     return END
 
@@ -460,12 +466,12 @@ async def build_interview_graph(mode: str = "mock"):
         raise ModuleNotFoundError("langgraph is required to build interview graph")
 
     workflow = StateGraph(InterviewState)
-    
+
     # 添加节点
     workflow.add_node("planner", node_planner)
     workflow.add_node("responder", node_responder)
     workflow.add_node("summary", node_summary)
-    
+
     # 设置入口
     workflow.set_conditional_entry_point(
         route_entry,
@@ -474,10 +480,10 @@ async def build_interview_graph(mode: str = "mock"):
             "responder": "responder"
         }
     )
-    
+
     # Planner -> Responder
     workflow.add_edge("planner", "responder")
-    
+
     # Responder -> Human (or Summary)
     workflow.add_conditional_edges(
         "responder",
@@ -488,13 +494,13 @@ async def build_interview_graph(mode: str = "mock"):
         }
     )
 
-    
+
     # Summary -> END
     workflow.add_edge("summary", END)
-    
+
     # 注册图实例
     checkpointer = await get_async_sqlite_saver()
     graph = workflow.compile(checkpointer=checkpointer)
     register_graph_instance(graph)
-    
+
     return graph
