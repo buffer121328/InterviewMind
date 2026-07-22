@@ -18,7 +18,7 @@ TOKEN = "t" * 32
 
 @pytest.mark.asyncio
 async def test_host_service_requires_bearer_token(monkeypatch):
-    from boss_service import app
+    from app.entrypoints.boss_service import app
 
     monkeypatch.setenv("BOSS_AUTOMATION_SERVICE_TOKEN", TOKEN)
     async with httpx.AsyncClient(
@@ -32,7 +32,7 @@ async def test_host_service_requires_bearer_token(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_host_service_rejects_non_boss_url(monkeypatch):
-    from boss_service import app
+    from app.entrypoints.boss_service import app
 
     monkeypatch.setenv("BOSS_AUTOMATION_SERVICE_TOKEN", TOKEN)
     async with httpx.AsyncClient(
@@ -50,7 +50,7 @@ async def test_host_service_rejects_non_boss_url(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_host_service_send_requires_confirmation(monkeypatch):
-    from boss_service import app
+    from app.entrypoints.boss_service import app
 
     monkeypatch.setenv("BOSS_AUTOMATION_SERVICE_TOKEN", TOKEN)
     async with httpx.AsyncClient(
@@ -72,11 +72,11 @@ async def test_host_service_send_requires_confirmation(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_host_service_preview_delegates_after_guards(monkeypatch):
-    from boss_service import app
+    from app.entrypoints.boss_service import app
 
     monkeypatch.setenv("BOSS_AUTOMATION_SERVICE_TOKEN", TOKEN)
     operation = AsyncMock(return_value={"success": True, "send_ready": True})
-    with patch("boss_service.preview_boss_application", new=operation):
+    with patch("app.entrypoints.boss_service.preview_boss_application", new=operation):
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app),
             base_url="http://test",

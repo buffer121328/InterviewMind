@@ -173,7 +173,7 @@ cd InterviewMind
 cp env_example .env
 ```
 
-`env_example` 已包含数据库、队列、RAG、语音、Langfuse、BOSS 和 mem0 的全量变量。至少修改数据库密码、`DATABASE_URL`、`NEXT_PUBLIC_API_URL` 和队列加密密钥；本地补充说明可放在 `docs/`，但该目录不纳入 Git 跟踪。
+`env_example` 已包含数据库、队列、RAG、语音、Langfuse、BOSS 和 mem0 的全量变量。至少修改数据库密码、`DATABASE_URL` 和队列加密密钥。模板中的 `NEXT_PUBLIC_API_URL=/api` 用于全容器部署；本地直接运行前端时改为 `http://localhost:8000`。本地补充说明可放在 `docs/`，但该目录不纳入 Git 跟踪。
 
 启用队列时，生成并填写 API 与 Worker 共用的 `TASK_PAYLOAD_ENCRYPTION_KEY`：
 
@@ -240,11 +240,10 @@ uv sync --extra eval
 uv run alembic upgrade head
 
 # 启动服务（开发模式）
-uv run python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+uv run python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-> 当前 Alembic 从 `20260712_01` 开始记录增量变更，最新 head 为 `20260716_04`。全新开发库应先启动一次后端，让 `create_all`
-> 创建完整 schema；停止后端后执行 `uv run alembic stamp head`，再正常启动。已有库则应在启动新代码前执行 `upgrade head`。
+> Alembic 基线从 `20260711_00` 开始，最新 head 为 `20260716_08`。全新开发库和受 Alembic 管理的已有数据库均执行 `uv run alembic upgrade head`；不要再以 `create_all` 后 `stamp` 初始化。Docker Compose 会自动完成相同流程。
 
 后端将在 `http://localhost:8000` 启动，API 文档访问 `http://localhost:8000/docs`
 
@@ -295,18 +294,18 @@ uv run pytest -m "llm and eval"
 
 ## Docker 部署
 
-使用 Docker Compose 一键部署所有服务（PostgreSQL + Redis + 后端 + Worker + 前端 + Nginx）：
+使用 Docker Compose 一键部署所有服务（PostgreSQL + Redis + 迁移服务 + 后端 + Worker + 前端 + Nginx）：
 
 ```bash
 # 确保 .env 已配置；Compose 会自动使用容器内数据库地址
 docker compose --env-file .env up -d --build
 ```
 
-部署后通过 `http://localhost`（80 端口）访问。
+部署后通过 `http://localhost`（80 端口）访问。本配置明确采用本地 HTTP，未发布 443 端口；在公网部署时，请由外部 TLS 终止代理或负载均衡器提供 HTTPS。
 
-Compose 会将根目录 `.env` 传入后端和 Worker；显式的数据库与 Redis 地址会替换为容器网络地址。部署前请替换示例数据库密码，并确保 `.env` 不被提交。
+Compose 会将根目录 `.env` 传入迁移服务、后端和 Worker；显式的数据库与 Redis 地址会替换为容器网络地址。`migrate` 会对空库或已有 Alembic 数据库执行幂等的 `upgrade head`。对旧版 `AUTO_CREATE_TABLES` 创建的完整未版本化 schema，它会安全标记为 `20260716_07` 后升级；表不完整或无法识别时会停止而不是猜测版本。后端和 Worker 只会在迁移成功后启动。部署前请替换示例数据库密码，并确保 `.env` 不被提交。
 
-> 全容器模式建议设置 `NEXT_PUBLIC_API_URL=http://localhost`。首次建库和已有库升级步骤请以本 README 和当前迁移脚本为准；本地补充记录可放在不跟踪的 `docs/` 目录。
+> 全容器模式保持 `NEXT_PUBLIC_API_URL=/api`，浏览器请求经同源 Nginx 转发，不要使用 `localhost:8000`。`TASK_QUEUE_ENABLED=true`（默认）会启动 Dramatiq Worker；设为 `false` 时 Worker 容器保留但不运行 Dramatiq，任务走应用已有的同步兼容路径。首次建库和已有库升级步骤请以本 README 和当前迁移脚本为准；本地补充记录可放在不跟踪的 `docs/` 目录。
 
 ### 服务说明
 
@@ -314,10 +313,11 @@ Compose 会将根目录 `.env` 传入后端和 Worker；显式的数据库与 Re
 |------|------|------|
 | postgres | 5432（仅本机） | PostgreSQL 数据库 |
 | redis | 6379（仅本机） | Dramatiq Broker 与单用户任务锁 |
+| migrate | - | 幂等执行 Alembic 升级或初始化基线 schema |
 | backend | 8000（容器内） | FastAPI 后端 API |
 | worker | - | 单进程单线程的统一 Agent 任务 Worker |
 | frontend | 3000（容器内） | Next.js 前端 |
-| nginx | 80/443 | 反向代理 |
+| nginx | 80 | HTTP 反向代理；生产 HTTPS 由外部 TLS 终止 |
 
 ---
 

@@ -14,7 +14,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api import agent_runs, chat, upload, sessions, config, resume, voice_chat, applications
+from app.api import agent_runs, chat, upload, sessions, config, voice_chat, applications
+from app.api.resume import router as resume_router
 from app.api.question_bank import router as question_bank_router
 from app.api.memory import router as memory_router
 from app.api.jobs import router as jobs_router
@@ -41,7 +42,7 @@ async def lifespan(app: FastAPI):
     from app.observability import configure_observability
     if configure_observability():
         logger.info("Langfuse Agent 观测已启用")
-    
+
     # 本地开发可自动同步 ORM 表结构；严格迁移验证时设 AUTO_CREATE_TABLES=false。
     from app.config import get_settings
     if get_settings().auto_create_tables:
@@ -49,18 +50,18 @@ async def lifespan(app: FastAPI):
         await init_db()
     else:
         logger.info("AUTO_CREATE_TABLES=false，跳过 ORM 表结构自动同步，请确保已执行 Alembic 迁移")
-    
+
     # 确保数据目录存在
     data_dir = os.path.join(os.path.dirname(__file__), "data")
     os.makedirs(data_dir, exist_ok=True)
     os.makedirs(os.path.join(data_dir, "resumes"), exist_ok=True)
-    
+
     # 确保静态文件目录存在
     static_dir = os.path.join(os.getcwd(), "static")
     os.makedirs(os.path.join(static_dir, "audio"), exist_ok=True)
-    
+
     logger.info("数据目录和静态目录初始化完成")
-    
+
     # 主动恢复 Worker 中断或长期未领取的持久化 Agent 任务
     try:
         from app.infrastructure.runtime.agent_runs.recovery import run_agent_run_recovery_loop
@@ -80,12 +81,12 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"⚠ mem0 长期记忆服务初始化失败: {e}")
         logger.info("  项目将继续运行，但长期记忆功能不可用")
-    
+
     yield   # 暂停点，应用开始运行
-    
+
     # 关闭时执行
     logger.info("AI 面试助手后端服务关闭中...")
-    
+
     # 清理资源
     await cleanup_resources()
 
@@ -109,7 +110,7 @@ async def cleanup_resources():
         logger.info("✓ 后台任务已清理")
     except Exception as e:
         logger.error(f"✗ 清理后台任务时出错: {e}")
-    
+
     # 关闭全局 checkpointer 和连接
     try:
         from app.infrastructure.memory.memory import close_checkpointer
@@ -117,7 +118,7 @@ async def cleanup_resources():
         logger.info("✓ Checkpointer 已关闭")
     except Exception as e:
         logger.error(f"✗ 关闭 checkpointer 时出错: {e}")
-    
+
     # 关闭 mem0 长期记忆服务
     try:
         from app.infrastructure.memory import close_agent_memory_service
@@ -125,7 +126,7 @@ async def cleanup_resources():
         logger.info("✓ AgentMemoryService 已关闭")
     except Exception as e:
         logger.error(f"✗ 关闭 AgentMemoryService 时出错: {e}")
-    
+
     # 清理图实例列表
     try:
         from app.agents.interview.interview_graph import clear_graph_instances
@@ -133,7 +134,7 @@ async def cleanup_resources():
         logger.info("✓ 图实例列表已清空")
     except Exception as e:
         logger.error(f"✗ 清理图实例时出错: {e}")
-    
+
     # 关闭 SQLAlchemy 引擎
     try:
         from app.infrastructure.db.models import engine
@@ -141,7 +142,7 @@ async def cleanup_resources():
         logger.info("✓ SQLAlchemy 引擎已关闭")
     except Exception as e:
         logger.error(f"✗ 关闭 SQLAlchemy 引擎时出错: {e}")
-    
+
     logger.info("资源清理完成")
 
 def handle_signal(signum, frame):
@@ -149,21 +150,21 @@ def handle_signal(signum, frame):
     处理系统信号，实现优雅关闭
     """
     logger.info(f"接收到信号 {signum}，开始关闭...")
-    
+
     # 使用线程池来执行异步清理
     import threading
-    
+
     def run_cleanup():
         """在新线程中运行清理函数"""
         try:
             # 创建新的事件循环
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            
+
             # 运行清理函数
             loop.run_until_complete(cleanup_resources())
             logger.info("资源清理完成")
-            
+
         except Exception as e:
             logger.error(f"清理资源时出错: {e}")
         finally:
@@ -171,14 +172,14 @@ def handle_signal(signum, frame):
                 loop.close()
             except:
                 pass
-    
+
     # 启动清理线程
     cleanup_thread = threading.Thread(target=run_cleanup)
     cleanup_thread.start()
-    
+
     # 等待清理线程完成（最多等待3秒）
     cleanup_thread.join(timeout=3)
-    
+
     # 退出程序
     sys.exit(0)
 
@@ -270,7 +271,7 @@ app.include_router(agent_runs.router)
 app.include_router(upload.router)
 app.include_router(sessions.router)
 app.include_router(config.router)
-app.include_router(resume.router)
+app.include_router(resume_router)
 app.include_router(voice_chat.router)
 app.include_router(applications.router)
 app.include_router(question_bank_router)
@@ -287,24 +288,24 @@ app.mount("/static", StaticFiles(directory=static_dir), name="static")
 # 启动信息
 if __name__ == "__main__":
     import uvicorn
-    
+
     # 注册信号处理器，当收到关闭信号时（Ctrl+C 或 kill），执行 handle_signal 函数实现优雅关闭
     signal.signal(signal.SIGINT, handle_signal)
     signal.signal(signal.SIGTERM, handle_signal)
-    
+
     # 从环境变量读取配置，如果没有则使用默认值
     host = os.getenv("HOST", "0.0.0.0")
     port = int(os.getenv("PORT", "8000"))
     debug = os.getenv("DEBUG", "false").lower() == "true"
-    
+
     logger.info(f"启动服务器: http://{host}:{port}")
     logger.info(f"API 文档: http://{host}:{port}/docs")
     logger.info("按 Ctrl+C 可以正常关闭服务器")
-    
+
     try:
         # uvicorn 是一个 ASGI 服务器，用来运行 FastAPI 应用
         uvicorn.run(
-            "main:app",
+            "app.main:app",
             host=host,
             port=port,
             reload=debug,
