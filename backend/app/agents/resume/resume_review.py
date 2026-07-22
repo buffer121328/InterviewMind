@@ -103,6 +103,11 @@ def public_review_state(result_data: dict[str, Any]) -> dict[str, Any]:
 
 
 def _ensure_item_ids(result_data: dict[str, Any]) -> dict[str, Any]:
+    """确保 `item ids`。
+
+    Args:
+        result_data: result 数据。
+    """
     for index, item in enumerate(result_data.get("confirmation_items") or []):
         if item.get("item_id"):
             continue
@@ -121,6 +126,13 @@ def _resolve_resume(
     items: dict[str, dict[str, Any]],
     decisions: dict[str, str],
 ) -> str:
+    """解析 `resume`。
+
+    Args:
+        assembled_resume: 调用方传入的 `assembled_resume` 参数。
+        items: 数据列表。
+        decisions: 调用方传入的 `decisions` 参数。
+    """
     resolved = assembled_resume
     for item_id, decision in decisions.items():
         if decision != "rejected":

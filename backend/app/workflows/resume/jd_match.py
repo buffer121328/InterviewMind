@@ -34,6 +34,12 @@ class JDMatchUseCases:
     """JD 匹配分析应用服务。"""
 
     async def analyze(self, *, request: JDMatchRequest, user_id: str) -> JDMatchResponse:
+        """异步执行 `analyze` 相关逻辑。
+
+        Args:
+            request: 请求对象。
+            user_id: 当前用户标识。
+        """
         if not request.resume_content.strip():
             raise JDMatchBadRequest(message="请输入简历内容")
         if not request.job_description.strip():
@@ -63,6 +69,12 @@ class JDMatchUseCases:
         return JDMatchResponse(success=True, result=result, analysis_id=analysis_id)
 
     async def list_results(self, *, user_id: str, limit: int) -> JDMatchHistoryResponse:
+        """列出 `results`。
+
+        Args:
+            user_id: 当前用户标识。
+            limit: 返回数量上限。
+        """
         try:
             results = await get_jd_analysis_repo().list_results(user_id=user_id, limit=limit)
             return JDMatchHistoryResponse(
@@ -82,12 +94,24 @@ class JDMatchUseCases:
             return JDMatchHistoryResponse(success=False, message=str(exc))
 
     async def get_result(self, *, analysis_id: int, user_id: str) -> JDMatchDetailResponse:
+        """获取 `result`。
+
+        Args:
+            analysis_id: analysis 标识。
+            user_id: 当前用户标识。
+        """
         result = await get_jd_analysis_repo().get_result(analysis_id, user_id)
         if not result:
             raise JDMatchNotFound(message="分析结果不存在")
         return JDMatchDetailResponse(success=True, result=result)
 
     async def delete_result(self, *, analysis_id: int, user_id: str) -> dict[str, object]:
+        """删除 `result`。
+
+        Args:
+            analysis_id: analysis 标识。
+            user_id: 当前用户标识。
+        """
         success = await get_jd_analysis_repo().delete_result(analysis_id, user_id)
         if not success:
             raise JDMatchNotFound(message="结果不存在或无权删除")

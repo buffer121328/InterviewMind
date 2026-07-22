@@ -28,9 +28,16 @@ class ResumeHistoryUseCases:
     """简历历史应用服务。"""
 
     def __init__(self) -> None:
+        """初始化当前对象实例。"""
         self._session_repo = SessionRepo()
 
     async def get_completed_sessions(self, *, user_id: str, limit: int) -> CompletedSessionsResponse:
+        """获取 `completed sessions`。
+
+        Args:
+            user_id: 当前用户标识。
+            limit: 返回数量上限。
+        """
         try:
             sessions = await self._session_repo.get_completed_sessions_for_resume(
                 user_id=user_id,
@@ -66,6 +73,15 @@ class ResumeHistoryUseCases:
         offset: int,
         include_data: bool,
     ) -> ResumeHistoryListResponse:
+        """列出 `resume results`。
+
+        Args:
+            user_id: 当前用户标识。
+            result_type: 调用方传入的 `result_type` 参数。
+            limit: 返回数量上限。
+            offset: 分页偏移量。
+            include_data: include 数据。
+        """
         try:
             resume_repo = get_resume_repo()
             results = await resume_repo.list_results(
@@ -94,12 +110,24 @@ class ResumeHistoryUseCases:
             )
 
     async def get_resume_result(self, *, result_id: int, user_id: str) -> ResumeHistoryDetailResponse:
+        """获取 `resume result`。
+
+        Args:
+            result_id: result 标识。
+            user_id: 当前用户标识。
+        """
         result = await get_resume_repo().get_result(result_id, user_id)
         if not result:
             raise ResumeHistoryNotFound(message="结果不存在")
         return ResumeHistoryDetailResponse(success=True, result=result)
 
     async def delete_resume_result(self, *, result_id: int, user_id: str) -> dict[str, object]:
+        """删除 `resume result`。
+
+        Args:
+            result_id: result 标识。
+            user_id: 当前用户标识。
+        """
         success = await get_resume_repo().delete_result(result_id, user_id)
         if not success:
             raise ResumeHistoryNotFound(message="结果不存在或无权删除")

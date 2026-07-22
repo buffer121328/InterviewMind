@@ -123,39 +123,6 @@ def build_test_state(**overrides) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# 5. build_resume_test_state — 构造 ResumeOptimizerState dict
-# ---------------------------------------------------------------------------
-
-def build_resume_test_state(**overrides) -> dict:
-    """
-    构造一个合法的 ResumeOptimizerState 字典，所有字段都有合理的默认值。
-    可通过关键字参数覆盖任意字段。
-
-    Returns:
-        dict: 可直接传给简历优化 graph 节点 / 路由函数的 state dict。
-    """
-    base = {
-        "resume_content": "测试简历内容",
-        "job_description": "测试岗位描述",
-        "session_ids": [],
-        "include_overall_profile": False,
-        "api_config": TEST_API_CONFIG,
-        "user_id": "test_user",
-        "interview_conversations": [],
-        "overall_profile": None,
-        "match_analysis": None,
-        "content_suggestions": None,
-        "hr_review": None,
-        "moderator_summary": None,
-        "reflection": None,
-        "refined_result": None,
-        "final_result": None,
-    }
-    base.update(overrides)
-    return base
-
-
-# ---------------------------------------------------------------------------
 # 数据集目录常量
 # ---------------------------------------------------------------------------
 

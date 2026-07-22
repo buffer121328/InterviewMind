@@ -36,6 +36,7 @@ class AgenticSearchContext:
 
 @dataclass(frozen=True)
 class EvidenceQuality:
+    """表示 `EvidenceQuality` 相关的数据或行为。"""
     passed: bool
     issues: tuple[str, ...] = ()
     evidence_count: int = 0
@@ -46,6 +47,7 @@ class EvidenceQuality:
 
 @dataclass
 class AgenticSearchOutcome:
+    """表示 `AgenticSearchOutcome` 相关的数据或行为。"""
     triggered: bool
     evidences: list[Any]
     quality: EvidenceQuality
@@ -57,6 +59,7 @@ ReadOnlyRetriever = Callable[[AgenticSearchQuery], Awaitable[list[Any]]]
 
 
 class _SearchState(TypedDict, total=False):
+    """表示 `_SearchState` 的字典状态结构。"""
     context: AgenticSearchContext
     retrieve: ReadOnlyRetriever
     query: AgenticSearchQuery
@@ -198,6 +201,11 @@ def _rewrite_query(context: AgenticSearchContext) -> AgenticSearchQuery:
 
 
 def _quality_from_state(state: _SearchState) -> EvidenceQuality:
+    """执行 `_quality_from_state` 相关逻辑。
+
+    Args:
+        state: 当前流程状态。
+    """
     return grade_evidences(
         state.get("evidences", []),
         min_score=state.get("min_score", 0.3),
@@ -207,6 +215,11 @@ def _quality_from_state(state: _SearchState) -> EvidenceQuality:
 
 
 async def _assess(state: _SearchState) -> dict[str, Any]:
+    """异步执行 `_assess` 相关逻辑。
+
+    Args:
+        state: 当前流程状态。
+    """
     quality = _quality_from_state(state)
     return {
         "quality": quality,
@@ -216,10 +229,20 @@ async def _assess(state: _SearchState) -> dict[str, Any]:
 
 
 def _after_assess(state: _SearchState) -> str:
+    """执行 `_after_assess` 相关逻辑。
+
+    Args:
+        state: 当前流程状态。
+    """
     return "plan" if state.get("triggered") else END
 
 
 async def _plan(state: _SearchState) -> dict[str, Any]:
+    """异步执行 `_plan` 相关逻辑。
+
+    Args:
+        state: 当前流程状态。
+    """
     queries = build_search_plan(
         state["context"],
         state.get("evidences", []),
@@ -234,6 +257,11 @@ async def _plan(state: _SearchState) -> dict[str, Any]:
 
 
 def _dispatch_queries(state: _SearchState) -> list[Send] | str:
+    """分发 `queries`。
+
+    Args:
+        state: 当前流程状态。
+    """
     queries = state.get("queries", [])
     if not queries:
         return END
@@ -244,6 +272,11 @@ def _dispatch_queries(state: _SearchState) -> list[Send] | str:
 
 
 async def _retrieve_one(state: _SearchState) -> dict[str, Any]:
+    """检索 `one`。
+
+    Args:
+        state: 当前流程状态。
+    """
     query = state["query"]
     try:
         evidences = await state["retrieve"](query)
@@ -270,6 +303,11 @@ async def _retrieve_one(state: _SearchState) -> dict[str, Any]:
 
 
 async def _grade(state: _SearchState) -> dict[str, Any]:
+    """异步执行 `_grade` 相关逻辑。
+
+    Args:
+        state: 当前流程状态。
+    """
     quality = _quality_from_state(state)
     return {
         "quality": quality,
@@ -278,6 +316,11 @@ async def _grade(state: _SearchState) -> dict[str, Any]:
 
 
 def _after_grade(state: _SearchState) -> str:
+    """执行 `_after_grade` 相关逻辑。
+
+    Args:
+        state: 当前流程状态。
+    """
     if state["quality"].passed:
         return END
     if state.get("rounds", 0) < state.get("max_rounds", 2):
@@ -286,6 +329,11 @@ def _after_grade(state: _SearchState) -> str:
 
 
 async def _rewrite(state: _SearchState) -> dict[str, Any]:
+    """异步执行 `_rewrite` 相关逻辑。
+
+    Args:
+        state: 当前流程状态。
+    """
     query = _rewrite_query(state["context"])
     return {
         "queries": [query],

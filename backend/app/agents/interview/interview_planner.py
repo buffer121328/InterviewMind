@@ -105,7 +105,7 @@ def build_planner_prompt(
     5. weakness_report       — 上一轮短板报告
     6. previous_profile      — 候选人分层画像（累积，同上字段）
     7. memory_context        — 长期记忆上下文
-    
+
     Args:
         resume: 简历内容
         job_description: 岗位描述
@@ -119,13 +119,13 @@ def build_planner_prompt(
         weakness_report: 短板报告（可选）
         retrieval_context: RAG 检索上下文（可选）
         memory_context: 长期记忆上下文（可选，来自 mem0）
-        
+
     Returns:
         构建好的 Prompt 字符串
     """
     # 获取轮次策略
     strategy = ROUND_STRATEGIES.get(round_type, ROUND_STRATEGIES["tech_initial"])
-    
+
     # 如果是深度轮次且有上一轮画像，添加参考信息
     requirements = strategy["requirements"]
     if round_type == "tech_deep" and previous_profile:
@@ -135,10 +135,10 @@ def build_planner_prompt(
                 "从简历已有内容延伸",
                 f"从简历已有内容延伸。上一轮评估供参考：{assessment}"
             )
-    
+
     # 构建公司信息部分
     company_section = f"\n    【公司信息】：\n    {company_info}\n" if company_info else ""
-    
+
     # 构建上一轮问题部分（避免重复）
     previous_questions_section = ""
     if previous_questions:
@@ -162,7 +162,7 @@ def build_planner_prompt(
 {weakness_text}
     请在本轮面试中适当增加对这些薄弱领域的追问，但不要完全重复上一轮的题目。
 """
-    
+
     # 构建 RAG 检索上下文
     rag_section = ""
     if retrieval_context:
@@ -198,7 +198,7 @@ def build_planner_prompt(
 {memory_context}
     请结合这些长期记忆调整题目侧重点，但不要直接泄露记忆来源。
 """
-    
+
     # 根据输出格式选择 JSON 结构
     if output_format == "simple":
         json_format = """```json
@@ -230,16 +230,16 @@ def build_planner_prompt(
             }
         ]
     }
-    
+
     说明：
     - sources: 列出生成这道题所依据的证据来源。如果没有明确证据，留空数组。
     - reason: 解释为什么问这道题，必须引用证据。
     - fallback_reason: 如果因为证据不足而回退到默认出题，填写原因；否则为 null。"""
-    
+
     # 构建完整 Prompt
     prompt = f"""你是一位资深面试官。这是第 {round_index} 轮面试（类型：{round_type}）。
     你的任务是：根据以下信息，设计**不多不少，正好 {max_questions} 道**面试题目。
-    
+
     【岗位描述】：
     {job_description or "未提供"}
     {company_section}
@@ -250,20 +250,20 @@ def build_planner_prompt(
     {rag_section}
     {memory_section}
     【本轮面试侧重点】：{strategy['focus']}
-    
+
     要求：
     {requirements}
     【重要】：你只能生成 {max_questions} 道题目。
-    
+
     【问题内容规范】：
     1. 每个问题必须是直接的、具体的问题，不要包含元语言
     2. 保持问题的自然性和专业性，就像真实面试官会问的问题
-    
+
     请严格按照以下 JSON 结构输出数组，确保包含所有字段。
     不要包含 markdown 格式（如 ```json ... ```），只输出纯 JSON 字符串，使用英文字符，禁止使用emoji。
     {json_format}
     """
-    
+
     return prompt
 
 
@@ -274,20 +274,20 @@ def build_planner_prompt(
 def parse_plan_response(response_text: str, output_format: str = "full") -> List[Dict[str, Any]]:
     """
     解析 LLM 返回的面试计划 JSON
-    
+
     Args:
         response_text: LLM 返回的原始文本
         output_format: 期望的输出格式 - "full" 或 "simple"
-        
+
     Returns:
         面试问题列表
     """
     # 尝试清理可能的 markdown 格式
     cleaned_text = clean_json_response(response_text)
-    
+
     # 解析 JSON
     plan_data = json.loads(cleaned_text)
-    
+
     # 根据格式提取问题列表
     if isinstance(plan_data, list):
         # simple 格式：直接返回数组
@@ -295,7 +295,7 @@ def parse_plan_response(response_text: str, output_format: str = "full") -> List
     else:
         # full 格式：从 questions 字段提取
         interview_plan = plan_data.get("questions", [])
-    
+
     # 验证并补全数据结构
     for i, q in enumerate(interview_plan):
         if "id" not in q:
@@ -315,7 +315,7 @@ def parse_plan_response(response_text: str, output_format: str = "full") -> List
             q["reason"] = None
         if "fallback_reason" not in q:
             q["fallback_reason"] = None
-    
+
     return interview_plan
 
 
@@ -343,7 +343,7 @@ async def generate_interview_plan(
 ) -> List[Dict[str, Any]]:
     """
     生成面试计划（核心函数）
-    
+
     Args:
         resume: 简历内容
         job_description: 岗位描述
@@ -361,7 +361,7 @@ async def generate_interview_plan(
         weakness_report: 短板报告（可选）
         retrieval_context: RAG 检索上下文（可选）
         memory_context: 长期记忆上下文（可选，来自 mem0）
-        
+
     Returns:
         面试问题列表
     """
@@ -384,7 +384,7 @@ async def generate_interview_plan(
         )
 
         prompt += "\n\n请直接输出纯 JSON，不要使用 markdown 代码块或其他额外文本。"
-        
+
         output_model = PlanOutput if output_format == "full" else SimplePlanOutput
         structured_plan = await invoke_structured(
             prompt=prompt,
@@ -398,14 +398,14 @@ async def generate_interview_plan(
         if not interview_plan:
             logger.warning("[Planner] LLM 返回空计划，使用默认问题兜底。")
             interview_plan = _get_default_questions(max_questions, output_format)
-        
+
         # 强制截断，确保数量符合要求（兜底逻辑）
         if len(interview_plan) > max_questions:
             logger.warning(f"[Planner] LLM 生成了 {len(interview_plan)} 道题，超过了要求的 {max_questions} 道，执行截断。")
             interview_plan = interview_plan[:max_questions]
-        
+
         logger.info(f"[Planner] 成功生成 {len(interview_plan)} 个面试问题 (要求数量: {max_questions})")
-        
+
         # 保存到数据库（如果需要）
         if save_to_db and session_id:
             try:
@@ -413,7 +413,7 @@ async def generate_interview_plan(
                 service = SessionRepo()
                 await service.save_interview_plan(session_id, interview_plan)
                 logger.info(f"[Planner] 面试计划已保存到数据库: {session_id}")
-                
+
                 # 异步生成回答提示（如果需要）
                 if generate_hints:
                     from app.infrastructure.runtime.background_tasks import create_background_task
@@ -425,12 +425,12 @@ async def generate_interview_plan(
                         api_config=api_config
                     ), name=f"hint-generation:{session_id}")
                     logger.info(f"[Planner] 已触发后台提示生成任务: {session_id}")
-                    
+
             except Exception as e:
                 logger.error(f"[Planner] 保存面试计划失败: {e}")
-        
+
         return interview_plan
-        
+
     except Exception as e:
         logger.error(f"[Planner] 生成面试计划失败: {e}")
         return _get_default_questions(max_questions, output_format)
@@ -441,11 +441,11 @@ def _get_default_questions(max_questions: int, output_format: str = "full") -> L
     获取默认问题（兜底方案）
     """
     questions = DEFAULT_QUESTIONS[:max_questions]
-    
+
     if output_format == "simple":
         # 转换为简单格式
         return [{"topic": q["topic"], "content": q["content"]} for q in questions]
-    
+
     return questions
 
 
@@ -462,18 +462,18 @@ async def _generate_hints_async(
 ):
     """
     异步生成回答提示（后台任务）
-    
+
     使用 fast 模型为每道题目生成回答提示，完成后更新数据库
     """
     try:
         logger.info(f"[HintGenerator] 开始为会话 {session_id} 生成回答提示")
-        
+
         # 构建所有问题的提示生成 prompt
         questions_text = "\n".join([
             f"{i+1}. [{q.get('topic', '')}] {q.get('content', '')}"
             for i, q in enumerate(interview_plan)
         ])
-        
+
         prompt = f"""你是一位面试辅导专家。以下是面试官将要问候选人的问题列表。
 请为每道题目生成简洁的回答提示，帮助候选人组织回答思路。
 
@@ -503,20 +503,20 @@ async def _generate_hints_async(
             max_retries=2,
         )
         hints_list = hints_output.hints
-        
+
         # 将提示合并到 interview_plan
         for i, q in enumerate(interview_plan):
             if i < len(hints_list):
                 q["hint"] = hints_list[i]
             else:
                 q["hint"] = "可以结合自身经验，从实际案例出发进行回答。"
-        
+
         # 更新数据库
         from app.infrastructure.db.repositories.session.session_repo import SessionRepo
         service = SessionRepo()
         await service.save_interview_plan(session_id, interview_plan)
-        
+
         logger.info(f"[HintGenerator] 会话 {session_id} 的回答提示已生成并保存")
-        
+
     except Exception as e:
         logger.error(f"[HintGenerator] 生成回答提示失败: {str(e)}", exc_info=True)

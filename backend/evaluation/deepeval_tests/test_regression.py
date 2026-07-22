@@ -20,11 +20,8 @@ from app.agents.interview.interview_planner import (
     DEFAULT_QUESTIONS,
 )
 from app.infrastructure.llm.llm_utils import clean_json_response
-from app.agents.resume.resume_optimizer_graph import (
-    build_resume_optimizer_graph,
-    node_finalize,
-    ResumeOptimizerState,
-)
+from app.agents.resume.resume_orchestrator import build_resume_optimizer_graph
+from app.agents.resume.result_mapper import pipeline_to_optimize_result
 
 
 # ====================================================================
@@ -229,14 +226,14 @@ class TestResumeOptimizerGraph:
     """build_resume_optimizer_graph 返回的图结构验证"""
 
     EXPECTED_NODES = {
-        "prepare",
-        "match_analyst",
-        "content_writer",
-        "hr_reviewer",
-        "moderator",
-        "reflect",
-        "refine",
-        "finalize",
+        "stage1_jd_analysis",
+        "stage2_material_selection",
+        "stage3_custom_rewrite",
+        "stage4_assemble",
+        "stage5_fact_check",
+        "stage5_quality_judge",
+        "stage5_targeted_retry",
+        "stage6_confirmation_prep",
     }
 
     @pytest.mark.regression
@@ -252,8 +249,8 @@ class TestResumeOptimizerGraph:
     def test_graph_contains_expected_nodes(self):
         """图应包含所有预期的节点"""
         graph = build_resume_optimizer_graph()
-        # LangGraph CompiledGraph 暴露 nodes 为 dict
-        node_names = set(graph.nodes.keys())
+        compiled_graph = graph.get_graph()
+        node_names = set(compiled_graph.nodes.keys())
         # 去掉 __start__ 和 __end__ 等自动节点
         actual = {n for n in node_names if not n.startswith("__")}
         missing = self.EXPECTED_NODES - actual
@@ -261,70 +258,39 @@ class TestResumeOptimizerGraph:
 
     @pytest.mark.regression
     @pytest.mark.fast
-    @pytest.mark.asyncio
-    async def test_node_finalize_merges_correctly(self):
-        """node_finalize 应正确合并 match_analysis 与 refined_result"""
-        match_analysis = {
-            "match_score": 85,
-            "jd_keywords": ["Python", "FastAPI"],
-            "matched_keywords": ["Python"],
-            "missing_keywords": ["FastAPI"],
-            "bonus_items": ["Docker"],
-        }
-        refined_result = {
-            "match_score": 90,
-            "hr_pass_rate": 75,
-            "optimized_sections": [{"section_name": "工作经历"}],
-            "key_improvements": [{"priority": 1, "area": "技能"}],
-            "keyword_recommendations": ["添加 FastAPI 经验"],
-            "overall_strategy": "突出后端能力",
-            "refinement_notes": "已修正",
-        }
-        hr_review = {
-            "pass_rate_estimate": 70,
-            "first_impression": {"score": 7},
-            "highlights": ["项目经验丰富"],
-            "concerns": ["缺少管理经验"],
-            "content_conciseness": {"score": 8},
-        }
-        reflection = {
-            "issues_found": [],
-            "additional_suggestions": [],
-            "risk_warnings": [],
-            "quality_score": 88,
+    def test_pipeline_result_mapper_merges_public_fields(self):
+        """pipeline_to_optimize_result 应把当前流水线产物映射为稳定公开结果。"""
+        pipeline_output = {
+            "jd_analysis": {
+                "match_score": 90,
+                "hr_pass_rate": 75,
+                "jd_keywords": ["Python", "FastAPI"],
+                "matched_keywords": ["Python"],
+                "missing_keywords": ["FastAPI"],
+            },
+            "material_pool": {"summary": "项目经验丰富"},
+            "change_items": [
+                {
+                    "section_name": "工作经历",
+                    "original_text": "负责接口开发",
+                    "optimized_text": "负责 FastAPI 接口设计与性能优化",
+                    "change_type": "polish",
+                    "reason": "突出后端能力",
+                    "confidence": 0.9,
+                    "requires_user_confirmation": False,
+                }
+            ],
+            "overall_confidence": 0.88,
+            "requires_user_review": False,
         }
 
-        state: ResumeOptimizerState = {
-            "resume_content": "测试简历",
-            "job_description": "测试 JD",
-            "session_ids": [],
-            "include_overall_profile": False,
-            "api_config": None,
-            "user_id": "test",
-            "interview_conversations": [],
-            "overall_profile": None,
-            "match_analysis": match_analysis,
-            "content_suggestions": {"change_items": [], "interview_insights": None},
-            "hr_review": hr_review,
-            "moderator_summary": {},
-            "reflection": reflection,
-            "refined_result": refined_result,
-            "final_result": None,
-        }
+        final = pipeline_to_optimize_result(pipeline_output)
 
-        result = await node_finalize(state)
-        final = result["final_result"]
-
-        # match_score 来自 refined_result（优先）
-        assert final["match_score"] == 90
-        # hr_pass_rate 来自 refined_result
-        assert final["hr_pass_rate"] == 75
-        # keyword_analysis 应包含 match_analysis 的数据
-        assert final["keyword_analysis"]["jd_keywords"] == ["Python", "FastAPI"]
-        assert final["keyword_analysis"]["missing"] == ["FastAPI"]
-        # hr_feedback 来自 hr_review
-        assert final["hr_feedback"]["first_impression"]["score"] == 7
-        # reflection_notes
-        assert final["reflection_notes"]["quality_score"] == 88
-        # refinement_notes 来自 refined_result
-        assert final["refinement_notes"] == "已修正"
+        assert final.match_score == 90
+        assert final.hr_pass_rate == 75
+        assert final.keyword_analysis["matched"] == ["Python"]
+        assert final.keyword_analysis["missing"] == ["FastAPI"]
+        assert final.optimized_sections[0]["section"] == "工作经历"
+        assert final.key_improvements == ["突出后端能力"]
+        assert final.interview_insights == "项目经验丰富"
+        assert final.change_items[0].optimized_text == "负责 FastAPI 接口设计与性能优化"

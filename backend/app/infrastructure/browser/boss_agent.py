@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional, TypedDict
 from langgraph.graph import END, START, StateGraph
 
 from app.infrastructure.runtime.context import AgentContext
-from app.tools.runtime import ToolExecutionGuard, ToolExecutionPolicy
+from app.tools import ToolExecutionGuard, ToolExecutionPolicy
 from app.infrastructure.browser import boss_tools
 
 logger = logging.getLogger(__name__)
@@ -16,6 +16,7 @@ BOSS_AGENT_SYSTEM_PROMPT = """BOSS 求职工作流按固定步骤执行：环境
 
 
 class BossSearchState(TypedDict, total=False):
+    """表示 `BossSearchState` 的字典状态结构。"""
     query: str
     city: str
     top_n: int
@@ -35,9 +36,19 @@ def _build_boss_graph(
     )
 
     def record_audit(event: dict[str, Any]) -> None:
+        """记录 `audit`。
+
+        Args:
+            event: 事件对象。
+        """
         audit_events.append(event)
 
     async def check_environment(state: BossSearchState) -> dict:
+        """检查 `environment`。
+
+        Args:
+            state: 当前流程状态。
+        """
         result = await guard.execute(
             boss_tools.check_environment,
             context=context,
@@ -49,9 +60,19 @@ def _build_boss_graph(
         return {"environment": result, "error": error}
 
     def after_environment(state: BossSearchState) -> str:
+        """执行 `after_environment` 相关逻辑。
+
+        Args:
+            state: 当前流程状态。
+        """
         return "finish" if state.get("error") else "open_page"
 
     async def acquire_cards(state: BossSearchState) -> dict:
+        """异步执行 `acquire_cards` 相关逻辑。
+
+        Args:
+            state: 当前流程状态。
+        """
         page_text = await guard.execute(
             boss_tools.open_boss_search_page,
             state["query"],
@@ -79,9 +100,19 @@ def _build_boss_graph(
         return {"cards": cards, "error": "" if cards else "未提取到岗位"}
 
     def after_acquire(state: BossSearchState) -> str:
+        """执行 `after_acquire` 相关逻辑。
+
+        Args:
+            state: 当前流程状态。
+        """
         return "finish" if state.get("error") else "score"
 
     async def score(state: BossSearchState) -> dict:
+        """异步执行 `score` 相关逻辑。
+
+        Args:
+            state: 当前流程状态。
+        """
         cards = await guard.execute(
             boss_tools.score_jobs_by_match,
             state["cards"],
@@ -96,6 +127,11 @@ def _build_boss_graph(
         return {"cards": cards[: state["top_n"]]}
 
     async def _process_card(card: Dict[str, Any]) -> Dict[str, Any]:
+        """处理 `card`。
+
+        Args:
+            card: 调用方传入的 `card` 参数。
+        """
         saved = await guard.execute(
             boss_tools.save_job_to_database,
             card,
@@ -124,10 +160,20 @@ def _build_boss_graph(
         return result
 
     async def persist(state: BossSearchState) -> dict:
+        """异步执行 `persist` 相关逻辑。
+
+        Args:
+            state: 当前流程状态。
+        """
         processed = await asyncio.gather(*(_process_card(card) for card in state["cards"]))
         return {"processed": processed}
 
     async def finish(state: BossSearchState) -> dict:
+        """异步执行 `finish` 相关逻辑。
+
+        Args:
+            state: 当前流程状态。
+        """
         return {}
 
     workflow = StateGraph(BossSearchState)

@@ -4,6 +4,11 @@ from app.schemas.resume_schemas import ResumeOptimizeResult
 
 
 def pipeline_to_optimize_result(pipeline_output: dict) -> ResumeOptimizeResult:
+    """执行 `pipeline_to_optimize_result` 相关逻辑。
+
+    Args:
+        pipeline_output: 调用方传入的 `pipeline_output` 参数。
+    """
     jd = pipeline_output.get("jd_analysis") or {}
     change_items_raw = pipeline_output.get("change_items") or []
     match_score = float(jd.get("match_score", 0))

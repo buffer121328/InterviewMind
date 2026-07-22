@@ -5,8 +5,6 @@
 
 import json
 import logging
-import asyncio
-import uuid
 from typing import List, Optional, Dict, Any, TypedDict
 from langchain_core.messages import HumanMessage
 from langgraph.graph import StateGraph, END
@@ -16,7 +14,6 @@ from app.schemas.llm_outputs import (
 )
 from app.infrastructure.llm.llm_utils import invoke_structured, clean_markdown_response
 from app.infrastructure.llm import llms
-from app.infrastructure.db.repositories.resume.resume_generation_repo import session_store, get_generation_repo
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +32,7 @@ class ResumeGenerationState(TypedDict):
     api_config: Optional[dict]
     user_id: str
     agent_run_id: Optional[str]
-    
+
     # 中间状态
     missing_info_analysis: Optional[dict]
     questions: List[str]
@@ -46,7 +43,7 @@ class ResumeGenerationState(TypedDict):
     fact_check_result: Optional[dict]
     review_result: Optional[dict]
     iteration_count: int
-    
+
     # 输出
     final_markdown: str
     title: str
@@ -64,7 +61,7 @@ async def node_analyze_needs(state: ResumeGenerationState) -> dict:
     job_description = state.get("job_description", "")
     optimization_result = state.get("optimization_result") or {}
     api_config = state.get("api_config")
-    
+
     prompt = f"""你是一位「简历信息核查专家」。请分析以下信息，找出生成完整简历前需要用户确认或补充的关键信息。
 
 【原始简历】：
@@ -109,14 +106,14 @@ async def node_analyze_needs(state: ResumeGenerationState) -> dict:
 - 优先问能带来量化数据的问题
 - 对于项目经历缺失，请引导用户采用 STAR 法则补充（如：背景、任务、行动、结果）
 """
-    
+
     try:
         result = await invoke_structured(prompt, NeedsAnalysisOutput, api_config, channel="general")
         questions = result.questions[:3]
         has_gaps = result.has_gaps and len(questions) > 0
-        
+
         logger.info(f"需求分析完成: has_gaps={has_gaps}, questions={len(questions)}")
-        
+
         return {
             "missing_info_analysis": {"has_gaps": has_gaps},
             "questions": questions
@@ -141,13 +138,13 @@ async def node_generate_draft(state: ResumeGenerationState) -> dict:
     review_result = state.get("review_result")
     template_style = state.get("template_style", "professional")
     api_config = state.get("api_config")
-    
+
     # 构建用户补充信息
     user_info_section = ""
     if user_answers:
         answers_text = "\n".join([f"- {q}: {a}" for q, a in user_answers.items()])
         user_info_section = f"\n\n【用户补充信息】：\n{answers_text}"
-    
+
     # 如果有审查反馈，加入改进指导
     review_guidance = ""
     if review_result and not review_result.get("passed", True):
@@ -161,22 +158,22 @@ async def node_generate_draft(state: ResumeGenerationState) -> dict:
                 reason = i.get('reason', '')
                 note = f"- 【{loc}】检测到造假：{fab}（原因：{reason}）"
                 factual_notes.append(note)
-                
+
         if factual_notes:
             review_guidance = f"\n\n【重要修正要求】上次生成存在过度包装或逻辑漏洞，请修正：\n" + "\n".join(factual_notes)
-    
+
     style_guide = {
         "professional": "专业简洁，突出真实成就和数据，适合企业应聘",
         "academic": "学术风格，强调研究成果和发表，适合学术岗位",
         "creative": "创意设计，可以有个性化表达，适合创意行业"
     }
-    
+
     # 提取关键词分析
     keyword_analysis = optimization_result.get('keyword_analysis', {})
     jd_keywords = keyword_analysis.get('jd_keywords', [])
     missing_keywords = keyword_analysis.get('missing', [])
     keyword_recommendations = keyword_analysis.get('recommendations', [])
-    
+
     # 构建关键词指导
     keyword_section = ""
     if jd_keywords or missing_keywords or keyword_recommendations:
@@ -281,16 +278,16 @@ async def node_generate_draft(state: ResumeGenerationState) -> dict:
 2. **精炼优先**：每个要点都要有信息量，删除空洞描述
 3. **突出重点**：优先展示与目标职位最相关的内容
 """
-    
+
     try:
         response = await llms.invoke_text(
             [HumanMessage(content=prompt)], api_config, channel="content_writer"
         )
         draft = response.content.strip()
-        
+
         # 清理可能的代码块包裹
-        draft = _clean_markdown_response(draft)
-        
+        draft = clean_markdown_response(draft)
+
         logger.info(f"初稿生成完成 (含适度包装): {len(draft)} 字符")
         return {"draft_content": draft}
     except Exception as e:
@@ -307,7 +304,7 @@ async def node_optimize_draft(state: ResumeGenerationState) -> dict:
     job_description = state.get("job_description", "")
     user_answers = state.get("user_answers", {})
     api_config = state.get("api_config")
-    
+
     user_inputs = json.dumps(user_answers, ensure_ascii=False) if user_answers else "无"
 
     # 获取优化建议
@@ -407,15 +404,15 @@ async def node_optimize_draft(state: ResumeGenerationState) -> dict:
 - **个人简介必须精炼**：2-3句话抓住重点，切忌冗长
 - **关键词和改进点必须落实**
 """
-    
+
     try:
         result = await invoke_structured(prompt, DraftOptimizationOutput, api_config, channel="content_writer")
         optimized_draft = clean_markdown_response(result.optimized_content)
         optimization_summary = result.optimization_summary.model_dump()
         quality_scores = result.quality_scores.model_dump()
-        
+
         logger.info(f"初稿优化完成: 补充了 {len(optimization_summary.get('missing_info_fixed', []))} 项遗漏, 长度 {len(optimized_draft)} 字符, 质量评分 completeness={quality_scores.get('completeness', 'N/A')}")
-        
+
         return {
             "optimized_draft": optimized_draft,
             "optimization_notes": {
@@ -441,7 +438,7 @@ async def node_fact_check(state: ResumeGenerationState) -> dict:
     draft_content = state.get("optimized_draft", "") or state.get("draft_content", "")
     user_answers = state.get("user_answers", {})
     api_config = state.get("api_config")
-    
+
     user_inputs = json.dumps(user_answers, ensure_ascii=False) if user_answers else "无"
 
     prompt = f"""你是一位「简历风控专家」。请对比【原始资料】和【生成简历】，检查是否存在**过度包装或恶意造假**。
@@ -480,7 +477,7 @@ async def node_fact_check(state: ResumeGenerationState) -> dict:
     ]
 }}
 """
-    
+
     try:
         result = await invoke_structured(prompt, FactCheckOutput, api_config, channel="general")
         result = result.model_dump()
@@ -501,10 +498,10 @@ async def node_finalize_and_review(state: ResumeGenerationState) -> dict:
     fact_check_result = state.get("fact_check_result") or {}
     optimization_result = state.get("optimization_result") or {}
     api_config = state.get("api_config")
-    
+
     # 获取 JD 关键词
     jd_keywords = optimization_result.get("keyword_analysis", {}).get("jd_keywords", [])[:10]
-    
+
     # 构建警告
     warning = ""
     if fact_check_result.get("is_excessive"):
@@ -522,7 +519,7 @@ async def node_finalize_and_review(state: ResumeGenerationState) -> dict:
                 f"     - 造假内容：{fabricated}\n"
                 f"     - 造假原因：{reason}"
             )
-        
+
         warning = f"""
 **风控警告：检测到过度造假，必须修正以下内容**：
 
@@ -566,19 +563,19 @@ async def node_finalize_and_review(state: ResumeGenerationState) -> dict:
 - 禁止使用emoji表情
 - 禁止修改项目日期
 """
-    
+
     try:
         result = await invoke_structured(prompt, FinalReviewOutput, api_config, channel="hr_reviewer")
         final_markdown = clean_markdown_response(result.final_content)
         passed = result.review_passed
         title = result.title
-        
+
         logger.info(f"润色审查完成: passed={passed}")
-        
+
         return {
             "final_markdown": final_markdown,
             "review_result": {
-                "passed": passed, 
+                "passed": passed,
                 "issues": fact_check_result.get("risk_details", [])
             },
             "title": title
@@ -647,220 +644,3 @@ def build_resume_generation_graph():
     workflow.add_edge("increment_iteration", "generate_draft")
 
     return workflow.compile()
-
-def _clean_markdown_response(content: str) -> str:
-    """清理 Markdown 响应中的代码块包裹"""
-    content = content.strip()
-    if content.startswith("```markdown"):
-        content = content[11:]
-    elif content.startswith("```"):
-        content = content[3:]
-    if content.endswith("```"):
-        content = content[:-3]
-    return content.strip()
-
-
-# ============================================================================
-# 主流程函数
-# ============================================================================
-
-async def init_generation_session(
-    resume_content: str,
-    job_description: str,
-    optimization_result: dict,
-    user_id: str,
-    template_style: str = "professional",
-    api_config: Optional[dict] = None,
-    agent_run_id: Optional[str] = None,
-) -> Dict[str, Any]:
-    """
-    初始化简历生成会话
-    """
-    session_id = str(uuid.uuid4())
-    
-    await session_store.create(
-        session_id=session_id,
-        user_id=user_id,
-        resume_content=resume_content,
-        job_description=job_description,
-        optimization_result=optimization_result,
-        template_style=template_style,
-        agent_run_id=agent_run_id,
-    )
-    
-    # 初始化状态
-    state: ResumeGenerationState = {
-        "resume_content": resume_content,
-        "job_description": job_description,
-        "optimization_result": optimization_result,
-        "template_style": template_style,
-        "api_config": api_config,
-        "user_id": user_id,
-        "agent_run_id": agent_run_id,
-        "missing_info_analysis": None,
-        "questions": [],
-        "user_answers": {},
-        "draft_content": "",
-        "optimized_draft": "",
-        "optimization_notes": None,
-        "fact_check_result": None,
-        "review_result": None,
-        "iteration_count": 0,
-        "final_markdown": "",
-        "title": ""
-    }
-    
-    # 执行需求分析
-    logger.info(f"开始生成会话: {session_id}")
-    analysis_result = await node_analyze_needs(state)
-    state.update(analysis_result)
-    
-    questions = state.get("questions", [])
-    has_gaps = (state.get("missing_info_analysis") or {}).get("has_gaps", False)
-    
-    if has_gaps and questions:
-        # 需要用户输入
-        await session_store.update(
-            session_id,
-            user_id=user_id,
-            status="awaiting_input",
-            questions=questions
-        )
-        return {
-            "session_id": session_id,
-            "needs_input": True,
-            "questions": questions
-        }
-    else:
-        # 直接生成
-        result = await _complete_generation(session_id, state, api_config)
-        return {
-            "session_id": session_id,
-            "needs_input": False,
-            "result": result
-        }
-
-
-async def submit_user_answers(
-    session_id: str,
-    answers: Dict[str, str],
-    user_id: str,
-    api_config: Optional[dict] = None
-) -> Dict[str, Any]:
-    """
-    提交用户回答并继续生成
-    """
-    session = await session_store.get(session_id, user_id=user_id)
-    if not session:
-        raise ValueError(f"会话不存在或已过期: {session_id}")
-    if session.status == "completed" and session.generated_resume_id:
-        existing = await get_generation_repo().get_generated_resume(session.generated_resume_id, user_id)
-        if existing:
-            return {
-                "resume_id": existing["id"],
-                "title": existing["title"],
-                "content": existing["content"],
-            }
-    
-    # 更新会话
-    await session_store.update(
-        session_id,
-        user_id=user_id,
-        user_answers=answers,
-        status="generating"
-    )
-    
-    # 重建状态
-    state: ResumeGenerationState = {
-        "resume_content": session.resume_content,
-        "job_description": session.job_description,
-        "optimization_result": session.optimization_result,
-        "template_style": session.template_style,
-        "api_config": api_config,
-        "user_id": session.user_id,
-        "agent_run_id": session.agent_run_id,
-        "missing_info_analysis": None,
-        "questions": session.questions,
-        "user_answers": answers,
-        "draft_content": "",
-        "optimized_draft": "",
-        "optimization_notes": None,
-        "fact_check_result": None,
-        "review_result": None,
-        "iteration_count": 0,
-        "final_markdown": "",
-        "title": ""
-    }
-    
-    result = await _complete_generation(session_id, state, api_config)
-    return result
-
-
-
-async def _complete_generation(
-    session_id: str,
-    state: ResumeGenerationState,
-    api_config: Optional[dict]
-) -> Dict[str, Any]:
-    """
-    完成生成流程（内部函数）
-    流程：初稿生成 -> 初稿优化 -> 风控核查 -> 润色审查
-    """
-    await session_store.update(session_id, user_id=state["user_id"], status="generating")
-    graph = build_resume_generation_graph()
-    final_state = await graph.ainvoke(state)
-
-    if not final_state.get("final_markdown"):
-        logger.warning("达到最大迭代次数仍未通过审查，使用最后一次草稿")
-        final_state["final_markdown"] = final_state.get("optimized_draft", "") or final_state.get("draft_content", "") or "# 生成失败\n请稍后重试"
-        final_state["title"] = "新简历"
-    
-    # 保存到数据库
-    service = get_generation_repo()
-    session = await session_store.get(session_id, user_id=state["user_id"])
-    
-    resume_id = await service.save_generated_resume(
-        user_id=session.user_id if session else final_state["user_id"],
-        title=final_state["title"],
-        content=final_state["final_markdown"],
-        job_description=final_state.get("job_description"),
-        generation_session_id=session_id,
-        agent_run_id=state.get("agent_run_id"),
-    )
-    
-    # 更新会话状态
-    await session_store.update(
-        session_id,
-        user_id=state["user_id"],
-        status="completed",
-        final_markdown=final_state["final_markdown"],
-        generated_resume_id=resume_id,
-    )
-    
-    logger.info(f"生成流程全部完成: resume_id={resume_id}, title={final_state['title']}")
-    
-    return {
-        "resume_id": resume_id,
-        "title": final_state["title"],
-        "content": final_state["final_markdown"],
-        "review_result": final_state.get("review_result"),
-        "optimization_notes": final_state.get("optimization_notes")  # 返回优化信息
-    }
-
-
-async def get_session_status(session_id: str, user_id: str) -> Optional[Dict[str, Any]]:
-    """
-    获取会话状态
-    """
-    session = await session_store.get(session_id, user_id=user_id)
-    if not session:
-        return None
-    
-    return {
-        "session_id": session_id,
-        "status": session.status,
-        "questions": session.questions if session.status == "awaiting_input" else [],
-        "user_answers": session.user_answers,
-        "final_markdown": session.final_markdown if session.status == "completed" else None,
-        "generated_resume_id": session.generated_resume_id,
-    }

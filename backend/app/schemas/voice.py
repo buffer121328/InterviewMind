@@ -1,7 +1,7 @@
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field, model_validator
 from app.schemas.schemas import InterviewCandidateQuestion
-from app.agents.interview.question_defaults import resolve_max_questions, resolve_round_type
+from app.domain.interview_rounds import resolve_max_questions, resolve_round_type
 
 class VoiceStartRequest(BaseModel):
     """语音面试开始请求"""
@@ -16,6 +16,7 @@ class VoiceStartRequest(BaseModel):
 
     @model_validator(mode="after")
     def resolve_question_defaults(self):
+        """解析 `question defaults`。"""
         self.round_type = resolve_round_type(self.round_type)
         self.max_questions = resolve_max_questions(self.round_type, self.max_questions)
         return self

@@ -42,21 +42,21 @@ class MockModeStrategy(ModeStrategy):
 
 class ModeStrategyFactory:
     """模式策略工厂"""
-    
+
     _strategies = {
         InterviewMode.MOCK: MockModeStrategy(),
     }
-    
+
     @classmethod
     def get_strategy(cls, mode: str) -> ModeStrategy:
         """获取对应模式的策略
-        
+
         Args:
             mode: 模式字符串 ("mock")
-        
+
         Returns:
             ModeStrategy: 对应的策略实例
-        
+
         Raises:
             ValueError: 如果模式不支持
         """
@@ -65,11 +65,11 @@ class ModeStrategyFactory:
             return cls._strategies[mode_enum]
         except (ValueError, KeyError):
             raise ValueError(f"不支持的模式: {mode}。支持的模式: mock")
-    
+
     @classmethod
     def register_strategy(cls, mode: str, strategy: ModeStrategy):
         """注册自定义策略
-        
+
         Args:
             mode: 模式字符串
             strategy: 策略实例

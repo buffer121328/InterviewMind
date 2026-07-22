@@ -2,11 +2,7 @@
 
 
 def enqueue_agent_run(run_id: str) -> None:
+    """将 run_id 通过 Dramatiq worker 投递到后台执行。"""
     from app.infrastructure.runtime.agent_runs.worker import execute_agent_run
 
     execute_agent_run.send(run_id)
-
-
-def enqueue_interview_start(run_id: str) -> None:
-    """兼容旧调用。"""
-    enqueue_agent_run(run_id)

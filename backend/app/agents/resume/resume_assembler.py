@@ -32,6 +32,13 @@ class MaterialSelectionResult:
         selection_reason: str,
         assembled_outline: Dict[str, Any]
     ):
+        """初始化当前对象实例。
+
+        Args:
+            selected_material_ids: selected material 标识列表。
+            selection_reason: 调用方传入的 `selection_reason` 参数。
+            assembled_outline: 调用方传入的 `assembled_outline` 参数。
+        """
         self.selected_material_ids = selected_material_ids
         self.selection_reason = selection_reason
         self.assembled_outline = assembled_outline
@@ -69,7 +76,7 @@ def build_user_prompt(
     materials: List[Dict[str, Any]]
 ) -> str:
     """构建用户 prompt"""
-    
+
     # 格式化素材列表
     materials_text = []
     for m in materials:
@@ -82,9 +89,9 @@ def build_user_prompt(
 可信度: {m['confidence_score']}
 已验证: {'是' if m['is_verified'] else '否'}"""
         materials_text.append(material_info)
-    
+
     materials_str = "\n---\n".join(materials_text)
-    
+
     return f"""请根据以下 JD 从素材库中筛选最相关的素材，并规划简历结构。
 
 ## 目标岗位 JD
@@ -109,27 +116,27 @@ async def select_materials_for_jd(
 ) -> MaterialSelectionResult:
     """
     根据 JD 筛选素材
-    
+
     Args:
         user_id: 用户ID
         job_description: 目标职位描述
         api_config: API 配置
         material_type_filter: 素材类型过滤（可选）
         max_materials: 最大素材数量
-        
+
     Returns:
         素材筛选结果
     """
     # 获取素材服务
     material_service = get_candidate_material_repo()
-    
+
     # 获取用户的素材列表
     materials = await material_service.list_materials(
         user_id=user_id,
         material_type=material_type_filter,
         limit=max_materials
     )
-    
+
     if not materials:
         logger.warning(f"用户 {user_id} 没有素材")
         return MaterialSelectionResult(
@@ -137,16 +144,16 @@ async def select_materials_for_jd(
             selection_reason="素材库为空，请先添加素材",
             assembled_outline={}
         )
-    
+
     # 构建消息
     messages = [
         HumanMessage(content=build_user_prompt(job_description, materials))
     ]
-    
+
     # 调用 LLM
     logger.info(f"开始素材筛选: user={user_id}, materials_count={len(materials)}")
     response = await llms.invoke_text(messages, api_config, channel="smart")
-    
+
     # 解析响应
     try:
         result_text = response.content.strip()
@@ -165,21 +172,21 @@ async def select_materials_for_jd(
                 elif in_block:
                     json_lines.append(line)
             result_text = "\n".join(json_lines)
-        
+
         result = json.loads(result_text)
     except json.JSONDecodeError as e:
         logger.error(f"LLM 输出 JSON 解析失败: {e}\n原始输出: {response.content}")
         raise ValueError(f"AI 筛选结果格式异常，请重试。错误详情: {str(e)}")
-    
+
     # 验证选中的素材 ID 是否有效
     valid_material_ids = {m['id'] for m in materials}
     selected_ids = [
         mid for mid in result.get("selected_material_ids", [])
         if mid in valid_material_ids
     ]
-    
+
     logger.info(f"素材筛选完成: selected={len(selected_ids)}, total={len(materials)}")
-    
+
     return MaterialSelectionResult(
         selected_material_ids=selected_ids,
         selection_reason=result.get("selection_reason", ""),
@@ -195,37 +202,37 @@ async def assemble_resume_from_materials(
 ) -> Dict[str, Any]:
     """
     根据选中的素材组装简历
-    
+
     Args:
         user_id: 用户ID
         job_description: 目标职位描述
         selected_material_ids: 选中的素材 ID 列表
         api_config: API 配置
-        
+
     Returns:
         组装结果，包含 assembled_content
     """
     # 获取素材服务
     material_service = get_candidate_material_repo()
-    
+
     # 获取选中的素材
     materials = await material_service.get_materials_by_ids(
         material_ids=selected_material_ids,
         user_id=user_id
     )
-    
+
     if not materials:
         raise ValueError("未找到选中的素材")
-    
+
     # 构建组装 prompt
     materials_text = []
     for m in materials:
         material_info = f"""【{m['material_type']}】{m['title']}
 {m['content']}"""
         materials_text.append(material_info)
-    
+
     materials_str = "\n\n".join(materials_text)
-    
+
     prompt = f"""请根据以下素材和目标岗位 JD，生成一份专业的简历内容。
 
 ## 目标岗位 JD
@@ -248,16 +255,16 @@ async def assemble_resume_from_materials(
    - 其他亮点
 
 请直接输出简历内容，不要包含其他说明。"""
-    
+
     # 调用 LLM
     logger.info(f"开始组装简历: user={user_id}, materials_count={len(materials)}")
     messages = [HumanMessage(content=prompt)]
     response = await llms.invoke_text(messages, api_config, channel="smart")
-    
+
     assembled_content = response.content.strip()
-    
+
     logger.info(f"简历组装完成: content_length={len(assembled_content)}")
-    
+
     return {
         "assembled_content": assembled_content,
         "selected_material_ids": selected_material_ids,
@@ -283,7 +290,7 @@ async def save_assembly_result(
 ) -> int:
     """
     保存组装结果
-    
+
     Args:
         user_id: 用户ID
         job_description: 目标职位描述
@@ -292,7 +299,7 @@ async def save_assembly_result(
         assembled_outline: 组装大纲
         assembled_content: 组装后的内容
         generated_resume_id: 生成的简历 ID
-        
+
     Returns:
         组装结果 ID
     """
@@ -327,11 +334,11 @@ async def get_assembly_result(
 ) -> Optional[Dict[str, Any]]:
     """
     获取组装结果
-    
+
     Args:
         result_id: 结果ID
         user_id: 用户ID
-        
+
     Returns:
         组装结果数据
     """
@@ -365,11 +372,11 @@ async def list_assembly_results(
 ) -> List[Dict[str, Any]]:
     """
     获取用户的组装结果列表
-    
+
     Args:
         user_id: 用户ID
         limit: 最大返回数量
-        
+
     Returns:
         组装结果列表
     """
@@ -402,11 +409,11 @@ async def delete_assembly_result(
 ) -> bool:
     """
     删除组装结果
-    
+
     Args:
         result_id: 结果ID
         user_id: 用户ID
-        
+
     Returns:
         是否删除成功
     """

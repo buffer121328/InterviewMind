@@ -35,6 +35,72 @@ def _imports(path: Path) -> list[str]:
     return modules
 
 
+def test_migration_legacy_shim_files_are_removed():
+    """迁移完成后不保留只做旧导入路径转发的兼容壳。"""
+    legacy_paths = {
+        BACKEND_APP / "agents" / "definitions.py",
+        BACKEND_APP / "agents" / "interview" / "prompts.py",
+        BACKEND_APP / "agents" / "interview" / "question_defaults.py",
+        BACKEND_APP / "agents" / "interview" / "runtime.py",
+        BACKEND_APP / "agents" / "interview" / "tools.py",
+        BACKEND_APP / "agents" / "job_application",
+        BACKEND_APP / "agents" / "resume" / "resume_optimizer_graph.py",
+        BACKEND_APP / "agents" / "resume_analyzer",
+        BACKEND_APP / "agents" / "resume_generator",
+        BACKEND_APP / "agents" / "resume_optimizer",
+        BACKEND_APP / "infrastructure" / "runtime" / "definitions.py",
+        BACKEND_APP / "infrastructure" / "runtime" / "agent_runs" / "executors.py",
+        BACKEND_APP / "infrastructure" / "runtime" / "agent_runs" / "interview_start.py",
+        BACKEND_APP / "infrastructure" / "runtime" / "memory",
+        BACKEND_APP / "prompts" / "runtime",
+        BACKEND_APP / "tools" / "runtime",
+        BACKEND_APP / "workflows" / "question_bank_support" / "session_archive.py",
+    }
+    remaining: list[str] = []
+    for path in legacy_paths:
+        if path.is_file():
+            remaining.append(str(path.relative_to(BACKEND_ROOT)))
+        elif path.is_dir():
+            remaining.extend(
+                str(child.relative_to(BACKEND_ROOT))
+                for child in path.rglob("*.py")
+                if "__pycache__" not in child.parts
+            )
+    assert sorted(remaining) == []
+
+
+def test_code_does_not_import_removed_migration_modules():
+    """新代码应直接引用 domain/workflows/repository 中的新位置。"""
+    removed_modules = (
+        "app.agents.definitions",
+        "app.infrastructure.runtime.definitions",
+        "app.infrastructure.runtime.agent_runs.executors",
+        "app.infrastructure.runtime.agent_runs.interview_start",
+        "app.workflows.question_bank_support.session_archive",
+        "app.agents.interview.prompts",
+        "app.agents.interview.question_defaults",
+        "app.agents.interview.runtime",
+        "app.agents.interview.tools",
+        "app.agents.job_application",
+        "app.agents.resume.resume_optimizer_graph",
+        "app.agents.resume_analyzer",
+        "app.agents.resume_generator",
+        "app.agents.resume_optimizer",
+        "app.infrastructure.runtime.memory",
+        "app.prompts.runtime",
+        "app.tools.runtime",
+    )
+    violations: list[str] = []
+    for root in (BACKEND_APP, BACKEND_ROOT / "tests", BACKEND_ROOT / "evaluation"):
+        if not root.exists():
+            continue
+        for path in root.rglob("*.py"):
+            for module in _imports(path):
+                if module.startswith(removed_modules):
+                    violations.append(f"{path.relative_to(BACKEND_ROOT)} -> {module}")
+    assert violations == []
+
+
 def test_repositories_do_not_depend_on_upper_layers():
     violations: list[str] = []
     forbidden = ("app.api", "app.agents", "app.workflows", "app.infrastructure.runtime")

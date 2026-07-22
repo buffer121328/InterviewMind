@@ -42,6 +42,12 @@ class ResumeMaterialUseCases:
     """候选人素材库应用服务。"""
 
     async def create_material(self, *, request: dict, user_id: str) -> dict[str, object]:
+        """创建 `material`。
+
+        Args:
+            request: 请求对象。
+            user_id: 当前用户标识。
+        """
         material_type = request.get("material_type")
         title = request.get("title")
         content = request.get("content")
@@ -66,6 +72,12 @@ class ResumeMaterialUseCases:
         return {"success": True, "material_id": material_id}
 
     async def import_materials_from_resume(self, *, request: dict, user_id: str) -> dict[str, object]:
+        """异步执行 `import_materials_from_resume` 相关逻辑。
+
+        Args:
+            request: 请求对象。
+            user_id: 当前用户标识。
+        """
         resume_content = request.get("resume_content")
         if not resume_content:
             raise ResumeMaterialBadRequest(message="resume_content 为必填字段")
@@ -130,6 +142,15 @@ class ResumeMaterialUseCases:
         limit: int,
         offset: int,
     ) -> dict[str, object]:
+        """列出 `materials`。
+
+        Args:
+            user_id: 当前用户标识。
+            material_type: 调用方传入的 `material_type` 参数。
+            is_verified: 调用方传入的 `is_verified` 参数。
+            limit: 返回数量上限。
+            offset: 分页偏移量。
+        """
         try:
             materials = await get_candidate_material_repo().list_materials(
                 user_id=user_id,
@@ -143,12 +164,25 @@ class ResumeMaterialUseCases:
             return {"success": False, "materials": [], "message": str(exc)}
 
     async def get_material(self, *, material_id: int, user_id: str) -> dict[str, object]:
+        """获取 `material`。
+
+        Args:
+            material_id: material 标识。
+            user_id: 当前用户标识。
+        """
         material = await get_candidate_material_repo().get_material(material_id, user_id)
         if not material:
             raise ResumeMaterialNotFound(message="素材不存在")
         return {"success": True, "material": material}
 
     async def update_material(self, *, material_id: int, request: dict, user_id: str) -> dict[str, object]:
+        """更新 `material`。
+
+        Args:
+            material_id: material 标识。
+            request: 请求对象。
+            user_id: 当前用户标识。
+        """
         success = await get_candidate_material_repo().update_material(
             material_id=material_id,
             user_id=user_id,
@@ -165,6 +199,12 @@ class ResumeMaterialUseCases:
         return {"success": True, "message": "更新成功"}
 
     async def delete_material(self, *, material_id: int, user_id: str) -> dict[str, object]:
+        """删除 `material`。
+
+        Args:
+            material_id: material 标识。
+            user_id: 当前用户标识。
+        """
         success = await get_candidate_material_repo().delete_material(material_id, user_id)
         if not success:
             raise ResumeMaterialNotFound(message="素材不存在或无权删除")
@@ -172,6 +212,11 @@ class ResumeMaterialUseCases:
 
     @staticmethod
     def _strip_json_markdown(text: str) -> str:
+        """执行 `_strip_json_markdown` 相关逻辑。
+
+        Args:
+            text: 文本内容。
+        """
         if not text.startswith("```"):
             return text
         lines = text.split("\n")

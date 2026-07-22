@@ -63,13 +63,12 @@ def test_sync_mode_uses_local_gate_even_with_redis_url(monkeypatch):
     assert isinstance(runtime_gate.get_run_gate(), LocalRunGate)
 
 
-def test_serialized_run_excludes_encrypted_payload():
+def test_serialized_run_excludes_encrypted_payload_and_model_telemetry():
     now = datetime.now()
     run = AgentRunModel(
         id="run-1", user_id="user-1", task_type="interview_start", status="queued", stage="queued",
         idempotency_key="turn-1", payload_encrypted="never-expose", result=None, error_message=None,
-        trace_id="trace-1", model_provider="openai", model_name="gpt-5", model_member="smart",
-        request_latency_ms=123, input_tokens=456, output_tokens=789, fallback_count=2, model_error_type="RateLimitError",
+        trace_id="trace-1",
         attempts=0, created_at=now, updated_at=now, started_at=None, finished_at=None,
     )
 
@@ -84,10 +83,20 @@ def test_serialized_run_excludes_encrypted_payload():
     }
     assert public["max_attempts"] == 3
     assert public["trace_id"] == "trace-1"
-    assert public["model_provider"] == "openai"
-    assert public["input_tokens"] == 456
-    assert public["fallback_count"] == 2
     assert public["can_retry"] is False
+    for key in {
+        "model_provider",
+        "model_name",
+        "model_member",
+        "request_latency_ms",
+        "input_tokens",
+        "output_tokens",
+        "fallback_count",
+        "fallback_path",
+        "estimated_cost_usd",
+        "model_error_type",
+    }:
+        assert key not in public
 
 
 def test_failed_run_plan_marks_last_business_stage():
@@ -106,33 +115,10 @@ def test_generic_task_plans_are_task_specific():
 
 
 
-
-def test_serialized_run_includes_observability_fields_when_present():
-    now = datetime.now()
-    run = AgentRunModel(
-        id="run-obs", user_id="user-1", task_type="interview_start", status="running", stage="loading_context",
-        idempotency_key="turn-obs", payload_encrypted="encrypted", result=None, error_message=None,
-        trace_id="trace-obs", model_provider="anthropic", model_name="claude", model_member="fallback",
-        request_latency_ms=88, input_tokens=10, output_tokens=20, fallback_count=1,
-        fallback_path=[{"model_name": "claude", "status": "completed"}], estimated_cost_usd=0.0012,
-        model_error_type="TimeoutError",
-        attempts=1, created_at=now, updated_at=now, started_at=now, finished_at=None,
-    )
-
-    public = serialize_run(run)
-
-    assert public["trace_id"] == "trace-obs"
-    assert public["model_provider"] == "anthropic"
-    assert public["model_name"] == "claude"
-    assert public["request_latency_ms"] == 88
-    assert public["fallback_path"] == [{"model_name": "claude", "status": "completed"}]
-    assert public["estimated_cost_usd"] == 0.0012
-    assert public["model_error_type"] == "TimeoutError"
-
-
 @pytest.mark.asyncio
 async def test_queued_start_dispatches_only_run_id(monkeypatch):
     from app.api import agent_runs
+    from app.workflows import agent_runs as agent_run_workflow
 
     now = datetime.now()
     run = AgentRunModel(
@@ -154,10 +140,10 @@ async def test_queued_start_dispatches_only_run_id(monkeypatch):
         enqueue_fn(run.id)
         return 1, 0
 
-    monkeypatch.setattr(agent_runs, "task_queue_enabled", lambda: True)
-    monkeypatch.setattr(agent_runs.service, "create_or_get", create_or_get)
-    monkeypatch.setattr(agent_runs, "enqueue_interview_start", enqueue)
-    monkeypatch.setattr(agent_runs, "dispatch_pending_outbox", dispatch_pending_outbox)
+    monkeypatch.setattr(agent_run_workflow, "task_queue_enabled", lambda: True)
+    monkeypatch.setattr(agent_run_workflow.agent_run_use_cases._service, "create_or_get", create_or_get)
+    monkeypatch.setattr(agent_run_workflow, "enqueue_agent_run", enqueue)
+    monkeypatch.setattr(agent_run_workflow, "dispatch_pending_outbox", dispatch_pending_outbox)
 
     response = await agent_runs.create_interview_start_run(
         InterviewStartRequest(thread_id="turn-1", mode="mock", resume_context="private resume"),
@@ -175,6 +161,7 @@ async def test_queued_start_dispatches_only_run_id(monkeypatch):
 @pytest.mark.asyncio
 async def test_queued_start_keeps_run_retryable_when_outbox_dispatch_fails(monkeypatch):
     from app.api import agent_runs
+    from app.workflows import agent_runs as agent_run_workflow
 
     now = datetime.now()
     run = AgentRunModel(
@@ -193,10 +180,10 @@ async def test_queued_start_keeps_run_retryable_when_outbox_dispatch_fails(monke
     async def dispatch_pending_outbox(*, limit, enqueue_fn):
         return 0, 1
 
-    monkeypatch.setattr(agent_runs, "task_queue_enabled", lambda: True)
-    monkeypatch.setattr(agent_runs.service, "create_or_get", create_or_get)
-    monkeypatch.setattr(agent_runs.service, "fail", fail)
-    monkeypatch.setattr(agent_runs, "dispatch_pending_outbox", dispatch_pending_outbox)
+    monkeypatch.setattr(agent_run_workflow, "task_queue_enabled", lambda: True)
+    monkeypatch.setattr(agent_run_workflow.agent_run_use_cases._service, "create_or_get", create_or_get)
+    monkeypatch.setattr(agent_run_workflow.agent_run_use_cases._service, "fail", fail)
+    monkeypatch.setattr(agent_run_workflow, "dispatch_pending_outbox", dispatch_pending_outbox)
 
     response = await agent_runs.create_interview_start_run(
         InterviewStartRequest(thread_id="turn-1", mode="mock", resume_context="private resume"),
@@ -212,6 +199,7 @@ async def test_queued_start_keeps_run_retryable_when_outbox_dispatch_fails(monke
 @pytest.mark.asyncio
 async def test_existing_queued_run_is_not_dispatched_twice(monkeypatch):
     from app.api import agent_runs
+    from app.workflows import agent_runs as agent_run_workflow
 
     now = datetime.now()
     run = AgentRunModel(
@@ -230,10 +218,10 @@ async def test_existing_queued_run_is_not_dispatched_twice(monkeypatch):
         enqueue_fn(run.id)
         return 1, 0
 
-    monkeypatch.setattr(agent_runs, "task_queue_enabled", lambda: True)
-    monkeypatch.setattr(agent_runs.service, "create_or_get", create_or_get)
-    monkeypatch.setattr(agent_runs, "enqueue_interview_start", dispatched.append)
-    monkeypatch.setattr(agent_runs, "dispatch_pending_outbox", dispatch_pending_outbox)
+    monkeypatch.setattr(agent_run_workflow, "task_queue_enabled", lambda: True)
+    monkeypatch.setattr(agent_run_workflow.agent_run_use_cases._service, "create_or_get", create_or_get)
+    monkeypatch.setattr(agent_run_workflow, "enqueue_agent_run", dispatched.append)
+    monkeypatch.setattr(agent_run_workflow, "dispatch_pending_outbox", dispatch_pending_outbox)
 
     response = await agent_runs.create_interview_start_run(
         InterviewStartRequest(thread_id="turn-1", mode="mock", resume_context="private resume"),
@@ -320,6 +308,7 @@ def test_serialized_run_event_has_replay_envelope():
 @pytest.mark.asyncio
 async def test_cancel_api_returns_cancel_requested_for_running_run(monkeypatch):
     from app.api import agent_runs
+    from app.workflows import agent_runs as agent_run_workflow
 
     now = datetime.now()
     run = AgentRunModel(
@@ -331,7 +320,7 @@ async def test_cancel_api_returns_cancel_requested_for_running_run(monkeypatch):
     async def cancel(_run_id, _user_id):
         return run
 
-    monkeypatch.setattr(agent_runs.service, "cancel", cancel)
+    monkeypatch.setattr(agent_run_workflow.agent_run_use_cases._service, "cancel", cancel)
 
     response = await agent_runs.cancel_agent_run("run-running", user_id="user-1")
 
@@ -496,7 +485,7 @@ async def test_succeed_with_result_writer_uses_same_uow_session(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_record_observation_persists_summary_and_model_events(monkeypatch):
+async def test_record_observation_persists_trace_only(monkeypatch):
     from app.infrastructure.runtime.agent_runs import service as service_module
 
     now = datetime.now()
@@ -529,36 +518,16 @@ async def test_record_observation_persists_summary_and_model_events(monkeypatch)
     monkeypatch.setenv("TASK_PAYLOAD_ENCRYPTION_KEY", Fernet.generate_key().decode())
     monkeypatch.setattr(service_module, "async_session", lambda: FakeSession())
     monkeypatch.setattr(service_module.AgentRunService, "_append_event", append_event)
-    monkeypatch.setenv("LLM_INPUT_COST_PER_1K_TOKENS_USD", "0.01")
-    monkeypatch.setenv("LLM_OUTPUT_COST_PER_1K_TOKENS_USD", "0.02")
 
     await service_module.AgentRunService().record_observation(
         "run-obs",
         trace_id="trace-obs",
         model_events=[
             {
-                "event_type": "voice.request.started",
-                "channel": "voice",
-                "model_name": "gpt-voice-a",
-                "model_member": "member-a",
-                "candidate_index": 1,
-            },
-            {
-                "event_type": "voice.request.failed",
-                "channel": "voice",
-                "model_name": "gpt-voice-a",
-                "model_member": "member-a",
-                "candidate_index": 1,
-                "duration_ms": 12,
-                "error_type": "TimeoutError",
-            },
-            {
                 "event_type": "voice.request.completed",
                 "channel": "voice",
                 "model_name": "gpt-voice-b",
                 "model_member": "member-b",
-                "candidate_index": 2,
-                "fallback_index": 1,
                 "duration_ms": 19,
                 "input_tokens": 10,
                 "output_tokens": 5,
@@ -568,42 +537,8 @@ async def test_record_observation_persists_summary_and_model_events(monkeypatch)
 
     assert commits == ["commit"]
     assert run.trace_id == "trace-obs"
-    assert run.model_provider == "voice"
-    assert run.model_name == "gpt-voice-b"
-    assert run.model_member == "member-b"
-    assert run.request_latency_ms == 31
-    assert run.input_tokens == 10
-    assert run.output_tokens == 5
-    assert run.fallback_count == 1
-    assert run.fallback_path == [
-        {
-            "candidate_index": 1,
-            "channel": "voice",
-            "model_name": "gpt-voice-a",
-            "model_member": "member-a",
-            "status": "failed",
-            "duration_ms": 12,
-            "error_type": "TimeoutError",
-        },
-        {
-            "candidate_index": 2,
-            "channel": "voice",
-            "model_name": "gpt-voice-b",
-            "model_member": "member-b",
-            "status": "completed",
-            "duration_ms": 19,
-            "error_type": None,
-        },
-    ]
-    assert run.estimated_cost_usd == 0.0002
-    assert run.model_error_type == "TimeoutError"
-    assert [item[0] for item in appended] == [
-        "voice.request.started",
-        "voice.request.failed",
-        "voice.request.completed",
-    ]
-    assert appended[-1][1]["trace_id"] == "trace-obs"
-    assert "event_type" not in appended[-1][1]
+    assert run.updated_at >= now
+    assert appended == []
 
 
 @pytest.mark.asyncio
@@ -665,6 +600,7 @@ async def test_create_or_get_emits_prompt_version_in_created_event(monkeypatch):
 async def test_event_stream_replays_from_last_event_id_when_larger(monkeypatch):
     from types import SimpleNamespace
     from app.api import agent_runs
+    from app.workflows import agent_runs as agent_run_workflow
 
     now = datetime.now()
     run = SimpleNamespace(status="succeeded")
@@ -688,8 +624,8 @@ async def test_event_stream_replays_from_last_event_id_when_larger(monkeypatch):
         assert limit == 200
         return [event] if after_sequence == 7 else []
 
-    monkeypatch.setattr(agent_runs.service, "get", get)
-    monkeypatch.setattr(agent_runs.service, "list_events", list_events)
+    monkeypatch.setattr(agent_run_workflow.agent_run_use_cases._service, "get", get)
+    monkeypatch.setattr(agent_run_workflow.agent_run_use_cases._service, "list_events", list_events)
 
     response = await agent_runs.stream_agent_run_events(
         "run-1",

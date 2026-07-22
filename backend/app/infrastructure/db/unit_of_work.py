@@ -7,7 +7,7 @@ from typing import Callable, Optional, Type
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.infrastructure.db import async_session
+from app.infrastructure.db.models import async_session
 
 
 class UnitOfWork:
@@ -25,10 +25,16 @@ class UnitOfWork:
     """
 
     def __init__(self, session_factory: Callable[[], AsyncSession] = async_session):
+        """初始化当前对象实例。
+
+        Args:
+            session_factory: 调用方传入的 `session_factory` 参数。
+        """
         self._session_factory = session_factory
         self.session: AsyncSession | None = None
 
     async def __aenter__(self) -> "UnitOfWork":
+        """异步进入上下文管理器并返回可用资源。"""
         self.session = self._session_factory()
         return self
 
@@ -38,6 +44,13 @@ class UnitOfWork:
         exc: Optional[BaseException],
         tb: Optional[TracebackType],
     ) -> bool:
+        """异步退出上下文管理器并释放相关资源。
+
+        Args:
+            exc_type: 调用方传入的 `exc_type` 参数。
+            exc: 调用方传入的 `exc` 参数。
+            tb: 调用方传入的 `tb` 参数。
+        """
         if self.session is None:
             return False
         try:
@@ -51,6 +64,7 @@ class UnitOfWork:
 
     @property
     def db(self) -> AsyncSession:
+        """返回 `db` 属性值。"""
         if self.session is None:
             raise RuntimeError("UnitOfWork 尚未进入上下文")
         return self.session

@@ -44,7 +44,7 @@ logger = logging.getLogger(__name__)
 
 class InterviewRuntime:
     """面试状态机 — 管理面试官的在线对话流程
-    
+
     用法：
         runtime = InterviewRuntime(state, llm_invoker, tool_executor)
         result = await runtime.run()
@@ -65,7 +65,7 @@ class InterviewRuntime:
         self.state = state
         self.llm_invoker = llm_invoker
         self.tool_executor = tool_executor
-        
+
         # 从 state 初始化运行时字段
         self.plan: List[Dict] = state.get("interview_plan", [])
         self.current_idx: int = state.get("current_question_index", 0)
@@ -79,13 +79,13 @@ class InterviewRuntime:
         self.trace: List[Dict[str, Any]] = list(state.get("trace", []))
         self.max_tool_rounds: int = 1
         self.tool_round_count: int = 0
-        
+
         # 当前阶段
         self.phase: InterviewPhase = (
             InterviewPhase.OPENING if self.turn_phase == "opening"
             else InterviewPhase.AWAITING_REPLY
         )
-        
+
         # 已执行的工具结果缓存
         self.tool_results: Dict[str, Any] = {}
 
@@ -143,15 +143,15 @@ class InterviewRuntime:
         """opening 状态：生成问候语 + 首题"""
         logger.info(f"[Runtime] 进入 opening 状态, round={self.round_index}/{self.round_type}")
         self._add_trace(step="opening_prompt", phase=InterviewPhase.OPENING.value, status="started")
-        
+
         prompt = self._build_opening_prompt()
-        
+
         try:
             output: OpeningOutput = await self.llm_invoker(prompt, OpeningOutput)
         except Exception as e:
             logger.error(f"[Runtime] opening LLM 调用失败: {e}")
             return self._default_response("你好！欢迎参加今天的面试。让我们开始吧。请问你能做一个简短的自我介绍吗？")
-        
+
         self.phase = InterviewPhase.ASKING
         self._add_trace(
             step="opening_prompt",
@@ -159,7 +159,7 @@ class InterviewRuntime:
             status="completed",
             output_summary=output.greeting[:120],
         )
-        
+
         return self._with_trace({
             "messages": [{"role": "assistant", "content": output.greeting}],
             "turn_phase": "feedback",
@@ -175,11 +175,11 @@ class InterviewRuntime:
 
     async def _handle_evaluating(self) -> Dict[str, Any]:
         """evaluating 状态：评估回答 + 决策下一步动作"""
-        
+
         user_answer = self._get_last_user_message()
         current_q = self._get_current_question()
         next_q = self._get_next_question()
-        
+
         logger.info(
             f"[Runtime] evaluating: idx={self.current_idx}/{len(self.plan)}, "
             f"follow_up={self.follow_up_count}/{self.max_follow_ups}"
@@ -190,7 +190,7 @@ class InterviewRuntime:
             status="started",
             input_summary=f"idx={self.current_idx}, follow_up={self.follow_up_count}, tool_rounds={self.tool_round_count}",
         )
-        
+
         # 构建评估 prompt（注入工具结果）
         tool_context = self._format_tool_results()
         prompt = self._build_evaluating_prompt(
@@ -200,7 +200,7 @@ class InterviewRuntime:
             tool_context,
             allow_tool_request=bool(self.tool_executor and self.tool_round_count < self.max_tool_rounds and not self.tool_results),
         )
-        
+
         try:
             output: EvaluatingOutput = await self.llm_invoker(prompt, EvaluatingOutput)
         except Exception as e:
@@ -226,7 +226,7 @@ class InterviewRuntime:
             except Exception as e:
                 logger.error(f"[Runtime] evaluating 二次 LLM 调用失败: {e}")
                 return self._handle_fallback(user_answer, current_q, next_q)
-        
+
         logger.info(f"[Runtime] evaluating 决策: action={output.action}")
         self._add_trace(
             step="evaluating",
@@ -234,7 +234,7 @@ class InterviewRuntime:
             status="completed",
             output_summary=f"action={output.action}, need_tool={output.need_tool}",
         )
-        
+
         # 根据 action 分发
         if output.action == InterviewerAction.FOLLOW_UP:
             return self._handle_follow_up_action(output)
@@ -249,12 +249,12 @@ class InterviewRuntime:
     def _handle_follow_up_action(self, output: EvaluatingOutput) -> Dict[str, Any]:
         """处理追问动作"""
         new_count = self.follow_up_count + 1
-        
+
         if new_count > self.max_follow_ups:
             # 已达最大追问次数，强制进入下一题
             logger.info(f"[Runtime] 追问次数已达上限 {self.max_follow_ups}，强制进入下一题")
             return self._handle_advance_action(output)
-        
+
         self.phase = InterviewPhase.FOLLOW_UP
         logger.info(f"[Runtime] 追问 #{new_count}: {output.content[:50]}...")
         self._add_trace(
@@ -263,7 +263,7 @@ class InterviewRuntime:
             status="completed",
             output_summary=f"follow_up#{new_count}: {output.content[:120]}",
         )
-        
+
         return self._with_trace({
             "messages": [{"role": "assistant", "content": output.content}],
             "follow_up_count": new_count,
@@ -275,11 +275,11 @@ class InterviewRuntime:
     def _handle_advance_action(self, output: EvaluatingOutput) -> Dict[str, Any]:
         """处理进入下一题动作"""
         next_idx = self.current_idx + 1
-        
+
         if next_idx >= len(self.plan):
             # 所有题目已问完
             return self._handle_end_round_action(output)
-        
+
         self.phase = InterviewPhase.ADVANCING
         next_q = self._get_next_question()
         logger.info(f"[Runtime] 进入第 {next_idx + 1} 题: {next_q[:50] if next_q else 'N/A'}...")
@@ -289,7 +289,7 @@ class InterviewRuntime:
             status="completed",
             output_summary=f"advance_to={next_idx}: {output.content[:120]}",
         )
-        
+
         return self._with_trace({
             "messages": [{"role": "assistant", "content": output.content}],
             "current_question_index": next_idx,
@@ -303,7 +303,7 @@ class InterviewRuntime:
         """处理本轮结束动作"""
         self.phase = InterviewPhase.END_ROUND
         logger.info(f"[Runtime] 本轮面试结束, round={self.round_index}")
-        
+
         content = getattr(output, 'content', '本轮面试到此结束，感谢你的参与！')
         self._add_trace(
             step="decision",
@@ -311,7 +311,7 @@ class InterviewRuntime:
             status="completed",
             output_summary=content[:120],
         )
-        
+
         return self._with_trace({
             "messages": [{"role": "assistant", "content": content}],
             "current_question_index": len(self.plan),  # 标记为已全部完成
@@ -365,10 +365,10 @@ class InterviewRuntime:
     def _build_opening_prompt(self) -> str:
         """构建开场问候 prompt"""
         first_q = self.plan[0]["content"] if self.plan else "请做一个简短的自我介绍。"
-        
+
         from .interview_planner import ROUND_STRATEGIES
         strategy = ROUND_STRATEGIES.get(self.round_type, ROUND_STRATEGIES["tech_initial"])
-        
+
         prompt = f"""你是一位专业的面试官。这是第 {self.round_index} 轮面试（侧重：{strategy['focus']}）。
 
 请输出开场问候语，然后自然过渡到第一道面试题目。
@@ -416,10 +416,10 @@ class InterviewRuntime:
         allow_tool_request: bool = False,
     ) -> str:
         """构建评估 prompt"""
-        
+
         from .interview_planner import ROUND_STRATEGIES
         strategy = ROUND_STRATEGIES.get(self.round_type, ROUND_STRATEGIES["tech_initial"])
-        
+
         prompt = f"""你是一位专业的技术面试官。
 第 {self.round_index} 轮面试（侧重：{strategy['focus']}）。
 
@@ -458,18 +458,18 @@ class InterviewRuntime:
 
     async def execute_tools(self, tool_requests: List[Any]) -> Dict[str, Any]:
         """在 evaluating 状态显式执行工具调用（不做 Agent 自主决策）
-        
+
         Args:
             tool_requests: 工具请求列表，支持字符串名称或 {"tool_name", "tool_args"} 结构
-            
+
         Returns:
             工具执行结果字典
         """
         results = {}
-        
+
         if not self.tool_executor:
             return results
-        
+
         for request in tool_requests:
             if isinstance(request, str):
                 name = request
@@ -519,19 +519,19 @@ class InterviewRuntime:
                     event_type="tool.failed",
                     duration_ms=max(0, int((time.perf_counter() - started) * 1000)) if "started" in locals() else None,
                 )
-        
+
         return results
 
     def _format_tool_results(self) -> str:
         """格式化工具结果为上下文文本"""
         if not self.tool_results:
             return ""
-        
+
         parts = ["【可用参考信息】："]
         for name, result in self.tool_results.items():
             summary = str(result)[:300]
             parts.append(f"- {name}: {summary}")
-        
+
         return "\n".join(parts)
 
     # ------------------------------------------------------------------

@@ -31,6 +31,12 @@ class ResumeAssemblyUseCases:
     """简历组装应用服务。"""
 
     async def assemble_resume(self, *, request: dict, user_id: str) -> dict[str, object]:
+        """组装 `resume`。
+
+        Args:
+            request: 请求对象。
+            user_id: 当前用户标识。
+        """
         job_description = request.get("job_description")
         if not job_description:
             raise ResumeAssemblyBadRequest(message="job_description 为必填字段")
@@ -83,6 +89,12 @@ class ResumeAssemblyUseCases:
             raise ResumeAssemblyBadRequest(message=str(exc)) from exc
 
     async def list_assembly_results(self, *, user_id: str, limit: int) -> dict[str, object]:
+        """列出 `assembly results`。
+
+        Args:
+            user_id: 当前用户标识。
+            limit: 返回数量上限。
+        """
         try:
             results = await list_assembly_results(user_id=user_id, limit=limit)
             return {"success": True, "results": results}
@@ -90,12 +102,24 @@ class ResumeAssemblyUseCases:
             return {"success": False, "results": [], "message": str(exc)}
 
     async def get_assembly_result(self, *, result_id: int, user_id: str) -> dict[str, object]:
+        """获取 `assembly result`。
+
+        Args:
+            result_id: result 标识。
+            user_id: 当前用户标识。
+        """
         result = await get_assembly_result(result_id, user_id)
         if not result:
             raise ResumeAssemblyNotFound(message="组装结果不存在")
         return {"success": True, "result": result}
 
     async def delete_assembly_result(self, *, result_id: int, user_id: str) -> dict[str, object]:
+        """删除 `assembly result`。
+
+        Args:
+            result_id: result 标识。
+            user_id: 当前用户标识。
+        """
         success = await delete_assembly_result(result_id, user_id)
         if not success:
             raise ResumeAssemblyNotFound(message="结果不存在或无权删除")

@@ -84,6 +84,7 @@ async def get_checkpointer():
 
 
 def get_checkpointer_type() -> Optional[str]:
+    """获取 `checkpointer type`。"""
     return _checkpointer_type
 
 

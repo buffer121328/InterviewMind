@@ -40,6 +40,17 @@ from .resume import (
     build_reflect_prompt,
     build_resume_analysis_prompt,
 )
-from .voice import build_tts_system_prompt, build_voice_system_prompt, get_opening_message
+from .voice import (
+    build_interview_voice_system_prompt,
+    build_tts_system_prompt,
+    build_voice_system_prompt,
+    get_opening_message,
+)
+from .registry import PromptRegistry, PromptSpec, prompt_registry
 
-__all__ = [name for name in globals() if name.startswith('build_') or name == 'memo_hint' or name == 'get_opening_message']
+__all__ = [
+    name
+    for name in globals()
+    if name.startswith("build_")
+    or name in {"memo_hint", "get_opening_message", "PromptRegistry", "PromptSpec", "prompt_registry"}
+]

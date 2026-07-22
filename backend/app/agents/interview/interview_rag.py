@@ -7,9 +7,11 @@ import asyncio
 import logging
 import os
 from collections import Counter
-from dataclasses import dataclass, field, asdict, replace
+from dataclasses import replace
 from time import perf_counter
 from typing import List, Optional, Dict, Any
+
+from app.agents.interview.interview_rag_models import RagEvidence, RagResult, RetrievalQuery
 
 logger = logging.getLogger(__name__)
 
@@ -59,103 +61,6 @@ AGENTIC_MIN_EVIDENCES = _bounded_int_env("RAG_AGENTIC_MIN_EVIDENCES", 2, 1, 20)
 AGENTIC_MIN_SOURCE_TYPES = _bounded_int_env("RAG_AGENTIC_MIN_SOURCE_TYPES", 2, 1, 10)
 
 
-# ── 统一证据结构 ──────────────────────────────────────────
-
-
-@dataclass
-class RagEvidence:
-    """统一证据条目"""
-    source_type: str          # candidate_material, question_bank, weakness_report, jd_analysis, historical_question
-    source_id: str
-    source_title: str = ""
-    evidence: str = ""        # 证据内容摘要
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    retrieval_mode: str = "structured"  # structured, full_text, vector, hybrid
-    retrieval_score: float = 0.0
-    namespace: str = "user_private"
-    trust_level: str = "user_private"
-
-    def to_dict(self) -> Dict[str, Any]:
-        return asdict(self)
-
-
-@dataclass
-class RagResult:
-    """RAG 检索结果"""
-    retrieval_mode: str = "structured"  # structured, hybrid, fallback
-    fallback_reason: Optional[str] = None
-    evidences: List[RagEvidence] = field(default_factory=list)
-    query_used: str = ""
-    total_candidates: int = 0
-    retrieval_trace: Dict[str, Any] = field(default_factory=dict)
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "retrieval_mode": self.retrieval_mode,
-            "fallback_reason": self.fallback_reason,
-            "evidences": [e.to_dict() for e in self.evidences],
-            "query_used": self.query_used,
-            "total_candidates": self.total_candidates,
-            "retrieval_trace": self.retrieval_trace,
-        }
-
-    def to_legacy_context(self) -> Dict[str, Any]:
-        """
-        向后兼容：转换为 retrieval_repo 旧格式
-        让 interview_planner 的现有代码不用大改
-        """
-        bank_questions = []
-        candidate_materials = []
-        weakness_categories = []
-        historical_questions = []
-        jd_keywords = []
-
-        for ev in self.evidences:
-            if ev.source_type in {"question_bank", "question_bank_followup"}:
-                bank_questions.append({
-                    "id": ev.source_id,
-                    "question_text": ev.evidence,
-                    "target_skill": ev.metadata.get("target_skill"),
-                    "difficulty": ev.metadata.get("difficulty", "medium"),
-                    "tags": ev.metadata.get("tags", []),
-                })
-            elif ev.source_type == "candidate_material":
-                candidate_materials.append({
-                    "id": ev.source_id,
-                    "material_type": ev.metadata.get("material_type"),
-                    "title": ev.metadata.get("title", ev.source_title),
-                    "content": ev.evidence,
-                    "tags": ev.metadata.get("tags", []),
-                })
-            elif ev.source_type == "weakness_report":
-                weakness_categories.append({
-                    "category": ev.metadata.get("category"),
-                    "severity": ev.metadata.get("severity", "medium"),
-                    "description": ev.evidence,
-                })
-            elif ev.source_type == "historical_question":
-                historical_questions.append(ev.evidence)
-            elif ev.source_type == "jd_analysis":
-                # 提取关键词
-                keywords = ev.metadata.get("matched_keywords", [])
-                keywords.extend(ev.metadata.get("missing_keywords", []))
-                jd_keywords.extend(keywords)
-
-        return {
-            "jd_keywords": list(dict.fromkeys(jd_keywords)),
-            "weakness_categories": weakness_categories,
-            "historical_questions": historical_questions,
-            "bank_questions": bank_questions,
-            "candidate_materials": candidate_materials,
-            "retrieval_mode": self.retrieval_mode,
-            "fallback_reason": self.fallback_reason,
-            # 新增字段：RAG 证据包
-            "rag_evidences": [e.to_dict() for e in self.evidences],
-            # 可观测元数据，不包含简历/JD 正文
-            "rag_trace": self.retrieval_trace,
-        }
-
-
 # ── 来源优先级 ────────────────────────────────────────────
 
 _SOURCE_PRIORITY = {
@@ -170,16 +75,6 @@ _SOURCE_PRIORITY = {
 
 
 # ── Query Builder ─────────────────────────────────────────
-
-
-@dataclass
-class RetrievalQuery:
-    """结构化检索 query"""
-    text: str = ""
-    source_types: Optional[List[str]] = None
-    target_skills: Optional[List[str]] = None
-    tags: Optional[List[str]] = None
-    is_verified: Optional[bool] = None
 
 
 def build_queries(
@@ -631,6 +526,11 @@ async def run_rag_pipeline(
             ).strip()
 
             async def retrieve_agentic_query(query: AgenticSearchQuery) -> List[RagEvidence]:
+                """检索 `agentic query`。
+
+                Args:
+                    query: 查询条件。
+                """
                 nonlocal agentic_candidate_count
                 requested_sources = set(query.source_types)
                 search_memory_branch = not requested_sources or "memory" in requested_sources

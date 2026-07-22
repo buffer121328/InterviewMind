@@ -5,13 +5,13 @@ from datetime import datetime
 from sqlalchemy import select, update, delete, func
 
 from app.schemas.session import (
-    InterviewSession, 
-    SessionListItem, 
+    InterviewSession,
+    SessionListItem,
     SessionMetadata,
     MessageItem
 )
 from app.infrastructure.db.models import async_session, SessionModel, MessageModel
-from app.agents.interview.question_defaults import resolve_max_questions, resolve_round_type
+from app.domain.interview_rounds import resolve_max_questions, resolve_round_type
 from .base import BaseService
 
 logger = logging.getLogger(__name__)
@@ -39,9 +39,9 @@ class SessionManagementService(BaseService):
             mode_text = "辅导模式" if mode == "coach" else "模拟面试"
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
             title = f"{mode_text} - {timestamp}"
-        
+
         now = datetime.now()
-        
+
         async with async_session() as db:
             try:
                 db_obj = SessionModel(
@@ -63,10 +63,10 @@ class SessionManagementService(BaseService):
                 )
                 db.add(db_obj)
                 await db.commit()
-                
+
                 logger.info(f"创建新会话: {session_id}")
                 return await self.get_session(session_id)
-                
+
             except Exception as e:
                 if 'duplicate key' in str(e).lower():
                     logger.error(f"会话已存在: {session_id}")
@@ -74,9 +74,9 @@ class SessionManagementService(BaseService):
                 raise
 
     async def get_session(
-        self, 
-        session_id: str, 
-        include_resume_content: bool = False, 
+        self,
+        session_id: str,
+        include_resume_content: bool = False,
         user_id: Optional[str] = None
     ) -> Optional[InterviewSession]:
         """获取会话详情"""
@@ -123,10 +123,10 @@ class SessionManagementService(BaseService):
                 parent_session_id=row.parent_session_id,
                 interview_plan=row.interview_plan if row.interview_plan else []
             )
-            
+
             created_at = row.created_at
             updated_at = row.updated_at
-            
+
             return InterviewSession(
                 session_id=row.session_id,
                 title=row.title,
@@ -151,10 +151,10 @@ class SessionManagementService(BaseService):
             values: Dict[str, Any] = {"updated_at": datetime.now()}
             if title is not None:
                 values["title"] = title
-            
+
             if status is not None:
                 values["status"] = status
-            
+
             if metadata_updates:
                 for key, value in metadata_updates.items():
                     if key in ['question_count', 'max_questions', 'resume_filename', 'job_description', 'pinned', 'round_type']:
@@ -164,7 +164,7 @@ class SessionManagementService(BaseService):
                 await db.execute(stmt)
                 await db.commit()
                 logger.info(f"更新会话: {session_id}")
-            
+
             return await self.get_session(session_id, user_id=user_id)
 
     async def list_sessions(
@@ -192,21 +192,21 @@ class SessionManagementService(BaseService):
             ).outerjoin(MessageModel, MessageModel.session_id == SessionModel.session_id).group_by(SessionModel.session_id)
             if status:
                 stmt = stmt.where(SessionModel.status == status)
-            
+
             if mode:
                 stmt = stmt.where(SessionModel.mode == mode)
-            
+
             if user_id:
                 stmt = stmt.where(SessionModel.user_id == user_id)
-            
+
             stmt = stmt.order_by(SessionModel.pinned.desc(), SessionModel.updated_at.desc()).limit(limit).offset(offset)
             rows = (await db.execute(stmt)).all()
-            
+
             sessions = []
             for row in rows:
                 created_at = row.created_at
                 updated_at = row.updated_at
-                
+
                 sessions.append(SessionListItem(
                     session_id=row.session_id,
                     title=row.title,
@@ -220,7 +220,7 @@ class SessionManagementService(BaseService):
                     round_index=row.round_index or 1,
                     round_type=row.round_type or 'tech_initial'
                 ))
-            
+
             return sessions
 
     async def delete_session(self, session_id: str, user_id: Optional[str] = None) -> bool:
@@ -228,19 +228,19 @@ class SessionManagementService(BaseService):
         async with async_session() as db:
             if not await self._check_session_access(session_id, user_id):
                 return False
-            
+
             try:
                 await db.execute(update(SessionModel).where(SessionModel.parent_session_id == session_id).values(parent_session_id=None))
                 await db.execute(delete(MessageModel).where(MessageModel.session_id == session_id))
                 await db.execute(delete(SessionModel).where(SessionModel.session_id == session_id))
-                
+
                 try:
                     await db.exec_driver_sql('DELETE FROM checkpoints WHERE thread_id = $1', (session_id,))
                     await db.exec_driver_sql('DELETE FROM writes WHERE thread_id = $1', (session_id,))
                 except:
                     pass
                 await db.commit()
-                
+
                 logger.info(f"✓ 成功删除会话及所有关联数据: {session_id}")
                 return True
             except Exception as e:

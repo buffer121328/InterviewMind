@@ -82,12 +82,12 @@ async def analyze_jd_match(
 ) -> Dict[str, Any]:
     """
     执行 JD 匹配分析
-    
+
     Args:
         resume_content: 简历内容
         job_description: 目标职位描述
         api_config: API 配置
-        
+
     Returns:
         分析结果字典
     """
@@ -101,14 +101,14 @@ async def analyze_jd_match(
     project_score = float(result.project_match_score)
     experience_score = float(result.experience_match_score)
     education_score = float(result.education_match_score)
-    
+
     overall_score = (
         skill_score * 0.35 +
         project_score * 0.30 +
         experience_score * 0.25 +
         education_score * 0.10
     )
-    
+
     # 构建标准化输出
     analysis_result = {
         "overall_match_score": round(overall_score, 1),
@@ -123,6 +123,6 @@ async def analyze_jd_match(
         "priority_actions": result.priority_actions,
         "selection_hints": result.selection_hints,
     }
-    
+
     logger.info(f"JD 匹配分析完成: overall={overall_score:.1f}")
     return analysis_result

@@ -34,6 +34,12 @@ class ProjectRewriteUseCases:
     """项目经历重写应用服务。"""
 
     async def rewrite(self, *, request: ProjectRewriteRequest, user_id: str) -> ProjectRewriteResponse:
+        """异步执行 `rewrite` 相关逻辑。
+
+        Args:
+            request: 请求对象。
+            user_id: 当前用户标识。
+        """
         if not request.project_content.strip():
             raise ProjectRewriteBadRequest(message="请输入项目内容")
         if not request.project_title.strip():
@@ -72,6 +78,13 @@ class ProjectRewriteUseCases:
         rewrite_mode: str | None,
         limit: int,
     ) -> ProjectRewriteHistoryResponse:
+        """列出 `results`。
+
+        Args:
+            user_id: 当前用户标识。
+            rewrite_mode: 调用方传入的 `rewrite_mode` 参数。
+            limit: 返回数量上限。
+        """
         try:
             records = await get_project_rewrite_repo().list_rewrites(
                 user_id=user_id,
@@ -94,12 +107,24 @@ class ProjectRewriteUseCases:
             return ProjectRewriteHistoryResponse(success=False, message=str(exc))
 
     async def get_result(self, *, rewrite_id: int, user_id: str) -> ProjectRewriteDetailResponse:
+        """获取 `result`。
+
+        Args:
+            rewrite_id: rewrite 标识。
+            user_id: 当前用户标识。
+        """
         record = await get_project_rewrite_repo().get_rewrite(rewrite_id, user_id)
         if not record:
             raise ProjectRewriteNotFound(message="重写记录不存在")
         return ProjectRewriteDetailResponse(success=True, record=record)
 
     async def delete_result(self, *, rewrite_id: int, user_id: str) -> dict[str, object]:
+        """删除 `result`。
+
+        Args:
+            rewrite_id: rewrite 标识。
+            user_id: 当前用户标识。
+        """
         success = await get_project_rewrite_repo().delete_rewrite(rewrite_id, user_id)
         if not success:
             raise ProjectRewriteNotFound(message="记录不存在或无权删除")
