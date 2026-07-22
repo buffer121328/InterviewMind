@@ -4,10 +4,10 @@ import pytest
 
 from app.infrastructure.runtime.context import AgentContext
 from app.infrastructure.runtime.graphs import graph_registry
-from app.prompts.runtime import prompt_registry
+from app.prompts import prompt_registry
 from app.infrastructure.runtime.middleware import build_default_middleware, contains_prompt_injection
 from app.infrastructure.runtime.models.registry import ModelProviderRegistry
-from app.tools.runtime import (
+from app.tools import (
     ToolExecutionGuard,
     ToolExecutionPolicy,
     ToolRegistry,
@@ -75,7 +75,12 @@ def test_default_registries_expose_business_capabilities():
 
 
 def test_prompt_registry_renders_registered_production_builder():
-    rendered = prompt_registry.get("resume.jd_match.user", "1").render(
+    from langchain_core.prompts import BasePromptTemplate
+
+    spec = prompt_registry.get("resume.jd_match.user", "1")
+    assert isinstance(spec.template, BasePromptTemplate)
+
+    rendered = spec.render(
         resume_content="熟悉 Python",
         job_description="需要 FastAPI",
     )
@@ -124,7 +129,7 @@ def test_memory_tools_can_be_built_through_runtime_registry():
 
 @pytest.mark.asyncio
 async def test_tool_guard_emits_audit_records_for_successful_calls():
-    from app.tools.runtime.executor import ToolExecutionGuard
+    from app.tools.executor import ToolExecutionGuard
 
     audit_events: list[dict] = []
     guard = ToolExecutionGuard()

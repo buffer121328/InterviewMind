@@ -10,7 +10,13 @@ logger = logging.getLogger(__name__)
 
 
 class InterviewRetrievalService:
+    """封装业务服务能力。"""
     def __init__(self, structured_repo: RetrievalRepo | None = None) -> None:
+        """初始化当前对象实例。
+
+        Args:
+            structured_repo: structured 仓储对象。
+        """
         self._structured_repo = structured_repo or get_retrieval_repo()
 
     async def retrieve_for_question_generation(
@@ -23,6 +29,17 @@ class InterviewRetrievalService:
         weakness_report: Optional[Dict] = None,
         limit: int = 10,
     ) -> Dict[str, Any]:
+        """检索 `for question generation`。
+
+        Args:
+            user_id: 当前用户标识。
+            job_description: 调用方传入的 `job_description` 参数。
+            target_skills: 调用方传入的 `target_skills` 参数。
+            session_id: 会话标识。
+            round_type: 调用方传入的 `round_type` 参数。
+            weakness_report: 调用方传入的 `weakness_report` 参数。
+            limit: 返回数量上限。
+        """
         try:
             result = await rag_retrieve_for_interview(
                 user_id=user_id,
@@ -56,6 +73,7 @@ _retrieval_service: InterviewRetrievalService | None = None
 
 
 def get_interview_retrieval_service() -> InterviewRetrievalService:
+    """获取 `interview retrieval service`。"""
     global _retrieval_service
     if _retrieval_service is None:
         _retrieval_service = InterviewRetrievalService()

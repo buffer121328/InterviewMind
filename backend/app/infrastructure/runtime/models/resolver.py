@@ -8,6 +8,7 @@ from app.infrastructure.runtime.context import AgentContext
 
 @dataclass(frozen=True, slots=True)
 class ModelRequest:
+    """表示请求数据结构。"""
     channel: str = "smart"
     capability: str = "structured_output"
     temperature: float = 0.7
@@ -18,9 +19,15 @@ class ModelResolver:
     """保留现有通道回退语义的统一解析入口。"""
 
     def resolve(self, request: ModelRequest, context: AgentContext) -> list[Any]:
-        from app.infrastructure.llm.llms import get_llm_candidates_for_request
+        """解析 当前对象。
 
-        return get_llm_candidates_for_request(
+        Args:
+            request: 请求对象。
+            context: 运行上下文。
+        """
+        from app.infrastructure.llm.llms import model_gateway
+
+        return model_gateway.get_chat_candidates(
             api_config=dict(context.api_config),
             channel=request.channel,
         )
@@ -32,6 +39,13 @@ class ModelResolver:
         *,
         user_id: str = "system",
     ) -> list[Any]:
+        """解析 `config`。
+
+        Args:
+            request: 请求对象。
+            api_config: api 配置。
+            user_id: 当前用户标识。
+        """
         return self.resolve(
             request,
             AgentContext(user_id=user_id, api_config=api_config),

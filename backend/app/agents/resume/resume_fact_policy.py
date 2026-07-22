@@ -52,16 +52,16 @@ def detect_keyword_stuffing(
 ) -> List[Dict[str, str]]:
     """
     检测是否将 JD 关键词硬塞进简历导致失真。
-    
+
     返回风险标记列表。
     """
     risks = []
-    
+
     for kw in jd_keywords:
         kw_lower = kw.lower()
         in_new = kw_lower in assembled_resume.lower()
         in_old = kw_lower in original_resume.lower()
-        
+
         # 关键词在新简历中出现但原简历没有
         if in_new and not in_old:
             # 检查是否出现在合理上下文
@@ -74,7 +74,7 @@ def detect_keyword_stuffing(
                     "severity": "medium",
                     "suggestion": f"确认「{kw}」是否确实具备，如不具备请删除或改为「了解」"
                 })
-    
+
     return risks
 
 
@@ -94,7 +94,7 @@ def _is_suspicious_context(context: str, keyword: str) -> bool:
     skill_sections = ["技能", "技术栈", "专业技能", "掌握"]
     if any(s in context for s in skill_sections):
         return False
-    
+
     # 如果在项目描述中独立出现但没有具体细节，可能是硬塞
     return True
 
@@ -111,13 +111,13 @@ def validate_change_items(
 ) -> Dict[str, Any]:
     """
     对改写项进行综合事实核验。
-    
+
     Args:
         change_items: 阶段3产出的改写项列表
         original_resume: 原始简历
         assembled_resume: 组装后的简历
         job_description: 目标岗位 JD
-        
+
     Returns:
         核验结果 dict:
         {
@@ -131,7 +131,7 @@ def validate_change_items(
     risk_flags = []
     fact_inference_items = []
     exaggeration_items = []
-    
+
     # 1. 检查每条 fact_inference 改写
     for item in change_items:
         if item.get("change_type") == "fact_inference":
@@ -141,7 +141,7 @@ def validate_change_items(
                 "optimized_text": item.get("optimized_text", ""),
                 "risk": "推断内容需用户确认",
             })
-    
+
     # 2. 夸大检测
     if assembled_resume:
         for pattern, desc in EXAGGERATION_PATTERNS:
@@ -155,21 +155,21 @@ def validate_change_items(
                         "matched_value": value,
                         "description": desc,
                     })
-    
+
     # 3. JD 关键词检测
     jd_keywords = _extract_jd_keywords(job_description)
     keyword_risks = detect_keyword_stuffing(assembled_resume, jd_keywords, original_resume)
-    
+
     # 汇总风险级别
     risk_flags = fact_inference_items + exaggeration_items + keyword_risks
-    
+
     if len(risk_flags) >= 5 or len(fact_inference_items) >= 3:
         overall_risk = "high"
     elif len(risk_flags) >= 2:
         overall_risk = "medium"
     else:
         overall_risk = "low"
-    
+
     return {
         "overall_risk": overall_risk,
         "risk_flags": risk_flags,
@@ -192,7 +192,7 @@ def _extract_jd_keywords(job_description: str) -> List[str]:
         "微服务", "分布式", "高并发", "大数据", "机器学习",
         "AI", "LLM", "NLP", "计算机视觉",
     ]
-    
+
     jd_lower = job_description.lower()
     found = [kw for kw in tech_keywords if kw.lower() in jd_lower]
     return found

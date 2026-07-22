@@ -9,7 +9,7 @@ from typing import Any, Iterable, Mapping
 
 from fastapi import HTTPException
 
-from app.agents.interview.question_defaults import resolve_max_questions, resolve_round_type
+from app.domain.interview_rounds import resolve_max_questions, resolve_round_type
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +54,11 @@ class InterviewContextSnapshot:
 
 
 def _question_dict(item: Any) -> dict[str, Any]:
+    """执行 `_question_dict` 相关逻辑。
+
+    Args:
+        item: 单条数据。
+    """
     if hasattr(item, "model_dump"):
         return deepcopy(item.model_dump())
     if isinstance(item, Mapping):

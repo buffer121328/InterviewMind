@@ -28,10 +28,10 @@ from app.agents.interview.interview_planner import (
 # 被测模块 ─ LLM 工具
 from app.infrastructure.llm.llm_utils import clean_json_response
 # 被测模块 ─ 简历优化图
-from app.agents.resume.resume_optimizer_graph import build_resume_optimizer_graph
+from app.agents.resume.resume_orchestrator import build_resume_optimizer_graph
 
 # conftest helpers
-from tests.eval.conftest import build_test_state, build_resume_test_state
+from .conftest import build_test_state
 
 
 # ============================================================================
@@ -334,8 +334,9 @@ class TestBuildResumeOptimizerGraph:
         compiled_graph = graph.get_graph()
         node_ids = set(compiled_graph.nodes.keys())
         expected_nodes = {
-            "prepare", "match_analyst", "content_writer",
-            "hr_reviewer", "moderator", "reflect", "refine", "finalize",
+            "stage1_jd_analysis", "stage2_material_selection", "stage3_custom_rewrite",
+            "stage4_assemble", "stage5_fact_check", "stage5_quality_judge",
+            "stage5_targeted_retry", "stage6_confirmation_prep",
             "__start__", "__end__",
         }
         assert expected_nodes.issubset(node_ids), (

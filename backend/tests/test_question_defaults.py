@@ -1,6 +1,6 @@
 import pytest
 
-from app.agents.interview.question_defaults import (
+from app.domain.interview_rounds import (
     default_questions_for_round_type,
     resolve_max_questions,
     resolve_round_type,

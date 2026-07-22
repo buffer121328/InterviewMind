@@ -14,6 +14,7 @@ from .registry import ToolEffect
 
 @dataclass(frozen=True, slots=True)
 class ToolExecutionPolicy:
+    """定义策略规则。"""
     timeout_seconds: float = 30.0
     max_calls: int = 20
     max_retries: int = 0
@@ -25,6 +26,7 @@ class ToolExecutionPolicy:
 
 @dataclass(frozen=True, slots=True)
 class ToolAuditRecord:
+    """表示持久化记录。"""
     tool_name: str
     effect: ToolEffect
     status: str
@@ -45,6 +47,12 @@ class ToolApprovalRequired(PermissionError):
         tool_name: str,
         message: str = "tool requires explicit confirmation",
     ) -> None:
+        """初始化当前对象实例。
+
+        Args:
+            tool_name: tool 名称。
+            message: 消息内容。
+        """
         super().__init__(message)
         self.tool_name = tool_name
 
@@ -53,6 +61,11 @@ class ToolExecutionGuard:
     """一次运行内共享的工具安全边界。"""
 
     def __init__(self, policy: ToolExecutionPolicy | None = None) -> None:
+        """初始化当前对象实例。
+
+        Args:
+            policy: 调用方传入的 `policy` 参数。
+        """
         self.policy = policy or ToolExecutionPolicy()
         self.calls = 0
 
@@ -70,6 +83,20 @@ class ToolExecutionGuard:
         audit_callback: Callable[[dict[str, Any]], None] | None = None,
         **kwargs: Any,
     ) -> Any:
+        """执行 当前对象。
+
+        Args:
+            call: 调用方传入的 `call` 参数。
+            context: 运行上下文。
+            effect: 调用方传入的 `effect` 参数。
+            required_permissions: 调用方传入的 `required_permissions` 参数。
+            requires_confirmation: 调用方传入的 `requires_confirmation` 参数。
+            confirmed: 调用方传入的 `confirmed` 参数。
+            tool_name: tool 名称。
+            audit_callback: 调用方传入的 `audit_callback` 参数。
+            *args: 调用方传入的 `args` 参数。
+            **kwargs: 调用方传入的 `kwargs` 参数。
+        """
         missing = set(required_permissions).difference(context.permissions)
         if missing:
             raise PermissionError(f"tool requires permissions: {', '.join(sorted(missing))}")
@@ -140,6 +167,11 @@ _SECRET_KEYS = {"api_key", "apikey", "authorization", "token", "secret", "passwo
 
 
 def _validate_outbound_values(value: Any) -> None:
+    """校验 `outbound values`。
+
+    Args:
+        value: 取值。
+    """
     if isinstance(value, str):
         if value.lower().startswith(("http://", "https://")):
             _validate_public_url(value)
@@ -153,6 +185,11 @@ def _validate_outbound_values(value: Any) -> None:
 
 
 def _validate_public_url(value: str) -> None:
+    """校验 `public url`。
+
+    Args:
+        value: 取值。
+    """
     parsed = urlparse(value)
     hostname = (parsed.hostname or "").rstrip(".").lower()
     if parsed.username or parsed.password:
@@ -172,6 +209,11 @@ def _validate_public_url(value: str) -> None:
 
 
 def _redact(value: Any) -> Any:
+    """执行 `_redact` 相关逻辑。
+
+    Args:
+        value: 取值。
+    """
     if isinstance(value, dict):
         return {
             key: "[REDACTED]" if str(key).lower() in _SECRET_KEYS else _redact(item)
@@ -182,15 +224,3 @@ def _redact(value: Any) -> Any:
     if isinstance(value, tuple):
         return tuple(_redact(item) for item in value)
     return value
-
-
-async def execute_tool(
-    call: Callable[..., Awaitable[Any]],
-    /,
-    *args: Any,
-    policy: ToolExecutionPolicy | None = None,
-    **kwargs: Any,
-) -> Any:
-    """兼容旧调用；新 Agent 应复用同一个 ToolExecutionGuard。"""
-    current = policy or ToolExecutionPolicy()
-    return await asyncio.wait_for(call(*args, **kwargs), timeout=current.timeout_seconds)

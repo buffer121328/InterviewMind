@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from app.tools.runtime import ToolExecutionGuard, ToolExecutionPolicy
+from app.tools import ToolExecutionGuard, ToolExecutionPolicy
 from app.infrastructure.browser.boss_agent import _build_boss_graph
 from app.infrastructure.browser.boss_tools import open_boss_search_page
 

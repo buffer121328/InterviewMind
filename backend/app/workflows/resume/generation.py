@@ -13,7 +13,7 @@ from app.schemas.resume_schemas import (
     ResumeGenerateSubmitResponse,
 )
 from app.agents.resume.result_mapper import pipeline_to_optimize_result
-from app.agents.resume.resume_generation_graph import (
+from app.agents.resume.resume_generation_sessions import (
     get_session_status,
     init_generation_session,
     submit_user_answers,
@@ -49,6 +49,12 @@ class ResumeGenerationUseCases:
         request: ResumeGenerateInitRequest,
         user_id: str,
     ) -> ResumeGenerateInitResponse:
+        """异步执行 `init_resume_generation` 相关逻辑。
+
+        Args:
+            request: 请求对象。
+            user_id: 当前用户标识。
+        """
         if not request.api_config:
             raise ResumeGenerationBadRequest(message="请先配置 API Key")
 
@@ -91,6 +97,12 @@ class ResumeGenerationUseCases:
         request: ResumeGenerateSubmitRequest,
         user_id: str,
     ) -> ResumeGenerateSubmitResponse:
+        """异步执行 `submit_generation_answers` 相关逻辑。
+
+        Args:
+            request: 请求对象。
+            user_id: 当前用户标识。
+        """
         if not request.api_config:
             raise ResumeGenerationBadRequest(message="请先配置 API Key")
         try:
@@ -110,12 +122,24 @@ class ResumeGenerationUseCases:
         )
 
     async def get_generation_session_status(self, *, session_id: str, user_id: str) -> dict[str, object]:
+        """获取 `generation session status`。
+
+        Args:
+            session_id: 会话标识。
+            user_id: 当前用户标识。
+        """
         status = await get_session_status(session_id, user_id)
         if not status:
             raise ResumeGenerationNotFound(message="会话不存在或已过期")
         return {"success": True, "data": status}
 
     async def list_generated_resumes(self, *, user_id: str, limit: int) -> GeneratedResumesResponse:
+        """列出 `generated resumes`。
+
+        Args:
+            user_id: 当前用户标识。
+            limit: 返回数量上限。
+        """
         try:
             resumes = await get_generation_repo().list_generated_resumes(user_id, limit)
             return GeneratedResumesResponse(
@@ -134,12 +158,25 @@ class ResumeGenerationUseCases:
             return GeneratedResumesResponse(success=False, message=str(exc))
 
     async def get_generated_resume(self, *, resume_id: int, user_id: str) -> dict[str, object]:
+        """获取 `generated resume`。
+
+        Args:
+            resume_id: 简历标识。
+            user_id: 当前用户标识。
+        """
         resume = await get_generation_repo().get_generated_resume(resume_id, user_id)
         if not resume:
             raise ResumeGenerationNotFound(message="简历不存在")
         return {"success": True, "resume": resume}
 
     async def update_generated_resume(self, *, resume_id: int, request: dict, user_id: str) -> dict[str, object]:
+        """更新 `generated resume`。
+
+        Args:
+            resume_id: 简历标识。
+            request: 请求对象。
+            user_id: 当前用户标识。
+        """
         content = request.get("content")
         title = request.get("title")
         if not content and not title:
@@ -155,6 +192,12 @@ class ResumeGenerationUseCases:
         return {"success": True, "message": "更新成功"}
 
     async def delete_generated_resume(self, *, resume_id: int, user_id: str) -> dict[str, object]:
+        """删除 `generated resume`。
+
+        Args:
+            resume_id: 简历标识。
+            user_id: 当前用户标识。
+        """
         success = await get_generation_repo().delete_generated_resume(resume_id, user_id)
         if not success:
             raise ResumeGenerationNotFound(message="简历不存在或无权删除")

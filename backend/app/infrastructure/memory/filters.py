@@ -72,61 +72,61 @@ def should_skip_write(
 ) -> bool:
     """
     判断是否应该跳过写入 mem0
-    
+
     Args:
         user_message: 用户消息
         assistant_message: 助手回复
         min_chinese_chars: 最小中文字符数
         min_english_chars: 最小英文字符数
-        
+
     Returns:
         bool: True 表示应该跳过写入
     """
     # 检查消息是否为空
     if not user_message or not user_message.strip():
         return True
-    
+
     if not assistant_message or not assistant_message.strip():
         return True
-    
+
     # 去除空白
     user_msg = user_message.strip()
-    
+
     # 检查长度（中文字符按 1 计，英文按字符计）
     chinese_chars = len(re.findall(r'[\u4e00-\u9fff]', user_msg))
     english_chars = len(re.findall(r'[a-zA-Z]', user_msg))
-    
+
     # 如果主要是中文，检查中文字符数
     if chinese_chars > 0 and chinese_chars < min_chinese_chars:
         # 但如果包含偏好信号，允许写入
         if not contains_preference_signal(user_msg):
             return True
-    
+
     # 如果主要是英文，检查英文字符数
     if chinese_chars == 0 and english_chars < min_english_chars:
         if not contains_preference_signal(user_msg):
             return True
-    
+
     # 检查低价值模式
     for pattern in LOW_VALUE_PATTERNS:
         if re.match(pattern, user_msg, re.IGNORECASE):
             return True
-    
+
     # 检查敏感信息
     if contains_sensitive_info(user_msg):
         logger.debug("消息包含敏感信息，跳过写入")
         return True
-    
+
     return False
 
 
 def contains_preference_signal(text: str) -> bool:
     """
     检查文本是否包含偏好信号
-    
+
     Args:
         text: 文本内容
-        
+
     Returns:
         bool: 是否包含偏好信号
     """
@@ -137,10 +137,10 @@ def contains_preference_signal(text: str) -> bool:
 def contains_fact_signal(text: str) -> bool:
     """
     检查文本是否包含候选人事实信号
-    
+
     Args:
         text: 文本内容
-        
+
     Returns:
         bool: 是否包含事实信号
     """
@@ -151,10 +151,10 @@ def contains_fact_signal(text: str) -> bool:
 def contains_sensitive_info(text: str) -> bool:
     """
     检查文本是否包含敏感信息
-    
+
     Args:
         text: 文本内容
-        
+
     Returns:
         bool: 是否包含敏感信息
     """
@@ -167,33 +167,33 @@ def contains_sensitive_info(text: str) -> bool:
 def extract_memory_type_hint(text: str) -> Optional[str]:
     """
     从文本中提取记忆类型提示
-    
+
     用于辅助 mem0 的记忆分类。
-    
+
     Args:
         text: 文本内容
-        
+
     Returns:
         str: 记忆类型提示，如果没有明确信号则返回 None
     """
     text_lower = text.lower()
-    
+
     # 检查偏好信号
     if any(signal in text_lower for signal in PREFERENCE_SIGNALS):
         return "preference"
-    
+
     # 检查事实信号
     if any(signal in text_lower for signal in FACT_SIGNALS):
         return "candidate_fact"
-    
+
     # 检查短板相关
     weakness_signals = ["短板", "不足", "薄弱", "欠缺", "需要改进", "weakness", "improve"]
     if any(signal in text_lower for signal in weakness_signals):
         return "weakness"
-    
+
     # 检查目标相关
     goal_signals = ["目标", "计划", "练习", "下次", "goal", "plan", "practice"]
     if any(signal in text_lower for signal in goal_signals):
         return "practice_goal"
-    
+
     return None

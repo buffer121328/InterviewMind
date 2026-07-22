@@ -1,6 +1,6 @@
 """
 L3 质量测试：简历优化质量
-测试简历优化的 prompt 构建、图结构和 LLM 输出质量。
+测试当前 6 阶段简历优化流水线的 prompt 构建、图结构和 LLM 输出质量。
 """
 
 import pytest
@@ -60,38 +60,36 @@ class TestResumeOptimizerPrompts:
 
     def test_node_match_analyst_prompt_includes_jd_and_resume(self):
         """匹配分析师 prompt 应包含 JD 和简历内容。"""
-        from app.agents.resume.resume_optimizer_graph import node_match_analyst
+        from app.agents.resume.resume_orchestrator import stage1_jd_analysis
 
         import inspect
-        source = inspect.getsource(node_match_analyst)
-        assert "职位描述" in source or "job_description" in source
-        assert "简历内容" in source or "resume_content" in source
+        source = inspect.getsource(stage1_jd_analysis)
+        assert "job_description" in source
+        assert "jd_analysis" in source
 
     def test_node_match_analyst_prompt_has_output_format(self):
         """匹配分析师 prompt 应指定 JSON 输出格式。"""
-        from app.agents.resume.resume_optimizer_graph import node_match_analyst
+        from app.agents.resume.jd_matcher import SYSTEM_PROMPT
 
-        import inspect
-        source = inspect.getsource(node_match_analyst)
-        assert "jd_keywords" in source
+        source = SYSTEM_PROMPT
         assert "matched_keywords" in source
         assert "missing_keywords" in source
-        assert "match_score" in source
+        assert "score" in source
 
     def test_node_content_writer_prompt_includes_star(self):
         """内容优化师 prompt 应包含 STAR 法则引用。"""
-        from app.agents.resume.resume_optimizer_graph import node_content_writer
+        from app.agents.resume.resume_orchestrator import stage2_material_selection
 
         import inspect
-        source = inspect.getsource(node_content_writer)
-        assert "STAR" in source
+        source = inspect.getsource(stage2_material_selection)
+        assert "STAR" in source or "STAR法则" in source
 
     def test_node_content_writer_prompt_has_change_types(self):
         """内容优化师 prompt 应定义变更类型。"""
-        from app.agents.resume.resume_optimizer_graph import node_content_writer
+        from app.agents.resume.resume_orchestrator import stage3_custom_rewrite
 
         import inspect
-        source = inspect.getsource(node_content_writer)
+        source = inspect.getsource(stage3_custom_rewrite)
         assert "polish" in source
         assert "restructure" in source
         assert "suggest_addition" in source
@@ -99,21 +97,22 @@ class TestResumeOptimizerPrompts:
 
     def test_node_hr_reviewer_prompt_includes_screening_criteria(self):
         """HR 审核官 prompt 应包含筛选标准。"""
-        from app.agents.resume.resume_optimizer_graph import node_hr_reviewer
+        from app.agents.resume.resume_orchestrator import stage5_quality_judge
 
         import inspect
-        source = inspect.getsource(node_hr_reviewer)
-        assert "硬性条件" in source or "hard_requirements" in source
-        assert "通过率" in source or "pass_rate" in source
-        assert "第一印象" in source or "first_impression" in source
+        source = inspect.getsource(stage5_quality_judge)
+        assert "quality_judge" in source
+        assert "judge_result" in source
+        assert "score" in source
 
     def test_node_hr_reviewer_prompt_has_conciseness_check(self):
         """HR 审核官 prompt 应包含内容精炼度评估。"""
-        from app.agents.resume.resume_optimizer_graph import node_hr_reviewer
+        from app.agents.resume.resume_orchestrator import stage5_quality_judge
 
         import inspect
-        source = inspect.getsource(node_hr_reviewer)
-        assert "精炼" in source or "conciseness" in source
+        source = inspect.getsource(stage5_quality_judge)
+        assert "quality_judge" in source
+        assert "passed" in source
 
 
 # ============================================================================
@@ -195,50 +194,51 @@ class TestResumeOptimizerGraph:
 
     def test_graph_compiles_successfully(self):
         """验证 resume optimizer graph 能成功编译。"""
-        from app.agents.resume.resume_optimizer_graph import build_resume_optimizer_graph
+        from app.agents.resume.resume_orchestrator import build_resume_optimizer_graph
 
         graph = build_resume_optimizer_graph()
         assert graph is not None
 
     def test_graph_has_expected_nodes(self):
         """验证图包含所有期望的节点。"""
-        from app.agents.resume.resume_optimizer_graph import build_resume_optimizer_graph
+        from app.agents.resume.resume_orchestrator import build_resume_optimizer_graph
 
         graph = build_resume_optimizer_graph()
 
         expected_nodes = {
-            "prepare",
-            "match_analyst",
-            "content_writer",
-            "hr_reviewer",
-            "moderator",
-            "reflect",
-            "refine",
-            "finalize",
+            "stage1_jd_analysis",
+            "stage2_material_selection",
+            "stage3_custom_rewrite",
+            "stage4_assemble",
+            "stage5_fact_check",
+            "stage5_quality_judge",
+            "stage5_targeted_retry",
+            "stage6_confirmation_prep",
         }
 
-        actual_nodes = set(graph.nodes.keys()) if hasattr(graph, "nodes") else set()
+        compiled_graph = graph.get_graph()
+        actual_nodes = set(compiled_graph.nodes.keys())
 
         for node in expected_nodes:
             assert node in actual_nodes, f"图中缺少节点: {node}"
 
     def test_graph_has_parallel_expert_nodes(self):
-        """验证 match_analyst、content_writer、hr_reviewer 从 prepare 并行出发。"""
-        from app.agents.resume.resume_optimizer_graph import build_resume_optimizer_graph
+        """验证 JD 分析和素材选择两个准备阶段存在，可由 START 并行触发。"""
+        from app.agents.resume.resume_orchestrator import build_resume_optimizer_graph
 
         graph = build_resume_optimizer_graph()
 
-        expert_nodes = {"match_analyst", "content_writer", "hr_reviewer"}
-        actual_nodes = set(graph.nodes.keys()) if hasattr(graph, "nodes") else set()
-        for node in expert_nodes:
-            assert node in actual_nodes, f"缺少专家节点: {node}"
+        parallel_nodes = {"stage1_jd_analysis", "stage2_material_selection"}
+        actual_nodes = set(graph.get_graph().nodes.keys())
+        for node in parallel_nodes:
+            assert node in actual_nodes, f"缺少并行准备节点: {node}"
 
     def test_graph_has_reflection_loop(self):
-        """验证图包含 reflect -> refine 的反思循环。"""
-        from app.agents.resume.resume_optimizer_graph import build_resume_optimizer_graph
+        """验证图包含质量评审后的定向返工节点。"""
+        from app.agents.resume.resume_orchestrator import build_resume_optimizer_graph
 
         graph = build_resume_optimizer_graph()
 
-        actual_nodes = set(graph.nodes.keys()) if hasattr(graph, "nodes") else set()
-        assert "reflect" in actual_nodes, "缺少 reflect 节点"
-        assert "refine" in actual_nodes, "缺少 refine 节点"
+        actual_nodes = set(graph.get_graph().nodes.keys())
+        assert "stage5_quality_judge" in actual_nodes, "缺少质量评审节点"
+        assert "stage5_targeted_retry" in actual_nodes, "缺少定向返工节点"

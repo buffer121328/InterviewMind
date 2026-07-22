@@ -5,7 +5,7 @@
 
 流程：
 1. JD 分析 → 调用 jd_matcher.analyze_jd_match()
-2. 定制简历 → 调用 resume_generation_graph.init_generation_session()
+2. 定制简历 → 调用 resume_generation_sessions.init_generation_session()
 3. 打招呼文案 → 调用 greeting_generator.generate_greetings()
 4. 投递预览 → 打包所有资产返回
 
@@ -32,7 +32,7 @@ async def generate_assets(
 ) -> Dict[str, Any]:
     """
     为指定岗位生成完整投递资产。
-    
+
     Args:
         job_id: 已采集的岗位 ID
         user_id: 用户 ID
@@ -40,7 +40,7 @@ async def generate_assets(
         api_config: API 配置
         include_project_rewrite: 是否包含项目改写
         template_style: 简历模板风格
-        
+
     Returns:
         {"success": bool, "assets": AssetPackage, "message": str}
     """
@@ -85,7 +85,7 @@ async def generate_assets(
     custom_resume_id = None
     custom_resume_preview = None
     try:
-        from app.agents.resume.resume_generation_graph import init_generation_session
+        from app.agents.resume.resume_generation_sessions import init_generation_session
 
         # 构建优化提示
         optimization_hints: Dict[str, Any] = {}

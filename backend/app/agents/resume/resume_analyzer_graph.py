@@ -28,11 +28,11 @@ class ResumeAnalyzerState(TypedDict):
     session_ids: List[str]
     api_config: Optional[dict]
     user_id: str
-    
+
     # 中间数据
     interview_conversations: List[dict]  # 面试对话内容
     overall_profile: Optional[dict]  # 综合能力画像
-    
+
     # 输出
     analysis_result: Optional[dict]
 
@@ -46,21 +46,21 @@ async def node_prepare(state: ResumeAnalyzerState) -> dict:
     """
     session_ids = state.get("session_ids", [])
     user_id = state.get("user_id", "default_user")
-    
+
     interview_conversations = []
     overall_profile = None
-    
+
     if session_ids:
         service = SessionRepo()
-        
+
         # 获取每个 session 的对话内容
         for session_id in session_ids[:3]:  # 最多3个
             conversations = await service.get_session_conversations(session_id, user_id)
             if conversations:
                 interview_conversations.extend(conversations)
-        
+
         logger.info(f"加载了 {len(interview_conversations)} 个面试 QA 对")
-        
+
         # 尝试获取综合能力画像
         try:
             profile_data = await service.get_user_profile(user_id)
@@ -68,7 +68,7 @@ async def node_prepare(state: ResumeAnalyzerState) -> dict:
                 overall_profile = profile_data.get("profile")
         except Exception as e:
             logger.warning(f"获取综合能力画像失败: {e}")
-    
+
     return {
         "interview_conversations": interview_conversations,
         "overall_profile": overall_profile
@@ -84,14 +84,14 @@ async def node_analyze(state: ResumeAnalyzerState) -> dict:
     interview_conversations = state.get("interview_conversations", [])
     overall_profile = state.get("overall_profile")
     api_config = state.get("api_config")
-    
+
     # 构建面试洞察部分
     interview_section = ""
     if interview_conversations:
         # 取最多5个典型的 QA 对
         sample_qa = interview_conversations[:5]
         qa_text = "\n".join([
-            f"Q: {qa['question']}\nA: {qa['answer'][:200]}..." 
+            f"Q: {qa['question']}\nA: {qa['answer'][:200]}..."
             if len(qa['answer']) > 200 else f"Q: {qa['question']}\nA: {qa['answer']}"
             for qa in sample_qa
         ])
@@ -100,7 +100,7 @@ async def node_analyze(state: ResumeAnalyzerState) -> dict:
 【面试对话参考】（共 {len(interview_conversations)} 轮）：
 {qa_text}
 """
-    
+
     # 构建能力画像部分
     profile_section = ""
     if overall_profile:
@@ -109,7 +109,7 @@ async def node_analyze(state: ResumeAnalyzerState) -> dict:
 【综合能力画像】：
 {json.dumps(overall_profile, ensure_ascii=False, indent=2)[:500]}...
 """
-    
+
     # 构建 JD 部分
     jd_section = ""
     if job_description:
@@ -118,7 +118,7 @@ async def node_analyze(state: ResumeAnalyzerState) -> dict:
 【目标职位描述】：
 {job_description}
 """
-    
+
     prompt = f"""你是一位资深的简历评估专家和职业顾问。请对以下简历进行全面的竞争力分析。
 
 【简历内容】：
@@ -155,7 +155,7 @@ async def node_analyze(state: ResumeAnalyzerState) -> dict:
 
 **注意**：如果没有提供面试对话参考，interview_insights 字段必须为 null（不是字符串 "null"，而是 JSON 的 null 值）。
 """
-    
+
     try:
         result = await invoke_structured(prompt, ResumeAnalysisOutput, api_config, channel="general")
         analysis_result = result.model_dump()
@@ -185,16 +185,16 @@ async def node_analyze(state: ResumeAnalyzerState) -> dict:
 def build_resume_analyzer_graph():
     """构建简历分析 StateGraph"""
     workflow = StateGraph(ResumeAnalyzerState)
-    
+
     # 添加节点
     workflow.add_node("prepare", node_prepare)
     workflow.add_node("analyze", node_analyze)
-    
+
     # 设置入口和流程
     workflow.set_entry_point("prepare")
     workflow.add_edge("prepare", "analyze")
     workflow.add_edge("analyze", END)
-    
+
     return workflow.compile()
 
 async def analyze_resume(
@@ -206,14 +206,14 @@ async def analyze_resume(
 ) -> dict:
     """
     执行简历竞争力分析
-    
+
     Args:
         resume_content: 简历内容
         job_description: 目标职位描述（可选）
         session_ids: 关联的面试 session_id 列表
         user_id: 用户ID
         api_config: API 配置
-        
+
     Returns:
         分析结果
     """
@@ -228,11 +228,11 @@ async def analyze_resume(
         "overall_profile": None,
         "analysis_result": None
     }
-    
+
     logger.info("开始简历竞争力分析")
-    
+
     graph = build_resume_analyzer_graph()
     final_state = await graph.ainvoke(state)
-    
+
     logger.info("简历竞争力分析完成")
     return final_state["analysis_result"]

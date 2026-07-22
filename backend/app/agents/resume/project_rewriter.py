@@ -41,6 +41,14 @@ def _build_prompt(
     rewrite_mode: str,
     job_description: Optional[str] = None,
 ) -> str:
+    """构建 `prompt`。
+
+    Args:
+        project_content: 调用方传入的 `project_content` 参数。
+        project_title: 调用方传入的 `project_title` 参数。
+        rewrite_mode: 调用方传入的 `rewrite_mode` 参数。
+        job_description: 调用方传入的 `job_description` 参数。
+    """
     base_instructions = """请严格返回 JSON 对象，且必须包含以下字段：
 - rewritten_content: string
 - rewrite_reason: string
@@ -109,6 +117,15 @@ async def rewrite_project(
     job_description: Optional[str] = None,
     api_config: Optional[dict] = None,
 ) -> dict:
+    """异步执行 `rewrite_project` 相关逻辑。
+
+    Args:
+        project_content: 调用方传入的 `project_content` 参数。
+        project_title: 调用方传入的 `project_title` 参数。
+        rewrite_mode: 调用方传入的 `rewrite_mode` 参数。
+        job_description: 调用方传入的 `job_description` 参数。
+        api_config: api 配置。
+    """
     prompt = _build_prompt(project_content, project_title, rewrite_mode, job_description)
     messages = [HumanMessage(content=prompt)]
     response = await llms.invoke_text(messages, api_config, channel="smart")

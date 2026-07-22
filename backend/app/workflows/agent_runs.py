@@ -18,7 +18,7 @@ from app.domain.agent_runs import (
 )
 from app.domain.agent_definitions import get_agent_definition
 from app.infrastructure.runtime.agent_runs.crypto import TaskPayloadConfigurationError
-from app.infrastructure.runtime.agent_runs.dispatcher import enqueue_agent_run, enqueue_interview_start
+from app.infrastructure.runtime.agent_runs.dispatcher import enqueue_agent_run
 from app.infrastructure.runtime.agent_runs.event_stream import replay_cursor
 from app.workflows.agent_tasks.registry import execute_registered_task
 from app.workflows.agent_tasks.interview_start import execute_interview_start
@@ -96,7 +96,6 @@ class AgentRunUseCases:
             payload=payload,
             user_id=user_id,
             idempotency_key=idempotency_key,
-            enqueue_fn=enqueue_interview_start,
         )
 
     async def create_resume_optimize(
@@ -151,7 +150,7 @@ class AgentRunUseCases:
         payload: dict[str, Any],
         user_id: str,
         idempotency_key: str,
-        enqueue_fn: Callable[..., Any] = enqueue_agent_run,
+        enqueue_fn: Callable[..., Any] | None = None,
     ) -> AgentRunResponse:
         """Create an AgentRun, executing inline when the queue is disabled."""
         if not task_queue_enabled():
@@ -175,6 +174,9 @@ class AgentRunUseCases:
                 )
             finally:
                 await lease.release()
+
+        if enqueue_fn is None:
+            enqueue_fn = enqueue_agent_run
 
         try:
             run, created = await self._service.create_or_get(

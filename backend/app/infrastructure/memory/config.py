@@ -19,10 +19,10 @@ def _env(key: str, default: str = "") -> str:
 def get_mem0_config() -> Optional[dict]:
     """
     构造 mem0 配置字典
-    
+
     从环境变量读取 LLM、embedding、pgvector 配置，
     返回 mem0 Memory.from_config() 所需的 config。
-    
+
     Returns:
         dict: mem0 配置字典，如果 MEM0_ENABLED=false 则返回 None
     """
@@ -31,7 +31,7 @@ def get_mem0_config() -> Optional[dict]:
     if enabled not in ("true", "1", "yes"):
         logger.info("mem0 已禁用 (MEM0_ENABLED=false)")
         return None
-    
+
     # pgvector 配置 — 优先 MEM0_PGVECTOR_*，回退到 POSTGRES_*，再回退到硬编码默认值
     pgvector_config = {
         "provider": "pgvector",
@@ -46,7 +46,7 @@ def get_mem0_config() -> Optional[dict]:
             "hnsw": True,
         },
     }
-    
+
     # LLM 配置（用于记忆提取和冲突判断）
     llm_config = {
         "provider": _env("MEM0_LLM_PROVIDER", "openai"),
@@ -57,7 +57,7 @@ def get_mem0_config() -> Optional[dict]:
             "temperature": 0.1,
         },
     }
-    
+
     # Embedding 配置（用于语义检索）
     embedder_config = {
         "provider": _env("MEM0_EMBEDDER_PROVIDER", "openai"),
@@ -67,14 +67,14 @@ def get_mem0_config() -> Optional[dict]:
             "embedding_dims": int(_env("MEM0_EMBEDDING_DIMS", "1536")),
         },
     }
-    
+
     config = {
         "llm": llm_config,
         "embedder": embedder_config,
         "vector_store": pgvector_config,
         "version": "v1.1",
     }
-    
+
     logger.info("mem0 配置构造完成")
     return config
 

@@ -13,12 +13,13 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from app.workflows.interview.checkpoints import interview_turn_checkpoint_thread_id
 from app.infrastructure.db.repositories.session.session_repo import SessionRepo
 from app.infrastructure.runtime.agent_runs.event_stream import build_run_event_envelope
-from app.infrastructure.runtime.agent_runs.service import AgentRunService, TASK_TYPE_INTERVIEW_TURN
+from app.domain.agent_runs import TASK_TYPE_INTERVIEW_TURN
+from app.infrastructure.runtime.agent_runs.service import AgentRunService
 from app.schemas.schemas import ChatRequest, ChatStreamResponse
 from app.agents.interview.interview_graph import build_interview_graph
 from app.infrastructure.runtime.runtime_gate import get_run_gate
 from app.infrastructure.security.security import safe_error_message
-from app.agents.interview.question_defaults import resolve_max_questions
+from app.domain.interview_rounds import resolve_max_questions
 
 logger = logging.getLogger(__name__)
 
@@ -49,10 +50,17 @@ class ChatStreamUseCases:
     """面试聊天流式应用服务。"""
 
     def __init__(self) -> None:
+        """初始化当前对象实例。"""
         self._session_repo = SessionRepo()
         self._run_service = AgentRunService()
 
     async def stream_chat(self, *, request: ChatRequest, user_id: str) -> AsyncGenerator[str, None]:
+        """流式处理 `chat`。
+
+        Args:
+            request: 请求对象。
+            user_id: 当前用户标识。
+        """
         graph = await build_interview_graph(request.mode)
         if not request.message or not request.message.strip():
             raise ChatStreamBadRequest(message="Message cannot be empty")
@@ -88,10 +96,14 @@ class ChatStreamUseCases:
         # 与归档表口径保持一致：同一 question_index 下，第 1 次作答对应主问题，后续作答对应追问。
         # 这里在保存“当前用户回答”之前恢复状态，因此已有作答数就是当前题已发生的追问次数。
         restored_follow_up_count = same_question_answer_count
+        metadata = getattr(session, "metadata", None)
+        round_index = getattr(metadata, "round_index", None) or 1
+        round_type = getattr(metadata, "round_type", None)
+        stored_max_questions = getattr(metadata, "max_questions", None)
         session_max_questions = resolve_max_questions(
-            session.metadata.round_type,
-            session.metadata.max_questions if session.metadata.max_questions is not None else request.max_questions,
-            round_index=session.metadata.round_index,
+            round_type,
+            stored_max_questions if stored_max_questions is not None else request.max_questions,
+            round_index=round_index,
         )
         inputs = {
             "messages": hydrated_messages + [HumanMessage(content=request.message)],
@@ -110,8 +122,8 @@ class ChatStreamUseCases:
             "max_follow_ups": 2,
             "turn_phase": "feedback",
             "api_config": api_config,
-            "round_index": session.metadata.round_index,
-            "round_type": session.metadata.round_type,
+            "round_index": round_index,
+            "round_type": round_type,
             "memory_context": memory_context,
             "memory_items": memory_items,
         }
@@ -152,6 +164,18 @@ class ChatStreamUseCases:
         lease=None,
         run_id: str | None = None,
     ) -> AsyncGenerator[str, None]:
+        """异步执行 `_event_generator` 相关逻辑。
+
+        Args:
+            graph: 调用方传入的 `graph` 参数。
+            inputs: 调用方传入的 `inputs` 参数。
+            config: 配置对象。
+            thread_id: thread 标识。
+            user_message: 调用方传入的 `user_message` 参数。
+            user_id: 当前用户标识。
+            lease: 调用方传入的 `lease` 参数。
+            run_id: 运行标识。
+        """
         ai_response_content = ""
         final_question_index = inputs.get("current_question_index", 0)
         plan = [
@@ -164,10 +188,22 @@ class ChatStreamUseCases:
         run_event_sequence = 0
 
         def stream_event(event_type: str, payload) -> str:
+            """流式处理 `event`。
+
+            Args:
+                event_type: 调用方传入的 `event_type` 参数。
+                payload: 请求载荷。
+            """
             content = payload if isinstance(payload, str) else json.dumps(payload, ensure_ascii=False)
             return f"data: {ChatStreamResponse(type=event_type, content=content).model_dump_json()}\n\n"
 
         def step_event(step_id: str, status: str) -> str | None:
+            """执行 `step_event` 相关逻辑。
+
+            Args:
+                step_id: step 标识。
+                status: 调用方传入的 `status` 参数。
+            """
             marker = (step_id, status)
             if marker in emitted_steps:
                 return None
@@ -175,6 +211,13 @@ class ChatStreamUseCases:
             return stream_event("step_update", {"id": step_id, "status": status})
 
         def run_event(event_type: str, stage: str | None = None, payload: dict | None = None) -> str | None:
+            """运行 `event`。
+
+            Args:
+                event_type: 调用方传入的 `event_type` 参数。
+                stage: 调用方传入的 `stage` 参数。
+                payload: 请求载荷。
+            """
             nonlocal run_event_sequence
             if not run_id:
                 return None
@@ -320,6 +363,15 @@ class ChatStreamUseCases:
         inputs: dict,
         user_id: str,
     ) -> None:
+        """异步执行 `_write_memory_background` 相关逻辑。
+
+        Args:
+            thread_id: thread 标识。
+            user_message: 调用方传入的 `user_message` 参数。
+            ai_response_content: 调用方传入的 `ai_response_content` 参数。
+            inputs: 调用方传入的 `inputs` 参数。
+            user_id: 当前用户标识。
+        """
         try:
             from app.infrastructure.memory import get_agent_memory_service, should_skip_write
             from app.infrastructure.memory.filters import extract_memory_type_hint
