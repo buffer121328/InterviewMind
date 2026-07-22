@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { API_PROVIDERS, type ModelConfig } from '@/store/useInterviewStore';
 import { getUserId } from '@/hooks/useUserIdentity';
+import { API_BASE_URL } from '@/lib/api/config';
 import { toast } from 'sonner';
 
 // 添加/编辑模型的二级弹窗
@@ -102,7 +103,6 @@ export function ModelFormDialog({ open, onClose, onSave, editingModel, initialVa
         setTestedConfiguration(null);
 
         try {
-            const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
             const response = await fetch(`${API_BASE_URL}/api/config/validate`, {
                 method: 'POST',
                 headers: {

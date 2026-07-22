@@ -5,6 +5,7 @@
  */
 
 import { JsonObject, ResumeAnalyzeResult, ResumeOptimizeResult } from '@/lib/api/resume';
+import { API_BASE_URL as NORMALIZED_API_BASE_URL } from '@/lib/api/config';
 
 // ============================================================================
 // 类型定义
@@ -356,7 +357,7 @@ export const DEFAULT_API_CONFIG: ApiConfig = {
     voiceModelId: '',
 };
 
-export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+export const API_BASE_URL = NORMALIZED_API_BASE_URL;
 
 // ============================================================================
 // 辅助函数

@@ -3,6 +3,8 @@
  * 使用 IndexedDB 在浏览器端存储音频文件
  */
 
+import { normalizeApiBaseUrl } from './api/config.ts';
+
 const DB_NAME = 'voice_interview_audio';
 const DB_VERSION = 1;
 const STORE_NAME = 'audio_blobs';
@@ -126,23 +128,8 @@ export async function getAudioUrl(id: string): Promise<string | null> {
 
     // 如果 id 看起来像是一个后端静态资源路径 (例如 static/audio/...)
     if (id.includes('/')) {
-        const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-        const isStaticResource = id.replace(/^\//, '').startsWith('static/');
-        const cleanApiBase = baseUrl.replace(/\/$/, '');
-        let resourceBase = baseUrl;
+        const resourceBase = normalizeApiBaseUrl(process.env.NEXT_PUBLIC_API_URL);
 
-        if (isStaticResource && cleanApiBase === '/api') {
-            resourceBase = '';
-        } else if (isStaticResource) {
-            try {
-                const apiUrl = new URL(baseUrl);
-                if (apiUrl.pathname.replace(/\/$/, '') === '/api') {
-                    resourceBase = apiUrl.origin;
-                }
-            } catch {
-                // Keep relative or otherwise non-URL API bases unchanged.
-            }
-        }
         // 确保没有多余的斜杠
         const cleanBase = resourceBase.endsWith('/') ? resourceBase.slice(0, -1) : resourceBase;
         const cleanId = id.startsWith('/') ? id : `/${id}`;

@@ -5,10 +5,7 @@
  */
 
 import { useCallback, useState, useSyncExternalStore } from 'react';
-import { v4 as uuidv4 } from 'uuid';
-
-const USER_ID_KEY = 'interview_ai_user_id';
-const USER_ID_CHANGED_EVENT = 'interview-ai-user-id-changed';
+import { getUserId, USER_ID_CHANGED_EVENT, USER_ID_KEY } from '@/lib/api/config';
 
 function subscribeToUserId(onStoreChange: () => void) {
     window.addEventListener(USER_ID_CHANGED_EVENT, onStoreChange);
@@ -51,7 +48,9 @@ export function useUserIdentity() {
     const resetUserId = useCallback(() => {
         if (typeof window === 'undefined') return;
 
-        const newUserId = uuidv4();
+        const newUserId = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+            ? crypto.randomUUID()
+            : `user_${Date.now()}_${Math.random().toString(36).slice(2)}`;
         localStorage.setItem(USER_ID_KEY, newUserId);
         setIsCleared(false);
         notifyUserIdChanged();
@@ -77,21 +76,4 @@ export function useUserIdentity() {
     };
 }
 
-/**
- * 获取当前用户 ID（非 Hook 版本，用于普通函数中）
- * 
- * @returns 当前用户 ID 或生成新的
- */
-export function getUserId(): string {
-    if (typeof window === 'undefined') return 'default_user';
-
-    let userId = localStorage.getItem(USER_ID_KEY);
-
-    if (!userId) {
-        userId = uuidv4();
-        localStorage.setItem(USER_ID_KEY, userId);
-        console.log('🆕 生成新用户标识:', userId.substring(0, 8) + '...');
-    }
-
-    return userId;
-}
+export { getUserId };
