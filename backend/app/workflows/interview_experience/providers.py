@@ -15,6 +15,11 @@ from app.schemas.experience_provider import ExperienceDocument
 
 
 def _plain_text(value: str) -> str:
+    """执行 `_plain_text` 相关逻辑。
+
+    Args:
+        value: 取值。
+    """
     value = re.sub(r"<(script|style)[^>]*>.*?</\1>", "", value or "", flags=re.I | re.S)
     value = re.sub(r"<br\s*/?>|</p>|</div>", "\n", value, flags=re.I)
     value = re.sub(r"<[^>]+>", "", value)
@@ -26,6 +31,11 @@ class ExportedContentProvider:
     """解析平台导出的 JSON；适用于小红书及后续新增来源。"""
 
     def __init__(self, source: str):
+        """初始化当前对象实例。
+
+        Args:
+            source: 调用方传入的 `source` 参数。
+        """
         self.source = source
 
     async def collect(
@@ -35,6 +45,13 @@ class ExportedContentProvider:
         max_pages: int,
         exported_items: list[dict[str, Any]],
     ) -> list[ExperienceDocument]:
+        """异步执行 `collect` 相关逻辑。
+
+        Args:
+            queries: 调用方传入的 `queries` 参数。
+            max_pages: 调用方传入的 `max_pages` 参数。
+            exported_items: 调用方传入的 `exported_items` 参数。
+        """
         del max_pages
         default_query = queries[0] if queries else ""
         documents: list[ExperienceDocument] = []
@@ -66,6 +83,12 @@ class NowcoderProvider:
     max_documents_per_run = 50
 
     def __init__(self, client: httpx.AsyncClient | None = None, delay_seconds: float = 0.8):
+        """初始化当前对象实例。
+
+        Args:
+            client: 客户端实例。
+            delay_seconds: 调用方传入的 `delay_seconds` 参数。
+        """
         self._client = client
         self.delay_seconds = max(0.0, delay_seconds)
 
@@ -76,6 +99,13 @@ class NowcoderProvider:
         max_pages: int,
         exported_items: list[dict[str, Any]],
     ) -> list[ExperienceDocument]:
+        """异步执行 `collect` 相关逻辑。
+
+        Args:
+            queries: 调用方传入的 `queries` 参数。
+            max_pages: 调用方传入的 `max_pages` 参数。
+            exported_items: 调用方传入的 `exported_items` 参数。
+        """
         if exported_items:
             return await ExportedContentProvider(self.source).collect(
                 queries=queries,
@@ -108,6 +138,13 @@ class NowcoderProvider:
         queries: list[str],
         max_pages: int,
     ) -> dict[str, dict[str, Any]]:
+        """检索 当前对象。
+
+        Args:
+            client: 客户端实例。
+            queries: 调用方传入的 `queries` 参数。
+            max_pages: 调用方传入的 `max_pages` 参数。
+        """
         records: dict[str, dict[str, Any]] = {}
         for query in queries:
             for page in range(1, max_pages + 1):
@@ -155,6 +192,12 @@ class NowcoderProvider:
         client: httpx.AsyncClient,
         record: dict[str, Any],
     ) -> ExperienceDocument | None:
+        """获取 `detail`。
+
+        Args:
+            client: 客户端实例。
+            record: 调用方传入的 `record` 参数。
+        """
         source_id = record["source_id"]
         if record["kind"] == 207:
             response = await client.get(f"{self.detail_api}/{source_id}")

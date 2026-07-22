@@ -18,6 +18,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    """执行 `upgrade` 相关逻辑。"""
     op.create_table(
         "task_outbox",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
@@ -38,5 +39,6 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """执行 `downgrade` 相关逻辑。"""
     op.drop_index("idx_task_outbox_pending", table_name="task_outbox")
     op.drop_table("task_outbox")

@@ -15,6 +15,7 @@ PENDING_STATUSES = {"pending", "failed"}
 
 
 def _now() -> datetime:
+    """当前时间快照（便于测试替换）。"""
     return datetime.now()
 
 
@@ -74,6 +75,7 @@ async def enqueue_agent_run_outbox(session, run_id: str, *, now: datetime | None
 
 
 def classify_dispatch_error(error: Exception) -> tuple[str, str]:
+    """将投递异常分类为 (error_type, failure_reason) 便于后续排查。"""
     if isinstance(error, KeyError):
         return type(error).__name__, "invalid_payload"
     if isinstance(error, (ConnectionError, TimeoutError)):
@@ -87,6 +89,7 @@ def mark_dispatched(
     now: datetime | None = None,
     duration_ms: int | None = None,
 ) -> None:
+    """将 outbox item 标记为已投递，清除上次失败信息。"""
     current = now or _now()
     item.status = "dispatched"
     item.dispatched_at = current
@@ -105,6 +108,7 @@ def mark_dispatch_failed(
     now: datetime | None = None,
     duration_ms: int | None = None,
 ) -> None:
+    """将 outbox item 标记为投递失败，记录错误信息并计算下次重试时间。"""
     current = now or _now()
     error_type, reason = classify_dispatch_error(error)
     item.status = "failed"

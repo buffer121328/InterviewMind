@@ -77,14 +77,14 @@ class TestDbConfigBehavior:
 
     def test_no_hardcoded_password_in_module_source(self):
         """The config module source must not contain literal 'cheng123'."""
-        content = (BACKEND_ROOT / "app" / "db" / "config.py").read_text(encoding="utf-8")
+        content = (BACKEND_ROOT / "app" / "infrastructure" / "db" / "config.py").read_text(encoding="utf-8")
         assert "cheng123" not in content, (
             "config.py source still contains hardcoded password 'cheng123'"
         )
 
     def test_no_legacy_name_in_module_source(self):
         """The config module source must not contain the legacy project name."""
-        content = (BACKEND_ROOT / "app" / "db" / "config.py").read_text(encoding="utf-8")
+        content = (BACKEND_ROOT / "app" / "infrastructure" / "db" / "config.py").read_text(encoding="utf-8")
         assert LEGACY_NAME not in content, (
             "config.py source still contains the legacy project name"
         )
@@ -184,7 +184,7 @@ class TestAgentMemoryServiceRename:
     def test_metadata_project_is_agent_interview(self):
         """service.py project metadata must reference agent_interview."""
         import re
-        content = (BACKEND_ROOT / "app" / "services" / "agent_memory" / "service.py").read_text(encoding="utf-8")
+        content = (BACKEND_ROOT / "app" / "infrastructure" / "memory" / "service.py").read_text(encoding="utf-8")
         project_matches = re.findall(r'"project"\s*:\s*"([^"]+)"', content)
         assert project_matches, "No 'project' key found in metadata dicts"
         for val in project_matches:

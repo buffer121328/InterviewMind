@@ -29,7 +29,7 @@ class FileSizeExceededError(FileServiceError):
 class FileService:
     """
     文件服务类，仅负责文本提取，不保存文件
-    
+
     支持的文件格式：
     - PDF (.pdf)
     - Word (.docx)
@@ -41,12 +41,12 @@ class FileService:
         self.max_file_size_bytes = max_file_size_mb * 1024 * 1024
         self.allowed_extensions = ['pdf', 'docx', 'txt', 'md']
         logger.info(f"文件服务初始化成功，最大文件大小: {max_file_size_mb}MB")
-    
+
     def _validate_file_type(self, filename: str) -> bool:
         """验证文件类型"""
         file_ext = os.path.splitext(filename)[1].lower().lstrip('.')
         return file_ext in self.allowed_extensions
-    
+
     def _validate_file_size(self, file_size: int) -> bool:
         """验证文件大小"""
         return file_size <= self.max_file_size_bytes
@@ -84,46 +84,46 @@ class FileService:
                     raise FileServiceError("DOCX 缺少正文结构")
         except zipfile.BadZipFile as exc:
             raise FileServiceError("DOCX 文件结构损坏") from exc
-    
+
     def extract_text_from_pdf(self, file_path: str) -> str:
         """解析 PDF 文件（使用 PyMuPDF）"""
         try:
             logger.info(f"开始解析 PDF: {file_path}")
             doc = fitz.open(file_path)
             pages_text = []
-            
+
             for page in doc:
                 # 使用 sort=True 按照从上到下、从左到右的顺序提取文本
                 text = page.get_text(sort=True)
                 if text:
                     pages_text.append(text)
-            
+
             full_text = "\n\n".join(pages_text)
-            
+
             doc.close()
 
             if not full_text.strip():
                 raise ValueError("PDF 解析成功但内容为空")
-            
+
             logger.info(f"PDF 解析成功，提取文本长度: {len(full_text)} 字符")
             return full_text
-            
+
         except Exception as e:
             logger.error(f"PDF 解析失败: {str(e)}")
             raise FileServiceError(f"PDF 解析失败: {str(e)}")
-    
+
     def extract_text_from_docx(self, file_path: str) -> str:
         """解析 Word 文档 (.docx)"""
         try:
             from docx import Document
             logger.info(f"开始解析 Word 文档: {file_path}")
-            
+
             doc = Document(file_path)
             full_text = "\n\n".join([p.text for p in doc.paragraphs if p.text.strip()])
-            
+
             if not full_text.strip():
                 raise ValueError("Word 文档解析成功但内容为空")
-            
+
             logger.info(f"Word 文档解析成功，提取文本长度: {len(full_text)} 字符")
             return full_text
         except ImportError:
@@ -131,13 +131,13 @@ class FileService:
         except Exception as e:
             logger.error(f"Word 文档解析失败: {str(e)}")
             raise FileServiceError(f"Word 文档解析失败: {str(e)}")
-    
+
     def extract_text_from_txt(self, file_path: str) -> str:
         """读取纯文本文件"""
         try:
             logger.info(f"开始读取文本文件: {file_path}")
             encodings = ['utf-8', 'gbk', 'gb2312', 'latin-1']
-            
+
             for encoding in encodings:
                 try:
                     with open(file_path, 'r', encoding=encoding) as f:
@@ -147,16 +147,16 @@ class FileService:
                         return full_text
                 except UnicodeDecodeError:
                     continue
-            
+
             raise ValueError("无法使用常见编码读取文本文件")
         except Exception as e:
             logger.error(f"文本文件读取失败: {str(e)}")
             raise FileServiceError(f"文本文件读取失败: {str(e)}")
-    
+
     def extract_text(self, file_path: str) -> str:
         """根据文件类型自动选择提取方法"""
         file_ext = os.path.splitext(file_path)[1].lower()
-        
+
         if file_ext == '.pdf':
             return self.extract_text_from_pdf(file_path)
         elif file_ext == '.docx':
@@ -169,16 +169,16 @@ class FileService:
     async def process_fastapi_file(self, upload_file: UploadFile) -> str:
         """
         处理 FastAPI 上传的文件，仅提取文本内容，不保存文件
-        
+
         Args:
             upload_file: FastAPI 的 UploadFile 对象
-            
+
         Returns:
             str: 提取的文本内容
         """
         import tempfile
         import shutil
-        
+
         try:
             # 1. 验证文件类型
             if not self._validate_file_type(upload_file.filename):
@@ -186,7 +186,7 @@ class FileService:
                     f"不支持的文件类型: {upload_file.filename}。"
                     f"支持的格式: {', '.join(self.allowed_extensions)}"
                 )
-            
+
             # 2. 验证文件大小
             file_size = 0
             if hasattr(upload_file, 'size') and upload_file.size is not None:
@@ -196,13 +196,13 @@ class FileService:
                 upload_file.file.seek(0, 2)  # 移动到文件末尾
                 file_size = upload_file.file.tell()
                 upload_file.file.seek(0)  # 重置到文件开头
-            
+
             if not self._validate_file_size(file_size):
                 raise FileSizeExceededError(
                     f"文件大小 ({file_size / 1024 / 1024:.2f}MB) "
                     f"超过限制 ({self.max_file_size_bytes / 1024 / 1024}MB)"
                 )
-            
+
             # 3. 创建临时文件进行处理
             file_ext = os.path.splitext(upload_file.filename)[1]
             with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as temp_file:
@@ -211,9 +211,9 @@ class FileService:
                     shutil.copyfileobj(upload_file.file, temp_file)
                 finally:
                     upload_file.file.close()
-            
+
             logger.info(f"临时文件已创建: {temp_path}")
-            
+
             # 4. 基于魔数再次验证文件类型
             if not self._validate_file_signature(temp_path, file_ext):
                 raise UnsupportedFileTypeError(f"文件内容与扩展名不匹配: {upload_file.filename}")
@@ -234,13 +234,13 @@ class FileService:
                     )
                 except TimeoutError as exc:
                     raise FileServiceError("文件解析超时") from exc
-                
+
                 # 6. 验证内容有效性
                 if not text_content or not text_content.strip():
                     raise FileServiceError("文件解析成功但内容为空")
                 if len(text_content) > 500_000:
                     raise FileServiceError("文件文本内容过长，请上传更精简的简历")
-                
+
                 logger.info(f"文本提取成功，长度: {len(text_content)} 字符")
                 return text_content
             finally:
@@ -251,7 +251,7 @@ class FileService:
                         logger.info(f"临时文件已删除: {temp_path}")
                 except Exception as e:
                     logger.warning(f"删除临时文件失败: {str(e)}")
-            
+
         except (UnsupportedFileTypeError, FileSizeExceededError, FileServiceError):
             raise
         except Exception as e:

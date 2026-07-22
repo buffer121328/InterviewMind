@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 
 class GreetingItemOutput(BaseModel):
+    """表示 `GreetingItemOutput` 的接口数据模型。"""
     tone: str = Field(description="professional | technical | result_oriented")
     message_text: str = Field(description="打招呼文案正文")
     highlights_used: List[str] = Field(description="使用的亮点")
@@ -31,6 +32,7 @@ class GreetingItemOutput(BaseModel):
 
 
 class GreetingListOutput(BaseModel):
+    """表示 `GreetingListOutput` 的接口数据模型。"""
     greetings: List[GreetingItemOutput] = Field(description="3 条打招呼文案")
 
 
@@ -48,7 +50,7 @@ async def generate_greetings(
 ) -> List[Dict[str, Any]]:
     """
     生成 3 条打招呼文案。
-    
+
     Args:
         company_name: 目标公司名
         job_title: 目标岗位名
@@ -56,7 +58,7 @@ async def generate_greetings(
         candidate_highlights: 候选人亮点摘要
         custom_resume_summary: 定制简历摘要
         api_config: API 配置
-        
+
     Returns:
         3 条 GreetingItem 字典列表
     """

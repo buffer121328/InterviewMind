@@ -477,6 +477,7 @@ class TestRunPipelineRetry:
             "job_description_length": len(MOCK_JD),
             "session_count": 1,
             "include_profile": False,
+            "mode": "balanced",
         }
         assert observed[0]["output"] == {
             "changes": 0,

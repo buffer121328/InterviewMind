@@ -17,11 +17,11 @@ logger = logging.getLogger(__name__)
 
 class ProjectRewriteRepo:
     """项目经历重写服务类 - 管理重写记录"""
-    
+
     def __init__(self):
         """初始化重写服务"""
         logger.info("ProjectRewriteService 初始化")
-    
+
     async def save_rewrite(
         self,
         user_id: str,
@@ -54,7 +54,7 @@ class ProjectRewriteRepo:
             except Exception as e:
                 logger.error(f"创建项目重写记录失败: {e}")
                 raise
-    
+
     async def get_rewrite(self, rewrite_id: int, user_id: str) -> Optional[Dict[str, Any]]:
         """获取单个重写记录"""
         async with async_session() as db:
@@ -68,7 +68,7 @@ class ProjectRewriteRepo:
                 return None
 
             return self._row_to_dict(row)
-    
+
     async def list_rewrites(
         self,
         user_id: str,
@@ -84,7 +84,7 @@ class ProjectRewriteRepo:
             stmt = stmt.order_by(ProjectRewriteRecordModel.created_at.desc()).limit(limit).offset(offset)
             rows = await db.execute(stmt)
             return [self._row_to_dict(row) for row in rows.scalars().all()]
-    
+
     async def delete_rewrite(self, rewrite_id: int, user_id: str) -> bool:
         """删除重写记录"""
         async with async_session() as db:
@@ -101,7 +101,7 @@ class ProjectRewriteRepo:
             except Exception as e:
                 logger.error(f"删除项目重写记录失败: {e}")
                 return False
-    
+
     async def get_rewrites_by_material(self, material_id: int, user_id: str) -> List[Dict[str, Any]]:
         """获取指定素材的重写记录"""
         async with async_session() as db:
@@ -110,7 +110,7 @@ class ProjectRewriteRepo:
                 ProjectRewriteRecordModel.user_id == user_id,
             ).order_by(ProjectRewriteRecordModel.created_at.desc()))
             return [self._row_to_dict(row) for row in rows.scalars().all()]
-    
+
     def _row_to_dict(self, row: ProjectRewriteRecordModel) -> Dict[str, Any]:
         """将数据库行转换为字典"""
         return {

@@ -14,11 +14,11 @@ logger = logging.getLogger(__name__)
 async def is_duplicate(source_hash: str, user_id: str) -> bool:
     """
     检查是否为重复岗位（基于 source_hash 精确匹配）。
-    
+
     Args:
         source_hash: 岗位的 source_hash
         user_id: 用户 ID
-        
+
     Returns:
         True 如果已存在重复岗位
     """
@@ -40,13 +40,13 @@ async def find_similar_jobs(
 ) -> List[Dict[str, Any]]:
     """
     查找相似岗位（同公司、同岗位名称的模糊匹配）。
-    
+
     Args:
         company_name: 公司名
         job_title: 岗位名
         user_id: 用户 ID
         threshold: 相似度阈值
-        
+
     Returns:
         相似岗位列表
     """
@@ -78,7 +78,7 @@ def _calculate_similarity(
 ) -> float:
     """
     计算两个岗位的相似度。
-    
+
     策略：公司名匹配 60% 权重 + 岗位名匹配 40% 权重。
     """
     score = 0.0

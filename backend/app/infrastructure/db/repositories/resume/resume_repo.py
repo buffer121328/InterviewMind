@@ -19,11 +19,11 @@ logger = logging.getLogger(__name__)
 
 class ResumeRepo:
     """简历工具服务类 - 管理简历优化/分析结果"""
-    
+
     def __init__(self):
         """初始化简历服务"""
         logger.info("ResumeRepo 初始化")
-    
+
     async def save_result(
         self,
         user_id: str,
@@ -38,7 +38,7 @@ class ResumeRepo:
     ) -> int:
         """
         保存优化/分析结果
-        
+
         Args:
             user_id: 用户ID
             result_type: 结果类型 ('optimize' 或 'analyze')
@@ -47,7 +47,7 @@ class ResumeRepo:
             job_description: 职位描述（可选）
             session_ids: 关联的面试 session_id 列表
             include_profile: 是否包含综合画像
-            
+
         Returns:
             int: 结果 ID
         """
@@ -99,6 +99,20 @@ class ResumeRepo:
         agent_run_id: Optional[str] = None,
         owns_session: bool,
     ) -> int:
+        """保存 `result with session`。
+
+        Args:
+            db: 数据库会话。
+            user_id: 当前用户标识。
+            result_type: 调用方传入的 `result_type` 参数。
+            resume_content: 调用方传入的 `resume_content` 参数。
+            result_data: result 数据。
+            job_description: 调用方传入的 `job_description` 参数。
+            session_ids: session 标识列表。
+            include_profile: 调用方传入的 `include_profile` 参数。
+            agent_run_id: Agent 运行标识。
+            owns_session: 调用方传入的 `owns_session` 参数。
+        """
         if agent_run_id:
             existing = await db.scalar(
                 select(ResumeResultModel).where(ResumeResultModel.agent_run_id == agent_run_id)
@@ -127,6 +141,12 @@ class ResumeRepo:
         return result_id
 
     async def get_result_by_agent_run_id(self, agent_run_id: str, user_id: str) -> Optional[Dict[str, Any]]:
+        """获取 `result by agent run id`。
+
+        Args:
+            agent_run_id: Agent 运行标识。
+            user_id: 当前用户标识。
+        """
         async with async_session() as db:
             row = await db.scalar(
                 select(ResumeResultModel).where(
@@ -135,15 +155,15 @@ class ResumeRepo:
                 )
             )
             return self._row_to_dict(row) if row else None
-    
+
     async def get_result(self, result_id: int, user_id: str) -> Optional[Dict[str, Any]]:
         """
         获取单个结果
-        
+
         Args:
             result_id: 结果ID
             user_id: 用户ID（用于权限校验）
-            
+
         Returns:
             结果数据字典，如果不存在或无权限则返回 None
         """
@@ -157,7 +177,7 @@ class ResumeRepo:
 
             if not obj:
                 return None
-            
+
             return self._row_to_dict(obj)
 
     async def update_result_data(
@@ -184,7 +204,7 @@ class ResumeRepo:
             await db.commit()
             await db.refresh(obj)
             return self._row_to_dict(obj)
-    
+
     async def list_results(
         self,
         user_id: str,
@@ -195,12 +215,12 @@ class ResumeRepo:
     ) -> List[Dict[str, Any]]:
         """
         获取用户的历史结果列表
-        
+
         Args:
             user_id: 用户ID
             result_type: 结果类型过滤（可选）
             limit: 最大返回数量
-            
+
         Returns:
             结果列表
         """
@@ -219,15 +239,15 @@ class ResumeRepo:
             if result_type:
                 stmt = stmt.where(ResumeResultModel.result_type == result_type)
             return int((await db.scalar(stmt)) or 0)
-    
+
     async def delete_result(self, result_id: int, user_id: str) -> bool:
         """
         删除结果
-        
+
         Args:
             result_id: 结果ID
             user_id: 用户ID（用于权限校验）
-            
+
         Returns:
             是否删除成功
         """
@@ -244,11 +264,11 @@ class ResumeRepo:
                 if deleted:
                     logger.info(f"删除简历结果: ID={result_id}")
                 return deleted
-                
+
             except Exception as e:
                 logger.error(f"删除简历结果失败: {e}")
                 return False
-    
+
     def _row_to_dict(self, row: ResumeResultModel) -> Dict[str, Any]:
         """将数据库行转换为字典"""
         return {

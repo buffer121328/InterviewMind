@@ -11,12 +11,14 @@ ResultRetention = Literal["summary", "reference", "none"]
 
 @dataclass(frozen=True, slots=True)
 class ToolContract:
+    """表示 `ToolContract` 相关的数据或行为。"""
     effect: ToolEffect
     permissions: tuple[str, ...]
     idempotency_key_strategy: str | None = None
     result_retention: ResultRetention = "summary"
 
     def to_metadata(self) -> dict[str, Any]:
+        """转换 `metadata`。"""
         data = asdict(self)
         data["permissions"] = list(self.permissions)
         return data
@@ -44,6 +46,11 @@ def attach_tool_contract(
 
 
 def get_tool_contract(tool: Any) -> dict[str, Any] | None:
+    """获取 `tool contract`。
+
+    Args:
+        tool: 调用方传入的 `tool` 参数。
+    """
     metadata = getattr(tool, "metadata", None) or {}
     contract = metadata.get("contract")
     return contract if isinstance(contract, dict) else None

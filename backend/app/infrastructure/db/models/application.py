@@ -18,6 +18,7 @@ from .base import Base
 
 
 class JobApplicationModel(Base):
+    """表示数据模型。"""
     __tablename__ = "job_applications"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -59,6 +60,7 @@ class JobApplicationModel(Base):
 
 
 class ApplicationEventModel(Base):
+    """表示数据模型。"""
     __tablename__ = "application_events"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

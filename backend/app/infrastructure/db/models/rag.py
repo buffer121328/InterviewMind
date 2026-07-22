@@ -16,6 +16,7 @@ _EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "1536"))
 
 
 class RagChunkModel(Base):
+    """表示数据模型。"""
     __tablename__ = "rag_chunks"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

@@ -1,10 +1,9 @@
 """简历分析、优化、审阅端点的应用层迁移边界。"""
 
 import ast
-from pathlib import Path
 
+from tests.route_source_helpers import resume_route_function_nodes
 
-BACKEND_APP = Path(__file__).resolve().parents[1] / "app"
 MIGRATED_FUNCTIONS = {
     "analyze_resume_endpoint",
     "optimize_resume_endpoint",
@@ -24,14 +23,12 @@ FORBIDDEN_NAMES = {
 
 
 def test_resume_optimization_routes_delegate_to_application_layer():
-    tree = ast.parse((BACKEND_APP / "api" / "resume.py").read_text())
     checked = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.AsyncFunctionDef) and node.name in MIGRATED_FUNCTIONS:
-            checked.add(node.name)
-            names = {child.id for child in ast.walk(node) if isinstance(child, ast.Name)}
-            assert "resume_optimization_use_cases" in names
-            assert names.isdisjoint(FORBIDDEN_NAMES)
+    for node in resume_route_function_nodes(MIGRATED_FUNCTIONS).values():
+        checked.add(node.name)
+        names = {child.id for child in ast.walk(node) if isinstance(child, ast.Name)}
+        assert "resume_optimization_use_cases" in names
+        assert names.isdisjoint(FORBIDDEN_NAMES)
     assert checked == MIGRATED_FUNCTIONS
 
 
@@ -78,6 +75,7 @@ async def test_resume_stream_emits_inline_run_events_without_breaking_legacy_eve
             "smart": {"api_key": "k", "base_url": "https://example.test", "model": "smart"},
             "fast": {"api_key": "k", "base_url": "https://example.test", "model": "fast"},
         },
+        mode="quality",
     )
 
     generator = resume_optimization.ResumeOptimizationUseCases().optimize_resume_stream(
@@ -136,7 +134,10 @@ async def test_resume_analyze_uses_unit_of_work_for_result_save(monkeypatch):
 async def test_resume_optimize_uses_unit_of_work_for_result_save(monkeypatch):
     fake_repo = _FakeResumeRepo()
 
-    async def fake_run_pipeline(**_kwargs):
+    pipeline_kwargs = {}
+
+    async def fake_run_pipeline(**kwargs):
+        pipeline_kwargs.update(kwargs)
         return {"match_score": 88, "hr_pass_rate": 92, "optimized_sections": [], "key_improvements": [], "overall_confidence": 0.8}
 
     monkeypatch.setattr(resume_optimization, "run_pipeline", fake_run_pipeline)
@@ -151,12 +152,14 @@ async def test_resume_optimize_uses_unit_of_work_for_result_save(monkeypatch):
             "smart": {"api_key": "k", "base_url": "https://example.test", "model": "smart"},
             "fast": {"api_key": "k", "base_url": "https://example.test", "model": "fast"},
         },
+        mode="quality",
     )
 
     response = await resume_optimization.ResumeOptimizationUseCases().optimize_resume(request=request, user_id="user-1")
 
     assert response.result_id == 42
     assert fake_repo.saved[0]["session"] is not None
+    assert pipeline_kwargs["mode"] == "quality"
 
 
 @pytest.mark.asyncio

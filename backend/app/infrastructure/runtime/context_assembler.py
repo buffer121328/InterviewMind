@@ -23,6 +23,7 @@ DEFAULT_AGENT_CONTEXT_BUDGETS: dict[str, dict[str, int]] = {
 
 @dataclass(frozen=True, slots=True)
 class ContextSource:
+    """表示 `ContextSource` 相关的数据或行为。"""
     name: str
     content: str
     score: float | None = None
@@ -34,6 +35,7 @@ class ContextSource:
 
 @dataclass(frozen=True, slots=True)
 class AssembledContext:
+    """表示 `AssembledContext` 相关的数据或行为。"""
     trusted_context: dict[str, Any]
     model_context: str
     source_audit: list[dict[str, Any]]
@@ -41,6 +43,7 @@ class AssembledContext:
 
 
 class ContextAssembler:
+    """表示 `ContextAssembler` 相关的数据或行为。"""
     def __init__(
         self,
         *,
@@ -48,6 +51,13 @@ class ContextAssembler:
         total_model_chars: int = 10_000,
         source_budgets: dict[str, int] | None = None,
     ) -> None:
+        """初始化当前对象实例。
+
+        Args:
+            agent_name: agent 名称。
+            total_model_chars: 调用方传入的 `total_model_chars` 参数。
+            source_budgets: 调用方传入的 `source_budgets` 参数。
+        """
         self.agent_name = agent_name
         self.total_model_chars = max(0, total_model_chars)
         self.source_budgets = {
@@ -56,6 +66,11 @@ class ContextAssembler:
         }
 
     def assemble(self, sources: list[ContextSource]) -> AssembledContext:
+        """组装 当前对象。
+
+        Args:
+            sources: 调用方传入的 `sources` 参数。
+        """
         trusted_context: dict[str, Any] = {}
         visible_sections: list[str] = []
         source_audit: list[dict[str, Any]] = []

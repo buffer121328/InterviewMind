@@ -9,6 +9,7 @@ ExperienceSource = Literal["nowcoder", "xiaohongshu"]
 
 
 class ExportedExperienceItem(BaseModel):
+    """表示 `ExportedExperienceItem` 的接口数据模型。"""
     id: str | None = Field(default=None, max_length=200)
     note_id: str | None = Field(default=None, max_length=200)
     title: str = Field(default="", max_length=500)
@@ -20,6 +21,7 @@ class ExportedExperienceItem(BaseModel):
 
 
 class ExperienceCollectRequest(BaseModel):
+    """表示 `ExperienceCollectRequest` 的接口数据模型。"""
     source: ExperienceSource
     queries: list[str] = Field(default_factory=list, max_length=5)
     max_pages: int = Field(default=1, ge=1, le=3)
@@ -27,6 +29,7 @@ class ExperienceCollectRequest(BaseModel):
 
 
 class ExperienceSummary(BaseModel):
+    """表示 `ExperienceSummary` 的接口数据模型。"""
     source: str
     source_id: str
     title: str
@@ -36,6 +39,7 @@ class ExperienceSummary(BaseModel):
 
 
 class ExperienceQuestionCandidate(BaseModel):
+    """表示 `ExperienceQuestionCandidate` 的接口数据模型。"""
     question_text: str = Field(min_length=5, max_length=500)
     reference_answer: str | None = None
     tags: list[str] = Field(default_factory=list, max_length=10)
@@ -47,6 +51,7 @@ class ExperienceQuestionCandidate(BaseModel):
 
 
 class ExperienceCollectResponse(BaseModel):
+    """表示 `ExperienceCollectResponse` 的接口数据模型。"""
     success: bool = True
     experiences: list[ExperienceSummary] = Field(default_factory=list)
     questions: list[ExperienceQuestionCandidate] = Field(default_factory=list)
@@ -54,10 +59,12 @@ class ExperienceCollectResponse(BaseModel):
 
 
 class ExperienceQuestionImportRequest(BaseModel):
+    """表示 `ExperienceQuestionImportRequest` 的接口数据模型。"""
     questions: list[ExperienceQuestionCandidate] = Field(min_length=1, max_length=200)
 
 
 class ExperienceQuestionImportResponse(BaseModel):
+    """表示 `ExperienceQuestionImportResponse` 的接口数据模型。"""
     success: bool
     total_count: int
     success_count: int

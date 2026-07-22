@@ -212,7 +212,7 @@ def client():
     env_path = os.path.join(os.path.dirname(__file__), "..", "..", ".env")
     load_dotenv(env_path)
 
-    from main import app
+    from app.main import app
 
     yield from _enter_test_client(app)
 

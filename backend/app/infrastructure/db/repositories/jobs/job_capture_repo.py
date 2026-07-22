@@ -24,7 +24,7 @@ class JobCaptureRepo:
     ) -> int:
         """
         保存岗位采集记录。
-        
+
         Returns:
             新记录的 ID
         """
@@ -161,6 +161,12 @@ class JobCaptureRepo:
         """更新岗位状态；传入 session 时由外层 UnitOfWork 统一提交。"""
 
         async def _update(db: AsyncSession, *, owns_session: bool) -> bool:
+            """更新 当前对象。
+
+            Args:
+                db: 数据库会话。
+                owns_session: 调用方传入的 `owns_session` 参数。
+            """
             result = await db.execute(
                 select(CapturedJobModel).where(
                     and_(
@@ -187,6 +193,12 @@ class JobCaptureRepo:
         """原子占用岗位发送权，防止多请求重复点击；可接入外层 UnitOfWork。"""
 
         async def _claim(db: AsyncSession, *, owns_session: bool) -> bool:
+            """异步执行 `_claim` 相关逻辑。
+
+            Args:
+                db: 数据库会话。
+                owns_session: 调用方传入的 `owns_session` 参数。
+            """
             result = await db.execute(
                 update(CapturedJobModel)
                 .where(

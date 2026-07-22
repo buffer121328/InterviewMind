@@ -14,23 +14,34 @@ logger = logging.getLogger(__name__)
 
 
 class _Lease(Protocol):
-    async def release(self) -> None: ...
+    """运行锁协议：释放锁的接口。"""
+
+    async def release(self) -> None:
+        """异步执行 `release` 相关逻辑。"""
+        ...
 
 
 @dataclass
 class LocalLease:
+    """本地进程级别的运行锁租约。"""
+
     lock: asyncio.Lock
 
     async def release(self) -> None:
+        """释放本地锁。"""
         if self.lock.locked():
             self.lock.release()
 
 
 class LocalRunGate:
+    """本地进程级别的运行门禁（无 Redis 时回退）。"""
+
     def __init__(self) -> None:
+        """初始化当前对象实例。"""
         self._lock = asyncio.Lock()
 
     async def acquire(self) -> _Lease | None:
+        """尝试获取本地锁，已被持有则返回 None。"""
         if self._lock.locked():
             return None
         await self._lock.acquire()
@@ -39,15 +50,19 @@ class LocalRunGate:
 
 @dataclass
 class RedisLease:
+    """基于 Redis 的跨进程运行锁租约。"""
+
     client: object
     token: str
     ttl: int
     renew_task: asyncio.Task | None = None
 
     def start_renewal(self) -> None:
+        """启动后台续租协程。"""
         self.renew_task = asyncio.create_task(self._renew_loop(), name="agent-run-lock-renewal")
 
     async def _renew_loop(self) -> None:
+        """后台循环续租 Redis 锁，防止 TTL 过期。"""
         interval = max(1, self.ttl // 3)
         while True:
             await asyncio.sleep(interval)
@@ -68,6 +83,7 @@ class RedisLease:
                 logger.warning("Agent 运行锁续租失败，将继续重试: %s", type(exc).__name__)
 
     async def release(self) -> None:
+        """释放 Redis 锁并取消续租任务。"""
         if self.renew_task is not None:
             self.renew_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -85,13 +101,21 @@ class RedisLease:
 
 
 class RedisRunGate:
+    """基于 Redis 的跨进程运行门禁。"""
+
     def __init__(self, redis_url: str) -> None:
+        """初始化当前对象实例。
+
+        Args:
+            redis_url: redis URL。
+        """
         from redis.asyncio import Redis
 
         self._client = Redis.from_url(redis_url, decode_responses=True)
         self._ttl = int(os.getenv("AGENT_RUN_LOCK_TTL_SECONDS", "600"))
 
     async def acquire(self) -> _Lease | None:
+        """尝试通过 Redis SET NX 获取分布式锁，失败返回 None。"""
         token = secrets.token_urlsafe(16)
         acquired = await self._client.set(LOCK_KEY, token, nx=True, ex=self._ttl)
         if not acquired:
@@ -113,7 +137,9 @@ def get_run_gate() -> LocalRunGate | RedisRunGate:
 
     redis_url = os.getenv("REDIS_URL")
     if not redis_url:
-        return _local_gate
+        raise RuntimeError(
+            "TASK_QUEUE_ENABLED=true 时必须配置 REDIS_URL"
+        )
     if _redis_gate is None:
         _redis_gate = RedisRunGate(redis_url)
     return _redis_gate

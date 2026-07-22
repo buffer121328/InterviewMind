@@ -20,6 +20,7 @@ import {
     optimizeResumeStreaming,
     ResumeAnalyzeResult,
     ResumeOptimizeResult,
+    ResumeOptimizeMode,
     ApiConfig,
     OptimizeProgressEvent,
     OptimizeWarningEvent,
@@ -43,6 +44,7 @@ export function ResumeTools({ apiConfig, resumeContent, onResumeChange }: Resume
     // 会话选择状态
     const [selectedSessions, setSelectedSessions] = useState<string[]>([]);
     const [includeProfile, setIncludeProfile] = useState(false);
+    const [optimizeMode, setOptimizeMode] = useState<ResumeOptimizeMode>('balanced');
 
     // 加载状态
     const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -92,6 +94,7 @@ export function ResumeTools({ apiConfig, resumeContent, onResumeChange }: Resume
                 setJobDescription(currentResumeResult.job_description || "");
                 setSelectedSessions(currentResumeResult.session_ids || []);
                 setIncludeProfile(currentResumeResult.include_profile || false);
+                setOptimizeMode(((currentResumeResult.result_data as { mode?: ResumeOptimizeMode })?.mode) || 'balanced');
 
                 // 设置结果并切换 Tab
                 if (currentResumeResult.result_type === 'analyze') {
@@ -114,6 +117,7 @@ export function ResumeTools({ apiConfig, resumeContent, onResumeChange }: Resume
                 setJobDescription("");
                 setSelectedSessions([]);
                 setIncludeProfile(false);
+                setOptimizeMode('balanced');
             }
         });
     }, [currentResumeResult]);
@@ -257,6 +261,7 @@ export function ResumeTools({ apiConfig, resumeContent, onResumeChange }: Resume
                     job_description: jobDescription,
                     session_ids: selectedSessions,
                     include_overall_profile: includeProfile,
+                    mode: optimizeMode,
                     api_config: apiConfig,
                 },
                 (event: OptimizeProgressEvent) => {
@@ -471,6 +476,7 @@ export function ResumeTools({ apiConfig, resumeContent, onResumeChange }: Resume
                             optimizeProgress={optimizeProgress}
                             sessionPicker={renderSessionPicker()}
                             includeProfile={includeProfile}
+                            optimizeMode={optimizeMode}
                             fileInputRef={fileInputRef}
                             onResumeChange={(value) => {
                                 setLocalResume(value);
@@ -479,6 +485,7 @@ export function ResumeTools({ apiConfig, resumeContent, onResumeChange }: Resume
                             onJobDescriptionChange={setJobDescription}
                             onSubmit={handleOptimize}
                             onIncludeProfileChange={setIncludeProfile}
+                            onOptimizeModeChange={setOptimizeMode}
                         />
 
                         {/* 右侧结果区 */}

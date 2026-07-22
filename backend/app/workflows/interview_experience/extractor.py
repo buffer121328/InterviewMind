@@ -17,12 +17,22 @@ SKILL_KEYWORDS = {
 
 
 def _normalise_line(line: str) -> str:
+    """执行 `_normalise_line` 相关逻辑。
+
+    Args:
+        line: 调用方传入的 `line` 参数。
+    """
     line = re.sub(r"^\s*(?:[-*•]|\d+[.)、]|[一二三四五六七八九十]+[、.])\s*", "", line)
     line = re.sub(r"^(?:面试官|问题|题目|问)\s*[:：]\s*", "", line)
     return re.sub(r"\s+", " ", line).strip(" -—:：")
 
 
 def _looks_like_question(line: str) -> bool:
+    """执行 `_looks_like_question` 相关逻辑。
+
+    Args:
+        line: 调用方传入的 `line` 参数。
+    """
     if not 5 <= len(line) <= 500:
         return False
     lowered = line.lower()
@@ -30,6 +40,11 @@ def _looks_like_question(line: str) -> bool:
 
 
 def _target_skill(question: str) -> str | None:
+    """执行 `_target_skill` 相关逻辑。
+
+    Args:
+        question: 调用方传入的 `question` 参数。
+    """
     lowered = question.lower()
     for skill, keywords in SKILL_KEYWORDS.items():
         if any(keyword in lowered for keyword in keywords):
@@ -38,6 +53,11 @@ def _target_skill(question: str) -> str | None:
 
 
 def _question_type(question: str) -> str:
+    """执行 `_question_type` 相关逻辑。
+
+    Args:
+        question: 调用方传入的 `question` 参数。
+    """
     if any(word in question for word in ("设计", "架构", "高并发", "系统")):
         return "system_design"
     if any(word in question for word in ("经历", "冲突", "失败", "挑战", "团队")):
@@ -46,6 +66,11 @@ def _question_type(question: str) -> str:
 
 
 def extract_questions(documents: list[ExperienceDocument]) -> list[dict[str, object]]:
+    """执行 `extract_questions` 相关逻辑。
+
+    Args:
+        documents: 调用方传入的 `documents` 参数。
+    """
     questions: list[dict[str, object]] = []
     seen: set[str] = set()
     for document in documents:

@@ -107,7 +107,7 @@ async def invoke_structured(
 ) -> T:
     """
     统一的 LLM 结构化调用，自动重试
-    
+
     Args:
         prompt: 用户 prompt
         output_model: Pydantic 输出模型类
@@ -115,10 +115,10 @@ async def invoke_structured(
         channel: LLM 通道 (smart/fast/general 等)
         max_retries: 最大重试次数
         temperature: 温度参数
-        
+
     Returns:
         output_model 的实例
-        
+
     Raises:
         Exception: 所有重试都失败后抛出最后一个异常
     """
@@ -126,7 +126,7 @@ async def invoke_structured(
     # 参见: https://help.aliyun.com/zh/model-studio/json-mode
     if isinstance(prompt, str) and "json" not in prompt.lower():
         prompt = f"{prompt}\n\nRespond in JSON format."
-    
+
     return await _invoke_with_fallback(prompt, output_model, api_config, channel, max_retries)
 
 
@@ -139,20 +139,20 @@ async def invoke_structured_with_messages(
 ) -> T:
     """
     使用消息列表的结构化调用
-    
+
     Args:
         messages: 消息列表 (HumanMessage, SystemMessage 等)
         output_model: Pydantic 输出模型类
         api_config: API 配置
         channel: LLM 通道
         max_retries: 最大重试次数
-        
+
     Returns:
         output_model 的实例
     """
     # DashScope json_object 模式要求 messages 中包含 "json" 字样
     _ensure_json_keyword_in_messages(messages)
-    
+
     return await _invoke_with_fallback(messages, output_model, api_config, channel, max_retries)
 
 
@@ -163,12 +163,12 @@ def get_structured_llm(
 ) -> ChatOpenAI:
     """
     获取已绑定结构化输出的 LLM 实例
-    
+
     Args:
         output_model: Pydantic 输出模型类
         api_config: API 配置
         channel: LLM 通道
-        
+
     Returns:
         绑定了结构化输出的 ChatOpenAI 实例
     """
@@ -179,10 +179,10 @@ def get_structured_llm(
 def clean_json_response(content: str) -> str:
     """
     清理 LLM 响应中的 markdown 标记（保留作为 fallback）
-    
+
     Args:
         content: LLM 原始响应
-        
+
     Returns:
         清理后的 JSON 字符串
     """
@@ -199,10 +199,10 @@ def clean_json_response(content: str) -> str:
 def clean_markdown_response(content: str) -> str:
     """
     清理 Markdown 响应中的代码块包裹（保留作为 fallback）
-    
+
     Args:
         content: LLM 原始响应
-        
+
     Returns:
         清理后的 Markdown 字符串
     """

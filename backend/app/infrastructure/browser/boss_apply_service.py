@@ -33,13 +33,13 @@ async def execute_apply_preview(
 ) -> Dict[str, Any]:
     """
     投递预览：打开页面 → 填入文案 → 截图 → 返回预览（不发送）。
-    
+
     Args:
         job_id: 岗位 ID
         user_id: 用户 ID
         greeting_text: 要填入的打招呼文案
         resume_id: 可选，要附加的简历 ID
-        
+
     Returns:
         {
             "success": bool,
@@ -114,13 +114,13 @@ async def execute_apply_send(
 ) -> Dict[str, Any]:
     """
     确认发送：用户确认后，打开页面 → 填入 → 点击发送 → 截图结果。
-    
+
     Args:
         job_id: 岗位 ID
         user_id: 用户 ID
         greeting_text: 打招呼文案
         resume_id: 简历 ID
-        
+
     Returns:
         {"success": bool, "send_status": str, "message": str, "screenshot_base64": str}
     """

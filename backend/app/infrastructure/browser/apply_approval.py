@@ -17,11 +17,17 @@ class ApprovalError(ValueError):
 
 
 def _digest(value: str) -> str:
+    """执行 `_digest` 相关逻辑。
+
+    Args:
+        value: 取值。
+    """
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
 @dataclass(frozen=True)
 class PendingApproval:
+    """表示 `PendingApproval` 相关的数据或行为。"""
     user_id: str
     job_id: int
     greeting_digest: str
@@ -31,20 +37,48 @@ class PendingApproval:
 
 
 class ApprovalStore(Protocol):
-    async def put(self, token: str, item: PendingApproval, ttl_seconds: int) -> None: ...
+    """表示 `ApprovalStore` 相关的数据或行为。"""
 
-    async def pop(self, token: str) -> PendingApproval | None: ...
+    async def put(self, token: str, item: PendingApproval, ttl_seconds: int) -> None:
+        """异步执行 `put` 相关逻辑。
+
+        Args:
+            token: 访问令牌。
+            item: 单条数据。
+            ttl_seconds: 调用方传入的 `ttl_seconds` 参数。
+        """
+        ...
+
+    async def pop(self, token: str) -> PendingApproval | None:
+        """异步执行 `pop` 相关逻辑。
+
+        Args:
+            token: 访问令牌。
+        """
+        ...
 
 
 class MemoryApprovalStore:
     """本地开发降级存储；重启后许可安全失效。"""
 
     def __init__(self, max_pending: int = 1000) -> None:
+        """初始化当前对象实例。
+
+        Args:
+            max_pending: 调用方传入的 `max_pending` 参数。
+        """
         self._max_pending = max_pending
         self._items: dict[str, PendingApproval] = {}
         self._lock = asyncio.Lock()
 
     async def put(self, token: str, item: PendingApproval, ttl_seconds: int) -> None:
+        """异步执行 `put` 相关逻辑。
+
+        Args:
+            token: 访问令牌。
+            item: 单条数据。
+            ttl_seconds: 调用方传入的 `ttl_seconds` 参数。
+        """
         async with self._lock:
             superseded = [
                 key
@@ -59,6 +93,11 @@ class MemoryApprovalStore:
             self._items[token] = item
 
     async def pop(self, token: str) -> PendingApproval | None:
+        """异步执行 `pop` 相关逻辑。
+
+        Args:
+            token: 访问令牌。
+        """
         async with self._lock:
             return self._items.pop(token, None)
 
@@ -82,21 +121,43 @@ class RedisApprovalStore:
     """
 
     def __init__(self, redis_url: str) -> None:
+        """初始化当前对象实例。
+
+        Args:
+            redis_url: redis URL。
+        """
         from redis.asyncio import Redis
 
         self._client = Redis.from_url(redis_url, decode_responses=True)
 
     @staticmethod
     def _token_key(token: str) -> tuple[str, str]:
+        """执行 `_token_key` 相关逻辑。
+
+        Args:
+            token: 访问令牌。
+        """
         token_hash = _digest(token)
         return f"agent-interview:approval:{token_hash}", token_hash
 
     @staticmethod
     def _latest_key(item: PendingApproval) -> str:
+        """执行 `_latest_key` 相关逻辑。
+
+        Args:
+            item: 单条数据。
+        """
         owner = _digest(f"{item.user_id}\0{item.job_id}")
         return f"agent-interview:approval-latest:{owner}"
 
     async def put(self, token: str, item: PendingApproval, ttl_seconds: int) -> None:
+        """异步执行 `put` 相关逻辑。
+
+        Args:
+            token: 访问令牌。
+            item: 单条数据。
+            ttl_seconds: 调用方传入的 `ttl_seconds` 参数。
+        """
         item_key, token_hash = self._token_key(token)
         latest_key = self._latest_key(item)
         await self._client.eval(
@@ -111,6 +172,11 @@ class RedisApprovalStore:
         )
 
     async def pop(self, token: str) -> PendingApproval | None:
+        """异步执行 `pop` 相关逻辑。
+
+        Args:
+            token: 访问令牌。
+        """
         item_key, token_hash = self._token_key(token)
         raw = await self._client.get(item_key)
         if not raw:
@@ -135,6 +201,13 @@ class ApplyApprovalRegistry:
         max_pending: int = 1000,
         store: ApprovalStore | None = None,
     ) -> None:
+        """初始化当前对象实例。
+
+        Args:
+            ttl_seconds: 调用方传入的 `ttl_seconds` 参数。
+            max_pending: 调用方传入的 `max_pending` 参数。
+            store: 调用方传入的 `store` 参数。
+        """
         self._ttl_seconds = ttl_seconds
         self._store = store or MemoryApprovalStore(max_pending=max_pending)
 
@@ -147,6 +220,15 @@ class ApplyApprovalRegistry:
         source_url: str,
         resume_id: Optional[int],
     ) -> tuple[str, int]:
+        """异步执行 `issue` 相关逻辑。
+
+        Args:
+            user_id: 当前用户标识。
+            job_id: 岗位标识。
+            greeting_text: greeting 文本内容。
+            source_url: source URL。
+            resume_id: 简历标识。
+        """
         token = secrets.token_urlsafe(32)
         item = PendingApproval(
             user_id=user_id,
@@ -169,6 +251,16 @@ class ApplyApprovalRegistry:
         source_url: str,
         resume_id: Optional[int],
     ) -> None:
+        """异步执行 `consume` 相关逻辑。
+
+        Args:
+            token: 访问令牌。
+            user_id: 当前用户标识。
+            job_id: 岗位标识。
+            greeting_text: greeting 文本内容。
+            source_url: source URL。
+            resume_id: 简历标识。
+        """
         item = await self._store.pop(token)
         if item is None:
             raise ApprovalError("预览许可无效或已使用，请重新预览")
@@ -194,6 +286,7 @@ class ApplyApprovalRegistry:
 
 
 def _approval_ttl_seconds() -> int:
+    """执行 `_approval_ttl_seconds` 相关逻辑。"""
     try:
         value = int(os.getenv("BOSS_APPLY_APPROVAL_TTL_SECONDS", "300"))
     except ValueError:
@@ -202,6 +295,7 @@ def _approval_ttl_seconds() -> int:
 
 
 def _approval_store() -> ApprovalStore:
+    """执行 `_approval_store` 相关逻辑。"""
     redis_url = os.getenv("REDIS_URL")
     return RedisApprovalStore(redis_url) if redis_url else MemoryApprovalStore()
 

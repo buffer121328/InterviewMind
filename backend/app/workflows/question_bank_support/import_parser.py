@@ -16,10 +16,21 @@ _QUESTION_HINTS = ("如何", "为什么", "什么", "怎么", "是否", "介绍"
 
 
 def _clean(line: str) -> str:
+    """执行 `_clean` 相关逻辑。
+
+    Args:
+        line: 调用方传入的 `line` 参数。
+    """
     return re.sub(r"\s+", " ", _LIST_PREFIX.sub("", line)).strip()
 
 
 def _question_text(line: str, *, allow_hint: bool = True) -> str | None:
+    """执行 `_question_text` 相关逻辑。
+
+    Args:
+        line: 调用方传入的 `line` 参数。
+        allow_hint: 调用方传入的 `allow_hint` 参数。
+    """
     cleaned = _clean(line)
     explicit = bool(_QUESTION_PREFIX.match(cleaned))
     cleaned = _QUESTION_PREFIX.sub("", cleaned).strip(" #")
@@ -40,6 +51,7 @@ def parse_question_document(*, content: str, filename: str, source_id: str) -> l
     answer_started = False
 
     def flush() -> None:
+        """执行 `flush` 相关逻辑。"""
         nonlocal current, answer_lines, answer_started
         if current is None:
             return

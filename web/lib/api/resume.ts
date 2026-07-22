@@ -4,13 +4,14 @@
 
 import { apiRequest } from './config';
 import { createResumeOptimizeRun, pollAgentRun, type AgentRun } from './agentRuns';
-import type { ApiConfig, CompletedSession, GeneratedResumeItem, ResumeAnalyzeResult, ResumeGenerateInitResponse, ResumeGenerateSubmitResponse, ResumeOptimizeResult } from './resumeTypes';
+import type { ApiConfig, CompletedSession, GeneratedResumeItem, ResumeAnalyzeResult, ResumeGenerateInitResponse, ResumeGenerateSubmitResponse, ResumeOptimizeMode, ResumeOptimizeResult } from './resumeTypes';
+import { buildResumeOptimizePayload } from './resumePayloads';
 
 // ============================================================================
 // 类型定义
 // ============================================================================
 
-export type { JsonObject, DimensionScore, ResumeAnalyzeResult, OptimizedSection, KeyImprovement, ResumeChangeItem, ResumeOptimizeResult, CompletedSession, ApiConfig, GeneratedResumeItem, ResumeGenerateInitResponse, ResumeGenerateSubmitResponse, GenerationSessionStatus } from './resumeTypes';
+export type { JsonObject, DimensionScore, ResumeAnalyzeResult, OptimizedSection, KeyImprovement, ResumeChangeItem, ResumeOptimizeMode, ResumeOptimizeResult, CompletedSession, ApiConfig, GeneratedResumeItem, ResumeGenerateInitResponse, ResumeGenerateSubmitResponse, GenerationSessionStatus } from './resumeTypes';
 
 // ============================================================================
 // API 函数
@@ -78,6 +79,7 @@ export async function optimizeResume(params: {
     job_description: string;
     session_ids?: string[];
     include_overall_profile?: boolean;
+    mode?: ResumeOptimizeMode;
     api_config: ApiConfig;
 }): Promise<{
     success: boolean;
@@ -88,13 +90,7 @@ export async function optimizeResume(params: {
     try {
         return await apiRequest('/api/resume/optimize', {
             method: 'POST',
-            body: JSON.stringify({
-                resume_content: params.resume_content,
-                job_description: params.job_description,
-                session_ids: params.session_ids || [],
-                include_overall_profile: params.include_overall_profile || false,
-                api_config: params.api_config,
-            }),
+            body: JSON.stringify(buildResumeOptimizePayload(params)),
         });
     } catch (error) {
         console.error('简历优化失败:', error);
@@ -243,6 +239,7 @@ export async function optimizeResumeStreaming(
         job_description: string;
         session_ids?: string[];
         include_overall_profile?: boolean;
+        mode?: ResumeOptimizeMode;
         api_config: ApiConfig;
     },
     onProgress?: (event: OptimizeProgressEvent) => void,
@@ -255,13 +252,7 @@ export async function optimizeResumeStreaming(
     warnings?: Array<{ node: string; message: string }>;
 }> {
     try {
-        const created = await createResumeOptimizeRun({
-            resume_content: params.resume_content,
-            job_description: params.job_description,
-            session_ids: params.session_ids || [],
-            include_overall_profile: params.include_overall_profile || false,
-            api_config: params.api_config,
-        });
+        const created = await createResumeOptimizeRun(buildResumeOptimizePayload(params));
         let completed: AgentRun | { status: 'succeeded'; result: Record<string, unknown> } = created;
         if ('run_id' in created) {
             completed = await pollAgentRun(created.run_id, run => {

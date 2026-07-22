@@ -86,7 +86,12 @@ class TestBuildQueries:
             target_skills=["Python"],
         )
 
-        assert queries[0].source_types == ["candidate_material", "question_bank", "jd_analysis"]
+        assert queries[0].source_types == [
+            "candidate_material",
+            "question_bank",
+            "question_bank_followup",
+            "jd_analysis",
+        ]
 
 
 # ── rerank_evidences 测试 ─────────────────────────────────

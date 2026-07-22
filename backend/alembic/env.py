@@ -52,6 +52,11 @@ def run_migrations_offline() -> None:
 
 
 def do_run_migrations(connection: Connection) -> None:
+    """执行 `do_run_migrations` 相关逻辑。
+
+    Args:
+        connection: 调用方传入的 `connection` 参数。
+    """
     context.configure(connection=connection, target_metadata=target_metadata)
 
     with context.begin_transaction():

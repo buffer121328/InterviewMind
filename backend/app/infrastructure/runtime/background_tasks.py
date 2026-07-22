@@ -18,6 +18,11 @@ def create_background_task(coro: Coroutine[Any, Any, Any], name: str = "backgrou
     _background_tasks.add(task)
 
     def _on_done(done_task: asyncio.Task) -> None:
+        """执行 `_on_done` 相关逻辑。
+
+        Args:
+            done_task: 调用方传入的 `done_task` 参数。
+        """
         _background_tasks.discard(done_task)
         try:
             done_task.result()

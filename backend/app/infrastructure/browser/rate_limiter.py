@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 class RateLimitType(str, Enum):
+    """表示 `RateLimitType` 相关的数据或行为。"""
     CAPTURE = "capture"  # 岗位采集
     SEND = "send"        # 投递发送
 
@@ -86,23 +87,51 @@ class RedisRateLimitStore:
     """
 
     def __init__(self, redis_url: str) -> None:
+        """初始化当前对象实例。
+
+        Args:
+            redis_url: redis URL。
+        """
         from redis.asyncio import Redis
 
         self._client = Redis.from_url(redis_url, decode_responses=True)
 
     @staticmethod
     def _user_key(user_id: str) -> str:
+        """执行 `_user_key` 相关逻辑。
+
+        Args:
+            user_id: 当前用户标识。
+        """
         return hashlib.sha256(user_id.encode()).hexdigest()
 
     def _rate_key(self, user_id: str, limit_type: RateLimitType) -> str:
+        """执行 `_rate_key` 相关逻辑。
+
+        Args:
+            user_id: 当前用户标识。
+            limit_type: 调用方传入的 `limit_type` 参数。
+        """
         return f"agent-interview:rate:{self._user_key(user_id)}:{limit_type.value}"
 
     def _failure_key(self, user_id: str) -> str:
+        """执行 `_failure_key` 相关逻辑。
+
+        Args:
+            user_id: 当前用户标识。
+        """
         return f"agent-interview:rate:{self._user_key(user_id)}:failures"
 
     async def check_rate(
         self, user_id: str, limit_type: RateLimitType, *, record: bool
     ) -> Tuple[bool, str]:
+        """检查 `rate`。
+
+        Args:
+            user_id: 当前用户标识。
+            limit_type: 调用方传入的 `limit_type` 参数。
+            record: 调用方传入的 `record` 参数。
+        """
         config = RATE_LIMITS[limit_type]
         now_ms = int(time.time() * 1000)
         result = await self._client.eval(
@@ -127,6 +156,11 @@ class RedisRateLimitStore:
         return True, "ok"
 
     async def record_failure(self, user_id: str) -> None:
+        """记录 `failure`。
+
+        Args:
+            user_id: 当前用户标识。
+        """
         await self._client.eval(
             self._FAILURE_SCRIPT,
             1,
@@ -138,9 +172,19 @@ class RedisRateLimitStore:
         )
 
     async def record_success(self, user_id: str) -> None:
+        """记录 `success`。
+
+        Args:
+            user_id: 当前用户标识。
+        """
         await self._client.delete(self._failure_key(user_id))
 
     async def get_rate_status(self, user_id: str) -> Dict[str, Any]:
+        """获取 `rate status`。
+
+        Args:
+            user_id: 当前用户标识。
+        """
         now = time.time()
         status: Dict[str, Any] = {}
         for limit_type in RateLimitType:
@@ -165,6 +209,7 @@ class RedisRateLimitStore:
 
 
 def _build_redis_store() -> RedisRateLimitStore | None:
+    """构建 `redis store`。"""
     redis_url = os.getenv("REDIS_URL")
     return RedisRateLimitStore(redis_url) if redis_url else None
 
@@ -184,7 +229,7 @@ async def check_rate(
 ) -> Tuple[bool, str]:
     """
     检查是否超过频率限制。
-    
+
     Returns:
         (can_proceed: bool, message: str)
     """

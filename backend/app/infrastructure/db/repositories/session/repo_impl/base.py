@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 
 class BaseService:
     """基础服务类，提供通用数据库操作"""
-    
+
     async def _check_session_access(
         self,
         session_id: str,

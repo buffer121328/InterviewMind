@@ -25,6 +25,7 @@ _configured = False
 
 @dataclass(frozen=True)
 class LangfuseConfig:
+    """表示配置数据。"""
     enabled: bool
     public_key: str = ""
     secret_key: str = ""
@@ -32,6 +33,7 @@ class LangfuseConfig:
 
     @classmethod
     def from_env(cls) -> "LangfuseConfig":
+        """执行 `from_env` 相关逻辑。"""
         enabled = os.getenv("LANGFUSE_ENABLED", "false").lower() in {"1", "true", "yes"}
         return cls(
             enabled=enabled,
@@ -54,9 +56,19 @@ class AgentObservation:
     model_events: list[dict[str, Any]] | None = None
 
     def set_output(self, output_payload: dict[str, Any]) -> None:
+        """设置 `output`。
+
+        Args:
+            output_payload: output 载荷。
+        """
         self.output_payload = output_payload
 
     def set_error(self, error: Exception) -> None:
+        """设置 `error`。
+
+        Args:
+            error: 调用方传入的 `error` 参数。
+        """
         self.error_payload = {
             "type": type(error).__name__,
             "message": str(error)[:160],
@@ -91,6 +103,11 @@ def extract_token_usage(value: Any) -> dict[str, int | None]:
 
 
 def record_model_event(**event: Any) -> None:
+    """记录 `model event`。
+
+    Args:
+        **event: 事件对象。
+    """
     events = _model_events.get()
     if events is None:
         return
@@ -100,6 +117,11 @@ def record_model_event(**event: Any) -> None:
 
 
 async def _persist_agent_observation(observation: "AgentObservation") -> None:
+    """异步执行 `_persist_agent_observation` 相关逻辑。
+
+    Args:
+        observation: 调用方传入的 `observation` 参数。
+    """
     if not observation.run_id:
         return
     try:
@@ -114,10 +136,16 @@ async def _persist_agent_observation(observation: "AgentObservation") -> None:
 
 
 def get_current_model_events() -> list[dict[str, Any]]:
+    """获取 `current model events`。"""
     events = _model_events.get()
     return list(events or [])
 
 def _create_langfuse_client(config: LangfuseConfig) -> Any:
+    """创建 `langfuse client`。
+
+    Args:
+        config: 配置对象。
+    """
     from langfuse import Langfuse
 
     return Langfuse(
@@ -128,23 +156,33 @@ def _create_langfuse_client(config: LangfuseConfig) -> Any:
 
 
 def _get_agent_run_service() -> Any:
+    """获取 `agent run service`。"""
     from app.infrastructure.runtime.agent_runs.service import AgentRunService
 
     return AgentRunService()
 
 
 def _get_propagate_attributes():
+    """获取 `propagate attributes`。"""
     from langfuse import propagate_attributes
 
     return propagate_attributes
 
 
 def _get_callback_handler():
+    """获取 `callback handler`。"""
     try:
         from langfuse.langchain import CallbackHandler
     except ModuleNotFoundError:
         class CallbackHandler:  # pragma: no cover - 轻量测试环境占位
+            """表示 `CallbackHandler` 相关的数据或行为。"""
             def __call__(self, *args: Any, **kwargs: Any) -> None:
+                """实现 `__call__` 协议方法。
+
+                Args:
+                    *args: 调用方传入的 `args` 参数。
+                    **kwargs: 调用方传入的 `kwargs` 参数。
+                """
                 return None
 
         return CallbackHandler
@@ -259,6 +297,12 @@ async def agent_observation(
 
 
 def _update_span(span: Any, observation: AgentObservation) -> None:
+    """更新 `span`。
+
+    Args:
+        span: 调用方传入的 `span` 参数。
+        observation: 调用方传入的 `observation` 参数。
+    """
     output_payload = {"trace_id": observation.trace_id, **(observation.output_payload or {})}
     if observation.run_id:
         output_payload["agent_run_id"] = observation.run_id

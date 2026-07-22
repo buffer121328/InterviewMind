@@ -32,7 +32,7 @@ class _FakeSessionRepo:
         self.updated = []
         self.session = SimpleNamespace(
             messages=[SimpleNamespace(role="assistant", content="上一题", question_index=0)],
-            metadata=SimpleNamespace(round_index=1, round_type="tech_initial"),
+            metadata=SimpleNamespace(),
         )
 
     async def get_session(self, *_args, **_kwargs):
@@ -92,9 +92,11 @@ class _FakeGate:
 class _FakeGraph:
     def __init__(self):
         self.config = None
+        self.inputs = None
 
-    async def astream_events(self, *_args, **kwargs):
+    async def astream_events(self, *args, **kwargs):
         self.config = kwargs.get("config")
+        self.inputs = args[0]
         yield {
             "event": "on_chat_model_stream",
             "metadata": {"langgraph_node": "responder"},
@@ -151,6 +153,9 @@ async def test_chat_stream_creates_and_completes_agent_run(monkeypatch):
     assert fake_run_service.created[0]["task_type"] == TASK_TYPE_INTERVIEW_TURN
     assert fake_run_service.created[0]["payload"]["thread_id"] == "thread-1"
     assert fake_graph.config == {"configurable": {"thread_id": "interview:thread-1:run:run-1"}}
+    assert fake_graph.inputs["round_index"] == 1
+    assert fake_graph.inputs["round_type"] is None
+    assert fake_graph.inputs["max_questions"] == 5
     assert fake_run_service.stages == [
         ("run-1", "loading_session"),
         ("run-1", "saving_answer"),

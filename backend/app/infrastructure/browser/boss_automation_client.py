@@ -15,21 +15,35 @@ class BossAutomationError(RuntimeError):
     """宿主机自动化服务不可用或返回非法响应。"""
 
     def __init__(self, message: str, *, request_may_have_run: bool = False) -> None:
+        """初始化当前对象实例。
+
+        Args:
+            message: 消息内容。
+            request_may_have_run: 调用方传入的 `request_may_have_run` 参数。
+        """
         super().__init__(message)
         self.request_may_have_run = request_may_have_run
 
 
 class BossAutomationClient:
+    """封装外部客户端访问能力。"""
     def __init__(
         self,
         settings: AppSettings | None = None,
         *,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
+        """初始化当前对象实例。
+
+        Args:
+            settings: 配置项。
+            transport: 调用方传入的 `transport` 参数。
+        """
         self._settings = settings or get_settings()
         self._transport = transport
 
     def _connection(self) -> tuple[str, str]:
+        """执行 `_connection` 相关逻辑。"""
         base_url = self._settings.boss_automation_service_url.strip().rstrip("/")
         token = self._settings.boss_automation_service_token.get_secret_value().strip()
         parsed = urlparse(base_url)
@@ -40,6 +54,12 @@ class BossAutomationClient:
         return base_url, token
 
     async def _post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
+        """异步执行 `_post` 相关逻辑。
+
+        Args:
+            path: 文件路径。
+            payload: 请求载荷。
+        """
         base_url, token = self._connection()
         try:
             async with httpx.AsyncClient(
@@ -78,6 +98,7 @@ class BossAutomationClient:
             raise BossAutomationError("BOSS 宿主机服务返回格式无效") from exc
 
     async def health(self) -> dict[str, Any]:
+        """返回健康检查状态。"""
         return await self._post("/v1/health", {})
 
     async def scrape(
@@ -87,6 +108,13 @@ class BossAutomationClient:
         headless: bool,
         manual_wait_seconds: int,
     ) -> dict[str, Any]:
+        """异步执行 `scrape` 相关逻辑。
+
+        Args:
+            source_url: source URL。
+            headless: 调用方传入的 `headless` 参数。
+            manual_wait_seconds: 调用方传入的 `manual_wait_seconds` 参数。
+        """
         return await self._post(
             "/v1/pages/scrape",
             {
@@ -97,12 +125,24 @@ class BossAutomationClient:
         )
 
     async def preview(self, source_url: str, greeting_text: str) -> dict[str, Any]:
+        """预览 当前对象。
+
+        Args:
+            source_url: source URL。
+            greeting_text: greeting 文本内容。
+        """
         return await self._post(
             "/v1/applications/preview",
             {"source_url": source_url, "greeting_text": greeting_text},
         )
 
     async def send(self, source_url: str, greeting_text: str) -> dict[str, Any]:
+        """发送 当前对象。
+
+        Args:
+            source_url: source URL。
+            greeting_text: greeting 文本内容。
+        """
         return await self._post(
             "/v1/applications/send",
             {
@@ -114,4 +154,5 @@ class BossAutomationClient:
 
 
 def get_boss_automation_client() -> BossAutomationClient:
+    """获取 `boss automation client`。"""
     return BossAutomationClient()

@@ -2,11 +2,13 @@
 
 import logging
 
-import httpx
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.deps import get_current_user_id
-from app.workflows.interview.experience_imports import interview_experience_import_use_cases
+from app.workflows.interview.experience_imports import (
+    InterviewExperienceUseCaseError,
+    interview_experience_import_use_cases,
+)
 from app.schemas.interview_experience import (
     ExperienceCollectRequest,
     ExperienceCollectResponse,
@@ -26,11 +28,8 @@ async def collect_interview_experiences(
     """采集并抽取候选题；本接口不写数据库。"""
     try:
         return await interview_experience_import_use_cases.collect(request=request)
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-    except httpx.HTTPError as exc:
-        logger.warning("面经来源请求失败: %s", type(exc).__name__)
-        raise HTTPException(status_code=502, detail="面经来源暂时不可用，请稍后重试") from exc
+    except InterviewExperienceUseCaseError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
 
 
 @router.post("/import", response_model=ExperienceQuestionImportResponse)

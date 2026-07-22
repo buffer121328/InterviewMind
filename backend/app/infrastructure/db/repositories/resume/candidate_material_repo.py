@@ -17,11 +17,11 @@ logger = logging.getLogger(__name__)
 
 class CandidateMaterialRepo:
     """候选人素材服务类 - 管理候选人素材库"""
-    
+
     def __init__(self):
         """初始化素材服务"""
         logger.info("CandidateMaterialService 初始化")
-    
+
     async def create_material(
         self,
         user_id: str,
@@ -38,7 +38,7 @@ class CandidateMaterialRepo:
     ) -> int:
         """
         创建素材
-        
+
         Args:
             user_id: 用户ID
             material_type: 素材类型 (tech_stack, project, internship, work_experience, education, certificate, highlight)
@@ -51,7 +51,7 @@ class CandidateMaterialRepo:
             importance_score: 重要性评分 (0-1)
             confidence_score: 可信度评分 (0-1)
             is_verified: 是否已验证
-            
+
         Returns:
             int: 素材ID
         """
@@ -77,22 +77,22 @@ class CandidateMaterialRepo:
                 await db.commit()
                 await db.refresh(db_obj)
                 material_id = db_obj.id
-                
+
                 logger.info(f"创建素材: ID={material_id}, type={material_type}, user={user_id}")
                 return material_id
-                
+
             except Exception as e:
                 logger.error(f"创建素材失败: {e}")
                 raise
-    
+
     async def get_material(self, material_id: int, user_id: str) -> Optional[Dict[str, Any]]:
         """
         获取单个素材
-        
+
         Args:
             material_id: 素材ID
             user_id: 用户ID（用于权限校验）
-            
+
         Returns:
             素材数据字典，如果不存在或无权限则返回 None
         """
@@ -106,9 +106,9 @@ class CandidateMaterialRepo:
 
             if not obj:
                 return None
-            
+
             return self._row_to_dict(obj)
-    
+
     async def list_materials(
         self,
         user_id: str,
@@ -119,14 +119,14 @@ class CandidateMaterialRepo:
     ) -> List[Dict[str, Any]]:
         """
         获取用户的素材列表
-        
+
         Args:
             user_id: 用户ID
             material_type: 素材类型过滤（可选）
             is_verified: 是否已验证过滤（可选）
             limit: 最大返回数量
             offset: 偏移量
-            
+
         Returns:
             素材列表
         """
@@ -139,7 +139,7 @@ class CandidateMaterialRepo:
             stmt = stmt.order_by(CandidateMaterialModel.created_at.desc()).limit(limit).offset(offset)
             rows = await db.execute(stmt)
             return [self._row_to_dict(row) for row in rows.scalars().all()]
-    
+
     async def update_material(
         self,
         material_id: int,
@@ -154,7 +154,7 @@ class CandidateMaterialRepo:
     ) -> bool:
         """
         更新素材
-        
+
         Args:
             material_id: 素材ID
             user_id: 用户ID（用于权限校验）
@@ -165,7 +165,7 @@ class CandidateMaterialRepo:
             importance_score: 新重要性评分（可选）
             confidence_score: 新可信度评分（可选）
             is_verified: 新验证状态（可选）
-            
+
         Returns:
             是否更新成功
         """
@@ -200,19 +200,19 @@ class CandidateMaterialRepo:
                 if updated:
                     logger.info(f"更新素材: ID={material_id}")
                 return updated
-                
+
             except Exception as e:
                 logger.error(f"更新素材失败: {e}")
                 return False
-    
+
     async def delete_material(self, material_id: int, user_id: str) -> bool:
         """
         删除素材
-        
+
         Args:
             material_id: 素材ID
             user_id: 用户ID（用于权限校验）
-            
+
         Returns:
             是否删除成功
         """
@@ -227,11 +227,11 @@ class CandidateMaterialRepo:
                 if deleted:
                     logger.info(f"删除素材: ID={material_id}")
                 return deleted
-                
+
             except Exception as e:
                 logger.error(f"删除素材失败: {e}")
                 return False
-    
+
     async def get_materials_by_ids(
         self,
         material_ids: List[int],
@@ -239,17 +239,17 @@ class CandidateMaterialRepo:
     ) -> List[Dict[str, Any]]:
         """
         根据ID列表获取素材
-        
+
         Args:
             material_ids: 素材ID列表
             user_id: 用户ID（用于权限校验）
-            
+
         Returns:
             素材列表
         """
         if not material_ids:
             return []
-        
+
         async with async_session() as db:
             stmt = select(CandidateMaterialModel).where(
                 CandidateMaterialModel.id.in_(material_ids),
@@ -257,7 +257,7 @@ class CandidateMaterialRepo:
             ).order_by(CandidateMaterialModel.created_at.desc())
             rows = await db.execute(stmt)
             return [self._row_to_dict(row) for row in rows.scalars().all()]
-    
+
     async def search_materials(
         self,
         user_id: str,
@@ -267,13 +267,13 @@ class CandidateMaterialRepo:
     ) -> List[Dict[str, Any]]:
         """
         搜索素材
-        
+
         Args:
             user_id: 用户ID
             keyword: 搜索关键词
             material_type: 素材类型过滤（可选）
             limit: 最大返回数量
-            
+
         Returns:
             匹配的素材列表
         """
@@ -289,7 +289,7 @@ class CandidateMaterialRepo:
             stmt = stmt.order_by(CandidateMaterialModel.created_at.desc()).limit(limit)
             rows = await db.execute(stmt)
             return [self._row_to_dict(row) for row in rows.scalars().all()]
-    
+
     async def get_material_count(
         self,
         user_id: str,
@@ -297,11 +297,11 @@ class CandidateMaterialRepo:
     ) -> int:
         """
         获取素材数量
-        
+
         Args:
             user_id: 用户ID
             material_type: 素材类型过滤（可选）
-            
+
         Returns:
             素材数量
         """
@@ -311,7 +311,7 @@ class CandidateMaterialRepo:
                 stmt = stmt.where(CandidateMaterialModel.material_type == material_type)
             result = await db.execute(stmt)
             return result.scalar_one()
-    
+
     def _row_to_dict(self, row: CandidateMaterialModel) -> Dict[str, Any]:
         """将数据库行转换为字典"""
         return {

@@ -11,6 +11,7 @@ from .base import Base
 
 
 class JdAnalysisResultModel(Base):
+    """表示数据模型。"""
     __tablename__ = "jd_analysis_results"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

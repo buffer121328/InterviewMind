@@ -18,29 +18,47 @@ try:  # pragma: no cover - 运行时可选依赖
     )
 except ModuleNotFoundError:  # pragma: no cover - 轻量测试环境
     def wrap_tool_call(func):
+        """执行 `wrap_tool_call` 相关逻辑。
+
+        Args:
+            func: 调用方传入的 `func` 参数。
+        """
         return func
 
     class _StubMiddleware:
+        """表示 `_StubMiddleware` 相关的数据或行为。"""
         def __init__(self, *args: Any, **kwargs: Any) -> None:
+            """初始化当前对象实例。
+
+            Args:
+                *args: 调用方传入的 `args` 参数。
+                **kwargs: 调用方传入的 `kwargs` 参数。
+            """
             self.args = args
             self.kwargs = kwargs
 
     class HumanInTheLoopMiddleware(_StubMiddleware):
+        """表示 `HumanInTheLoopMiddleware` 相关的数据或行为。"""
         pass
 
     class ModelCallLimitMiddleware(_StubMiddleware):
+        """表示 `ModelCallLimitMiddleware` 相关的数据或行为。"""
         pass
 
     class ModelFallbackMiddleware(_StubMiddleware):
+        """表示 `ModelFallbackMiddleware` 相关的数据或行为。"""
         pass
 
     class ModelRetryMiddleware(_StubMiddleware):
+        """表示 `ModelRetryMiddleware` 相关的数据或行为。"""
         pass
 
     class PIIMiddleware(_StubMiddleware):
+        """表示 `PIIMiddleware` 相关的数据或行为。"""
         pass
 
     class ToolCallLimitMiddleware(_StubMiddleware):
+        """表示 `ToolCallLimitMiddleware` 相关的数据或行为。"""
         pass
 
 
@@ -49,6 +67,12 @@ def permission_middleware(tool_permissions: dict[str, Collection[str]]):
 
     @wrap_tool_call
     async def enforce_permissions(request: Any, handler: Any):
+        """异步执行 `enforce_permissions` 相关逻辑。
+
+        Args:
+            request: 请求对象。
+            handler: 处理器。
+        """
         tool_name = str(request.tool_call.get("name", ""))
         required = set(tool_permissions.get(tool_name, ()))
         context = getattr(request.runtime, "context", None)

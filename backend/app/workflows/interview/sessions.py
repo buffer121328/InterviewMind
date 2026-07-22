@@ -23,6 +23,10 @@ class SessionManagementPersistenceError(SessionManagementUseCaseError):
     """会话持久化失败。"""
 
 
+class SessionManagementBadRequest(SessionManagementUseCaseError):
+    """会话管理请求不合法。"""
+
+
 class SessionManagementUseCases:
     """会话基础管理应用服务。"""
 
@@ -142,8 +146,11 @@ class SessionManagementUseCases:
             round_type: 调用方传入的 `round_type` 参数。
         """
         if round_type is not None:
-            round_type = resolve_round_type(round_type)
-            max_questions = resolve_max_questions(round_type, max_questions)
+            try:
+                round_type = resolve_round_type(round_type)
+                max_questions = resolve_max_questions(round_type, max_questions)
+            except ValueError as exc:
+                raise SessionManagementBadRequest(message=str(exc)) from exc
         return await self._session_repo.create_next_round(
             parent_session_id=session_id,
             max_questions=max_questions,

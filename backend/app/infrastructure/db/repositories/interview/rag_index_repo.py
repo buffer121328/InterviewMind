@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 def _utcnow() -> datetime:
+    """执行 `_utcnow` 相关逻辑。"""
     return datetime.now(timezone.utc)
 
 
@@ -375,6 +376,7 @@ _rag_index_repo: Optional[RagIndexRepo] = None
 
 
 def get_rag_index_repo() -> RagIndexRepo:
+    """获取 `rag index repo`。"""
     global _rag_index_repo
     if _rag_index_repo is None:
         _rag_index_repo = RagIndexRepo()

@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.api import resume
+from app.api import resume_history as resume_history_routes
 from app.workflows.resume import history as resume_history
 from app.infrastructure.db.repositories.resume.resume_repo import ResumeRepo
 from app.schemas.resume_schemas import ResumeHistoryDetailResponse, ResumeHistoryListResponse
@@ -67,7 +67,7 @@ async def test_resume_history_list_returns_pagination(monkeypatch):
 
     monkeypatch.setattr(resume_history, "get_resume_repo", lambda: FakeRepo())
 
-    response = await resume.list_resume_results(
+    response = await resume_history_routes.list_resume_results(
         result_type="optimize",
         limit=5,
         offset=10,
@@ -92,7 +92,7 @@ async def test_resume_history_detail_returns_wrapped_result(monkeypatch):
 
     monkeypatch.setattr(resume_history, "get_resume_repo", lambda: FakeRepo())
 
-    response = await resume.get_resume_result(7, user_id="user-1")
+    response = await resume_history_routes.get_resume_result(7, user_id="user-1")
 
     assert isinstance(response, ResumeHistoryDetailResponse)
     assert response.result.id == 7

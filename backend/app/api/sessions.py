@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 from app.api.deps import get_current_user_id
 from app.workflows.interview.sessions import (
+    SessionManagementBadRequest,
     SessionManagementNotFound,
     SessionManagementPersistenceError,
     session_management_use_cases,
@@ -187,10 +188,10 @@ async def create_next_round(
             user_id=user_id,
         )
         return SessionDetailResponse(success=True, session=new_session)
-    except ValueError as exc:
+    except SessionManagementBadRequest as exc:
         raise HTTPException(
             status_code=400,
-            detail={"error": "BadRequest", "message": str(exc)},
+            detail={"error": "BadRequest", "message": exc.message},
         ) from exc
     except Exception as exc:
         logger.error("创建下一轮面试失败: %s", exc)

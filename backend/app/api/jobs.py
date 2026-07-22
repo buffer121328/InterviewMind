@@ -36,6 +36,13 @@ _ERROR_STATUS = {
 
 
 async def _call_use_case(action: Callable[[], Awaitable[T]], error_code: str, error_message: str) -> T:
+    """异步执行 `_call_use_case` 相关逻辑。
+
+    Args:
+        action: 调用方传入的 `action` 参数。
+        error_code: 调用方传入的 `error_code` 参数。
+        error_message: 调用方传入的 `error_message` 参数。
+    """
     try:
         return await action()
     except JobsUseCaseError as exc:

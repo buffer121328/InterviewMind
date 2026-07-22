@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class GenerationSession:
+    """表示 `GenerationSession` 相关的数据或行为。"""
     session_id: str
     user_id: str
     resume_content: str
@@ -46,12 +47,22 @@ class SessionStore:
     """PostgreSQL 生成会话存储；支持重启恢复和多进程共享。"""
 
     def __init__(self, ttl_hours: int | None = None):
+        """初始化当前对象实例。
+
+        Args:
+            ttl_hours: 调用方传入的 `ttl_hours` 参数。
+        """
         import os
 
         self._ttl = timedelta(hours=ttl_hours or max(1, int(os.getenv("RESUME_GENERATION_SESSION_TTL_HOURS", "24"))))
 
     @staticmethod
     def _to_session(row) -> GenerationSession:
+        """转换 `session`。
+
+        Args:
+            row: 调用方传入的 `row` 参数。
+        """
         return GenerationSession(
             session_id=row.id,
             user_id=row.user_id,
@@ -73,6 +84,12 @@ class SessionStore:
         )
 
     async def create(self, session_id: str, **kwargs) -> GenerationSession:
+        """创建 当前对象。
+
+        Args:
+            session_id: 会话标识。
+            **kwargs: 调用方传入的 `kwargs` 参数。
+        """
         from app.infrastructure.db.models.resume import ResumeGenerationSessionModel
 
         now = datetime.now()
@@ -97,6 +114,12 @@ class SessionStore:
             return self._to_session(row)
 
     async def get(self, session_id: str, user_id: Optional[str] = None) -> Optional[GenerationSession]:
+        """获取 当前对象。
+
+        Args:
+            session_id: 会话标识。
+            user_id: 当前用户标识。
+        """
         from app.infrastructure.db.models.resume import ResumeGenerationSessionModel
 
         async with async_session() as db:
@@ -113,6 +136,13 @@ class SessionStore:
             return self._to_session(row)
 
     async def update(self, session_id: str, user_id: Optional[str] = None, **kwargs) -> Optional[GenerationSession]:
+        """更新 当前对象。
+
+        Args:
+            session_id: 会话标识。
+            user_id: 当前用户标识。
+            **kwargs: 调用方传入的 `kwargs` 参数。
+        """
         from app.infrastructure.db.models.resume import ResumeGenerationSessionModel
 
         allowed = {
@@ -135,6 +165,12 @@ class SessionStore:
             return self._to_session(row)
 
     async def delete(self, session_id: str, user_id: Optional[str] = None) -> bool:
+        """删除 当前对象。
+
+        Args:
+            session_id: 会话标识。
+            user_id: 当前用户标识。
+        """
         from app.infrastructure.db.models.resume import ResumeGenerationSessionModel
 
         async with async_session() as db:
@@ -158,10 +194,11 @@ session_store = SessionStore()
 
 class ResumeGenerationRepo:
     """简历生成服务 - 管理生成的简历持久化"""
-    
+
     def __init__(self):
+        """初始化当前对象实例。"""
         logger.info("ResumeGenerationService 初始化")
-    
+
     async def save_generated_resume(
         self,
         user_id: str,
@@ -174,7 +211,7 @@ class ResumeGenerationRepo:
     ) -> int:
         """
         保存生成的简历
-        
+
         Returns:
             int: 简历 ID
         """
@@ -203,10 +240,10 @@ class ResumeGenerationRepo:
                 await db.commit()
                 await db.refresh(db_obj)
                 resume_id = db_obj.id
-                
+
                 logger.info(f"保存生成的简历: ID={resume_id}, title={title}")
                 return resume_id
-                
+
             except IntegrityError:
                 await db.rollback()
                 stmt = select(GeneratedResumeModel)
@@ -223,7 +260,7 @@ class ResumeGenerationRepo:
             except Exception as e:
                 logger.error(f"保存生成的简历失败: {e}")
                 raise
-    
+
     async def get_generated_resume(self, resume_id: int, user_id: str) -> Optional[Dict[str, Any]]:
         """获取单个生成的简历"""
         async with async_session() as db:
@@ -236,9 +273,9 @@ class ResumeGenerationRepo:
 
             if not obj:
                 return None
-            
+
             return self._row_to_dict(obj)
-    
+
     async def list_generated_resumes(
         self,
         user_id: str,
@@ -249,7 +286,7 @@ class ResumeGenerationRepo:
             stmt = select(GeneratedResumeModel).where(GeneratedResumeModel.user_id == user_id).order_by(GeneratedResumeModel.created_at.desc()).limit(limit)
             result = await db.execute(stmt)
             return [self._row_to_dict(row) for row in result.scalars().all()]
-    
+
     async def delete_generated_resume(self, resume_id: int, user_id: str) -> bool:
         """删除生成的简历"""
         async with async_session() as db:
@@ -265,11 +302,11 @@ class ResumeGenerationRepo:
                 if deleted:
                     logger.info(f"删除生成的简历: ID={resume_id}")
                 return deleted
-                
+
             except Exception as e:
                 logger.error(f"删除生成的简历失败: {e}")
                 return False
-    
+
     async def update_generated_resume(
         self,
         resume_id: int,
@@ -280,7 +317,7 @@ class ResumeGenerationRepo:
         """更新生成的简历"""
         if not content and not title:
             return False
-            
+
         async with async_session() as db:
             try:
                 stmt = select(GeneratedResumeModel).where(
@@ -302,7 +339,7 @@ class ResumeGenerationRepo:
                 if updated:
                     logger.info(f"更新生成的简历: ID={resume_id}")
                 return updated
-                
+
             except Exception as e:
                 logger.error(f"更新生成的简历失败: {e}")
                 return False

@@ -36,9 +36,16 @@ class InterviewStartUseCases:
     """面试启动应用服务。"""
 
     def __init__(self) -> None:
+        """初始化当前对象实例。"""
         self._session_repo = SessionRepo()
 
     async def start_interview(self, *, request: InterviewStartRequest, user_id: str) -> dict[str, object]:
+        """启动 `interview`。
+
+        Args:
+            request: 请求对象。
+            user_id: 当前用户标识。
+        """
         session_created = False
         try:
             graph = await build_interview_graph(request.mode)
@@ -143,6 +150,11 @@ class InterviewStartUseCases:
 
     @staticmethod
     def _classify_start_error(safe_msg: str) -> tuple[str, str]:
+        """分类 `start error`。
+
+        Args:
+            safe_msg: 调用方传入的 `safe_msg` 参数。
+        """
         classified = classify_error_message(safe_msg)
         if classified.code == "InternalServerError":
             return classified.code, f"开始面试会话失败: {safe_msg[:100]}"

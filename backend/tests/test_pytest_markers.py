@@ -3,11 +3,15 @@
 from pathlib import Path
 
 
-def test_infrastructure_test_markers_are_registered():
+def test_used_pytest_markers_are_registered():
     pytest_ini = Path(__file__).resolve().parents[1] / "pytest.ini"
     content = pytest_ini.read_text()
 
     for marker in [
+        "eval",
+        "fast",
+        "llm",
+        "regression",
         "integration",
         "contract",
         "requires_postgres",

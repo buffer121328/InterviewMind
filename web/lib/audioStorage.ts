@@ -127,8 +127,24 @@ export async function getAudioUrl(id: string): Promise<string | null> {
     // 如果 id 看起来像是一个后端静态资源路径 (例如 static/audio/...)
     if (id.includes('/')) {
         const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+        const isStaticResource = id.replace(/^\//, '').startsWith('static/');
+        const cleanApiBase = baseUrl.replace(/\/$/, '');
+        let resourceBase = baseUrl;
+
+        if (isStaticResource && cleanApiBase === '/api') {
+            resourceBase = '';
+        } else if (isStaticResource) {
+            try {
+                const apiUrl = new URL(baseUrl);
+                if (apiUrl.pathname.replace(/\/$/, '') === '/api') {
+                    resourceBase = apiUrl.origin;
+                }
+            } catch {
+                // Keep relative or otherwise non-URL API bases unchanged.
+            }
+        }
         // 确保没有多余的斜杠
-        const cleanBase = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+        const cleanBase = resourceBase.endsWith('/') ? resourceBase.slice(0, -1) : resourceBase;
         const cleanId = id.startsWith('/') ? id : `/${id}`;
         return `${cleanBase}${cleanId}`;
     }

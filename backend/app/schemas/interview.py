@@ -33,7 +33,7 @@ class InterviewerAction(str, Enum):
 
 class InterviewPhase(str, Enum):
     """面试官运行时的阶段/状态
-    
+
     替代原先隐含在 prompt 里的阶段概念，显式建模为 Python 枚举。
     """
     PLANNING = "planning"              # 规划题目中
@@ -55,7 +55,7 @@ class InterviewPhase(str, Enum):
 
 class InterviewerOutput(BaseModel):
     """面试官每次 LLM 调用的结构化输出
-    
+
     这是状态机中每个状态的 LLM 调用输出的标准格式。
     状态机根据 action 字段决定下一个状态，而非解析自然语言。
     """
