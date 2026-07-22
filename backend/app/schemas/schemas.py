@@ -7,7 +7,7 @@ from typing import List, Literal, Optional
 from pydantic import BaseModel, Field, model_validator
 from enum import Enum
 
-from app.agents.interview.question_defaults import resolve_max_questions, resolve_round_type
+from app.domain.interview_rounds import resolve_max_questions, resolve_round_type
 
 
 # ============================================================================
@@ -67,6 +67,7 @@ class ChatRequest(BaseModel):
 
     @model_validator(mode="after")
     def resolve_question_defaults(self):
+        """解析 `question defaults`。"""
         self.round_type = resolve_round_type(self.round_type)
         self.max_questions = resolve_max_questions(self.round_type, self.max_questions)
         return self
@@ -79,7 +80,7 @@ class ChatStreamResponse(BaseModel):
     """聊天流式响应模型"""
     type: str = Field(..., description="响应类型: plan, step_update, token, state_update, error, done")
     content: Optional[str] = Field(None, description="响应内容")
-    
+
 
 class FileUploadResponse(BaseModel):
     """文件上传响应模型"""
@@ -127,6 +128,7 @@ class InterviewStartRequest(BaseModel):
 
     @model_validator(mode="after")
     def resolve_question_defaults(self):
+        """解析 `question defaults`。"""
         self.round_type = resolve_round_type(self.round_type)
         self.max_questions = resolve_max_questions(self.round_type, self.max_questions)
         return self
@@ -171,3 +173,9 @@ class WeaknessGenerateRequest(BaseModel):
     """短板地图生成请求"""
     session_id: str = Field(..., description="会话 ID")
     api_config: Optional[ApiConfig] = Field(default=None, description="用户自定义 API 配置")
+
+
+class InterviewReportRunRequest(BaseModel):
+    """面试报告生成请求"""
+    session_id: str
+    api_config: Optional[ApiConfig] = None

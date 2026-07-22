@@ -9,7 +9,14 @@ from collections.abc import AsyncGenerator, Callable
 from dataclasses import dataclass
 from typing import Any
 
-from app.domain.agent_runs import TERMINAL_STATUSES
+from app.domain.agent_runs import (
+    TASK_TYPE_INTERVIEW_REPORT,
+    TASK_TYPE_INTERVIEW_START,
+    TASK_TYPE_JOB_ASSETS,
+    TASK_TYPE_RESUME_OPTIMIZE,
+    TERMINAL_STATUSES,
+)
+from app.domain.agent_definitions import get_agent_definition
 from app.infrastructure.runtime.agent_runs.crypto import TaskPayloadConfigurationError
 from app.infrastructure.runtime.agent_runs.dispatcher import enqueue_agent_run, enqueue_interview_start
 from app.infrastructure.runtime.agent_runs.event_stream import replay_cursor
@@ -18,8 +25,6 @@ from app.workflows.agent_tasks.interview_start import execute_interview_start
 from app.infrastructure.runtime.agent_runs.outbox import dispatch_pending_outbox
 from app.infrastructure.runtime.agent_runs.service import (
     AgentRunService,
-    TASK_DEFINITIONS,
-    TASK_TYPE_INTERVIEW_START,
     serialize_event,
     serialize_run,
     task_queue_enabled,
@@ -94,6 +99,51 @@ class AgentRunUseCases:
             enqueue_fn=enqueue_interview_start,
         )
 
+    async def create_resume_optimize(
+        self,
+        *,
+        payload: dict[str, Any],
+        user_id: str,
+        idempotency_key: str,
+    ) -> AgentRunResponse:
+        """Create a resume-optimization task."""
+        return await self.create_queued_run(
+            task_type=TASK_TYPE_RESUME_OPTIMIZE,
+            payload=payload,
+            user_id=user_id,
+            idempotency_key=idempotency_key,
+        )
+
+    async def create_interview_report(
+        self,
+        *,
+        payload: dict[str, Any],
+        user_id: str,
+        idempotency_key: str,
+    ) -> AgentRunResponse:
+        """Create an interview-report task."""
+        return await self.create_queued_run(
+            task_type=TASK_TYPE_INTERVIEW_REPORT,
+            payload=payload,
+            user_id=user_id,
+            idempotency_key=idempotency_key,
+        )
+
+    async def create_job_assets(
+        self,
+        *,
+        payload: dict[str, Any],
+        user_id: str,
+        idempotency_key: str,
+    ) -> AgentRunResponse:
+        """Create a job-assets task."""
+        return await self.create_queued_run(
+            task_type=TASK_TYPE_JOB_ASSETS,
+            payload=payload,
+            user_id=user_id,
+            idempotency_key=idempotency_key,
+        )
+
     async def create_queued_run(
         self,
         *,
@@ -156,8 +206,11 @@ class AgentRunUseCases:
         offset: int,
     ) -> dict[str, Any]:
         """List AgentRuns for one user."""
-        if task_type and task_type not in TASK_DEFINITIONS:
-            raise AgentRunUseCaseError("未知任务类型", status_code=400)
+        if task_type:
+            try:
+                get_agent_definition(task_type)
+            except KeyError as exc:
+                raise AgentRunUseCaseError("未知任务类型", status_code=400) from exc
         recovered = await self._service.recover_stale_runs(user_id)
         if recovered:
             success, failed = await dispatch_pending_outbox(limit=200, enqueue_fn=enqueue_agent_run)

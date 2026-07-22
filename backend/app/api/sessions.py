@@ -7,10 +7,9 @@ import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field
 
 from app.api.deps import get_current_user_id
-from app.agents.interview.question_defaults import resolve_max_questions, resolve_round_type
 from app.workflows.interview.sessions import (
     SessionManagementNotFound,
     SessionManagementPersistenceError,
@@ -34,15 +33,12 @@ class NextRoundRequest(BaseModel):
     max_questions: int | None = Field(default=None, ge=1, le=20)
     round_type: Optional[str] = Field(default=None, description="面试类型：tech_initial/tech_deep/hr_comprehensive")
 
-    @model_validator(mode="after")
-    def validate_next_round(self):
-        if self.round_type is not None:
-            self.round_type = resolve_round_type(self.round_type)
-            self.max_questions = resolve_max_questions(self.round_type, self.max_questions)
-        return self
-
-
 def _not_found(message: str) -> HTTPException:
+    """执行 `_not_found` 相关逻辑。
+
+    Args:
+        message: 消息内容。
+    """
     return HTTPException(
         status_code=404,
         detail={"error": "NotFound", "message": message},
@@ -50,6 +46,11 @@ def _not_found(message: str) -> HTTPException:
 
 
 def _internal_error(message: str) -> HTTPException:
+    """执行 `_internal_error` 相关逻辑。
+
+    Args:
+        message: 消息内容。
+    """
     return HTTPException(
         status_code=500,
         detail={"error": "InternalServerError", "message": message},

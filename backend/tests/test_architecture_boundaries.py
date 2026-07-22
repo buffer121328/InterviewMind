@@ -78,3 +78,22 @@ def test_agent_task_registry_uses_domain_task_constants_not_runtime_service():
     forbidden = ("app.infrastructure.runtime.agent_runs.service",)
     violations = [module for module in _imports(registry) if module.startswith(forbidden)]
     assert violations == []
+
+
+def test_agent_runs_api_uses_workflow_and_domain_not_runtime_service():
+    """AgentRun HTTP 路由不应为任务类型常量直接依赖 runtime service。"""
+    path = BACKEND_APP / "api" / "agent_runs.py"
+    forbidden = ("app.infrastructure.runtime.agent_runs.service",)
+    violations = [module for module in _imports(path) if module.startswith(forbidden)]
+    assert violations == []
+
+
+def test_api_routes_do_not_depend_on_agents_or_infrastructure():
+    """HTTP 路由只做传输适配，不直接耦合 agents/infrastructure 实现。"""
+    violations: list[str] = []
+    forbidden = ("app.agents", "app.infrastructure")
+    for path in (BACKEND_APP / "api").rglob("*.py"):
+        for module in _imports(path):
+            if module.startswith(forbidden):
+                violations.append(f"{path.relative_to(BACKEND_APP)} -> {module}")
+    assert violations == []
