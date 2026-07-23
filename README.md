@@ -291,7 +291,7 @@ uv run pytest -m "llm and eval"
 LANGFUSE_ENABLED=true \
 LANGFUSE_PUBLIC_KEY=... \
 LANGFUSE_SECRET_KEY=... \
-uv run python -m app.langfuse.datasets --dry-run
+uv run python -m langfuse.datasets --dry-run
 
 # 可选：DeepEval 断言成功后上报 Langfuse Scores
 LANGFUSE_ENABLED=true \
@@ -359,10 +359,10 @@ agent-interview/
 │   │   │   ├── rag/                 # 向量检索与 Embedding
 │   │   │   ├── runtime/             # AgentRun、Dramatiq、锁、恢复
 │   │   │   └── security/            # 出站 URL、脱敏等安全能力
-│   │   ├── langfuse/                # Langfuse tracing / LangGraph callback / Prompt / Scores
 │   │   ├── prompts/                 # Prompt 管理
 │   │   └── tools/                   # Agent 可调用业务工具
 │   ├── alembic/                     # 数据库迁移脚本
+│   ├── langfuse/                    # Langfuse tracing / LangGraph callback / Prompt / Scores
 │   ├── evaluation/deepeval_tests/   # DeepEval 回归与基准
 │   ├── tests/                       # 单元、API、集成测试
 │   ├── scripts/                     # Worker 等运行脚本

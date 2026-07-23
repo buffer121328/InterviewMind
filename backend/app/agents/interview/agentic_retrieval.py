@@ -13,7 +13,7 @@ from typing import Annotated, Any, Awaitable, Callable, Sequence, TypedDict
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Send
 
-from app.langfuse import langgraph_langfuse_scope, with_langgraph_langfuse_config
+from langfuse import langgraph_langfuse_scope, with_langgraph_langfuse_config
 
 
 @dataclass(frozen=True)

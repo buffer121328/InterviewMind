@@ -20,7 +20,7 @@ def test_deepeval_assert_test_patch_reports_successful_metrics(monkeypatch):
 
     reported = []
     monkeypatch.setattr(
-        "app.langfuse.evaluation_reporting.report_deepeval_assertion",
+        "langfuse.evaluation_reporting.report_deepeval_assertion",
         lambda **kwargs: reported.append(kwargs) or {"attempted": 1, "reported": 1, "failed": 0},
     )
 

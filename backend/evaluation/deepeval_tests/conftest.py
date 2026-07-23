@@ -31,7 +31,7 @@ def _patch_deepeval_assert_test_default_sync() -> None:
     def assert_test_sync_default(*args, run_async: bool = False, **kwargs):
         result = original(*args, run_async=run_async, **kwargs)
         try:
-            from app.langfuse.evaluation_reporting import report_deepeval_assertion
+            from langfuse.evaluation_reporting import report_deepeval_assertion
 
             test_case = args[0] if args else kwargs.get("test_case")
             metrics = args[1] if len(args) > 1 else kwargs.get("metrics") or []

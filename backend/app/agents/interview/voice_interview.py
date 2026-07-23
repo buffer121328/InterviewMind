@@ -13,7 +13,7 @@ from app.config import get_settings
 from app.agents.interview.voice_progress import calculate_interview_progress
 from app.agents.interview.voice_utils import normalize_voice_transcript
 from app.infrastructure.llm import llms
-from app.langfuse import agent_observation
+from langfuse import agent_observation
 from app.infrastructure.db.repositories.session.session_repo import SessionRepo
 from app.prompts.voice import (
     build_interview_voice_system_prompt as _build_system_prompt,

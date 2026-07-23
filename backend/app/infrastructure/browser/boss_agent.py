@@ -9,7 +9,7 @@ from langgraph.graph import END, START, StateGraph
 from app.infrastructure.runtime.context import AgentContext
 from app.tools import ToolExecutionGuard, ToolExecutionPolicy
 from app.infrastructure.browser import boss_tools
-from app.langfuse import langgraph_langfuse_scope, with_langgraph_langfuse_config
+from langfuse import langgraph_langfuse_scope, with_langgraph_langfuse_config
 
 logger = logging.getLogger(__name__)
 
