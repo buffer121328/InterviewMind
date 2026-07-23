@@ -12,7 +12,7 @@ from langgraph.graph import StateGraph, END
 from app.schemas.llm_outputs import ResumeAnalysisOutput, DimensionScoreItem
 from app.infrastructure.llm.llm_utils import invoke_structured
 from app.infrastructure.db.repositories.session.session_repo import SessionRepo
-from app.langfuse import langgraph_langfuse_scope, with_langgraph_langfuse_config
+from langfuse import langgraph_langfuse_scope, with_langgraph_langfuse_config
 
 logger = logging.getLogger(__name__)
 

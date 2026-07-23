@@ -12,7 +12,7 @@ import os
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Literal
 
-from app.langfuse import record_score
+from langfuse import record_score
 
 ScoreDataType = Literal["NUMERIC", "CATEGORICAL", "BOOLEAN", "TEXT", "CORRECTION"]
 

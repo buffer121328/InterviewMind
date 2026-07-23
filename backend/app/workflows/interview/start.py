@@ -10,7 +10,7 @@ from app.agents.interview.interview_context import build_interview_context
 from app.agents.interview.interview_graph import build_interview_graph
 from app.infrastructure.runtime.error_classification import classify_error_message
 from app.infrastructure.security.security import safe_error_message
-from app.langfuse import langgraph_langfuse_scope, with_langgraph_langfuse_config
+from langfuse import langgraph_langfuse_scope, with_langgraph_langfuse_config
 
 logger = logging.getLogger(__name__)
 

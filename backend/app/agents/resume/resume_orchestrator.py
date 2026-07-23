@@ -42,7 +42,7 @@ from app.agents.resume.resume_pipeline_state import (
 )
 from app.agents.resume.resume_rewrite_agent import normalize_rewrite_mode, run_resume_rewrite_agent
 from app.infrastructure.llm.llm_utils import invoke_structured
-from app.langfuse import agent_observation, langgraph_langfuse_scope, with_langgraph_langfuse_config
+from langfuse import agent_observation, langgraph_langfuse_scope, with_langgraph_langfuse_config
 
 logger = logging.getLogger(__name__)
 

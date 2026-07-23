@@ -20,7 +20,7 @@ from app.agents.interview.interview_graph import build_interview_graph
 from app.infrastructure.runtime.runtime_gate import get_run_gate
 from app.infrastructure.security.security import safe_error_message
 from app.domain.interview_rounds import resolve_max_questions
-from app.langfuse import langgraph_langfuse_scope, with_langgraph_langfuse_config
+from langfuse import langgraph_langfuse_scope, with_langgraph_langfuse_config
 
 logger = logging.getLogger(__name__)
 

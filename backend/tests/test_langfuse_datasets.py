@@ -4,7 +4,7 @@ import json
 
 
 def test_load_dataset_items_splits_input_and_expected_output(tmp_path):
-    from app.langfuse.datasets import load_dataset_items
+    from langfuse.datasets import load_dataset_items
 
     path = tmp_path / "sample_golden.json"
     path.write_text(json.dumps([
@@ -28,7 +28,7 @@ def test_load_dataset_items_splits_input_and_expected_output(tmp_path):
 
 
 def test_load_rag_dataset_items_handles_cases_and_fallback(tmp_path):
-    from app.langfuse.datasets import load_dataset_items
+    from langfuse.datasets import load_dataset_items
 
     path = tmp_path / "rag_golden.json"
     path.write_text(json.dumps({
@@ -45,7 +45,7 @@ def test_load_rag_dataset_items_handles_cases_and_fallback(tmp_path):
 
 
 def test_sync_dataset_uses_langfuse_client(tmp_path):
-    from app.langfuse.datasets import sync_dataset
+    from langfuse.datasets import sync_dataset
 
     class FakeClient:
         def __init__(self):
@@ -73,7 +73,7 @@ def test_sync_dataset_uses_langfuse_client(tmp_path):
 
 
 def test_run_langfuse_experiment_delegates_to_client():
-    from app.langfuse.datasets import run_langfuse_experiment
+    from langfuse.datasets import run_langfuse_experiment
 
     class FakeClient:
         def __init__(self):

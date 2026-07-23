@@ -2,10 +2,12 @@
 
 import logging
 import os
+import sys
 import uuid
 from contextlib import asynccontextmanager, contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, AsyncIterator, Optional
 
 
@@ -25,6 +27,45 @@ _suppress_direct_llm_callbacks: ContextVar[bool] = ContextVar(
 _client: Any = None
 _config: "LangfuseConfig | None" = None
 _configured = False
+
+
+@contextmanager
+def _external_langfuse_sdk_import_context():
+    """Temporarily import the official Langfuse SDK despite this local package name.
+
+    The project-level integration package intentionally lives at `backend/langfuse`,
+    so it shadows the third-party `langfuse` distribution on `sys.path`. For the few
+    places where we need SDK objects (`Langfuse`, `propagate_attributes`, and
+    `langfuse.langchain.CallbackHandler`), temporarily remove the backend root from
+    import resolution and restore the local package afterwards.
+    """
+    backend_root = Path(__file__).resolve().parent.parent
+    original_path = list(sys.path)
+    local_modules = {
+        name: module
+        for name, module in sys.modules.items()
+        if name == "langfuse" or name.startswith("langfuse.")
+    }
+    for name in list(local_modules):
+        sys.modules.pop(name, None)
+
+    def _keep_path(entry: str) -> bool:
+        try:
+            return Path(entry or os.getcwd()).resolve() != backend_root
+        except OSError:
+            return True
+
+    sys.path = [entry for entry in sys.path if _keep_path(entry)]
+    try:
+        yield
+    finally:
+        for name in [
+            key for key in list(sys.modules)
+            if key == "langfuse" or key.startswith("langfuse.")
+        ]:
+            sys.modules.pop(name, None)
+        sys.modules.update(local_modules)
+        sys.path = original_path
 
 
 def _env_bool(name: str, default: bool = False) -> bool:
@@ -119,7 +160,6 @@ class AgentObservation:
 
 
 
-
 def extract_token_usage(value: Any) -> dict[str, int | None]:
     """尽量从 LangChain/OpenAI 响应对象中提取 token usage。"""
     usage = getattr(value, "usage_metadata", None)
@@ -189,7 +229,8 @@ def _create_langfuse_client(config: LangfuseConfig) -> Any:
     Args:
         config: 配置对象。
     """
-    from langfuse import Langfuse
+    with _external_langfuse_sdk_import_context():
+        from langfuse import Langfuse
 
     return Langfuse(
         public_key=config.public_key,
@@ -210,7 +251,8 @@ def _get_agent_run_service() -> Any:
 
 def _get_propagate_attributes():
     """获取 `propagate attributes`。"""
-    from langfuse import propagate_attributes
+    with _external_langfuse_sdk_import_context():
+        from langfuse import propagate_attributes
 
     return propagate_attributes
 
@@ -218,8 +260,9 @@ def _get_propagate_attributes():
 def _get_callback_handler():
     """获取 `callback handler`。"""
     try:
-        from langfuse.langchain import CallbackHandler
-    except ModuleNotFoundError:
+        with _external_langfuse_sdk_import_context():
+            from langfuse.langchain import CallbackHandler
+    except (ImportError, ModuleNotFoundError):
         class CallbackHandler:  # pragma: no cover - 轻量测试环境占位
             """表示 `CallbackHandler` 相关的数据或行为。"""
             def __call__(self, *args: Any, **kwargs: Any) -> None:
@@ -622,8 +665,6 @@ def shutdown_langfuse() -> None:
         client.shutdown()
     except Exception as error:
         logger.warning("Langfuse 关闭失败: %s", type(error).__name__)
-
-
 
 
 

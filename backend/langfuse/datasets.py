@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
-from app.langfuse import get_langfuse_client
+from langfuse import get_langfuse_client
 
 DATASET_DIR = Path(__file__).resolve().parents[2] / "evaluation" / "deepeval_tests" / "datasets"
 EXPECTED_KEY_PREFIXES = ("expected",)

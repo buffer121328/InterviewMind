@@ -4,7 +4,7 @@ import logging
 import uuid
 from typing import Any, Optional
 
-from app.langfuse import langgraph_langfuse_scope, with_langgraph_langfuse_config
+from langfuse import langgraph_langfuse_scope, with_langgraph_langfuse_config
 from app.infrastructure.db.repositories.resume.resume_generation_repo import (
     get_generation_repo,
     session_store,

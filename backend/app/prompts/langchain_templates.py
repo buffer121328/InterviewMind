@@ -40,7 +40,7 @@ def render_prompt(
         return rendered
 
     try:
-        from app.langfuse import render_managed_prompt
+        from langfuse import render_managed_prompt
 
         return render_managed_prompt(
             name=prompt_name,
