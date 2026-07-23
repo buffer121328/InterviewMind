@@ -287,7 +287,7 @@ uv run pytest tests/eval/test_agent_tool_correctness.py -q
 # 可选：LLM-as-Judge 评测，需要评审模型凭据并会消耗 token
 uv run pytest -m "llm and eval"
 
-# 可选：把 deepeval_tests/datasets/*.json 同步到 Langfuse Dataset
+# 可选：把 evaluation/datasets/*.json 同步到 Langfuse Dataset
 LANGFUSE_ENABLED=true \
 LANGFUSE_PUBLIC_KEY=... \
 LANGFUSE_SECRET_KEY=... \
@@ -363,7 +363,7 @@ agent-interview/
 │   │   └── tools/                   # Agent 可调用业务工具
 │   ├── alembic/                     # 数据库迁移脚本
 │   ├── observability/               # Langfuse tracing / LangGraph callback / Prompt / Scores
-│   ├── deepeval_tests/              # DeepEval 回归与基准
+│   ├── evaluation/              # DeepEval 回归与基准
 │   ├── tests/                       # 单元、API、集成测试
 │   ├── scripts/                     # Worker 等运行脚本
 │   ├── pyproject.toml               # Python 项目配置

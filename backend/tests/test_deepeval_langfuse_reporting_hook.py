@@ -24,7 +24,7 @@ def test_deepeval_assert_test_patch_reports_successful_metrics(monkeypatch):
         lambda **kwargs: reported.append(kwargs) or {"attempted": 1, "reported": 1, "failed": 0},
     )
 
-    conftest_path = Path(__file__).resolve().parents[1] / "deepeval_tests" / "conftest.py"
+    conftest_path = Path(__file__).resolve().parents[1] / "evaluation" / "conftest.py"
     spec = importlib.util.spec_from_file_location("_agent_interview_eval_conftest_for_test", conftest_path)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
