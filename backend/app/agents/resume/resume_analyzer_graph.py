@@ -12,6 +12,7 @@ from langgraph.graph import StateGraph, END
 from app.schemas.llm_outputs import ResumeAnalysisOutput, DimensionScoreItem
 from app.infrastructure.llm.llm_utils import invoke_structured
 from app.infrastructure.db.repositories.session.session_repo import SessionRepo
+from app.langfuse import langgraph_langfuse_scope, with_langgraph_langfuse_config
 
 logger = logging.getLogger(__name__)
 
@@ -232,7 +233,17 @@ async def analyze_resume(
     logger.info("开始简历竞争力分析")
 
     graph = build_resume_analyzer_graph()
-    final_state = await graph.ainvoke(state)
+    graph_config = with_langgraph_langfuse_config(
+        {"metadata": {"user_id": user_id}},
+        run_name="resume-analyzer",
+        metadata={
+            "agent_type": "resume_analyzer",
+            "user_id": user_id,
+            "session_count": len(session_ids),
+        },
+    )
+    with langgraph_langfuse_scope("callbacks" in graph_config):
+        final_state = await graph.ainvoke(state, config=graph_config)
 
     logger.info("简历竞争力分析完成")
     return final_state["analysis_result"]

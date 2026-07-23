@@ -30,23 +30,29 @@ class FakeLangfuseClient:
 
 @pytest.fixture(autouse=True)
 def reset_observability(monkeypatch):
-    from app.observability import langfuse as observability
+    import app.langfuse as observability
 
     for key in (
         "LANGFUSE_ENABLED",
         "LANGFUSE_PUBLIC_KEY",
         "LANGFUSE_SECRET_KEY",
         "LANGFUSE_BASE_URL",
+        "LANGFUSE_TRACING_ENVIRONMENT",
+        "LANGFUSE_RELEASE",
+        "LANGFUSE_SAMPLE_RATE",
+        "LANGFUSE_PROMPT_MANAGEMENT_ENABLED",
+        "LANGFUSE_PROMPT_LABEL",
+        "LANGFUSE_PROMPT_CACHE_TTL_SECONDS",
     ):
         monkeypatch.delenv(key, raising=False)
-    observability._reset_observability_for_tests()
+    observability._reset_langfuse_for_tests()
     yield
-    observability._reset_observability_for_tests()
+    observability._reset_langfuse_for_tests()
 
 
 @pytest.mark.asyncio
 async def test_agent_observation_is_noop_without_langfuse_configuration():
-    from app.observability import langfuse as observability
+    import app.langfuse as observability
 
     async with observability.agent_observation(
         name="interview-runtime",
@@ -62,7 +68,7 @@ async def test_agent_observation_is_noop_without_langfuse_configuration():
 
 @pytest.mark.asyncio
 async def test_agent_observation_records_safe_input_output_and_trace_attributes(monkeypatch):
-    from app.observability import langfuse as observability
+    import app.langfuse as observability
 
     client = FakeLangfuseClient()
     attributes = []
@@ -119,7 +125,7 @@ async def test_agent_observation_records_safe_input_output_and_trace_attributes(
 
 @pytest.mark.asyncio
 async def test_agent_observation_links_langfuse_trace_to_agent_run(monkeypatch):
-    from app.observability import langfuse as observability
+    import app.langfuse as observability
 
     client = FakeLangfuseClient()
     attributes = []
@@ -190,7 +196,7 @@ async def test_agent_observation_links_langfuse_trace_to_agent_run(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_agent_observation_collects_model_events_without_langfuse():
-    from app.observability import langfuse as observability
+    import app.langfuse as observability
 
     async with observability.agent_observation(
         name="voice-interview",
@@ -220,7 +226,7 @@ async def test_agent_observation_collects_model_events_without_langfuse():
 
 @pytest.mark.asyncio
 async def test_agent_observation_preserves_business_exception(monkeypatch):
-    from app.observability import langfuse as observability
+    import app.langfuse as observability
 
     client = FakeLangfuseClient()
 
@@ -274,15 +280,15 @@ def test_llm_factory_attaches_langfuse_callback_only_when_active(monkeypatch):
 
 
 def test_langfuse_callback_handler_dependency_is_available():
-    from app.observability import _get_callback_handler
+    from app.langfuse import _get_callback_handler
 
     callback_handler = _get_callback_handler()
 
     assert callable(callback_handler)
 
 
-def test_shutdown_observability_closes_client(monkeypatch):
-    from app.observability import langfuse as observability
+def test_shutdown_langfuse_closes_client(monkeypatch):
+    import app.langfuse as observability
 
     client = FakeLangfuseClient()
     monkeypatch.setattr(observability, "_create_langfuse_client", lambda config: client)
@@ -290,8 +296,8 @@ def test_shutdown_observability_closes_client(monkeypatch):
     monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk-test")
     monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-test")
 
-    assert observability.configure_observability() is True
-    observability.shutdown_observability()
+    assert observability.configure_langfuse() is True
+    observability.shutdown_langfuse()
 
     assert client.shutdown_called is True
 
@@ -299,7 +305,7 @@ def test_shutdown_observability_closes_client(monkeypatch):
 @pytest.mark.asyncio
 async def test_agent_observation_records_rag_trace_without_raw_private_content(monkeypatch):
     """RAG 观测只记录模式、计数和 trace，不把 JD/简历/证据正文写入 Langfuse 输出。"""
-    from app.observability import langfuse as observability
+    import app.langfuse as observability
     from app.agents.interview.interview_rag import RagEvidence, RagResult
 
     client = FakeLangfuseClient()
@@ -362,3 +368,166 @@ async def test_agent_observation_records_rag_trace_without_raw_private_content(m
     assert "候选人私密项目细节" not in output_text
     assert "原始 JD 正文" not in output_text
     assert attributes[0]["metadata"]["agent_type"] == "interview"
+
+
+def test_langfuse_client_receives_environment_release_and_sampling(monkeypatch):
+    import app.langfuse as observability
+
+    captured = {}
+
+    def fake_create(config):
+        captured.update(config.__dict__)
+        return FakeLangfuseClient()
+
+    monkeypatch.setattr(observability, "_create_langfuse_client", fake_create)
+    monkeypatch.setenv("LANGFUSE_ENABLED", "true")
+    monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk-test")
+    monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-test")
+    monkeypatch.setenv("LANGFUSE_TRACING_ENVIRONMENT", "test")
+    monkeypatch.setenv("LANGFUSE_RELEASE", "2026.07.23")
+    monkeypatch.setenv("LANGFUSE_SAMPLE_RATE", "0.25")
+
+    assert observability.configure_langfuse() is True
+
+    assert captured["environment"] == "test"
+    assert captured["release"] == "2026.07.23"
+    assert captured["sample_rate"] == 0.25
+
+
+def test_managed_prompt_uses_langfuse_with_local_fallback(monkeypatch):
+    import app.langfuse as observability
+    from app.prompts.interview import build_planner_prompt
+
+    class FakePrompt:
+        is_fallback = False
+
+        def compile(self, **values):
+            return f"remote planner {values['max_questions']} {values['round_type']}"
+
+    class PromptClient(FakeLangfuseClient):
+        def __init__(self):
+            super().__init__()
+            self.prompt_calls = []
+
+        def get_prompt(self, name, **kwargs):
+            self.prompt_calls.append((name, kwargs))
+            return FakePrompt()
+
+    client = PromptClient()
+    monkeypatch.setattr(observability, "_create_langfuse_client", lambda config: client)
+    monkeypatch.setenv("LANGFUSE_ENABLED", "true")
+    monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk-test")
+    monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-test")
+    monkeypatch.setenv("LANGFUSE_PROMPT_MANAGEMENT_ENABLED", "true")
+    monkeypatch.setenv("LANGFUSE_PROMPT_LABEL", "production")
+
+    rendered = build_planner_prompt(
+        round_index=1,
+        round_type="tech_initial",
+        max_questions=5,
+        job_description="Python 后端",
+        strategy_focus="基础",
+        requirements="覆盖项目",
+    )
+
+    assert rendered == "remote planner 5 tech_initial"
+    assert client.prompt_calls[0][0] == "interview.planner"
+    assert client.prompt_calls[0][1]["label"] == "production"
+    assert "fallback" in client.prompt_calls[0][1]
+
+
+def test_managed_prompt_is_opt_in_and_defaults_to_local(monkeypatch):
+    from app.prompts.interview import build_opening_prompt
+
+    monkeypatch.setenv("LANGFUSE_ENABLED", "true")
+    monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk-test")
+    monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-test")
+
+    rendered = build_opening_prompt(
+        round_index=1,
+        round_type="tech_initial",
+        strategy_focus="基础",
+        first_question="介绍一下项目",
+    )
+
+    assert "介绍一下项目" in rendered
+    assert "专业面试官" in rendered
+
+
+def test_record_trace_score_writes_score_without_breaking_business(monkeypatch):
+    import app.langfuse as observability
+
+    class ScoreClient(FakeLangfuseClient):
+        def __init__(self):
+            super().__init__()
+            self.scores = []
+            self.current_scores = []
+
+        def create_score(self, **kwargs):
+            self.scores.append(kwargs)
+
+        def score_current_trace(self, **kwargs):
+            self.current_scores.append(kwargs)
+
+    client = ScoreClient()
+    monkeypatch.setattr(observability, "_create_langfuse_client", lambda config: client)
+    monkeypatch.setenv("LANGFUSE_ENABLED", "true")
+    monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk-test")
+    monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-test")
+
+    assert observability.record_trace_score(
+        name="dialogue_quality",
+        value=0.92,
+        trace_id="trace-1",
+        data_type="NUMERIC",
+        comment="离线评估通过",
+        metadata={"suite": "deepeval"},
+    ) is True
+    assert client.scores == [{
+        "name": "dialogue_quality",
+        "value": 0.92,
+        "trace_id": "trace-1",
+        "data_type": "NUMERIC",
+        "comment": "离线评估通过",
+        "metadata": {"suite": "deepeval"},
+    }]
+
+    assert observability.record_trace_score(name="manual_acceptance", value="pass") is True
+    assert client.current_scores[0]["name"] == "manual_acceptance"
+
+@pytest.mark.asyncio
+async def test_langgraph_config_uses_official_callback_and_suppresses_direct_llm_callbacks(monkeypatch):
+    import app.langfuse as observability
+
+    class FakeCallbackHandler:
+        pass
+
+    client = FakeLangfuseClient()
+    monkeypatch.setattr(observability, "_create_langfuse_client", lambda config: client)
+    monkeypatch.setattr(observability, "_get_callback_handler", lambda: FakeCallbackHandler)
+    monkeypatch.setenv("LANGFUSE_ENABLED", "true")
+    monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk-test")
+    monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-test")
+
+    config = observability.with_langgraph_langfuse_config(
+        {"configurable": {"thread_id": "thread-1"}, "metadata": {"existing": "yes"}},
+        run_name="interview-turn",
+        metadata={"agent_type": "interview"},
+    )
+
+    assert config["configurable"] == {"thread_id": "thread-1"}
+    assert config["run_name"] == "interview-turn"
+    assert config["metadata"] == {"existing": "yes", "agent_type": "interview"}
+    assert len(config["callbacks"]) == 1
+    assert isinstance(config["callbacks"][0], FakeCallbackHandler)
+
+    async with observability.agent_observation(
+        name="interview-runtime",
+        agent_type="interview",
+        user_id="user-1",
+        session_id="session-1",
+        input_payload={},
+    ):
+        assert len(observability.get_langchain_callbacks()) == 1
+        with observability.langgraph_langfuse_scope(True):
+            assert observability.get_langchain_callbacks() == []

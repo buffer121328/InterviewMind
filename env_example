@@ -111,6 +111,16 @@ LANGFUSE_ENABLED=false
 LANGFUSE_PUBLIC_KEY=
 LANGFUSE_SECRET_KEY=
 LANGFUSE_BASE_URL=https://cloud.langfuse.com
+# 可选：按环境/版本聚合 Trace，并通过采样控制成本。
+LANGFUSE_TRACING_ENVIRONMENT=development
+LANGFUSE_RELEASE=local
+LANGFUSE_SAMPLE_RATE=1.0
+# 可选：启用 Langfuse Prompt Management，失败时自动回退本地 Prompt。
+LANGFUSE_PROMPT_MANAGEMENT_ENABLED=false
+LANGFUSE_PROMPT_LABEL=production
+LANGFUSE_PROMPT_CACHE_TTL_SECONDS=300
+# 可选：离线评估/DeepEval 结果写入 Langfuse Scores。
+LANGFUSE_EVAL_REPORTING_ENABLED=false
 
 # ----------------------------------------------------------------------------
 # BOSS 半自动投递（可选）

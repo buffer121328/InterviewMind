@@ -170,6 +170,8 @@ def build_match_analyst_prompt(resume_content: str, job_description: str) -> str
     """构建 `match analyst prompt`。"""
     return render_prompt(
         MATCH_ANALYST_PROMPT,
+        prompt_name="resume.match_analyst",
+        prompt_version="1",
         resume_content=resume_content,
         job_description=job_description,
         output_schema='{"jd_keywords":[],"matched_keywords":[],"missing_keywords":[],"match_score":75,"analysis_summary":"..."}',
@@ -180,6 +182,8 @@ def build_content_writer_prompt(resume_content: str, job_description: str, inter
     """构建 `content writer prompt`。"""
     return render_prompt(
         CONTENT_WRITER_PROMPT,
+        prompt_name="resume.content_writer",
+        prompt_version="1",
         resume_content=resume_content,
         job_description=job_description,
         interview_section=interview_section,
@@ -190,6 +194,8 @@ def build_hr_reviewer_prompt(resume_content: str, job_description: str) -> str:
     """构建 `hr reviewer prompt`。"""
     return render_prompt(
         HR_REVIEWER_PROMPT,
+        prompt_name="resume.hr_reviewer",
+        prompt_version="1",
         resume_content=resume_content,
         job_description=job_description,
         output_schema='{"first_impression":{},"highlights":[],"concerns":[],"pass_rate_estimate":0,"improvement_priority":[]}',
@@ -205,6 +211,8 @@ def build_moderator_prompt(
     """构建 `moderator prompt`。"""
     return render_prompt(
         MODERATOR_PROMPT,
+        prompt_name="resume.moderator",
+        prompt_version="1",
         match_analysis_json=_json(match_analysis),
         content_suggestions_json=_json(content_suggestions),
         hr_review_json=_json(hr_review),
@@ -221,6 +229,8 @@ def build_reflect_prompt(
     """构建 `reflect prompt`。"""
     return render_prompt(
         REFLECT_PROMPT,
+        prompt_name="resume.reflect",
+        prompt_version="1",
         moderator_summary_json=_json(moderator_summary),
         resume_preview=resume_content[:500],
         job_description_preview=job_description[:300],
@@ -238,6 +248,8 @@ def build_refine_prompt(
     """构建 `refine prompt`。"""
     return render_prompt(
         REFINE_PROMPT,
+        prompt_name="resume.refine",
+        prompt_version="1",
         moderator_summary_json=_json(moderator_summary),
         reflection_json=json.dumps(reflection, ensure_ascii=False),
         resume_preview=resume_content[:400],
@@ -352,13 +364,19 @@ def build_resume_analysis_prompt(
 
 def build_jd_match_system_prompt() -> str:
     """构建 `jd match system prompt`。"""
-    return render_prompt(JD_MATCH_SYSTEM_PROMPT)
+    return render_prompt(
+        JD_MATCH_SYSTEM_PROMPT,
+        prompt_name="resume.jd_match.system",
+        prompt_version="1",
+    )
 
 
 def build_jd_match_user_prompt(resume_content: str, job_description: str) -> str:
     """构建 `jd match user prompt`。"""
     return render_prompt(
         JD_MATCH_CHAT_PROMPT,
+        prompt_name="resume.jd_match.user",
+        prompt_version="1",
         resume_content=resume_content,
         job_description=job_description,
     )

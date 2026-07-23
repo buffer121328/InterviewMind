@@ -29,7 +29,17 @@ def _patch_deepeval_assert_test_default_sync() -> None:
         return
 
     def assert_test_sync_default(*args, run_async: bool = False, **kwargs):
-        return original(*args, run_async=run_async, **kwargs)
+        result = original(*args, run_async=run_async, **kwargs)
+        try:
+            from app.langfuse.evaluation_reporting import report_deepeval_assertion
+
+            test_case = args[0] if args else kwargs.get("test_case")
+            metrics = args[1] if len(args) > 1 else kwargs.get("metrics") or []
+            report_deepeval_assertion(test_case=test_case, metrics=metrics)
+        except Exception:
+            # Evaluation reporting must never affect DeepEval assertions.
+            pass
+        return result
 
     assert_test_sync_default._agent_interview_sync_default = True
     deepeval.assert_test = assert_test_sync_default

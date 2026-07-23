@@ -41,6 +41,8 @@ def build_candidate_analysis_prompt(
     """构建 `candidate analysis prompt`。"""
     return render_prompt(
         CANDIDATE_ANALYSIS_PROMPT,
+        prompt_name="analysis.candidate_profile",
+        prompt_version="1",
         resume=resume,
         job_description=job_description,
         company_info=company_info,
@@ -61,6 +63,8 @@ def build_weakness_analysis_prompt(
     """构建 `weakness analysis prompt`。"""
     return render_prompt(
         WEAKNESS_ANALYSIS_PROMPT,
+        prompt_name="analysis.weakness_report",
+        prompt_version="1",
         resume=resume,
         job_description=job_description,
         company_info=company_info,
@@ -74,6 +78,8 @@ def build_aggregate_profile_prompt(profiles_count: int, profiles_context: str) -
     """构建 `aggregate profile prompt`。"""
     return render_prompt(
         AGGREGATE_PROFILE_PROMPT,
+        prompt_name="analysis.aggregate_profile",
+        prompt_version="1",
         profiles_count=profiles_count,
         profiles_context=profiles_context,
     )

@@ -4,6 +4,7 @@ import logging
 import uuid
 from typing import Any, Optional
 
+from app.langfuse import langgraph_langfuse_scope, with_langgraph_langfuse_config
 from app.infrastructure.db.repositories.resume.resume_generation_repo import (
     get_generation_repo,
     session_store,
@@ -160,7 +161,18 @@ async def _complete_generation(
 
     await session_store.update(session_id, user_id=state["user_id"], status="generating")
     graph = resume_generation_graph.build_resume_generation_graph()
-    final_state = await graph.ainvoke(state)
+    graph_config = with_langgraph_langfuse_config(
+        {"configurable": {"thread_id": f"resume_generation_{session_id}"}},
+        run_name="resume-generation",
+        metadata={
+            "agent_type": "resume_generation",
+            "user_id": state.get("user_id"),
+            "session_id": session_id,
+            "agent_run_id": state.get("agent_run_id"),
+        },
+    )
+    with langgraph_langfuse_scope("callbacks" in graph_config):
+        final_state = await graph.ainvoke(state, config=graph_config)
 
     if not final_state.get("final_markdown"):
         logger.warning("达到最大迭代次数仍未通过审查，使用最后一次草稿")

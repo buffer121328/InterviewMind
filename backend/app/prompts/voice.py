@@ -143,6 +143,8 @@ def build_voice_system_prompt(
     """构建 `voice system prompt`。"""
     return render_prompt(
         VOICE_SYSTEM_PROMPT,
+        prompt_name="voice.system",
+        prompt_version="1",
         questions_text=questions_text,
         current_question_number=current_q_idx + 1,
         current_plan_q=current_plan_q,
