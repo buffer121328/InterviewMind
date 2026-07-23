@@ -1,6 +1,6 @@
 """离线 RAG 检索质量回归评测。
 
-不调用真实数据库、embedding 或 LLM；从 deepeval_tests/datasets/rag_golden.json 加载
+不调用真实数据库、embedding 或 LLM；从 evaluation/datasets/rag_golden.json 加载
 固定 golden corpus，验证 RAG 编排能把 JD/简历/短板上下文映射到正确证据来源，
 并在无证据时安全 fallback。
 """

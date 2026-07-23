@@ -10,7 +10,7 @@ from typing import Any, Callable, Iterable
 
 from observability import get_langfuse_client
 
-DATASET_DIR = Path(__file__).resolve().parents[1] / "deepeval_tests" / "datasets"
+DATASET_DIR = Path(__file__).resolve().parents[1] / "evaluation" / "datasets"
 EXPECTED_KEY_PREFIXES = ("expected",)
 EXPECTED_KEYS = {
     "ideal_answer",
