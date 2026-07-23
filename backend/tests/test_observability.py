@@ -30,7 +30,7 @@ class FakeLangfuseClient:
 
 @pytest.fixture(autouse=True)
 def reset_observability(monkeypatch):
-    import langfuse as observability
+    import observability
 
     for key in (
         "LANGFUSE_ENABLED",
@@ -52,7 +52,7 @@ def reset_observability(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_agent_observation_is_noop_without_langfuse_configuration():
-    import langfuse as observability
+    import observability
 
     async with observability.agent_observation(
         name="interview-runtime",
@@ -68,7 +68,7 @@ async def test_agent_observation_is_noop_without_langfuse_configuration():
 
 @pytest.mark.asyncio
 async def test_agent_observation_records_safe_input_output_and_trace_attributes(monkeypatch):
-    import langfuse as observability
+    import observability
 
     client = FakeLangfuseClient()
     attributes = []
@@ -125,7 +125,7 @@ async def test_agent_observation_records_safe_input_output_and_trace_attributes(
 
 @pytest.mark.asyncio
 async def test_agent_observation_links_langfuse_trace_to_agent_run(monkeypatch):
-    import langfuse as observability
+    import observability
 
     client = FakeLangfuseClient()
     attributes = []
@@ -196,7 +196,7 @@ async def test_agent_observation_links_langfuse_trace_to_agent_run(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_agent_observation_collects_model_events_without_langfuse():
-    import langfuse as observability
+    import observability
 
     async with observability.agent_observation(
         name="voice-interview",
@@ -226,7 +226,7 @@ async def test_agent_observation_collects_model_events_without_langfuse():
 
 @pytest.mark.asyncio
 async def test_agent_observation_preserves_business_exception(monkeypatch):
-    import langfuse as observability
+    import observability
 
     client = FakeLangfuseClient()
 
@@ -280,7 +280,7 @@ def test_llm_factory_attaches_langfuse_callback_only_when_active(monkeypatch):
 
 
 def test_langfuse_callback_handler_dependency_is_available():
-    from langfuse import _get_callback_handler
+    from observability import _get_callback_handler
 
     callback_handler = _get_callback_handler()
 
@@ -288,7 +288,7 @@ def test_langfuse_callback_handler_dependency_is_available():
 
 
 def test_shutdown_langfuse_closes_client(monkeypatch):
-    import langfuse as observability
+    import observability
 
     client = FakeLangfuseClient()
     monkeypatch.setattr(observability, "_create_langfuse_client", lambda config: client)
@@ -305,7 +305,7 @@ def test_shutdown_langfuse_closes_client(monkeypatch):
 @pytest.mark.asyncio
 async def test_agent_observation_records_rag_trace_without_raw_private_content(monkeypatch):
     """RAG 观测只记录模式、计数和 trace，不把 JD/简历/证据正文写入 Langfuse 输出。"""
-    import langfuse as observability
+    import observability
     from app.agents.interview.interview_rag import RagEvidence, RagResult
 
     client = FakeLangfuseClient()
@@ -371,7 +371,7 @@ async def test_agent_observation_records_rag_trace_without_raw_private_content(m
 
 
 def test_langfuse_client_receives_environment_release_and_sampling(monkeypatch):
-    import langfuse as observability
+    import observability
 
     captured = {}
 
@@ -395,7 +395,7 @@ def test_langfuse_client_receives_environment_release_and_sampling(monkeypatch):
 
 
 def test_managed_prompt_uses_langfuse_with_local_fallback(monkeypatch):
-    import langfuse as observability
+    import observability
     from app.prompts.interview import build_planner_prompt
 
     class FakePrompt:
@@ -455,7 +455,7 @@ def test_managed_prompt_is_opt_in_and_defaults_to_local(monkeypatch):
 
 
 def test_record_trace_score_writes_score_without_breaking_business(monkeypatch):
-    import langfuse as observability
+    import observability
 
     class ScoreClient(FakeLangfuseClient):
         def __init__(self):
@@ -497,7 +497,7 @@ def test_record_trace_score_writes_score_without_breaking_business(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_langgraph_config_uses_official_callback_and_suppresses_direct_llm_callbacks(monkeypatch):
-    import langfuse as observability
+    import observability
 
     class FakeCallbackHandler:
         pass

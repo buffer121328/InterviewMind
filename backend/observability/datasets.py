@@ -8,9 +8,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
-from langfuse import get_langfuse_client
+from observability import get_langfuse_client
 
-DATASET_DIR = Path(__file__).resolve().parents[2] / "evaluation" / "deepeval_tests" / "datasets"
+DATASET_DIR = Path(__file__).resolve().parents[1] / "deepeval_tests" / "datasets"
 EXPECTED_KEY_PREFIXES = ("expected",)
 EXPECTED_KEYS = {
     "ideal_answer",
