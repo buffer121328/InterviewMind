@@ -6,11 +6,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.workflows.interview import stream as chat_stream
-from app.workflows.interview.checkpoints import interview_turn_checkpoint_thread_id
-from app.workflows.interview.stream import ChatStreamUseCases
+from ai.workflows.interview import stream as chat_stream
+from ai.workflows.interview.checkpoints import interview_turn_checkpoint_thread_id
+from ai.workflows.interview.stream import ChatStreamUseCases
 from app.schemas.schemas import ChatRequest
-from app.infrastructure.runtime.agent_runs.service import TASK_TYPE_INTERVIEW_TURN, get_task_definition
+from ai.runtime.agent_runs.service import TASK_TYPE_INTERVIEW_TURN, get_task_definition
 
 
 def _agent_run_events(chunks):
@@ -152,7 +152,14 @@ async def test_chat_stream_creates_and_completes_agent_run(monkeypatch):
 
     assert fake_run_service.created[0]["task_type"] == TASK_TYPE_INTERVIEW_TURN
     assert fake_run_service.created[0]["payload"]["thread_id"] == "thread-1"
-    assert fake_graph.config == {"configurable": {"thread_id": "interview:thread-1:run:run-1"}}
+    assert fake_graph.config["configurable"] == {"thread_id": "interview:thread-1:run:run-1"}
+    assert fake_graph.config["run_name"] == "interview-turn"
+    assert fake_graph.config["metadata"] == {
+        "agent_type": "interview",
+        "user_id": "user-1",
+        "session_id": "thread-1",
+        "run_id": "run-1",
+    }
     assert fake_graph.inputs["round_index"] == 1
     assert fake_graph.inputs["round_type"] is None
     assert fake_graph.inputs["max_questions"] == 5

@@ -10,7 +10,7 @@
 
 import pytest
 from unittest.mock import AsyncMock, patch
-from app.agents.resume.resume_confirmation_service import (
+from ai.agents.resume.resume_confirmation_service import (
     ResumeConfirmationService,
     AuditEntry,
 )
@@ -220,7 +220,7 @@ class TestSaveFinalResume:
 
         # Mock 数据库保存
         with patch(
-            "app.infrastructure.db.repositories.resume.resume_generation_repo.get_generation_repo"
+            "app.db.repositories.resume.resume_generation_repo.get_generation_repo"
         ) as mock_repo:
             mock_instance = AsyncMock()
             mock_instance.save_generated_resume.return_value = "resume-id-123"

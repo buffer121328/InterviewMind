@@ -14,7 +14,7 @@ from app.schemas.resume_schemas import (
     ResumeReviewRequest,
     ResumeReviewResponse,
 )
-from app.workflows.resume.optimization import (
+from ai.workflows.resume.optimization import (
     ResumeOptimizationBadRequest,
     ResumeOptimizationNotFound,
     ResumeReviewConflict,

@@ -11,7 +11,7 @@ from app.schemas.jd_schemas import (
     JDMatchRequest,
     JDMatchResponse,
 )
-from app.workflows.resume.jd_match import JDMatchBadRequest, JDMatchNotFound, jd_match_use_cases
+from ai.workflows.resume.jd_match import JDMatchBadRequest, JDMatchNotFound, jd_match_use_cases
 
 logger = logging.getLogger(__name__)
 router = APIRouter()

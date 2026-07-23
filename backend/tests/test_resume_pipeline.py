@@ -12,9 +12,9 @@ from contextlib import asynccontextmanager
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-import app.agents.resume.resume_orchestrator as orchestrator
+import ai.agents.resume.resume_orchestrator as orchestrator
 
-from app.agents.resume.resume_orchestrator import (
+from ai.agents.resume.resume_orchestrator import (
     PipelineState,
     run_pipeline,
     stage1_jd_analysis,
@@ -26,7 +26,7 @@ from app.agents.resume.resume_orchestrator import (
     stage6_confirmation_prep,
     _calc_confidence,
 )
-from app.agents.resume.resume_fact_policy import (
+from ai.agents.resume.resume_fact_policy import (
     validate_change_items,
     detect_keyword_stuffing,
     REQUIRES_CONFIRMATION_KEYWORDS,
@@ -505,7 +505,7 @@ class TestConfirmationKeywords:
             "confidence": 0.8,
         }
         # 包含 "独立完成" 和 "从0到1" 两个高风险关键词
-        from app.agents.resume.resume_orchestrator import stage6_confirmation_prep
+        from ai.agents.resume.resume_orchestrator import stage6_confirmation_prep
         keywords_triggered = sum(
             1 for kw in REQUIRES_CONFIRMATION_KEYWORDS
             if kw in item["optimized_text"]

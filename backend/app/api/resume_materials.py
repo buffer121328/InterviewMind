@@ -6,7 +6,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.deps import get_current_user_id
-from app.workflows.resume.materials import (
+from ai.workflows.resume.materials import (
     ResumeMaterialBadRequest,
     ResumeMaterialImportFormatError,
     ResumeMaterialNotFound,

@@ -88,10 +88,10 @@ def mock_api_config() -> dict:
 @pytest.fixture
 def mock_llm():
     """
-    Patch app.infrastructure.llm.llms.get_llm_for_request，返回 AsyncMock。
+    Patch ai.llm.llms.get_llm_for_request，返回 AsyncMock。
     用法: def test_xxx(mock_llm): ...
     """
-    with patch("app.infrastructure.llm.llms.get_llm_for_request", new_callable=AsyncMock) as _mock:
+    with patch("ai.llm.llms.get_llm_for_request", new_callable=AsyncMock) as _mock:
         yield _mock
 
 

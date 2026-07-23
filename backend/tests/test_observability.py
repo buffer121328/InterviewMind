@@ -257,7 +257,7 @@ async def test_agent_observation_preserves_business_exception(monkeypatch):
 
 
 def test_llm_factory_attaches_langfuse_callback_only_when_active(monkeypatch):
-    from app.infrastructure.llm import llms
+    from ai.llm import llms
 
     created = {}
 
@@ -306,7 +306,7 @@ def test_shutdown_langfuse_closes_client(monkeypatch):
 async def test_agent_observation_records_rag_trace_without_raw_private_content(monkeypatch):
     """RAG 观测只记录模式、计数和 trace，不把 JD/简历/证据正文写入 Langfuse 输出。"""
     import observability
-    from app.agents.interview.interview_rag import RagEvidence, RagResult
+    from ai.agents.interview.interview_rag import RagEvidence, RagResult
 
     client = FakeLangfuseClient()
     attributes = []
@@ -396,7 +396,7 @@ def test_langfuse_client_receives_environment_release_and_sampling(monkeypatch):
 
 def test_managed_prompt_uses_langfuse_with_local_fallback(monkeypatch):
     import observability
-    from app.prompts.interview import build_planner_prompt
+    from ai.prompts.interview import build_planner_prompt
 
     class FakePrompt:
         is_fallback = False
@@ -437,7 +437,7 @@ def test_managed_prompt_uses_langfuse_with_local_fallback(monkeypatch):
 
 
 def test_managed_prompt_is_opt_in_and_defaults_to_local(monkeypatch):
-    from app.prompts.interview import build_opening_prompt
+    from ai.prompts.interview import build_opening_prompt
 
     monkeypatch.setenv("LANGFUSE_ENABLED", "true")
     monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk-test")

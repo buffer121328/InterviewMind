@@ -6,8 +6,8 @@ import pytest
 @pytest.mark.asyncio
 async def test_resume_optimize_executor_reuses_saved_result_after_worker_crash(monkeypatch):
     """业务结果已落库但 Worker 未标记成功时，重试应复用结果而不是二次生成。"""
-    from app.workflows import agent_tasks as executors
-    from app.agents.resume import resume_orchestrator
+    from ai.workflows import agent_tasks as executors
+    from ai.agents.resume import resume_orchestrator
 
     progress_stages: list[str] = []
     save_calls: list[dict] = []
@@ -44,7 +44,7 @@ async def test_resume_optimize_executor_reuses_saved_result_after_worker_crash(m
     async def progress(stage: str) -> None:
         progress_stages.append(stage)
 
-    monkeypatch.setattr("app.infrastructure.db.repositories.resume.resume_repo.get_resume_repo", lambda: FakeResumeRepo())
+    monkeypatch.setattr("app.db.repositories.resume.resume_repo.get_resume_repo", lambda: FakeResumeRepo())
     monkeypatch.setattr(resume_orchestrator, "run_pipeline", fail_if_pipeline_runs)
 
     result = await executors.execute_resume_optimize(
@@ -70,8 +70,8 @@ async def test_resume_optimize_executor_reuses_saved_result_after_worker_crash(m
 @pytest.mark.asyncio
 async def test_resume_optimize_executor_defers_save_for_agent_run_transaction(monkeypatch):
     """有 agent_run_id 时，业务结果保存交给 AgentRun 完成事务统一提交。"""
-    from app.workflows import agent_tasks as executors
-    from app.agents.resume import resume_orchestrator
+    from ai.workflows import agent_tasks as executors
+    from ai.agents.resume import resume_orchestrator
 
     progress_stages: list[str] = []
     save_calls: list[dict] = []
@@ -109,7 +109,7 @@ async def test_resume_optimize_executor_defers_save_for_agent_run_transaction(mo
     async def progress(stage: str) -> None:
         progress_stages.append(stage)
 
-    monkeypatch.setattr("app.infrastructure.db.repositories.resume.resume_repo.get_resume_repo", lambda: FakeResumeRepo())
+    monkeypatch.setattr("app.db.repositories.resume.resume_repo.get_resume_repo", lambda: FakeResumeRepo())
     monkeypatch.setattr(resume_orchestrator, "run_pipeline", fake_pipeline)
 
     result = await executors.execute_resume_optimize(
@@ -147,7 +147,7 @@ async def test_job_assets_executor_defers_job_status_for_agent_run_transaction(m
     """岗位资产 AgentRun 的岗位状态更新应和完成态共用事务。"""
     from types import SimpleNamespace
 
-    from app.workflows import agent_tasks as executors
+    from ai.workflows import agent_tasks as executors
 
     progress_stages: list[str] = []
     generate_calls: list[dict] = []
@@ -175,8 +175,8 @@ async def test_job_assets_executor_defers_job_status_for_agent_run_transaction(m
     async def progress(stage: str) -> None:
         progress_stages.append(stage)
 
-    monkeypatch.setattr("app.infrastructure.browser.job_asset_orchestrator.generate_assets", fake_generate_assets)
-    monkeypatch.setattr("app.infrastructure.db.repositories.jobs.job_capture_repo.get_job_capture_repo", lambda: FakeJobRepo())
+    monkeypatch.setattr("ai.workflows.jobs_support.job_asset_orchestrator.generate_assets", fake_generate_assets)
+    monkeypatch.setattr("app.db.repositories.jobs.job_capture_repo.get_job_capture_repo", lambda: FakeJobRepo())
 
     result = await executors.execute_job_assets(
         {

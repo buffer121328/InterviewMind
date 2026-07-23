@@ -24,7 +24,7 @@ class TestDbConfigBehavior:
             "POSTGRES_DB": "",
         }
         with patch.dict(os.environ, env, clear=False):
-            import app.infrastructure.db.config as cfg
+            import app.db.config as cfg
             importlib.reload(cfg)
             config = cfg.get_postgres_config()
 
@@ -40,7 +40,7 @@ class TestDbConfigBehavior:
             "POSTGRES_PASSWORD": "test_secret_42",
         }
         with patch.dict(os.environ, env, clear=False):
-            import app.infrastructure.db.config as cfg
+            import app.db.config as cfg
             importlib.reload(cfg)
             config = cfg.get_postgres_config()
 
@@ -52,7 +52,7 @@ class TestDbConfigBehavior:
             "DATABASE_URL": "postgresql://myuser:mypass@dbhost:5555/mydb",
         }
         with patch.dict(os.environ, env, clear=False):
-            import app.infrastructure.db.config as cfg
+            import app.db.config as cfg
             importlib.reload(cfg)
             config = cfg.get_postgres_config()
 
@@ -68,7 +68,7 @@ class TestDbConfigBehavior:
             "DATABASE_URL": "postgresql+asyncpg://user:pw@host:5432/db",
         }
         with patch.dict(os.environ, env, clear=False):
-            import app.infrastructure.db.config as cfg
+            import app.db.config as cfg
             importlib.reload(cfg)
             config = cfg.get_postgres_config()
 
@@ -77,14 +77,14 @@ class TestDbConfigBehavior:
 
     def test_no_hardcoded_password_in_module_source(self):
         """The config module source must not contain literal 'cheng123'."""
-        content = (BACKEND_ROOT / "app" / "infrastructure" / "db" / "config.py").read_text(encoding="utf-8")
+        content = (BACKEND_ROOT / "app" / "db" / "config.py").read_text(encoding="utf-8")
         assert "cheng123" not in content, (
             "config.py source still contains hardcoded password 'cheng123'"
         )
 
     def test_no_legacy_name_in_module_source(self):
         """The config module source must not contain the legacy project name."""
-        content = (BACKEND_ROOT / "app" / "infrastructure" / "db" / "config.py").read_text(encoding="utf-8")
+        content = (BACKEND_ROOT / "app" / "db" / "config.py").read_text(encoding="utf-8")
         assert LEGACY_NAME not in content, (
             "config.py source still contains the legacy project name"
         )
@@ -128,7 +128,7 @@ class TestAgentMemoryConfigBehavior:
             "POSTGRES_PASSWORD": "",
         }
         with patch.dict(os.environ, env, clear=False):
-            import app.infrastructure.memory.config as mem_cfg
+            import ai.memory.config as mem_cfg
             importlib.reload(mem_cfg)
             config = mem_cfg.get_mem0_config()
 
@@ -148,7 +148,7 @@ class TestAgentMemoryConfigBehavior:
             "POSTGRES_PASSWORD": "custom_pass",
         }
         with patch.dict(os.environ, env, clear=False):
-            import app.infrastructure.memory.config as mem_cfg
+            import ai.memory.config as mem_cfg
             importlib.reload(mem_cfg)
             config = mem_cfg.get_mem0_config()
 
@@ -168,7 +168,7 @@ class TestAgentMemoryConfigBehavior:
             "POSTGRES_PASSWORD": "cheng123",
         }
         with patch.dict(os.environ, env, clear=False):
-            import app.infrastructure.memory.config as mem_cfg
+            import ai.memory.config as mem_cfg
             importlib.reload(mem_cfg)
             config = mem_cfg.get_mem0_config()
 
@@ -184,7 +184,7 @@ class TestAgentMemoryServiceRename:
     def test_metadata_project_is_agent_interview(self):
         """service.py project metadata must reference agent_interview."""
         import re
-        content = (BACKEND_ROOT / "app" / "infrastructure" / "memory" / "service.py").read_text(encoding="utf-8")
+        content = (BACKEND_ROOT / "ai" / "memory" / "service.py").read_text(encoding="utf-8")
         project_matches = re.findall(r'"project"\s*:\s*"([^"]+)"', content)
         assert project_matches, "No 'project' key found in metadata dicts"
         for val in project_matches:

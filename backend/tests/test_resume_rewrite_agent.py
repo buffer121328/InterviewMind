@@ -2,7 +2,7 @@
 
 import pytest
 
-from app.agents.resume import resume_rewrite_agent as agent
+from ai.agents.resume import resume_rewrite_agent as agent
 from app.schemas.llm_outputs import ChangeItem, ContentSuggestionsOutput
 
 

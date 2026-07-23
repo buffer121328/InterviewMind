@@ -12,7 +12,7 @@ from app.schemas.memory import (
     MemoryListResponse,
     MemorySearchResponse,
 )
-from app.workflows.memory import memory_use_cases
+from ai.workflows.memory import memory_use_cases
 
 logger = logging.getLogger(__name__)
 

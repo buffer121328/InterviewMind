@@ -19,7 +19,7 @@ from deepeval import assert_test
 from deepeval.test_case import LLMTestCase
 from deepeval.metrics import GEval
 
-from app.agents.interview.interview_planner import build_planner_prompt
+from ai.agents.interview.interview_planner import build_planner_prompt
 
 
 # ====================================================================

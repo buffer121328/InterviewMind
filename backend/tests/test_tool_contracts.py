@@ -1,10 +1,10 @@
 """Agent 工具契约声明测试。"""
 
 from app.schemas.tools import get_tool_contract
-from app.tools.interview_tools import make_interview_tools
-from app.tools.job_tools import make_jobs_tools
-from app.tools.memory_tools import make_memory_tools
-from app.tools.resume_tools import make_resume_tools
+from ai.tools.interview_tools import make_interview_tools
+from ai.tools.job_tools import make_jobs_tools
+from ai.tools.memory_tools import make_memory_tools
+from ai.tools.resume_tools import make_resume_tools
 
 
 def _contracts(tools):

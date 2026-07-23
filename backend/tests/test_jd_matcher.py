@@ -28,7 +28,7 @@ TEST_API_CONFIG = {
 @pytest.fixture
 def jd_match_dependencies(monkeypatch):
     """为 API 测试隔离 LLM 与 PostgreSQL 结果仓库。"""
-    from app.workflows.resume import jd_match as jd_match_app
+    from ai.workflows.resume import jd_match as jd_match_app
 
     analyze = AsyncMock()
     repository = AsyncMock()
@@ -107,7 +107,7 @@ class TestJDMatchAPI:
     
 
     def test_jd_match_success_saves_with_unit_of_work_session(self, jd_match_dependencies, monkeypatch):
-        from app.workflows.resume import jd_match as jd_match_app
+        from ai.workflows.resume import jd_match as jd_match_app
 
         analyze, repository = jd_match_dependencies
         analyze.return_value = {

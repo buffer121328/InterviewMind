@@ -18,13 +18,13 @@ from pydantic import BaseModel, ConfigDict, Field
 ROOT_ENV = Path(__file__).resolve().parents[3] / ".env"
 load_dotenv(ROOT_ENV, override=False)
 
-from app.infrastructure.browser.boss_browser_operations import (  # noqa: E402
+from integrations.boss.browser_operations import (  # noqa: E402
     preview_boss_application,
     scrape_boss_page,
     send_boss_application,
 )
-from app.infrastructure.browser.boss_security import is_allowed_apply_url  # noqa: E402
-from app.infrastructure.browser.browser_runner import (  # noqa: E402
+from integrations.boss.security import is_allowed_apply_url  # noqa: E402
+from integrations.boss.browser_runner import (  # noqa: E402
     async_playwright,
     resolve_boss_browser_profile_dir,
 )

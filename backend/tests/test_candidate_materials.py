@@ -64,7 +64,7 @@ class InMemoryMaterialRepo:
 
 @pytest.fixture
 def material_repo(monkeypatch):
-    from app.workflows.resume import materials as resume_materials
+    from ai.workflows.resume import materials as resume_materials
 
     repo = InMemoryMaterialRepo()
     monkeypatch.setattr(resume_materials, "get_candidate_material_repo", lambda: repo)
@@ -73,7 +73,7 @@ def material_repo(monkeypatch):
 
 @pytest.fixture
 def assembly_services(monkeypatch):
-    from app.workflows.resume import assembly as resume_assembly
+    from ai.workflows.resume import assembly as resume_assembly
 
     async def select_empty_materials(**_kwargs):
         return SimpleNamespace(

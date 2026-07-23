@@ -2,7 +2,7 @@
 
 import pytest
 
-from app.infrastructure.db.unit_of_work import UnitOfWork
+from app.db.unit_of_work import UnitOfWork
 
 
 class FakeSession:

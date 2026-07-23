@@ -12,7 +12,7 @@ from app.schemas.resume_schemas import (
     ResumeGenerateSubmitRequest,
     ResumeGenerateSubmitResponse,
 )
-from app.workflows.resume.generation import (
+from ai.workflows.resume.generation import (
     ResumeGenerationBadRequest,
     ResumeGenerationConflict,
     ResumeGenerationNotFound,

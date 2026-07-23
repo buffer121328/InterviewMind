@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from app.api.deps import get_current_user_id
-from app.workflows.interview.sessions import (
+from ai.workflows.interview.sessions import (
     SessionManagementBadRequest,
     SessionManagementNotFound,
     SessionManagementPersistenceError,

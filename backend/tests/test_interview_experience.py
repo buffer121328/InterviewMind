@@ -7,9 +7,9 @@ from unittest.mock import AsyncMock
 from app.api import interview_experience as experience_api
 from app.schemas.interview_experience import ExperienceCollectRequest, ExperienceQuestionCandidate, ExperienceQuestionImportRequest
 from app.schemas.experience_provider import ExperienceDocument
-from app.workflows.interview_experience.extractor import extract_questions
-from app.workflows.interview_experience.providers import NowcoderProvider
-from app.workflows.interview_experience.service import InterviewExperienceService
+from ai.workflows.interview_experience.extractor import extract_questions
+from ai.workflows.interview_experience.providers import NowcoderProvider
+from ai.workflows.interview_experience.service import InterviewExperienceService
 
 
 def test_extract_questions_deduplicates_and_classifies():

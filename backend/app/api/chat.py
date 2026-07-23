@@ -10,19 +10,19 @@ from fastapi.responses import StreamingResponse
 
 from app.schemas.schemas import ChatRequest, ChatStreamResponse, InterviewStartRequest, ErrorResponse, RollbackRequest, ProfileGenerateRequest, WeaknessGenerateRequest
 from app.api.deps import get_current_user_id
-from app.workflows.interview.session_actions import InterviewSessionNotFound, interview_session_use_cases
-from app.workflows.interview.stream import (
+from ai.workflows.interview.session_actions import InterviewSessionNotFound, interview_session_use_cases
+from ai.workflows.interview.stream import (
     ChatStreamBadRequest,
     ChatStreamConflict,
     ChatStreamNotFound,
     chat_stream_use_cases,
 )
-from app.workflows.interview.start import (
+from ai.workflows.interview.start import (
     InterviewStartFailed,
     InterviewStartNotFound,
     interview_start_use_cases,
 )
-from app.workflows.interview.reports import (
+from ai.workflows.interview.reports import (
     InterviewReportBadRequest,
     InterviewReportNotFound,
     interview_report_use_cases,

@@ -4,7 +4,7 @@ import pytest
 
 from app.config import get_settings
 from app.schemas.schemas import ApiConfig
-from app.infrastructure.llm import llms
+from ai.llm import llms
 
 
 def _channel(model: str) -> dict:
@@ -403,7 +403,7 @@ def test_embedding_creation_goes_through_gateway(monkeypatch):
 
 
 async def _embedding_service_case(monkeypatch):
-    from app.infrastructure.rag import embedding_service
+    from ai.rag import embedding_service
 
     captured = {}
 

@@ -17,13 +17,13 @@ from deepeval import assert_test
 from deepeval.metrics import BaseMetric
 from deepeval.test_case import LLMTestCase
 
-import app.agents.interview.interview_rag as rag_module
-from app.agents.interview.agentic_retrieval import (
+import ai.agents.interview.interview_rag as rag_module
+from ai.agents.interview.agentic_retrieval import (
     AgenticSearchContext,
     AgenticSearchQuery,
     run_agentic_retrieval,
 )
-from app.agents.interview.interview_rag import RagEvidence, RetrievalQuery
+from ai.agents.interview.interview_rag import RagEvidence, RetrievalQuery
 
 
 @dataclass
@@ -260,7 +260,7 @@ async def test_deepeval_rag_agentic_adoption_policy(
     expected_retrieval_mode: str,
     expected_evidence_count: int,
 ):
-    from app.infrastructure.db.repositories.interview import rag_index_repo
+    from app.db.repositories.interview import rag_index_repo
 
     monkeypatch.setattr(rag_index_repo, "get_rag_index_repo", lambda: repo)
     monkeypatch.setattr(rag_module, "VECTOR_ENABLED", False)

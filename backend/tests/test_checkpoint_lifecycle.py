@@ -3,7 +3,7 @@ import types
 
 import pytest
 
-from app.infrastructure.memory import memory
+from ai.memory import memory
 
 
 class _FakeSaver:
@@ -43,7 +43,7 @@ async def test_postgres_checkpointer_uses_async_context(monkeypatch):
     module = types.ModuleType("langgraph.checkpoint.postgres.aio")
     module.AsyncPostgresSaver = _FakeAsyncPostgresSaver
     monkeypatch.setitem(sys.modules, "langgraph.checkpoint.postgres.aio", module)
-    monkeypatch.setattr("app.infrastructure.db.config.get_postgres_dsn", lambda: "postgresql://u:p@db/test")
+    monkeypatch.setattr("app.db.config.get_postgres_dsn", lambda: "postgresql://u:p@db/test")
 
     result = await memory.get_checkpointer()
 

@@ -2,7 +2,7 @@
 
 import pytest
 
-from app.infrastructure.db.repositories.resume.resume_repo import ResumeRepo
+from app.db.repositories.resume.resume_repo import ResumeRepo
 
 
 class _FakeSession:
@@ -62,7 +62,7 @@ async def test_save_result_uses_external_session_without_commit():
 
 @pytest.mark.asyncio
 async def test_save_result_owns_session_commits_and_refreshes(monkeypatch):
-    from app.infrastructure.db.repositories.resume import resume_repo
+    from app.db.repositories.resume import resume_repo
 
     repo = ResumeRepo()
     session = _FakeSession()

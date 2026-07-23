@@ -4,8 +4,8 @@ from datetime import datetime
 
 import pytest
 
-from app.infrastructure.db.models.agent_run import AgentRunEventModel, AgentRunModel, TaskOutboxModel
-from app.infrastructure.runtime.agent_runs import outbox
+from app.db.models.agent_run import AgentRunEventModel, AgentRunModel, TaskOutboxModel
+from ai.runtime.agent_runs import outbox
 
 
 def _outbox_item(run_id: str, *, now: datetime) -> TaskOutboxModel:
@@ -25,7 +25,7 @@ def _outbox_item(run_id: str, *, now: datetime) -> TaskOutboxModel:
 
 @pytest.mark.asyncio
 async def test_create_or_get_writes_agent_run_outbox_in_same_session(monkeypatch):
-    from app.infrastructure.runtime.agent_runs import service as service_module
+    from ai.runtime.agent_runs import service as service_module
 
     added = []
     committed = False

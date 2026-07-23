@@ -11,7 +11,7 @@ from app.schemas.resume_schemas import (
     ResumeHistoryDetailResponse,
     ResumeHistoryListResponse,
 )
-from app.workflows.resume.history import ResumeHistoryNotFound, resume_history_use_cases
+from ai.workflows.resume.history import ResumeHistoryNotFound, resume_history_use_cases
 
 logger = logging.getLogger(__name__)
 router = APIRouter()

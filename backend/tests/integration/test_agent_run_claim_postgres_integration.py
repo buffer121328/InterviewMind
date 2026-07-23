@@ -35,9 +35,9 @@ async def test_two_workers_cannot_claim_same_run(monkeypatch):
     sqlalchemy_asyncio = pytest.importorskip("sqlalchemy.ext.asyncio")
     monkeypatch.setenv("TASK_PAYLOAD_ENCRYPTION_KEY", Fernet.generate_key().decode())
 
-    from app.infrastructure.db.models.agent_run import AgentRunEventModel, AgentRunModel
-    from app.infrastructure.runtime.agent_runs.crypto import encrypt_payload
-    from app.infrastructure.runtime.agent_runs import service as service_module
+    from app.db.models.agent_run import AgentRunEventModel, AgentRunModel
+    from ai.runtime.agent_runs.crypto import encrypt_payload
+    from ai.runtime.agent_runs import service as service_module
 
     async_url = dsn.replace("postgresql://", "postgresql+asyncpg://")
     engine = sqlalchemy_asyncio.create_async_engine(async_url)

@@ -32,7 +32,7 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 # 导入 ORM 模型的 Base，让 Alembic 能自动检测表结构变化
-from app.infrastructure.db.models import Base
+from app.db.models import Base
 
 target_metadata = Base.metadata
 

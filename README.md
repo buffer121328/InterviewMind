@@ -251,7 +251,7 @@ uv run python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
 ```bash
 cd backend
-uv run dramatiq app.infrastructure.runtime.agent_runs.worker --processes 1 --threads 1
+uv run dramatiq ai.runtime.agent_runs.worker --processes 1 --threads 1
 ```
 
 若设置 `TASK_QUEUE_ENABLED=false`，无需启动 Redis 或 Worker；首题、简历优化、报告和岗位资产会走同步兼容路径，并使用进程内互斥锁。
@@ -345,25 +345,26 @@ agent-interview/
 │   │   ├── main.py                  # FastAPI 入口、生命周期、Router 注册
 │   │   ├── config.py                # 应用配置
 │   │   ├── api/                     # HTTP API 路由层
-│   │   ├── agents/                  # 面试、简历等 LangGraph / LLM Agent
 │   │   ├── domain/                  # 领域常量、任务定义、纯业务规则
 │   │   ├── entrypoints/             # 部署迁移、BOSS 宿主机服务等独立入口
-│   │   ├── workflows/               # 业务用例与流程编排
 │   │   ├── schemas/                 # Pydantic 请求 / 响应 / 共享模型
-│   │   ├── infrastructure/          # 基础设施实现
-│   │   │   ├── browser/             # Playwright、BOSS 自动化
-│   │   │   ├── db/                  # SQLAlchemy 模型、仓储、Unit of Work
-│   │   │   ├── files/               # 文件上传与解析
-│   │   │   ├── llm/                 # 模型网关、模型池、LLM 客户端
-│   │   │   ├── memory/              # mem0、LangGraph checkpoint
-│   │   │   ├── rag/                 # 向量检索与 Embedding
-│   │   │   ├── runtime/             # AgentRun、Dramatiq、锁、恢复
-│   │   │   └── security/            # 出站 URL、脱敏等安全能力
+│   │   ├── db/                      # SQLAlchemy 模型、仓储、Unit of Work
+│   │   ├── files/                   # 文件上传与解析
+│   │   └── security/                # 出站 URL、脱敏等安全能力
+│   ├── ai/
+│   │   ├── agents/                  # 面试、简历、岗位等 LangGraph / LLM Agent
+│   │   ├── llm/                     # 模型网关、模型池、LLM 客户端
+│   │   ├── memory/                  # mem0、LangGraph checkpoint
 │   │   ├── prompts/                 # Prompt 管理
-│   │   └── tools/                   # Agent 可调用业务工具
+│   │   ├── rag/                     # 向量检索与 Embedding
+│   │   ├── runtime/                 # AgentRun、Dramatiq、锁、恢复、模型中间件
+│   │   ├── tools/                   # Agent 可调用业务工具
+│   │   └── workflows/               # 业务用例与流程编排
+│   ├── integrations/
+│   │   └── boss/                    # BOSS 直聘宿主机浏览器、限流、审批、URL 安全适配
 │   ├── alembic/                     # 数据库迁移脚本
 │   ├── observability/               # Langfuse tracing / LangGraph callback / Prompt / Scores
-│   ├── evaluation/              # DeepEval 回归与基准
+│   ├── evaluation/                  # DeepEval 回归与基准
 │   ├── tests/                       # 单元、API、集成测试
 │   ├── scripts/                     # Worker 等运行脚本
 │   ├── pyproject.toml               # Python 项目配置
@@ -372,15 +373,12 @@ agent-interview/
 ├── web/                             # Next.js 前端应用
 │   ├── app/                         # App Router 页面入口
 │   ├── components/                  # React 业务与 UI 组件
-│   ├── hooks/                       # 自定义 Hook
-│   ├── lib/                         # API client、SSE、音频、导航等工具
-│   ├── store/                       # Zustand 状态管理
-│   ├── package.json                 # Node.js 脚本与依赖
-│   └── Dockerfile
+│   ├── lib/                         # API 客户端、流式事件、状态工具
+│   └── package.json
 │
-├── nginx/nginx.conf                 # Nginx API / SSE / 静态文件反向代理
-├── docker-compose.yml               # 容器编排（DB、Redis、迁移、API、Worker、Web、Nginx）
-├── env_example                      # 全量环境变量模板
+├── nginx/                           # 反向代理配置
+├── docs/                            # 架构、运行、验收和学习文档
+├── docker-compose.yml
 └── README.md
 ```
 

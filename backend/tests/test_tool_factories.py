@@ -9,11 +9,11 @@
 import pytest
 from unittest.mock import AsyncMock
 
-import app.tools.interview_tools as interview_tools_module
-import app.tools.memory_tools as memory_tools_module
+import ai.tools.interview_tools as interview_tools_module
+import ai.tools.memory_tools as memory_tools_module
 
-from app.tools.interview_tools import make_interview_tool_executor
-from app.tools.resume_tools import make_resume_tools
+from ai.tools.interview_tools import make_interview_tool_executor
+from ai.tools.resume_tools import make_resume_tools
 
 
 class TestInterviewToolExecutor:
