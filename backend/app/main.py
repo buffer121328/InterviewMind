@@ -21,7 +21,7 @@ from app.api.memory import router as memory_router
 from app.api.jobs import router as jobs_router
 from app.api.interview_experience import router as interview_experience_router
 from app.schemas.schemas import ErrorResponse
-from app.infrastructure.security.security import redact_secrets, safe_error_message
+from app.security.security import redact_secrets, safe_error_message
 
 # 配置日志
 logging.basicConfig(
@@ -46,7 +46,7 @@ async def lifespan(app: FastAPI):
     # 本地开发可自动同步 ORM 表结构；严格迁移验证时设 AUTO_CREATE_TABLES=false。
     from app.config import get_settings
     if get_settings().auto_create_tables:
-        from app.infrastructure.db.models import init_db
+        from app.db.models import init_db
         await init_db()
     else:
         logger.info("AUTO_CREATE_TABLES=false，跳过 ORM 表结构自动同步，请确保已执行 Alembic 迁移")
@@ -64,15 +64,15 @@ async def lifespan(app: FastAPI):
 
     # 主动恢复 Worker 中断或长期未领取的持久化 Agent 任务
     try:
-        from app.infrastructure.runtime.agent_runs.recovery import run_agent_run_recovery_loop
-        from app.infrastructure.runtime.background_tasks import create_background_task
+        from ai.runtime.agent_runs.recovery import run_agent_run_recovery_loop
+        from ai.runtime.background_tasks import create_background_task
         create_background_task(run_agent_run_recovery_loop(), name="agent-run-recovery")
     except Exception as e:
         logger.warning("Agent 任务主动恢复循环启动失败: %s", e)
 
     # 初始化 mem0 长期记忆服务
     try:
-        from app.infrastructure.memory import get_agent_memory_service
+        from ai.memory import get_agent_memory_service
         memory_service = await get_agent_memory_service()
         if memory_service.is_enabled:
             logger.info("✓ mem0 长期记忆服务初始化成功")
@@ -105,7 +105,7 @@ async def cleanup_resources():
 
     # 等待/取消应用级后台任务
     try:
-        from app.infrastructure.runtime.background_tasks import drain_background_tasks
+        from ai.runtime.background_tasks import drain_background_tasks
         await drain_background_tasks(timeout=5.0)
         logger.info("✓ 后台任务已清理")
     except Exception as e:
@@ -113,7 +113,7 @@ async def cleanup_resources():
 
     # 关闭全局 checkpointer 和连接
     try:
-        from app.infrastructure.memory.memory import close_checkpointer
+        from ai.memory.memory import close_checkpointer
         await close_checkpointer()
         logger.info("✓ Checkpointer 已关闭")
     except Exception as e:
@@ -121,7 +121,7 @@ async def cleanup_resources():
 
     # 关闭 mem0 长期记忆服务
     try:
-        from app.infrastructure.memory import close_agent_memory_service
+        from ai.memory import close_agent_memory_service
         await close_agent_memory_service()
         logger.info("✓ AgentMemoryService 已关闭")
     except Exception as e:
@@ -129,7 +129,7 @@ async def cleanup_resources():
 
     # 清理图实例列表
     try:
-        from app.agents.interview.interview_graph import clear_graph_instances
+        from ai.agents.interview.interview_graph import clear_graph_instances
         clear_graph_instances()
         logger.info("✓ 图实例列表已清空")
     except Exception as e:
@@ -137,7 +137,7 @@ async def cleanup_resources():
 
     # 关闭 SQLAlchemy 引擎
     try:
-        from app.infrastructure.db.models import engine
+        from app.db.models import engine
         await engine.dispose()
         logger.info("✓ SQLAlchemy 引擎已关闭")
     except Exception as e:

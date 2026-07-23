@@ -16,8 +16,8 @@ from app.schemas.voice import (
 )
 
 from app.api.deps import get_current_user_id
-from app.workflows.interview.voice import VoiceInterviewUseCaseError, voice_interview_use_cases
-from app.workflows.interview.voice_stream import VoiceStreamUseCaseError, voice_stream_use_cases
+from ai.workflows.interview.voice import VoiceInterviewUseCaseError, voice_interview_use_cases
+from ai.workflows.interview.voice_stream import VoiceStreamUseCaseError, voice_stream_use_cases
 
 logger = logging.getLogger(__name__)
 

@@ -22,16 +22,16 @@ def _imports(path: Path) -> list[str]:
 
 def test_applications_api_uses_workflow_layer_instead_of_repositories():
     modules = _imports(BACKEND_APP / "api" / "applications.py")
-    assert not any(module.startswith("app.infrastructure.db.repositories") for module in modules)
-    assert not any(module.startswith("app.infrastructure.db.repositories") for module in modules)
-    assert any(module.startswith("app.workflows") for module in modules)
+    assert not any(module.startswith("app.db.repositories") for module in modules)
+    assert not any(module.startswith("app.db.repositories") for module in modules)
+    assert any(module.startswith("ai.workflows") for module in modules)
 
 
 @pytest.mark.asyncio
 async def test_add_event_to_application_uses_unit_of_work_session(monkeypatch):
     from types import SimpleNamespace
 
-    from app.workflows import applications
+    from ai.workflows import applications
 
     fake_session = object()
     calls = []

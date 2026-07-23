@@ -4,7 +4,7 @@ import pytest
 
 from app.api import config as config_api
 from app.schemas.schemas import ApiConfigValidateRequest
-from app.workflows import config as config_workflow
+from ai.workflows import config as config_workflow
 
 
 class _FakeLLM:

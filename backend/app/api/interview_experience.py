@@ -5,7 +5,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.deps import get_current_user_id
-from app.workflows.interview.experience_imports import (
+from ai.workflows.interview.experience_imports import (
     InterviewExperienceUseCaseError,
     interview_experience_import_use_cases,
 )

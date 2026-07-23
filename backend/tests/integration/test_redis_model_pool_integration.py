@@ -19,7 +19,7 @@ def test_model_pool_reserve_order_uses_real_redis_watch_multi():
         pytest.skip("需要 TEST_REDIS_URL 才运行真实 Redis 模型池测试")
 
     redis_module = pytest.importorskip("redis")
-    from app.infrastructure.llm import llms
+    from ai.llm import llms
 
     client = redis_module.Redis.from_url(redis_url, decode_responses=True)
     token = uuid.uuid4().hex

@@ -7,7 +7,7 @@ import logging
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
 from app.schemas.schemas import FileUploadResponse
-from app.workflows.upload import UploadUseCaseError, upload_use_cases
+from ai.workflows.upload import UploadUseCaseError, upload_use_cases
 
 logger = logging.getLogger(__name__)
 

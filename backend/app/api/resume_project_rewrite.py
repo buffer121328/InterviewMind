@@ -12,7 +12,7 @@ from app.schemas.project_rewrite_schemas import (
     ProjectRewriteRequest,
     ProjectRewriteResponse,
 )
-from app.workflows.resume.project_rewrite import (
+from ai.workflows.resume.project_rewrite import (
     ProjectRewriteBadRequest,
     ProjectRewriteNotFound,
     project_rewrite_use_cases,

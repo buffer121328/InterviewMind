@@ -1,7 +1,7 @@
 """AgentRun 整次重试策略。"""
 
-from app.infrastructure.runtime.agent_runs.policies import allows_whole_run_retry, get_retry_policy
-from app.infrastructure.runtime.agent_runs.service import (
+from ai.runtime.agent_runs.policies import allows_whole_run_retry, get_retry_policy
+from ai.runtime.agent_runs.service import (
     TASK_TYPE_INTERVIEW_REPORT,
     TASK_TYPE_INTERVIEW_START,
     TASK_TYPE_INTERVIEW_TURN,

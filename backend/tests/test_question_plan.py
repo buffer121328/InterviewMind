@@ -1,4 +1,4 @@
-from app.agents.interview.question_plan import merge_question_plan, prepare_candidates
+from ai.agents.interview.question_plan import merge_question_plan, prepare_candidates
 
 
 def test_candidates_prioritize_experience_and_keep_bank_id():

@@ -6,7 +6,7 @@ API 配置相关端点
 from fastapi import APIRouter
 
 from app.schemas.schemas import ApiConfigValidateRequest
-from app.workflows.config import api_config_use_cases
+from ai.workflows.config import api_config_use_cases
 
 router = APIRouter(prefix="/api/config", tags=["配置"])
 

@@ -19,7 +19,7 @@ from app.schemas.interview import (
     OpeningOutput,
     EvaluatingOutput,
 )
-from app.agents.interview.interview_runtime import InterviewRuntime, memo_hint
+from ai.agents.interview.interview_runtime import InterviewRuntime, memo_hint
 
 
 # ============================================================================
@@ -120,7 +120,7 @@ class TestInterviewRuntimeStateMachine:
             )
         )
         monkeypatch.setattr(
-            "app.agents.interview.interview_runtime.agent_observation",
+            "ai.agents.interview.interview_runtime.agent_observation",
             fake_agent_observation,
             raising=False,
         )

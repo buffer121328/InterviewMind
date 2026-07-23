@@ -1,4 +1,4 @@
-from app.infrastructure.db.repositories.interview.archive_mapper import build_archived_turns
+from app.db.repositories.interview.archive_mapper import build_archived_turns
 
 
 def test_build_archived_turns_separates_main_question_and_followup():

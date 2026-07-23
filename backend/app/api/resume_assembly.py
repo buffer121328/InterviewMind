@@ -5,7 +5,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.deps import get_current_user_id
-from app.workflows.resume.assembly import (
+from ai.workflows.resume.assembly import (
     ResumeAssemblyBadRequest,
     ResumeAssemblyNotFound,
     resume_assembly_use_cases,

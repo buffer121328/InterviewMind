@@ -1,6 +1,6 @@
 """AgentRun parent/child payload 契约。"""
 
-from app.infrastructure.runtime.agent_runs.relationships import (
+from ai.runtime.agent_runs.relationships import (
     PARENT_RUN_ID_KEY,
     RUN_RELATIONSHIP_KEY,
     child_run_payload,

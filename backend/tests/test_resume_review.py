@@ -1,6 +1,6 @@
 import pytest
 
-from app.agents.resume.resume_review import (
+from ai.agents.resume.resume_review import (
     ReviewConflictError,
     apply_review_decisions,
     initialize_review,

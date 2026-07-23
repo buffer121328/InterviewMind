@@ -13,7 +13,7 @@ class TestGreetingGenerator:
 
     @pytest.mark.asyncio
     async def test_generate_three_greetings(self):
-        from app.infrastructure.browser.greeting_generator import generate_greetings
+        from ai.agents.jobs.greeting_generator import generate_greetings
 
         mock_output = MagicMock()
         mock_output.model_dump.return_value = {
@@ -40,7 +40,7 @@ class TestGreetingGenerator:
         }
 
         with patch(
-            "app.infrastructure.llm.llm_utils.invoke_structured",
+            "ai.llm.llm_utils.invoke_structured",
             new=AsyncMock(return_value=mock_output),
         ):
             greetings = await generate_greetings(
@@ -58,7 +58,7 @@ class TestGreetingGenerator:
     @pytest.mark.asyncio
     async def test_constraint_no_self_praise(self):
         """不应包含"我非常适合"等套话"""
-        from app.infrastructure.browser.greeting_generator import generate_greetings
+        from ai.agents.jobs.greeting_generator import generate_greetings
 
         mock_output = MagicMock()
         mock_output.model_dump.return_value = {
@@ -85,7 +85,7 @@ class TestGreetingGenerator:
         }
 
         with patch(
-            "app.infrastructure.llm.llm_utils.invoke_structured",
+            "ai.llm.llm_utils.invoke_structured",
             new=AsyncMock(return_value=mock_output),
         ):
             greetings = await generate_greetings(
@@ -100,10 +100,10 @@ class TestGreetingGenerator:
     @pytest.mark.asyncio
     async def test_fallback_on_llm_failure(self):
         """LLM失败时使用兜底文案"""
-        from app.infrastructure.browser.greeting_generator import generate_greetings
+        from ai.agents.jobs.greeting_generator import generate_greetings
 
         with patch(
-            "app.infrastructure.llm.llm_utils.invoke_structured",
+            "ai.llm.llm_utils.invoke_structured",
             new=AsyncMock(side_effect=Exception("LLM unavailable")),
         ):
             greetings = await generate_greetings(
@@ -116,7 +116,7 @@ class TestGreetingGenerator:
 
     def test_greeting_length_warning(self):
         """超过200字的文案应有警告"""
-        from app.infrastructure.browser.greeting_generator import GreetingItemOutput
+        from ai.agents.jobs.greeting_generator import GreetingItemOutput
 
         long_text = "您好，" + "Java开发经验丰富，" * 50
 

@@ -107,7 +107,7 @@ def test_alembic_upgrades_stamped_create_all_schema_to_latest(monkeypatch):
     monkeypatch.setenv("DATABASE_URL", dsn)
 
     _reset_public_schema(dsn)
-    from app.infrastructure.db.models import Base
+    from app.db.models import Base
     import deployment
 
     engine = create_engine(_sync_dsn(dsn))

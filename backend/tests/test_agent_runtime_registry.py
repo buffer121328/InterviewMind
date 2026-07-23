@@ -2,12 +2,12 @@
 
 import pytest
 
-from app.infrastructure.runtime.context import AgentContext
-from app.infrastructure.runtime.graphs import graph_registry
-from app.prompts import prompt_registry
-from app.infrastructure.runtime.middleware import build_default_middleware, contains_prompt_injection
-from app.infrastructure.runtime.models.registry import ModelProviderRegistry
-from app.tools import (
+from ai.runtime.context import AgentContext
+from ai.runtime.graphs import graph_registry
+from ai.prompts import prompt_registry
+from ai.runtime.middleware import build_default_middleware, contains_prompt_injection
+from ai.runtime.models.registry import ModelProviderRegistry
+from ai.tools import (
     ToolExecutionGuard,
     ToolExecutionPolicy,
     ToolRegistry,
@@ -92,12 +92,12 @@ def test_prompt_registry_renders_registered_production_builder():
 def test_graph_registry_uses_agent_package_builders():
     registry_source = (
         __import__("pathlib").Path(__file__).resolve().parents[1]
-        / "app" / "infrastructure" / "runtime" / "graphs" / "registry.py"
+        / "ai" / "runtime" / "graphs" / "registry.py"
     ).read_text()
 
-    assert "from app.agents.interview.graph" in registry_source
-    assert "from app.agents.interview.interview_graph" not in registry_source
-    assert "from app.agents.resume.resume_optimizer_graph" not in registry_source
+    assert "from ai.agents.interview.graph" in registry_source
+    assert "from ai.agents.interview.interview_graph" not in registry_source
+    assert "from ai.agents.resume.resume_optimizer_graph" not in registry_source
 
 
 def test_default_middleware_has_limits_without_unsafe_global_tool_retry():
@@ -129,7 +129,7 @@ def test_memory_tools_can_be_built_through_runtime_registry():
 
 @pytest.mark.asyncio
 async def test_tool_guard_emits_audit_records_for_successful_calls():
-    from app.tools.executor import ToolExecutionGuard
+    from ai.tools.executor import ToolExecutionGuard
 
     audit_events: list[dict] = []
     guard = ToolExecutionGuard()
@@ -206,7 +206,7 @@ def test_prompt_injection_detector_handles_external_content():
 
 
 def test_guarded_agent_requires_checkpointer_for_human_review():
-    from app.infrastructure.runtime import create_guarded_agent
+    from ai.runtime import create_guarded_agent
 
     with pytest.raises(ValueError, match="checkpointer"):
         create_guarded_agent("demo", [], approval_tools={"send_message"})

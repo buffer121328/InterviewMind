@@ -2,8 +2,8 @@
 
 import pytest
 
-from app.infrastructure.runtime.context import AgentContext
-from app.tools import ToolApprovalRequired, ToolExecutionGuard
+from ai.runtime.context import AgentContext
+from ai.tools import ToolApprovalRequired, ToolExecutionGuard
 
 
 @pytest.mark.asyncio

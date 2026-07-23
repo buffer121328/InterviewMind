@@ -14,14 +14,14 @@ L2 回归测试套件（~5k tokens, <2min）
 import json
 import pytest
 
-from app.agents.interview.interview_planner import (
+from ai.agents.interview.interview_planner import (
     parse_plan_response,
     _get_default_questions,
     DEFAULT_QUESTIONS,
 )
-from app.infrastructure.llm.llm_utils import clean_json_response
-from app.agents.resume.resume_orchestrator import build_resume_optimizer_graph
-from app.agents.resume.result_mapper import pipeline_to_optimize_result
+from ai.llm.llm_utils import clean_json_response
+from ai.agents.resume.resume_orchestrator import build_resume_optimizer_graph
+from ai.agents.resume.result_mapper import pipeline_to_optimize_result
 
 
 # ====================================================================

@@ -25,7 +25,7 @@ def _imports(path: Path) -> list[str]:
 def test_new_api_modules_do_not_import_repositories_directly():
     violations: list[str] = []
     for path in sorted((BACKEND_APP / "api").glob("*.py")):
-        repository_imports = [module for module in _imports(path) if module.startswith("app.infrastructure.db.repositories")]
+        repository_imports = [module for module in _imports(path) if module.startswith("app.db.repositories")]
         if repository_imports and path.name not in ALLOWED_API_REPOSITORY_IMPORTS:
             violations.append(f"{path.name} -> {sorted(set(repository_imports))}")
     assert violations == []

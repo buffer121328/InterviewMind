@@ -60,7 +60,7 @@ class TestResumeOptimizerPrompts:
 
     def test_node_match_analyst_prompt_includes_jd_and_resume(self):
         """匹配分析师 prompt 应包含 JD 和简历内容。"""
-        from app.agents.resume.resume_orchestrator import stage1_jd_analysis
+        from ai.agents.resume.resume_orchestrator import stage1_jd_analysis
 
         import inspect
         source = inspect.getsource(stage1_jd_analysis)
@@ -69,7 +69,7 @@ class TestResumeOptimizerPrompts:
 
     def test_node_match_analyst_prompt_has_output_format(self):
         """匹配分析师 prompt 应指定 JSON 输出格式。"""
-        from app.agents.resume.jd_matcher import SYSTEM_PROMPT
+        from ai.agents.resume.jd_matcher import SYSTEM_PROMPT
 
         source = SYSTEM_PROMPT
         assert "matched_keywords" in source
@@ -78,7 +78,7 @@ class TestResumeOptimizerPrompts:
 
     def test_node_content_writer_prompt_includes_star(self):
         """内容优化师 prompt 应包含 STAR 法则引用。"""
-        from app.agents.resume.resume_orchestrator import stage2_material_selection
+        from ai.agents.resume.resume_orchestrator import stage2_material_selection
 
         import inspect
         source = inspect.getsource(stage2_material_selection)
@@ -86,7 +86,7 @@ class TestResumeOptimizerPrompts:
 
     def test_node_content_writer_prompt_has_change_types(self):
         """内容优化师 prompt 应定义变更类型。"""
-        from app.agents.resume.resume_orchestrator import stage3_custom_rewrite
+        from ai.agents.resume.resume_orchestrator import stage3_custom_rewrite
 
         import inspect
         source = inspect.getsource(stage3_custom_rewrite)
@@ -97,7 +97,7 @@ class TestResumeOptimizerPrompts:
 
     def test_node_hr_reviewer_prompt_includes_screening_criteria(self):
         """HR 审核官 prompt 应包含筛选标准。"""
-        from app.agents.resume.resume_orchestrator import stage5_quality_judge
+        from ai.agents.resume.resume_orchestrator import stage5_quality_judge
 
         import inspect
         source = inspect.getsource(stage5_quality_judge)
@@ -107,7 +107,7 @@ class TestResumeOptimizerPrompts:
 
     def test_node_hr_reviewer_prompt_has_conciseness_check(self):
         """HR 审核官 prompt 应包含内容精炼度评估。"""
-        from app.agents.resume.resume_orchestrator import stage5_quality_judge
+        from ai.agents.resume.resume_orchestrator import stage5_quality_judge
 
         import inspect
         source = inspect.getsource(stage5_quality_judge)
@@ -194,14 +194,14 @@ class TestResumeOptimizerGraph:
 
     def test_graph_compiles_successfully(self):
         """验证 resume optimizer graph 能成功编译。"""
-        from app.agents.resume.resume_orchestrator import build_resume_optimizer_graph
+        from ai.agents.resume.resume_orchestrator import build_resume_optimizer_graph
 
         graph = build_resume_optimizer_graph()
         assert graph is not None
 
     def test_graph_has_expected_nodes(self):
         """验证图包含所有期望的节点。"""
-        from app.agents.resume.resume_orchestrator import build_resume_optimizer_graph
+        from ai.agents.resume.resume_orchestrator import build_resume_optimizer_graph
 
         graph = build_resume_optimizer_graph()
 
@@ -224,7 +224,7 @@ class TestResumeOptimizerGraph:
 
     def test_graph_has_parallel_expert_nodes(self):
         """验证 JD 分析和素材选择两个准备阶段存在，可由 START 并行触发。"""
-        from app.agents.resume.resume_orchestrator import build_resume_optimizer_graph
+        from ai.agents.resume.resume_orchestrator import build_resume_optimizer_graph
 
         graph = build_resume_optimizer_graph()
 
@@ -235,7 +235,7 @@ class TestResumeOptimizerGraph:
 
     def test_graph_has_reflection_loop(self):
         """验证图包含质量评审后的定向返工节点。"""
-        from app.agents.resume.resume_orchestrator import build_resume_optimizer_graph
+        from ai.agents.resume.resume_orchestrator import build_resume_optimizer_graph
 
         graph = build_resume_optimizer_graph()
 

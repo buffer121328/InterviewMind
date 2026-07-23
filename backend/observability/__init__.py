@@ -202,7 +202,7 @@ def _create_langfuse_client(config: LangfuseConfig) -> Any:
 
 def _get_agent_run_service() -> Any:
     """获取 `agent run service`。"""
-    from app.infrastructure.runtime.agent_runs.service import AgentRunService
+    from ai.runtime.agent_runs.service import AgentRunService
 
     return AgentRunService()
 

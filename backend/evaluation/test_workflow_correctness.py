@@ -11,7 +11,7 @@ from langgraph.graph import END
 from pydantic import ValidationError
 
 # 被测模块 ─ 路由
-from app.agents.interview.interview_graph import (
+from ai.agents.interview.interview_graph import (
     route_entry,
     route_after_responder,
 )
@@ -20,15 +20,15 @@ from app.schemas.interview import (
     InterviewerAction,
 )
 # 被测模块 ─ 规划器
-from app.agents.interview.interview_planner import (
+from ai.agents.interview.interview_planner import (
     build_planner_prompt,
     parse_plan_response,
     ROUND_STRATEGIES,
 )
 # 被测模块 ─ LLM 工具
-from app.infrastructure.llm.llm_utils import clean_json_response
+from ai.llm.llm_utils import clean_json_response
 # 被测模块 ─ 简历优化图
-from app.agents.resume.resume_orchestrator import build_resume_optimizer_graph
+from ai.agents.resume.resume_orchestrator import build_resume_optimizer_graph
 
 # conftest helpers
 from .conftest import build_test_state

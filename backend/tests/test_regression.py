@@ -19,7 +19,7 @@ class TestInterviewGraphRoute:
 
     def test_route_entry_no_plan(self):
         """无计划时路由到 planner"""
-        from app.agents.interview.interview_graph import route_entry
+        from ai.agents.interview.interview_graph import route_entry
 
         state = {
             "messages": [],
@@ -50,7 +50,7 @@ class TestInterviewGraphRoute:
 
     def test_route_entry_with_plan(self):
         """有计划时路由到 responder"""
-        from app.agents.interview.interview_graph import route_entry
+        from ai.agents.interview.interview_graph import route_entry
 
         state = {
             "messages": [],
@@ -81,8 +81,8 @@ class TestInterviewGraphRoute:
 
     def test_route_after_responder_continue(self):
         """题目未完时路由到 END（等待用户）"""
-        from app.agents.interview.interview_graph import route_after_responder
-        from app.agents.interview.interview_graph import END
+        from ai.agents.interview.interview_graph import route_after_responder
+        from ai.agents.interview.interview_graph import END
 
         state = {
             "interview_plan": [{"id": 1}, {"id": 2}, {"id": 3}],
@@ -94,7 +94,7 @@ class TestInterviewGraphRoute:
 
     def test_route_after_responder_summary(self):
         """题目全完时路由到 summary"""
-        from app.agents.interview.interview_graph import route_after_responder
+        from ai.agents.interview.interview_graph import route_after_responder
 
         state = {
             "interview_plan": [{"id": 1}, {"id": 2}],
@@ -114,7 +114,7 @@ class TestInterviewPlanParsing:
 
     def test_parse_full_format(self):
         """解析完整格式的面试计划"""
-        from app.agents.interview.interview_planner import parse_plan_response
+        from ai.agents.interview.interview_planner import parse_plan_response
 
         json_str = '''
         {
@@ -146,7 +146,7 @@ class TestInterviewPlanParsing:
 
     def test_parse_simple_format(self):
         """解析简单格式的面试计划"""
-        from app.agents.interview.interview_planner import parse_plan_response
+        from ai.agents.interview.interview_planner import parse_plan_response
 
         json_str = '''
         [
@@ -161,7 +161,7 @@ class TestInterviewPlanParsing:
 
     def test_parse_with_markdown_wrapper(self):
         """解析带 markdown 代码块的响应"""
-        from app.agents.interview.interview_planner import parse_plan_response
+        from ai.agents.interview.interview_planner import parse_plan_response
 
         json_str = '''```json
         [{"topic": "自我介绍", "content": "请自我介绍"}]
@@ -172,7 +172,7 @@ class TestInterviewPlanParsing:
 
     def test_fallback_fields(self):
         """解析不完整字段时补默认值"""
-        from app.agents.interview.interview_planner import parse_plan_response
+        from ai.agents.interview.interview_planner import parse_plan_response
 
         json_str = '''{"questions": [{"content": "test question"}]}'''
 
@@ -190,7 +190,7 @@ class TestBuildPlannerPrompt:
     """build_planner_prompt 回归"""
 
     def test_prompt_contains_required_sections(self):
-        from app.agents.interview.interview_planner import build_planner_prompt
+        from ai.agents.interview.interview_planner import build_planner_prompt
 
         prompt = build_planner_prompt(
             resume="3年Java经验",
@@ -206,7 +206,7 @@ class TestBuildPlannerPrompt:
         assert "Java高级工程师" in prompt
 
     def test_prompt_with_previous_questions(self):
-        from app.agents.interview.interview_planner import build_planner_prompt
+        from ai.agents.interview.interview_planner import build_planner_prompt
 
         prompt = build_planner_prompt(
             resume="test resume",
@@ -220,7 +220,7 @@ class TestBuildPlannerPrompt:
         assert "自我介绍" in prompt
 
     def test_prompt_with_memory_context(self):
-        from app.agents.interview.interview_planner import build_planner_prompt
+        from ai.agents.interview.interview_planner import build_planner_prompt
 
         prompt = build_planner_prompt(
             resume="test",
@@ -242,7 +242,7 @@ class TestQaHistory:
     """QA 历史构建"""
 
     def test_build_qa_history(self):
-        from app.agents.interview.interview_analysis import build_qa_history
+        from ai.agents.interview.interview_analysis import build_qa_history
 
         messages = [
             AIMessage(content="请自我介绍"),
@@ -257,14 +257,14 @@ class TestQaHistory:
         assert qa[0]["answer"] == "我叫张三，Java开发"
 
     def test_empty_messages(self):
-        from app.agents.interview.interview_analysis import build_qa_history
+        from ai.agents.interview.interview_analysis import build_qa_history
 
         qa = build_qa_history([])
         assert qa == []
 
     def test_no_user_response(self):
         """只有AI消息没有用户回复时不应产生QA对"""
-        from app.agents.interview.interview_analysis import build_qa_history
+        from ai.agents.interview.interview_analysis import build_qa_history
 
         messages = [
             AIMessage(content="请自我介绍"),
@@ -281,7 +281,7 @@ class TestRoundStrategies:
     """轮次策略定义"""
 
     def test_all_round_types_defined(self):
-        from app.agents.interview.interview_planner import ROUND_STRATEGIES
+        from ai.agents.interview.interview_planner import ROUND_STRATEGIES
 
         assert "tech_initial" in ROUND_STRATEGIES
         assert "tech_deep" in ROUND_STRATEGIES
@@ -289,7 +289,7 @@ class TestRoundStrategies:
         assert "voice_default" in ROUND_STRATEGIES
 
     def test_round_strategies_have_name(self):
-        from app.agents.interview.interview_planner import ROUND_STRATEGIES
+        from ai.agents.interview.interview_planner import ROUND_STRATEGIES
 
         for key, strategy in ROUND_STRATEGIES.items():
             assert "name" in strategy, f"{key} missing 'name'"
@@ -298,7 +298,7 @@ class TestRoundStrategies:
 
     def test_round_names_aligned(self):
         """三轮定位名称对齐文档"""
-        from app.agents.interview.interview_planner import ROUND_STRATEGIES
+        from ai.agents.interview.interview_planner import ROUND_STRATEGIES
 
         assert ROUND_STRATEGIES["tech_initial"]["name"] == "综合面"
         assert ROUND_STRATEGIES["tech_deep"]["name"] == "技术面"
@@ -313,12 +313,12 @@ class TestInterviewTools:
     """面试工具集"""
 
     def test_tools_defined(self):
-        from app.agents.interview.interview_graph import interview_tools
+        from ai.agents.interview.interview_graph import interview_tools
 
         assert len(interview_tools) == 4
 
     def test_tools_not_empty(self):
-        from app.agents.interview.interview_graph import interview_tools
+        from ai.agents.interview.interview_graph import interview_tools
 
         for tool in interview_tools:
             assert callable(tool)

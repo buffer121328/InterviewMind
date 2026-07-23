@@ -20,7 +20,7 @@ from deepeval import assert_test
 from deepeval.metrics import BaseMetric
 from deepeval.test_case import LLMTestCase
 
-import app.agents.interview.interview_rag as rag_module
+import ai.agents.interview.interview_rag as rag_module
 
 _DATASET = json.loads((Path(__file__).resolve().parent / "datasets" / "rag_golden.json").read_text())
 CORPUS = _DATASET["corpus"]
@@ -172,7 +172,7 @@ class RagFallbackSafetyMetric(BaseMetric):
 @pytest.mark.parametrize("case", GOLDEN_CASES, ids=lambda case: case.case_id)
 @pytest.mark.asyncio
 async def test_offline_rag_recall_and_source_coverage(monkeypatch, case: GoldenCase):
-    from app.infrastructure.db.repositories.interview import rag_index_repo
+    from app.db.repositories.interview import rag_index_repo
 
     monkeypatch.setattr(rag_index_repo, "get_rag_index_repo", lambda: OfflineRagQualityRepo())
     monkeypatch.setattr(rag_module, "VECTOR_ENABLED", False)
@@ -215,7 +215,7 @@ async def test_offline_rag_recall_and_source_coverage(monkeypatch, case: GoldenC
 @pytest.mark.eval
 @pytest.mark.asyncio
 async def test_offline_rag_quality_falls_back_when_corpus_has_no_match(monkeypatch):
-    from app.infrastructure.db.repositories.interview import rag_index_repo
+    from app.db.repositories.interview import rag_index_repo
 
     fallback_case = _DATASET["fallback_case"]
     monkeypatch.setattr(rag_index_repo, "get_rag_index_repo", lambda: OfflineRagQualityRepo())

@@ -7,7 +7,7 @@ import pytest
 from pydantic import SecretStr
 
 from app.config import AppSettings
-from app.infrastructure.browser.boss_automation_client import (
+from integrations.boss.automation_client import (
     BossAutomationClient,
     BossAutomationError,
 )
@@ -96,34 +96,34 @@ async def test_host_service_preview_delegates_after_guards(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_preview_operation_never_clicks_send_button():
-    from app.infrastructure.browser.boss_browser_operations import preview_boss_application
+    from integrations.boss.browser_operations import preview_boss_application
 
     page = AsyncMock()
     send_button = AsyncMock()
     session = MagicMock(context=AsyncMock(), close=AsyncMock())
     with (
         patch(
-            "app.infrastructure.browser.boss_browser_operations.open_boss_browser_session",
+            "integrations.boss.browser_operations.open_boss_browser_session",
             new=AsyncMock(return_value=session),
         ),
         patch(
-            "app.infrastructure.browser.boss_browser_operations.open_job_page",
+            "integrations.boss.browser_operations.open_job_page",
             new=AsyncMock(return_value=page),
         ),
         patch(
-            "app.infrastructure.browser.boss_browser_operations.inspect_page_state",
+            "integrations.boss.browser_operations.inspect_page_state",
             new=AsyncMock(return_value={"status": "ready", "reason": ""}),
         ),
         patch(
-            "app.infrastructure.browser.boss_browser_operations.locate_and_fill_greeting",
+            "integrations.boss.browser_operations.locate_and_fill_greeting",
             new=AsyncMock(return_value={"filled": True, "selector_used": "textarea"}),
         ),
         patch(
-            "app.infrastructure.browser.boss_browser_operations.locate_and_click_send",
+            "integrations.boss.browser_operations.locate_and_click_send",
             new=AsyncMock(return_value={"found": True, "element": send_button}),
         ),
         patch(
-            "app.infrastructure.browser.boss_browser_operations.take_screenshot",
+            "integrations.boss.browser_operations.take_screenshot",
             new=AsyncMock(return_value="image-base64"),
         ),
     ):

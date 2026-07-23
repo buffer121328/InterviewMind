@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.workflows.question_bank import QuestionBankNotFound, QuestionBankUseCases
+from ai.workflows.question_bank import QuestionBankNotFound, QuestionBankUseCases
 from app.schemas.question_bank import QuestionBankImportRequest
 
 

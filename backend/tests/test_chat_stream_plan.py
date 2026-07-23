@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from app.workflows.interview.stream import ChatStreamUseCases
+from ai.workflows.interview.stream import ChatStreamUseCases
 
 
 class _Chunk:
@@ -46,7 +46,7 @@ def _decode(line: str) -> dict:
 
 @pytest.mark.asyncio
 async def test_event_generator_emits_execution_plan(monkeypatch):
-    monkeypatch.setattr("app.infrastructure.memory.should_skip_write", lambda *_args: True)
+    monkeypatch.setattr("ai.memory.should_skip_write", lambda *_args: True)
     lease = _Lease()
     use_cases = ChatStreamUseCases()
     use_cases._session_repo = _Repo()

@@ -9,7 +9,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 
 from app.api.deps import get_current_user_id
-from app.workflows.question_bank import QuestionBankNotFound, QuestionBankUseCaseError, question_bank_use_cases
+from ai.workflows.question_bank import QuestionBankNotFound, QuestionBankUseCaseError, question_bank_use_cases
 from app.schemas.question_bank import (
     QuestionBankCreateRequest,
     QuestionBankImportRequest,

@@ -10,7 +10,7 @@ from app.api.deps import create_sse_response, get_current_user_id
 from app.schemas.job_schemas import AssetGenerateRequest
 from app.schemas.resume_schemas import ResumeOptimizeRequest
 from app.schemas.schemas import InterviewReportRunRequest, InterviewStartRequest
-from app.workflows.agent_runs import (
+from ai.workflows.agent_runs import (
     AgentRunUseCaseError,
     agent_run_use_cases,
 )
