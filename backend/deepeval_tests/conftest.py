@@ -31,7 +31,7 @@ def _patch_deepeval_assert_test_default_sync() -> None:
     def assert_test_sync_default(*args, run_async: bool = False, **kwargs):
         result = original(*args, run_async=run_async, **kwargs)
         try:
-            from langfuse.evaluation_reporting import report_deepeval_assertion
+            from observability.evaluation_reporting import report_deepeval_assertion
 
             test_case = args[0] if args else kwargs.get("test_case")
             metrics = args[1] if len(args) > 1 else kwargs.get("metrics") or []
@@ -140,7 +140,7 @@ _DATASETS_DIR = Path(__file__).resolve().parent / "datasets"
 
 
 def _load_json(filename: str):
-    """从 evaluation/deepeval_tests/datasets/ 加载 JSON 文件；文件不存在时返回空列表并发出警告。"""
+    """从 deepeval_tests/datasets/ 加载 JSON 文件；文件不存在时返回空列表并发出警告。"""
     path = _DATASETS_DIR / filename
     if not path.exists():
         return []
@@ -154,7 +154,7 @@ def _load_json(filename: str):
 
 @pytest.fixture
 def golden_interview_cases():
-    """加载 evaluation/deepeval_tests/datasets/interview_golden.json 中的 golden-case 列表。"""
+    """加载 deepeval_tests/datasets/interview_golden.json 中的 golden-case 列表。"""
     return _load_json("interview_golden.json")
 
 
@@ -164,7 +164,7 @@ def golden_interview_cases():
 
 @pytest.fixture
 def golden_resume_cases():
-    """加载 evaluation/deepeval_tests/datasets/resume_golden.json 中的 golden-case 列表。"""
+    """加载 deepeval_tests/datasets/resume_golden.json 中的 golden-case 列表。"""
     return _load_json("resume_golden.json")
 
 
@@ -174,7 +174,7 @@ def golden_resume_cases():
 
 @pytest.fixture
 def scoring_benchmarks():
-    """加载 evaluation/deepeval_tests/datasets/scoring_benchmarks.json 中的评分基准数据。"""
+    """加载 deepeval_tests/datasets/scoring_benchmarks.json 中的评分基准数据。"""
     return _load_json("scoring_benchmarks.json")
 
 

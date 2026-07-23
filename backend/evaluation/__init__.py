@@ -1,1 +1,0 @@
-"""Evaluation assets and suites."""

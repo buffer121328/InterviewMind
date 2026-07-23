@@ -7,7 +7,7 @@ L3 质量评测套件（LLM-as-judge, ~50k tokens）
   - question_clarity: 问题的清晰度
   - question_diversity: 问题的多样性/覆盖面
 
-数据来源: evaluation/deepeval_tests/datasets/interview_golden.json
+数据来源: deepeval_tests/datasets/interview_golden.json
 标记: @pytest.mark.llm + @pytest.mark.eval
 """
 
@@ -86,7 +86,7 @@ def _get_metric(name: str) -> GEval:
 from pathlib import Path
 import json
 
-_DATASETS_DIR = Path(__file__).resolve().parent.parent / "datasets"
+_DATASETS_DIR = Path(__file__).resolve().parent / "datasets"
 _GOLDEN_FILE = _DATASETS_DIR / "interview_golden.json"
 
 
@@ -121,7 +121,7 @@ class TestInterviewPlanQuality:
     然后用 GEval 指标评测输出质量。
     """
 
-    @pytest.mark.skipif(not _GOLDEN_CASES, reason="Golden dataset not available (evaluation/deepeval_tests/datasets/interview_golden.json)")
+    @pytest.mark.skipif(not _GOLDEN_CASES, reason="Golden dataset not available (deepeval_tests/datasets/interview_golden.json)")
     @pytest.mark.parametrize("case", _GOLDEN_CASES, ids=_golden_ids())
     def test_plan_relevancy(self, case):
         """面试问题应与 JD 高度相关"""
@@ -140,7 +140,7 @@ class TestInterviewPlanQuality:
         test_case = LLMTestCase(input=prompt, expected_output=expected_desc)
         assert_test(test_case, [_get_metric("jd_relevancy")])
 
-    @pytest.mark.skipif(not _GOLDEN_CASES, reason="Golden dataset not available (evaluation/deepeval_tests/datasets/interview_golden.json)")
+    @pytest.mark.skipif(not _GOLDEN_CASES, reason="Golden dataset not available (deepeval_tests/datasets/interview_golden.json)")
     @pytest.mark.parametrize("case", _GOLDEN_CASES, ids=_golden_ids())
     def test_plan_clarity(self, case):
         """面试问题应清晰、无歧义"""
@@ -158,7 +158,7 @@ class TestInterviewPlanQuality:
         test_case = LLMTestCase(input=prompt, expected_output=expected_desc)
         assert_test(test_case, [_get_metric("question_clarity")])
 
-    @pytest.mark.skipif(not _GOLDEN_CASES, reason="Golden dataset not available (evaluation/deepeval_tests/datasets/interview_golden.json)")
+    @pytest.mark.skipif(not _GOLDEN_CASES, reason="Golden dataset not available (deepeval_tests/datasets/interview_golden.json)")
     @pytest.mark.parametrize("case", _GOLDEN_CASES, ids=_golden_ids())
     def test_plan_diversity(self, case):
         """面试问题应覆盖不同主题/技能"""

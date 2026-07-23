@@ -33,7 +33,7 @@ from app.schemas.interview import (
     EvaluatingOutput,
     EndRoundOutput,
 )
-from langfuse import agent_observation
+from observability import agent_observation
 
 logger = logging.getLogger(__name__)
 

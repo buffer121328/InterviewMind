@@ -10,7 +10,7 @@ from app.infrastructure.db.repositories.session.session_repo import SessionRepo
 from app.agents.interview.interview_context import build_interview_context
 from app.agents.interview.interview_graph import build_interview_graph
 from app.domain.interview_rounds import resolve_max_questions, resolve_round_type
-from langfuse import langgraph_langfuse_scope, with_langgraph_langfuse_config
+from observability import langgraph_langfuse_scope, with_langgraph_langfuse_config
 
 logger = logging.getLogger(__name__)
 _Progress = Callable[[str], Awaitable[None]] | None

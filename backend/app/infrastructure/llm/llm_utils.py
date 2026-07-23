@@ -13,7 +13,7 @@ from langchain_openai import ChatOpenAI
 
 from app.config import get_settings
 from app.infrastructure.llm import llms
-from langfuse import extract_token_usage, record_model_event
+from observability import extract_token_usage, record_model_event
 
 logger = logging.getLogger(__name__)
 

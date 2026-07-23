@@ -39,7 +39,7 @@ async def lifespan(app: FastAPI):
     # 启动时执行
     logger.info("AI 面试助手后端服务启动中...")
 
-    from langfuse import configure_langfuse
+    from observability import configure_langfuse
     if configure_langfuse():
         logger.info("Langfuse Agent 观测已启用")
 
@@ -97,7 +97,7 @@ async def cleanup_resources():
     logger.info("正在清理资源...")
 
     try:
-        from langfuse import shutdown_langfuse
+        from observability import shutdown_langfuse
         shutdown_langfuse()
         logger.info("Langfuse 观测客户端已关闭")
     except Exception as e:

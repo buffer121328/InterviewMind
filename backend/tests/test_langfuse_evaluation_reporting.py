@@ -14,7 +14,7 @@ class FakeMetric:
 
 
 def test_build_score_from_deepeval_like_metric():
-    from langfuse.evaluation_reporting import build_score_from_metric
+    from observability.evaluation_reporting import build_score_from_metric
 
     score = build_score_from_metric(
         FakeMetric(
@@ -41,7 +41,7 @@ def test_build_score_from_deepeval_like_metric():
 
 
 def test_build_score_from_boolean_metric_dict():
-    from langfuse.evaluation_reporting import build_score_from_metric
+    from observability.evaluation_reporting import build_score_from_metric
 
     score = build_score_from_metric({"name": "schema_valid", "success": True}, score_prefix="")
 
@@ -51,10 +51,10 @@ def test_build_score_from_boolean_metric_dict():
 
 
 def test_report_score_is_opt_in(monkeypatch):
-    from langfuse.evaluation_reporting import EvaluationScore, report_score
+    from observability.evaluation_reporting import EvaluationScore, report_score
 
     calls = []
-    monkeypatch.setattr("langfuse.evaluation_reporting.record_score", lambda **kwargs: calls.append(kwargs) or True)
+    monkeypatch.setattr("observability.evaluation_reporting.record_score", lambda **kwargs: calls.append(kwargs) or True)
     monkeypatch.delenv("LANGFUSE_EVAL_REPORTING_ENABLED", raising=False)
 
     assert report_score(EvaluationScore(name="eval.test", value=1.0)) is False
@@ -67,10 +67,10 @@ def test_report_score_is_opt_in(monkeypatch):
 
 
 def test_report_metrics_summarizes_success(monkeypatch):
-    from langfuse.evaluation_reporting import report_metrics
+    from observability.evaluation_reporting import report_metrics
 
     recorded = []
-    monkeypatch.setattr("langfuse.evaluation_reporting.record_score", lambda **kwargs: recorded.append(kwargs) or True)
+    monkeypatch.setattr("observability.evaluation_reporting.record_score", lambda **kwargs: recorded.append(kwargs) or True)
 
     summary = report_metrics(
         [FakeMetric(name="quality", score=0.9), {"name": "schema", "success": True}],
@@ -85,10 +85,10 @@ def test_report_metrics_summarizes_success(monkeypatch):
 
 
 def test_report_deepeval_assertion_uses_safe_metadata_and_env_targets(monkeypatch):
-    from langfuse.evaluation_reporting import report_deepeval_assertion
+    from observability.evaluation_reporting import report_deepeval_assertion
 
     recorded = []
-    monkeypatch.setattr("langfuse.evaluation_reporting.record_score", lambda **kwargs: recorded.append(kwargs) or True)
+    monkeypatch.setattr("observability.evaluation_reporting.record_score", lambda **kwargs: recorded.append(kwargs) or True)
     monkeypatch.setenv("LANGFUSE_EVAL_TRACE_ID", "trace-env")
     monkeypatch.setenv("LANGFUSE_EVAL_DATASET_RUN_ID", "dataset-run-env")
     monkeypatch.setenv("PYTEST_CURRENT_TEST", "tests/eval.py::test_case (call)")
