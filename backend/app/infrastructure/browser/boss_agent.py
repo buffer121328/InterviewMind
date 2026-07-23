@@ -9,6 +9,7 @@ from langgraph.graph import END, START, StateGraph
 from app.infrastructure.runtime.context import AgentContext
 from app.tools import ToolExecutionGuard, ToolExecutionPolicy
 from app.infrastructure.browser import boss_tools
+from app.langfuse import langgraph_langfuse_scope, with_langgraph_langfuse_config
 
 logger = logging.getLogger(__name__)
 
@@ -222,10 +223,16 @@ async def run_boss_search(
     )
     graph = workflow.compile(checkpointer=await get_checkpointer())
     try:
-        result = await graph.ainvoke(
-            {"query": query, "city": city, "top_n": max(1, min(top_n, 10))},
-            config={"configurable": {"thread_id": f"boss_{user_id}"}},
+        graph_config = with_langgraph_langfuse_config(
+            {"configurable": {"thread_id": f"boss_{user_id}"}},
+            run_name="boss-job-discovery",
+            metadata={"agent_type": "boss", "user_id": user_id, "city": city},
         )
+        with langgraph_langfuse_scope("callbacks" in graph_config):
+            result = await graph.ainvoke(
+                {"query": query, "city": city, "top_n": max(1, min(top_n, 10))},
+                config=graph_config,
+            )
         processed = result.get("processed", [])
         jobs = [
             {

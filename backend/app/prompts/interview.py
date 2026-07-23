@@ -86,6 +86,8 @@ def build_planner_prompt(
     )
     return render_prompt(
         PLANNER_PROMPT,
+        prompt_name="interview.planner",
+        prompt_version="1",
         round_index=round_index,
         round_type=round_type,
         max_questions=max_questions,
@@ -116,6 +118,8 @@ def build_opening_prompt(round_index, round_type, strategy_focus, first_question
     _ = round_type
     return render_prompt(
         OPENING_PROMPT,
+        prompt_name="interview.opening",
+        prompt_version="1",
         round_index=round_index,
         strategy_focus=strategy_focus,
         first_question=first_question,
@@ -141,6 +145,8 @@ def build_evaluating_prompt(
     _ = round_type
     return render_prompt(
         EVALUATING_PROMPT,
+        prompt_name="interview.evaluating",
+        prompt_version="1",
         round_index=round_index,
         strategy_focus=strategy_focus,
         current_question_number=current_index + 1,

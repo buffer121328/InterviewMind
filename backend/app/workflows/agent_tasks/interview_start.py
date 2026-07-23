@@ -10,6 +10,7 @@ from app.infrastructure.db.repositories.session.session_repo import SessionRepo
 from app.agents.interview.interview_context import build_interview_context
 from app.agents.interview.interview_graph import build_interview_graph
 from app.domain.interview_rounds import resolve_max_questions, resolve_round_type
+from app.langfuse import langgraph_langfuse_scope, with_langgraph_langfuse_config
 
 logger = logging.getLogger(__name__)
 _Progress = Callable[[str], Awaitable[None]] | None
@@ -65,12 +66,22 @@ async def execute_interview_start(payload: dict, user_id: str, progress: _Progre
         if progress:
             await progress("generating_question")
         first_question = ""
-        config = {"configurable": {"thread_id": thread_id}}
-        async for event in graph.astream_events(inputs, config=config, version="v1"):
-            if event["event"] == "on_chat_model_stream" and event.get("metadata", {}).get("langgraph_node") == "responder":
-                content = event["data"]["chunk"].content
-                if content:
-                    first_question += content
+        config = with_langgraph_langfuse_config(
+            {"configurable": {"thread_id": thread_id}},
+            run_name="interview-start",
+            metadata={
+                "agent_type": "interview",
+                "user_id": user_id,
+                "session_id": thread_id,
+                "run_id": inputs["run_id"],
+            },
+        )
+        with langgraph_langfuse_scope("callbacks" in config):
+            async for event in graph.astream_events(inputs, config=config, version="v1"):
+                if event["event"] == "on_chat_model_stream" and event.get("metadata", {}).get("langgraph_node") == "responder":
+                    content = event["data"]["chunk"].content
+                    if content:
+                        first_question += content
         if first_question:
             await session_repo.add_message(thread_id, "assistant", first_question, question_index=0, user_id=user_id)
         return {

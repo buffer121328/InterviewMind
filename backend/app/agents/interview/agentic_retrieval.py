@@ -13,6 +13,8 @@ from typing import Annotated, Any, Awaitable, Callable, Sequence, TypedDict
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Send
 
+from app.langfuse import langgraph_langfuse_scope, with_langgraph_langfuse_config
+
 
 @dataclass(frozen=True)
 class AgenticSearchQuery:
@@ -379,18 +381,28 @@ async def run_agentic_retrieval(
 
     safe_max_rounds = min(max(int(max_rounds), 1), 2)
     safe_max_queries = min(max(int(max_queries), 1), 4)
-    result = await _agentic_retrieval_graph.ainvoke({
-        "context": context,
-        "retrieve": retrieve,
-        "evidences": list(initial_evidences),
-        "rounds": 0,
-        "max_rounds": safe_max_rounds,
-        "max_queries": safe_max_queries,
-        "min_score": min_score,
-        "min_evidences": min_evidences,
-        "min_source_types": min_source_types,
-        "trace": [],
-    })
+    graph_config = with_langgraph_langfuse_config(
+        {"metadata": {"retrieval_mode": "agentic"}},
+        run_name="agentic-retrieval",
+        metadata={
+            "agent_type": "retrieval",
+            "max_rounds": safe_max_rounds,
+            "max_queries": safe_max_queries,
+        },
+    )
+    with langgraph_langfuse_scope("callbacks" in graph_config):
+        result = await _agentic_retrieval_graph.ainvoke({
+            "context": context,
+            "retrieve": retrieve,
+            "evidences": list(initial_evidences),
+            "rounds": 0,
+            "max_rounds": safe_max_rounds,
+            "max_queries": safe_max_queries,
+            "min_score": min_score,
+            "min_evidences": min_evidences,
+            "min_source_types": min_source_types,
+            "trace": [],
+        }, config=graph_config)
     return AgenticSearchOutcome(
         triggered=bool(result.get("triggered")),
         evidences=list(result.get("evidences", [])),

@@ -85,6 +85,8 @@ def build_job_card_scoring_prompt(cards_brief: list, resume_context: str, jd_sum
     """构建 `job card scoring prompt`。"""
     return render_prompt(
         JOB_CARD_SCORING_PROMPT,
+        prompt_name="jobs.card_scoring",
+        prompt_version="1",
         card_count=len(cards_brief),
         resume_context=resume_context[:800],
         jd_summary=jd_summary,

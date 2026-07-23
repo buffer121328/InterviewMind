@@ -10,6 +10,7 @@ from app.agents.interview.interview_context import build_interview_context
 from app.agents.interview.interview_graph import build_interview_graph
 from app.infrastructure.runtime.error_classification import classify_error_message
 from app.infrastructure.security.security import safe_error_message
+from app.langfuse import langgraph_langfuse_scope, with_langgraph_langfuse_config
 
 logger = logging.getLogger(__name__)
 
@@ -107,13 +108,24 @@ class InterviewStartUseCases:
             await self._session_repo.update_session(request.thread_id, title=title, user_id=user_id)
 
             first_question = ""
-            async for event in graph.astream_events(inputs, config=config, version="v1"):
-                if event["event"] == "on_chat_model_stream":
-                    node_name = event.get("metadata", {}).get("langgraph_node", "")
-                    if node_name == "responder":
-                        content = event["data"]["chunk"].content
-                        if content:
-                            first_question += content
+            graph_config = with_langgraph_langfuse_config(
+                config,
+                run_name="interview-start",
+                metadata={
+                    "agent_type": "interview",
+                    "user_id": user_id,
+                    "session_id": request.thread_id,
+                    "run_id": inputs["run_id"],
+                },
+            )
+            with langgraph_langfuse_scope("callbacks" in graph_config):
+                async for event in graph.astream_events(inputs, config=graph_config, version="v1"):
+                    if event["event"] == "on_chat_model_stream":
+                        node_name = event.get("metadata", {}).get("langgraph_node", "")
+                        if node_name == "responder":
+                            content = event["data"]["chunk"].content
+                            if content:
+                                first_question += content
 
             if first_question:
                 await self._session_repo.add_message(

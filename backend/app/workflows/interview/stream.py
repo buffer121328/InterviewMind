@@ -20,6 +20,7 @@ from app.agents.interview.interview_graph import build_interview_graph
 from app.infrastructure.runtime.runtime_gate import get_run_gate
 from app.infrastructure.security.security import safe_error_message
 from app.domain.interview_rounds import resolve_max_questions
+from app.langfuse import langgraph_langfuse_scope, with_langgraph_langfuse_config
 
 logger = logging.getLogger(__name__)
 
@@ -145,7 +146,16 @@ class ChatStreamUseCases:
         await self._run_service.mark_stage(run.id, "loading_session")
         inputs["run_id"] = run.id
         checkpoint_thread_id = interview_turn_checkpoint_thread_id(request.thread_id, run.id)
-        config = {"configurable": {"thread_id": checkpoint_thread_id}}
+        config = with_langgraph_langfuse_config(
+            {"configurable": {"thread_id": checkpoint_thread_id}},
+            run_name="interview-turn",
+            metadata={
+                "agent_type": "interview",
+                "user_id": user_id,
+                "session_id": thread_id,
+                "run_id": run.id,
+            },
+        )
 
         lease = await get_run_gate().acquire()
         if lease is None:
@@ -263,47 +273,48 @@ class ChatStreamUseCases:
                 if event:
                     yield event
 
-            async for event in graph.astream_events(inputs, config=config, version="v1"):
-                kind = event["event"]
-                if kind == "on_chat_model_stream":
-                    node_name = event.get("metadata", {}).get("langgraph_node", "")
-                    if node_name in ["responder", "summary"]:
-                        content = event["data"]["chunk"].content
-                        if content:
-                            step = step_event("analyze_answer", "completed")
-                            if step:
-                                yield step
-                            step = step_event("generate_response", "running")
-                            if step:
-                                yield step
-                            ai_response_content += content
-                            response = ChatStreamResponse(type="token", content=content)
-                            yield f"data: {response.model_dump_json()}\n\n"
-                elif kind == "on_chain_end":
-                    output = event["data"].get("output")
-                    if output and isinstance(output, dict):
-                        if "current_question_index" in output:
-                            final_question_index = output["current_question_index"]
-                        if "question_count" in output:
-                            step = step_event("generate_response", "completed")
-                            if step:
-                                yield step
-                            step = step_event("update_progress", "running")
-                            if step:
-                                yield step
-                            await self._session_repo.update_session(
-                                session_id=thread_id,
-                                metadata_updates={"question_count": output["question_count"]},
-                                user_id=user_id,
-                            )
-                            response = ChatStreamResponse(
-                                type="state_update",
-                                content=json.dumps({
-                                    "question_count": output["question_count"],
-                                    "max_questions": output.get("max_questions", inputs.get("max_questions", 5)),
-                                }),
-                            )
-                            yield f"data: {response.model_dump_json()}\n\n"
+            with langgraph_langfuse_scope("callbacks" in config):
+                async for event in graph.astream_events(inputs, config=config, version="v1"):
+                    kind = event["event"]
+                    if kind == "on_chat_model_stream":
+                        node_name = event.get("metadata", {}).get("langgraph_node", "")
+                        if node_name in ["responder", "summary"]:
+                            content = event["data"]["chunk"].content
+                            if content:
+                                step = step_event("analyze_answer", "completed")
+                                if step:
+                                    yield step
+                                step = step_event("generate_response", "running")
+                                if step:
+                                    yield step
+                                ai_response_content += content
+                                response = ChatStreamResponse(type="token", content=content)
+                                yield f"data: {response.model_dump_json()}\n\n"
+                    elif kind == "on_chain_end":
+                        output = event["data"].get("output")
+                        if output and isinstance(output, dict):
+                            if "current_question_index" in output:
+                                final_question_index = output["current_question_index"]
+                            if "question_count" in output:
+                                step = step_event("generate_response", "completed")
+                                if step:
+                                    yield step
+                                step = step_event("update_progress", "running")
+                                if step:
+                                    yield step
+                                await self._session_repo.update_session(
+                                    session_id=thread_id,
+                                    metadata_updates={"question_count": output["question_count"]},
+                                    user_id=user_id,
+                                )
+                                response = ChatStreamResponse(
+                                    type="state_update",
+                                    content=json.dumps({
+                                        "question_count": output["question_count"],
+                                        "max_questions": output.get("max_questions", inputs.get("max_questions", 5)),
+                                    }),
+                                )
+                                yield f"data: {response.model_dump_json()}\n\n"
 
             if ai_response_content:
                 if run_id:

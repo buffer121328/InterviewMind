@@ -39,8 +39,8 @@ async def lifespan(app: FastAPI):
     # 启动时执行
     logger.info("AI 面试助手后端服务启动中...")
 
-    from app.observability import configure_observability
-    if configure_observability():
+    from app.langfuse import configure_langfuse
+    if configure_langfuse():
         logger.info("Langfuse Agent 观测已启用")
 
     # 本地开发可自动同步 ORM 表结构；严格迁移验证时设 AUTO_CREATE_TABLES=false。
@@ -97,8 +97,8 @@ async def cleanup_resources():
     logger.info("正在清理资源...")
 
     try:
-        from app.observability import shutdown_observability
-        shutdown_observability()
+        from app.langfuse import shutdown_langfuse
+        shutdown_langfuse()
         logger.info("Langfuse 观测客户端已关闭")
     except Exception as e:
         logger.error(f"关闭 Langfuse 观测客户端时出错: {e}")

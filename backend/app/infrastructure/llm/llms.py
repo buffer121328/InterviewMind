@@ -11,7 +11,7 @@ from langchain_openai import ChatOpenAI
 
 from app.config import get_settings
 from app.infrastructure.llm.model_pool import ModelPoolScheduler, _ModelPoolCallback, _identity
-from app.observability import extract_token_usage, get_langchain_callbacks, record_model_event
+from app.langfuse import extract_token_usage, get_langchain_callbacks, record_model_event
 from app.infrastructure.security.url_security import validate_outbound_url
 
 

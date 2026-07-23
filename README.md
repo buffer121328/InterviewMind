@@ -99,7 +99,7 @@ LangGraph → SSE(plan / step_update / token / state_update / done)
 基于 mem0 + pgvector，自动从面试对话中提取偏好、历史经验，提供个性化建议。
 
 #### Agent 可观测性与评测
-Langfuse 可关联 Agent、工具和模型调用；DeepEval 提供离线工具正确性检查与可选的 LLM-as-Judge 质量评测。离线 DeepEval 断言在 pytest 中默认使用同步执行路径，避免混合 async 测试集产生 event loop deprecation warning。两者均可按环境变量和测试标记按需启用，不影响核心业务链路。
+Langfuse 可关联 Agent、工具和模型调用，并支持 Prompt Management、环境/版本维度聚合、采样和 Scores；DeepEval 提供离线工具正确性检查与可选的 LLM-as-Judge 质量评测。离线 DeepEval 断言在 pytest 中默认使用同步执行路径，避免混合 async 测试集产生 event loop deprecation warning；若启用 `LANGFUSE_EVAL_REPORTING_ENABLED=true`，成功断言后的 metric 会自动转换为 Langfuse Scores。两者均可按环境变量和测试标记按需启用，不影响核心业务链路。
 
 ### Agent Runtime、生命周期与事件
 
@@ -286,6 +286,19 @@ uv run pytest tests/eval/test_agent_tool_correctness.py -q
 
 # 可选：LLM-as-Judge 评测，需要评审模型凭据并会消耗 token
 uv run pytest -m "llm and eval"
+
+# 可选：把 evaluation/deepeval_tests/datasets/*.json 同步到 Langfuse Dataset
+LANGFUSE_ENABLED=true \
+LANGFUSE_PUBLIC_KEY=... \
+LANGFUSE_SECRET_KEY=... \
+uv run python -m app.langfuse.datasets --dry-run
+
+# 可选：DeepEval 断言成功后上报 Langfuse Scores
+LANGFUSE_ENABLED=true \
+LANGFUSE_PUBLIC_KEY=... \
+LANGFUSE_SECRET_KEY=... \
+LANGFUSE_EVAL_REPORTING_ENABLED=true \
+uv run pytest -m "llm and eval"
 ```
 
 测试说明：`tests/eval/conftest.py` 会集中把 DeepEval `assert_test` 默认固定为同步模式，以减少 Python 3.12 / pytest-asyncio 混合测试下的 event loop warning；`tests/test_api_integration.py` 使用轻量 asyncpg fake，避免 API 集成测试的数据库 mock 污染后续 SQLAlchemy 异步测试。
@@ -346,7 +359,7 @@ agent-interview/
 │   │   │   ├── rag/                 # 向量检索与 Embedding
 │   │   │   ├── runtime/             # AgentRun、Dramatiq、锁、恢复
 │   │   │   └── security/            # 出站 URL、脱敏等安全能力
-│   │   ├── observability/           # Langfuse / trace / model event 观测
+│   │   ├── langfuse/                # Langfuse tracing / LangGraph callback / Prompt / Scores
 │   │   ├── prompts/                 # Prompt 管理
 │   │   └── tools/                   # Agent 可调用业务工具
 │   ├── alembic/                     # 数据库迁移脚本

@@ -42,7 +42,7 @@ from app.agents.resume.resume_pipeline_state import (
 )
 from app.agents.resume.resume_rewrite_agent import normalize_rewrite_mode, run_resume_rewrite_agent
 from app.infrastructure.llm.llm_utils import invoke_structured
-from app.observability import agent_observation
+from app.langfuse import agent_observation, langgraph_langfuse_scope, with_langgraph_langfuse_config
 
 logger = logging.getLogger(__name__)
 
@@ -141,16 +141,27 @@ async def _run_pipeline(
         cache=_resume_node_cache,
         name="resume-optimization-pipeline",
     )
-    result = await graph.ainvoke(
-        _graph_values(initial),
-        context=ResumeRuntimeContext(
-            api_config=api_config,
-            session_ids=tuple(session_ids),
-            include_profile=include_profile,
-            mode=current_mode,
-        ),
-        config={"configurable": {"thread_id": f"resume_{user_id}_{uuid.uuid4().hex}"}},
+    graph_config = with_langgraph_langfuse_config(
+        {"configurable": {"thread_id": f"resume_{user_id}_{uuid.uuid4().hex}"}},
+        run_name="resume-optimization-pipeline",
+        metadata={
+            "agent_type": "resume",
+            "user_id": user_id,
+            "session_count": len(session_ids),
+            "mode": current_mode,
+        },
     )
+    with langgraph_langfuse_scope("callbacks" in graph_config):
+        result = await graph.ainvoke(
+            _graph_values(initial),
+            context=ResumeRuntimeContext(
+                api_config=api_config,
+                session_ids=tuple(session_ids),
+                include_profile=include_profile,
+                mode=current_mode,
+            ),
+            config=graph_config,
+        )
     state = _pipeline_state(result)
 
     logger.info(f"[ResumePipeline] 流水线完成, {len(state.change_items)} 条改写, {len(state.confirmation_items)} 条需确认")
