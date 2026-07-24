@@ -1,3 +1,20 @@
+# Compose 使用仓库根目录 .env 作为全量配置来源。
+# 标准启动命令：docker compose --env-file .env up -d --build
+
+x-service-env: &service_env
+  env_file:
+    - .env
+
+x-backend-overrides: &backend_overrides
+  # 容器内服务地址覆盖本机 .env 地址；其余全量变量继续来自 env_file。
+  DATABASE_URL: postgresql://${POSTGRES_USER:?set POSTGRES_USER in .env}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:?set POSTGRES_DB in .env}
+  REDIS_URL: redis://redis:6379/0
+  AUTO_CREATE_TABLES: "false"
+  MEM0_PGVECTOR_HOST: postgres
+  MEM0_PGVECTOR_PORT: "5432"
+  MEM0_PGVECTOR_DBNAME: ${POSTGRES_DB:?set POSTGRES_DB in .env}
+  MEM0_PGVECTOR_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
+  MEM0_PGVECTOR_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
 
 services:
   # PostgreSQL 数据库
@@ -6,17 +23,17 @@ services:
     container_name: agent_interview_db
     restart: always
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-agent_interview}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cheng123}
-      POSTGRES_DB: ${POSTGRES_DB:-agent_interview}
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in .env}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
-      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:?set POSTGRES_PORT in .env}:5432"
     networks:
       - agent_interview_network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-agent_interview}"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -26,7 +43,7 @@ services:
     container_name: agent_interview_redis
     restart: always
     ports:
-      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+      - "127.0.0.1:${REDIS_PORT:?set REDIS_PORT in .env}:6379"
     networks:
       - agent_interview_network
     healthcheck:
@@ -37,32 +54,33 @@ services:
 
   # 在 API 和 Worker 启动前执行可重复的 schema 初始化/增量迁移。
   migrate:
+    <<: *service_env
     build:
       context: ./backend
       dockerfile: Dockerfile
     container_name: agent_interview_migrate
     restart: "no"
-    env_file:
-      - .env
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-agent_interview}:${POSTGRES_PASSWORD:-cheng123}@postgres:5432/${POSTGRES_DB:-agent_interview}
-      REDIS_URL: redis://redis:6379/0
+      <<: *backend_overrides
     command: ["python", "-m", "app.entrypoints.deployment", "migrate"]
     networks:
       - agent_interview_network
+    healthcheck:
+      disable: true
 
   # 后端 API
   backend:
+    <<: *service_env
     build:
       context: ./backend
       dockerfile: Dockerfile
     container_name: agent_interview_backend
     restart: always
-    env_file:
-      - .env
     depends_on:
       postgres:
         condition: service_healthy
@@ -71,33 +89,7 @@ services:
       migrate:
         condition: service_completed_successfully
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-agent_interview}:${POSTGRES_PASSWORD:-cheng123}@postgres:5432/${POSTGRES_DB:-agent_interview}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
-      AUTO_CREATE_TABLES: "false"
-      TASK_QUEUE_ENABLED: ${TASK_QUEUE_ENABLED:-true}
-      REDIS_URL: redis://redis:6379/0
-      TASK_PAYLOAD_ENCRYPTION_KEY: ${TASK_PAYLOAD_ENCRYPTION_KEY:-}
-      LLM_REQUEST_TIMEOUT_SECONDS: ${LLM_REQUEST_TIMEOUT_SECONDS:-45}
-      AGENT_RUN_LOCK_TTL_SECONDS: ${AGENT_RUN_LOCK_TTL_SECONDS:-600}
-      AGENT_RUN_MAX_ATTEMPTS: ${AGENT_RUN_MAX_ATTEMPTS:-3}
-      AGENT_RUN_STALE_SECONDS: ${AGENT_RUN_STALE_SECONDS:-1800}
-      AGENT_RUN_HEARTBEAT_SECONDS: ${AGENT_RUN_HEARTBEAT_SECONDS:-30}
-      AGENT_RUN_CANCEL_POLL_SECONDS: ${AGENT_RUN_CANCEL_POLL_SECONDS:-2}
-      AGENT_RUN_RECOVERY_INTERVAL_SECONDS: ${AGENT_RUN_RECOVERY_INTERVAL_SECONDS:-60}
-      RESUME_GENERATION_SESSION_TTL_HOURS: ${RESUME_GENERATION_SESSION_TTL_HOURS:-24}
-      LLM_POOL_REDIS_ENABLED: ${LLM_POOL_REDIS_ENABLED:-true}
-      LLM_POOL_INFLIGHT_TTL_SECONDS: ${LLM_POOL_INFLIGHT_TTL_SECONDS:-600}
-      ALLOW_PRIVATE_MODEL_BASE_URLS: ${ALLOW_PRIVATE_MODEL_BASE_URLS:-true}
-      BOSS_AUTOMATION_SERVICE_URL: ${BOSS_AUTOMATION_SERVICE_URL:-http://host.docker.internal:8765}
-      BOSS_AUTOMATION_SERVICE_TOKEN: ${BOSS_AUTOMATION_SERVICE_TOKEN:-}
-      BOSS_AUTOMATION_REQUEST_TIMEOUT_SECONDS: ${BOSS_AUTOMATION_REQUEST_TIMEOUT_SECONDS:-240}
-      JOB_CAPTURE_MAX_RESPONSE_BYTES: ${JOB_CAPTURE_MAX_RESPONSE_BYTES:-2097152}
-      MEM0_PGVECTOR_HOST: postgres
-      MEM0_PGVECTOR_PORT: 5432
-      MEM0_PGVECTOR_DBNAME: ${POSTGRES_DB:-agent_interview}
-      MEM0_PGVECTOR_USER: ${POSTGRES_USER:-agent_interview}
-      MEM0_PGVECTOR_PASSWORD: ${POSTGRES_PASSWORD:-cheng123}
+      <<: *backend_overrides
     networks:
       - agent_interview_network
     extra_hosts:
@@ -109,13 +101,12 @@ services:
       retries: 3
 
   worker:
+    <<: *service_env
     build:
       context: ./backend
       dockerfile: Dockerfile
     container_name: agent_interview_worker
     restart: on-failure
-    env_file:
-      - .env
     command: ["/app/scripts/run-worker.sh"]
     depends_on:
       postgres:
@@ -125,30 +116,7 @@ services:
       migrate:
         condition: service_completed_successfully
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-agent_interview}:${POSTGRES_PASSWORD:-cheng123}@postgres:5432/${POSTGRES_DB:-agent_interview}
-      TASK_QUEUE_ENABLED: ${TASK_QUEUE_ENABLED:-true}
-      REDIS_URL: redis://redis:6379/0
-      TASK_PAYLOAD_ENCRYPTION_KEY: ${TASK_PAYLOAD_ENCRYPTION_KEY:-}
-      LLM_REQUEST_TIMEOUT_SECONDS: ${LLM_REQUEST_TIMEOUT_SECONDS:-45}
-      AGENT_RUN_LOCK_TTL_SECONDS: ${AGENT_RUN_LOCK_TTL_SECONDS:-600}
-      AGENT_RUN_MAX_ATTEMPTS: ${AGENT_RUN_MAX_ATTEMPTS:-3}
-      AGENT_RUN_STALE_SECONDS: ${AGENT_RUN_STALE_SECONDS:-1800}
-      AGENT_RUN_HEARTBEAT_SECONDS: ${AGENT_RUN_HEARTBEAT_SECONDS:-30}
-      AGENT_RUN_CANCEL_POLL_SECONDS: ${AGENT_RUN_CANCEL_POLL_SECONDS:-2}
-      AGENT_RUN_RECOVERY_INTERVAL_SECONDS: ${AGENT_RUN_RECOVERY_INTERVAL_SECONDS:-60}
-      RESUME_GENERATION_SESSION_TTL_HOURS: ${RESUME_GENERATION_SESSION_TTL_HOURS:-24}
-      LLM_POOL_REDIS_ENABLED: ${LLM_POOL_REDIS_ENABLED:-true}
-      LLM_POOL_INFLIGHT_TTL_SECONDS: ${LLM_POOL_INFLIGHT_TTL_SECONDS:-600}
-      ALLOW_PRIVATE_MODEL_BASE_URLS: ${ALLOW_PRIVATE_MODEL_BASE_URLS:-true}
-      BOSS_AUTOMATION_SERVICE_URL: ${BOSS_AUTOMATION_SERVICE_URL:-http://host.docker.internal:8765}
-      BOSS_AUTOMATION_SERVICE_TOKEN: ${BOSS_AUTOMATION_SERVICE_TOKEN:-}
-      BOSS_AUTOMATION_REQUEST_TIMEOUT_SECONDS: ${BOSS_AUTOMATION_REQUEST_TIMEOUT_SECONDS:-240}
-      JOB_CAPTURE_MAX_RESPONSE_BYTES: ${JOB_CAPTURE_MAX_RESPONSE_BYTES:-2097152}
-      MEM0_PGVECTOR_HOST: postgres
-      MEM0_PGVECTOR_PORT: 5432
-      MEM0_PGVECTOR_DBNAME: ${POSTGRES_DB:-agent_interview}
-      MEM0_PGVECTOR_USER: ${POSTGRES_USER:-agent_interview}
-      MEM0_PGVECTOR_PASSWORD: ${POSTGRES_PASSWORD:-cheng123}
+      <<: *backend_overrides
     networks:
       - agent_interview_network
     extra_hosts:
@@ -165,11 +133,12 @@ services:
       context: ./web
       dockerfile: Dockerfile
       args:
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-/api}
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:?set NEXT_PUBLIC_API_URL in .env}
     container_name: agent_interview_frontend
     restart: always
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     networks:
       - agent_interview_network
 
@@ -184,8 +153,10 @@ services:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./nginx/logs:/var/log/nginx
     depends_on:
-      - frontend
-      - backend
+      frontend:
+        condition: service_started
+      backend:
+        condition: service_healthy
     networks:
       - agent_interview_network
 
