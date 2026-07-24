@@ -14,6 +14,9 @@ interface ModelAssignmentsProps {
     onSetHrReviewerModel: (id: string) => boolean;
     onSetReflectorModel: (id: string) => boolean;
     onSetVoiceModel: (id: string) => boolean;
+    onSetRagEmbeddingModel: (id: string) => boolean;
+    onSetMem0LlmModel: (id: string) => boolean;
+    onSetMem0EmbedderModel: (id: string) => boolean;
 }
 
 export function ModelAssignments({
@@ -28,7 +31,13 @@ export function ModelAssignments({
     onSetHrReviewerModel,
     onSetReflectorModel,
     onSetVoiceModel,
+    onSetRagEmbeddingModel,
+    onSetMem0LlmModel,
+    onSetMem0EmbedderModel,
 }: ModelAssignmentsProps) {
+    const embeddingModels = config.models.filter((model) => model.model.toLowerCase().includes('embedding'));
+    const embeddingOptions = embeddingModels.length > 0 ? embeddingModels : config.models;
+
     return (
         <>
 {/* 模型配置区域 - 下拉选择 */}
@@ -267,6 +276,70 @@ export function ModelAssignments({
                     >
                         <option value="">选择模型</option>
                         {config.models.map((model) => (
+                            <option key={model.id} value={model.id}>
+                                {model.name}
+                            </option>
+                        ))}
+                    </select>
+                    <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                </div>
+            </div>
+        </div>
+
+
+        {/* 检索和长期记忆 */}
+        <div className="p-3 bg-blue-50 rounded-lg border border-blue-100 space-y-3">
+            <h4 className="text-sm font-medium text-blue-800">🔎 RAG / 长期记忆模型</h4>
+            <p className="text-xs text-blue-600">这些配置会随请求发送给后端，不再需要把 RAG/mem0 的模型 Key 写进 .env。</p>
+
+            <div className="space-y-2">
+                <label className="text-xs text-gray-600">RAG 向量检索 Embedding（推荐 text-embedding-v4）</label>
+                <div className="relative">
+                    <select
+                        value={config.ragEmbeddingModelId || ''}
+                        onChange={(e) => onSetRagEmbeddingModel(e.target.value)}
+                        className="w-full appearance-none rounded-lg border border-gray-200 px-4 py-2.5 pr-10 text-sm focus:border-orange-500 focus:ring-2 focus:ring-orange-50 focus:outline-none bg-white"
+                    >
+                        <option value="">选择模型</option>
+                        {embeddingOptions.map((model) => (
+                            <option key={model.id} value={model.id}>
+                                {model.name}
+                            </option>
+                        ))}
+                    </select>
+                    <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                </div>
+            </div>
+
+            <div className="space-y-2">
+                <label className="text-xs text-gray-600">mem0 记忆提取 LLM（推荐 DeepSeek）</label>
+                <div className="relative">
+                    <select
+                        value={config.mem0LlmModelId || ''}
+                        onChange={(e) => onSetMem0LlmModel(e.target.value)}
+                        className="w-full appearance-none rounded-lg border border-gray-200 px-4 py-2.5 pr-10 text-sm focus:border-orange-500 focus:ring-2 focus:ring-orange-50 focus:outline-none bg-white"
+                    >
+                        <option value="">选择模型</option>
+                        {config.models.map((model) => (
+                            <option key={model.id} value={model.id}>
+                                {model.name}
+                            </option>
+                        ))}
+                    </select>
+                    <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                </div>
+            </div>
+
+            <div className="space-y-2">
+                <label className="text-xs text-gray-600">mem0 语义检索 Embedding（推荐 text-embedding-v4）</label>
+                <div className="relative">
+                    <select
+                        value={config.mem0EmbedderModelId || ''}
+                        onChange={(e) => onSetMem0EmbedderModel(e.target.value)}
+                        className="w-full appearance-none rounded-lg border border-gray-200 px-4 py-2.5 pr-10 text-sm focus:border-orange-500 focus:ring-2 focus:ring-orange-50 focus:outline-none bg-white"
+                    >
+                        <option value="">选择模型</option>
+                        {embeddingOptions.map((model) => (
                             <option key={model.id} value={model.id}>
                                 {model.name}
                             </option>

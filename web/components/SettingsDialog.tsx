@@ -41,7 +41,10 @@ export function SettingsDialog({
         setContentWriterModel: onSetContentWriterModel,
         setHrReviewerModel: onSetHrReviewerModel,
         setReflectorModel: onSetReflectorModel,
-        setVoiceModel: onSetVoiceModel
+        setVoiceModel: onSetVoiceModel,
+        setRagEmbeddingModel: onSetRagEmbeddingModel,
+        setMem0LlmModel: onSetMem0LlmModel,
+        setMem0EmbedderModel: onSetMem0EmbedderModel
     } = useInterviewStore();
     const [showModelForm, setShowModelForm] = useState(false);
     const [showTutorial, setShowTutorial] = useState(false);
@@ -277,6 +280,9 @@ export function SettingsDialog({
                                 onSetHrReviewerModel={onSetHrReviewerModel}
                                 onSetReflectorModel={onSetReflectorModel}
                                 onSetVoiceModel={onSetVoiceModel}
+                                onSetRagEmbeddingModel={onSetRagEmbeddingModel}
+                                onSetMem0LlmModel={onSetMem0LlmModel}
+                                onSetMem0EmbedderModel={onSetMem0EmbedderModel}
                             />
 
                             {/* 空状态提示 */}

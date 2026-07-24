@@ -5,9 +5,11 @@ AgentMemoryService - mem0 长期记忆服务
 """
 
 import asyncio
+import hashlib
+import json
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Any, Optional
 
 from .config import get_mem0_config, get_mem0_retention_days, get_mem0_search_limit, is_mem0_background_write
 
@@ -15,6 +17,31 @@ logger = logging.getLogger(__name__)
 
 # 全局单例
 _agent_memory_service: Optional["AgentMemoryService"] = None
+_agent_memory_services: dict[str, "AgentMemoryService"] = {}
+
+
+
+
+def _memory_config_cache_key(config: Optional[dict[str, Any]]) -> str:
+    """为 mem0 配置生成不泄露明文 key 的缓存键。"""
+    if config is None:
+        return "disabled"
+
+    def scrub(value: Any) -> Any:
+        if isinstance(value, dict):
+            result: dict[str, Any] = {}
+            for key, item in value.items():
+                if key == "api_key" and isinstance(item, str):
+                    result[key] = hashlib.sha256(item.encode("utf-8")).hexdigest()
+                else:
+                    result[key] = scrub(item)
+            return result
+        if isinstance(value, list):
+            return [scrub(item) for item in value]
+        return value
+
+    payload = json.dumps(scrub(config), sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def _retention_metadata() -> dict:
@@ -395,25 +422,34 @@ class AgentMemoryService:
             return False
 
 
-async def get_agent_memory_service() -> AgentMemoryService:
+async def get_agent_memory_service(api_config: Optional[dict[str, Any]] = None) -> AgentMemoryService:
     """
-    获取 AgentMemoryService 单例
+    获取 AgentMemoryService。
 
-    Returns:
-        AgentMemoryService: 记忆服务实例
+    无 api_config 时返回服务端 .env 单例；有前端配置时按配置缓存实例，
+    支持不同用户/浏览器使用不同的 mem0 LLM 和 Embedding Key。
     """
     global _agent_memory_service
 
-    if _agent_memory_service is None:
-        config = get_mem0_config()
-        _agent_memory_service = AgentMemoryService(config)
-        await _agent_memory_service.initialize()
+    config = get_mem0_config(api_config)
+    if api_config is None:
+        if _agent_memory_service is None:
+            _agent_memory_service = AgentMemoryService(config)
+            await _agent_memory_service.initialize()
+        return _agent_memory_service
 
-    return _agent_memory_service
+    cache_key = _memory_config_cache_key(config)
+    service = _agent_memory_services.get(cache_key)
+    if service is None:
+        service = AgentMemoryService(config)
+        await service.initialize()
+        _agent_memory_services[cache_key] = service
+    return service
 
 
 async def close_agent_memory_service():
     """关闭全局 AgentMemoryService"""
     global _agent_memory_service
     _agent_memory_service = None
+    _agent_memory_services.clear()
     logger.info("✓ AgentMemoryService 已关闭")

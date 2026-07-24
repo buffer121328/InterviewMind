@@ -407,8 +407,8 @@ async def _embedding_service_case(monkeypatch):
 
     captured = {}
 
-    async def fake_create_embeddings(input_value, *, model=None, dimensions=None):
-        captured.update({"input": input_value, "model": model, "dimensions": dimensions})
+    async def fake_create_embeddings(input_value, *, model=None, dimensions=None, api_config=None):
+        captured.update({"input": input_value, "model": model, "dimensions": dimensions, "api_config": api_config})
         return type("EmbeddingResponse", (), {"data": [type("Item", (), {"embedding": [0.3, 0.4]})()]})()
 
     monkeypatch.setattr(embedding_service.llms.model_gateway, "create_embeddings", fake_create_embeddings)
@@ -421,7 +421,7 @@ def test_rag_embedding_service_uses_model_gateway(monkeypatch):
 
     captured, embedding = asyncio.run(_embedding_service_case(monkeypatch))
 
-    assert captured == {"input": "hello", "model": "embed-model", "dimensions": 2}
+    assert captured == {"input": "hello", "model": "embed-model", "dimensions": 2, "api_config": None}
     assert embedding == [0.3, 0.4]
 
 

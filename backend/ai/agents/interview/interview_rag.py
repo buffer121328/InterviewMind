@@ -267,6 +267,7 @@ async def _retrieve_queries(
     repo: Any,
     user_id: str,
     queries: List[RetrievalQuery],
+    api_config: Optional[dict] = None,
 ) -> List[RagEvidence]:
     """执行只读混合召回；user_id 与 namespace 由服务端固定注入。"""
     from ai.rag.embedding_service import generate_embedding
@@ -318,7 +319,7 @@ async def _retrieve_queries(
 
         if VECTOR_ENABLED and q.text and len(q.text.strip()) > 10:
             try:
-                query_embedding = await generate_embedding(q.text[:300])
+                query_embedding = await generate_embedding(q.text[:300], api_config=api_config)
                 vector_results = await repo.search_by_vector(
                     user_id=user_id,
                     namespace="user_private",
@@ -347,12 +348,13 @@ async def _retrieve_memory_evidences(
     user_id: str,
     query: str,
     limit: int = 5,
+    api_config: Optional[dict] = None,
 ) -> List[RagEvidence]:
     """将 mem0 只读结果适配为统一证据结构。"""
     from ai.runtime.middleware.content_safety import contains_prompt_injection
     from ai.tools.memory_tools import search_memory
 
-    memories = await search_memory(user_id=user_id, query=query, limit=limit)
+    memories = await search_memory(user_id=user_id, query=query, limit=limit, api_config=api_config)
     evidences: List[RagEvidence] = []
     for index, item in enumerate(memories):
         if not isinstance(item, dict) or item.get("message"):
@@ -458,6 +460,7 @@ async def run_rag_pipeline(
     weakness_report: Optional[Dict] = None,
     target_skills: Optional[List[str]] = None,
     round_type: str = "tech_initial",
+    api_config: Optional[dict] = None,
 ) -> RagResult:
     """
     RAG 编排主入口
@@ -489,7 +492,7 @@ async def run_rag_pipeline(
     logger.info(f"[RAG] user={user_id}, queries={len(queries)}, vector={VECTOR_ENABLED}")
 
     # Step 2-3: Retriever + Reranker
-    all_evidences = await _retrieve_queries(repo=repo, user_id=user_id, queries=queries)
+    all_evidences = await _retrieve_queries(repo=repo, user_id=user_id, queries=queries, api_config=api_config)
     reranked = _rank_evidence_copies(all_evidences, max_results=15)
 
     # Step 4: 低置信度时执行有界 Agentic Retrieval。
@@ -547,12 +550,14 @@ async def run_rag_pipeline(
                             source_types=sorted(rag_sources) or None,
                             target_skills=list(query.target_skills) or None,
                         )],
+                        api_config=api_config,
                     ))
                 if search_memory_branch:
                     tasks.append(_retrieve_memory_evidences(
                         user_id=user_id,
                         query=query.text,
                         limit=5,
+                        api_config=api_config,
                     ))
 
                 batches = await asyncio.gather(*tasks) if tasks else []
@@ -667,6 +672,7 @@ async def rag_retrieve_for_interview(
     weakness_report: Optional[Dict] = None,
     target_skills: Optional[List[str]] = None,
     round_type: str = "tech_initial",
+    api_config: Optional[dict] = None,
 ) -> Dict[str, Any]:
     """
     面试场景 RAG 检索入口
@@ -681,5 +687,6 @@ async def rag_retrieve_for_interview(
         weakness_report=weakness_report,
         target_skills=target_skills,
         round_type=round_type,
+        api_config=api_config,
     )
     return result.to_legacy_context()

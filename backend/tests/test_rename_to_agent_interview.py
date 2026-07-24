@@ -120,6 +120,7 @@ class TestAgentMemoryConfigBehavior:
     def test_mem0_pgvector_defaults_use_agent_interview(self):
         """Default pgvector dbname/user should be agent_interview, not postgres."""
         env = {
+            "MEM0_ENABLED": "true",
             "MEM0_PGVECTOR_DBNAME": "",
             "MEM0_PGVECTOR_USER": "",
             "MEM0_PGVECTOR_PASSWORD": "",
@@ -140,6 +141,7 @@ class TestAgentMemoryConfigBehavior:
     def test_mem0_pgvector_falls_back_to_postgres_env(self):
         """pgvector config should fall back to POSTGRES_* env vars."""
         env = {
+            "MEM0_ENABLED": "true",
             "MEM0_PGVECTOR_DBNAME": "",
             "MEM0_PGVECTOR_USER": "",
             "MEM0_PGVECTOR_PASSWORD": "",
@@ -160,6 +162,7 @@ class TestAgentMemoryConfigBehavior:
     def test_mem0_explicit_env_overrides_postgres_fallback(self):
         """MEM0_PGVECTOR_* env vars should take precedence over POSTGRES_*."""
         env = {
+            "MEM0_ENABLED": "true",
             "MEM0_PGVECTOR_DBNAME": "mem0专属",
             "MEM0_PGVECTOR_USER": "mem0user",
             "MEM0_PGVECTOR_PASSWORD": "mem0pass",
@@ -176,6 +179,69 @@ class TestAgentMemoryConfigBehavior:
         assert pg_cfg["dbname"] == "mem0专属"
         assert pg_cfg["user"] == "mem0user"
         assert pg_cfg["password"] == "mem0pass"
+
+    def test_mem0_embedder_falls_back_to_rag_embedding_env(self):
+        """mem0 embedder should reuse RAG OpenAI-compatible env when dedicated values are empty."""
+        env = {
+            "MEM0_ENABLED": "true",
+            "MEM0_EMBEDDER_API_KEY": "",
+            "MEM0_EMBEDDER_BASE_URL": "",
+            "OPENAI_API_KEY": "dashscope-key",
+            "OPENAI_BASE_URL": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        }
+        with patch.dict(os.environ, env, clear=False):
+            import ai.memory.config as mem_cfg
+            importlib.reload(mem_cfg)
+            config = mem_cfg.get_mem0_config()
+
+        embedder_cfg = config["embedder"]["config"]
+        assert embedder_cfg["api_key"] == "dashscope-key"
+        assert embedder_cfg["openai_base_url"] == "https://dashscope.aliyuncs.com/compatible-mode/v1"
+
+    def test_mem0_embedder_explicit_base_url_overrides_rag_env(self):
+        """Dedicated mem0 embedder endpoint should take precedence over OPENAI_BASE_URL."""
+        env = {
+            "MEM0_ENABLED": "true",
+            "MEM0_EMBEDDER_BASE_URL": "https://example.test/compatible-mode/v1",
+            "OPENAI_BASE_URL": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        }
+        with patch.dict(os.environ, env, clear=False):
+            import ai.memory.config as mem_cfg
+            importlib.reload(mem_cfg)
+            config = mem_cfg.get_mem0_config()
+
+        assert config["embedder"]["config"]["openai_base_url"] == "https://example.test/compatible-mode/v1"
+
+    def test_mem0_frontend_channels_enable_memory_when_env_disabled(self):
+        """Complete request api_config should enable mem0 without server-side model keys."""
+        env = {
+            "MEM0_ENABLED": "false",
+            "MEM0_LLM_API_KEY": "",
+            "MEM0_EMBEDDER_API_KEY": "",
+            "OPENAI_API_KEY": "",
+        }
+        api_config = {
+            "mem0_llm": {
+                "api_key": "deepseek-key",
+                "base_url": "https://api.deepseek.com/v1",
+                "model": "deepseek-v4-flash",
+            },
+            "mem0_embedder": {
+                "api_key": "dashscope-key",
+                "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                "model": "text-embedding-v4",
+            },
+        }
+        with patch.dict(os.environ, env, clear=False):
+            import ai.memory.config as mem_cfg
+            importlib.reload(mem_cfg)
+            config = mem_cfg.get_mem0_config(api_config)
+
+        assert config is not None
+        assert config["llm"]["config"]["api_key"] == "deepseek-key"
+        assert config["llm"]["config"]["model"] == "deepseek-v4-flash"
+        assert config["embedder"]["config"]["api_key"] == "dashscope-key"
+        assert config["embedder"]["config"]["model"] == "text-embedding-v4"
 
 
 class TestAgentMemoryServiceRename:

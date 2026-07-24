@@ -33,12 +33,18 @@ export interface ApiConfigActions {
     setHrReviewerModel: (id: string) => boolean;
     setReflectorModel: (id: string) => boolean;
     setVoiceModel: (id: string) => boolean;
+    setRagEmbeddingModel: (id: string) => boolean;
+    setMem0LlmModel: (id: string) => boolean;
+    setMem0EmbedderModel: (id: string) => boolean;
     getGeneralModel: () => ModelConfig | null;
     getMatchAnalystModel: () => ModelConfig | null;
     getContentWriterModel: () => ModelConfig | null;
     getHrReviewerModel: () => ModelConfig | null;
     getReflectorModel: () => ModelConfig | null;
     getVoiceModel: () => ModelConfig | null;
+    getRagEmbeddingModel: () => ModelConfig | null;
+    getMem0LlmModel: () => ModelConfig | null;
+    getMem0EmbedderModel: () => ModelConfig | null;
     // 通用方法
     isConfigured: () => boolean;
     getApiConfigForRequest: () => {
@@ -50,6 +56,9 @@ export interface ApiConfigActions {
         hr_reviewer: { api_key: string; base_url: string; model: string };
         reflector: { api_key: string; base_url: string; model: string };
         voice: { api_key: string; base_url: string; model: string } | null;
+        rag_embedding: { api_key: string; base_url: string; model: string } | null;
+        mem0_llm: { api_key: string; base_url: string; model: string } | null;
+        mem0_embedder: { api_key: string; base_url: string; model: string } | null;
         reasoning_pool: Array<{ api_key: string; base_url: string; model: string; name: string; weight: number }>;
         fast_pool: Array<{ api_key: string; base_url: string; model: string; name: string; weight: number }>;
     } | null;
@@ -126,6 +135,9 @@ export const createApiConfigSlice = (set: SetState, get: GetState): ApiConfigSli
             hrReviewerModelId: apiConfig.hrReviewerModelId === id ? '' : apiConfig.hrReviewerModelId,
             reflectorModelId: apiConfig.reflectorModelId === id ? '' : apiConfig.reflectorModelId,
             voiceModelId: apiConfig.voiceModelId === id ? '' : apiConfig.voiceModelId,
+            ragEmbeddingModelId: apiConfig.ragEmbeddingModelId === id ? '' : apiConfig.ragEmbeddingModelId,
+            mem0LlmModelId: apiConfig.mem0LlmModelId === id ? '' : apiConfig.mem0LlmModelId,
+            mem0EmbedderModelId: apiConfig.mem0EmbedderModelId === id ? '' : apiConfig.mem0EmbedderModelId,
         };
 
         set({ apiConfig: newConfig });
@@ -211,6 +223,27 @@ export const createApiConfigSlice = (set: SetState, get: GetState): ApiConfigSli
         return true;
     },
 
+    setRagEmbeddingModel: (id) => {
+        const { apiConfig } = get();
+        if (!apiConfig.models.find(m => m.id === id)) return false;
+        set({ apiConfig: { ...apiConfig, ragEmbeddingModelId: id } });
+        return true;
+    },
+
+    setMem0LlmModel: (id) => {
+        const { apiConfig } = get();
+        if (!apiConfig.models.find(m => m.id === id)) return false;
+        set({ apiConfig: { ...apiConfig, mem0LlmModelId: id } });
+        return true;
+    },
+
+    setMem0EmbedderModel: (id) => {
+        const { apiConfig } = get();
+        if (!apiConfig.models.find(m => m.id === id)) return false;
+        set({ apiConfig: { ...apiConfig, mem0EmbedderModelId: id } });
+        return true;
+    },
+
     // Getters
     getSmartModel: () => {
         const { apiConfig } = get();
@@ -252,6 +285,21 @@ export const createApiConfigSlice = (set: SetState, get: GetState): ApiConfigSli
         return apiConfig.models.find(m => m.id === apiConfig.voiceModelId) || null;
     },
 
+    getRagEmbeddingModel: () => {
+        const { apiConfig } = get();
+        return apiConfig.models.find(m => m.id === apiConfig.ragEmbeddingModelId) || null;
+    },
+
+    getMem0LlmModel: () => {
+        const { apiConfig } = get();
+        return apiConfig.models.find(m => m.id === apiConfig.mem0LlmModelId) || null;
+    },
+
+    getMem0EmbedderModel: () => {
+        const { apiConfig } = get();
+        return apiConfig.models.find(m => m.id === apiConfig.mem0EmbedderModelId) || null;
+    },
+
     isConfigured: () => {
         const { apiConfig } = get();
         const smartModel = apiConfig.models.find(m => m.id === apiConfig.smartModelId);
@@ -268,6 +316,9 @@ export const createApiConfigSlice = (set: SetState, get: GetState): ApiConfigSli
         const hrReviewerModel = get().getHrReviewerModel();
         const reflectorModel = get().getReflectorModel();
         const voiceModel = get().getVoiceModel();
+        const ragEmbeddingModel = get().getRagEmbeddingModel();
+        const mem0LlmModel = get().getMem0LlmModel();
+        const mem0EmbedderModel = get().getMem0EmbedderModel();
 
         if (!smartModel || !fastModel) return null;
 
@@ -302,6 +353,9 @@ export const createApiConfigSlice = (set: SetState, get: GetState): ApiConfigSli
             hr_reviewer: getModelConfig(hrReviewerModel),
             reflector: getModelConfig(reflectorModel),
             voice: voiceModel ? getModelConfig(voiceModel) : null,
+            rag_embedding: ragEmbeddingModel ? getModelConfig(ragEmbeddingModel) : null,
+            mem0_llm: mem0LlmModel ? getModelConfig(mem0LlmModel) : null,
+            mem0_embedder: mem0EmbedderModel ? getModelConfig(mem0EmbedderModel) : null,
             reasoning_pool: getPoolConfig(get().apiConfig.reasoningPoolModelIds, smartModel),
             fast_pool: getPoolConfig(get().apiConfig.fastPoolModelIds, fastModel),
         };

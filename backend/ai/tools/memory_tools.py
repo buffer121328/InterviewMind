@@ -14,12 +14,12 @@ from app.schemas.tools import attach_tool_contract
 logger = logging.getLogger(__name__)
 
 
-async def search_memory(user_id: str, query: str, limit: int = 5) -> List[Dict[str, Any]]:
+async def search_memory(user_id: str, query: str, limit: int = 5, api_config: dict | None = None) -> List[Dict[str, Any]]:
     """搜索候选人的长期记忆。"""
     try:
         from ai.memory.service import get_agent_memory_service
 
-        service = await get_agent_memory_service()
+        service = await get_agent_memory_service(api_config)
         if not service.is_enabled:
             return [{"message": "记忆服务未启用"}]
 

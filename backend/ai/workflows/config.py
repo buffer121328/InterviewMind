@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 
 from app.config import get_settings
+from ai.llm import llms
 from ai.llm.llms import create_llm_from_config
 from app.security.url_security import UnsafeOutboundUrl
 from app.schemas.schemas import ApiConfigValidateRequest
@@ -18,15 +19,27 @@ class ApiConfigUseCases:
     async def validate(self, request: ApiConfigValidateRequest) -> dict[str, object]:
         """Validate API credentials by issuing a minimal model request."""
         try:
-            llm = create_llm_from_config(
-                api_key=request.api_key,
-                base_url=request.base_url,
-                model=request.model,
-                temperature=0,
-                max_tokens=10,
-                timeout=get_settings().api_config_validation_timeout_seconds,
-            )
-            await llm.ainvoke("Say 'OK' in one word.")
+            if request.kind == "embedding":
+                await llms.model_gateway.create_embeddings(
+                    "OK",
+                    api_config={
+                        "rag_embedding": {
+                            "api_key": request.api_key,
+                            "base_url": request.base_url,
+                            "model": request.model,
+                        }
+                    },
+                )
+            else:
+                llm = create_llm_from_config(
+                    api_key=request.api_key,
+                    base_url=request.base_url,
+                    model=request.model,
+                    temperature=0,
+                    max_tokens=10,
+                    timeout=get_settings().api_config_validation_timeout_seconds,
+                )
+                await llm.ainvoke("Say 'OK' in one word.")
             logger.info("API 配置验证成功: %s", request.model)
             return {
                 "success": True,

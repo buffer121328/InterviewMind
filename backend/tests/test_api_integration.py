@@ -287,7 +287,7 @@ class TestConfigValidation:
         """无效 API Key 应返回 success=False"""
         payload = {
             "api_key": "sk-invalid-key-12345",
-            "base_url": os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1"),
+            "base_url": os.getenv("OPENAI_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
             "model": os.getenv("FAST_MODEL", "gpt-4o-mini"),
         }
 

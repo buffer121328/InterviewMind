@@ -81,13 +81,14 @@ class ChatStreamUseCases:
             elif msg.role == "system":
                 hydrated_messages.append(SystemMessage(content=msg.content))
 
+        api_config = request.api_config.model_dump() if request.api_config else None
         memory_query = f"{request.message} {request.job_description or ''} 面试回答 短板 练习目标"
         memory_context, memory_items = await get_memory_context(
             user_id=user_id,
             query=memory_query,
             memory_types=["preference", "candidate_fact", "weakness", "practice_goal"],
+            api_config=api_config,
         )
-        api_config = request.api_config.model_dump() if request.api_config else None
         current_question_index = session.messages[-1].question_index if session.messages else 0
         same_question_answer_count = sum(
             1
@@ -329,7 +330,7 @@ class ChatStreamUseCases:
                     question_index=final_question_index,
                     user_id=user_id,
                 )
-                await self._write_memory_background(thread_id, user_message, ai_response_content, inputs, user_id)
+                await self._write_memory_background(thread_id, user_message, ai_response_content, inputs, user_id, api_config)
 
             for step_id in ("analyze_answer", "generate_response", "update_progress"):
                 event = step_event(step_id, "completed")
@@ -373,6 +374,7 @@ class ChatStreamUseCases:
         ai_response_content: str,
         inputs: dict,
         user_id: str,
+        api_config: dict | None = None,
     ) -> None:
         """异步执行 `_write_memory_background` 相关逻辑。
 
@@ -390,7 +392,7 @@ class ChatStreamUseCases:
 
             if should_skip_write(user_message, ai_response_content):
                 return
-            memory_service = await get_agent_memory_service()
+            memory_service = await get_agent_memory_service(api_config)
             if not memory_service.is_enabled:
                 return
             memory_type_hint = extract_memory_type_hint(user_message)
@@ -416,12 +418,17 @@ class ChatStreamUseCases:
             logger.warning("后台记忆写入失败: %s", exc)
 
 
-async def get_memory_context(user_id: str, query: str, memory_types: Optional[list[str]] = None) -> tuple[str, list[dict]]:
+async def get_memory_context(
+    user_id: str,
+    query: str,
+    memory_types: Optional[list[str]] = None,
+    api_config: dict | None = None,
+) -> tuple[str, list[dict]]:
     """获取长期记忆上下文。"""
     try:
         from ai.memory import format_memory_context, get_agent_memory_service
 
-        memory_service = await get_agent_memory_service()
+        memory_service = await get_agent_memory_service(api_config)
         if not memory_service.is_enabled:
             return "", []
         memories = await memory_service.search_memories(user_id=user_id, query=query, memory_types=memory_types)

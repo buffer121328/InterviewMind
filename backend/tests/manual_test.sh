@@ -168,7 +168,7 @@ RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$BASE_URL/api/config/validate" \
     -H "Content-Type: application/json" \
     -d '{
         "api_key": "invalid-key",
-        "base_url": "https://api.openai.com/v1",
+        "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
         "model": "gpt-4"
     }')
 STATUS=$(echo "$RESPONSE" | tail -1)

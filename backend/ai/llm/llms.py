@@ -70,6 +70,33 @@ def _resolve_channel_config(api_config: dict, channel: str) -> dict:
     raise ValueError(f"未检测到 {channel.upper()} 通道的 API 配置。请在设置中配置请求通道模型。")
 
 
+def _valid_model_channel(config: dict | None) -> dict | None:
+    """Return a complete OpenAI-compatible model channel config, or None."""
+    if not isinstance(config, dict):
+        return None
+    if config.get("api_key") and config.get("base_url") and config.get("model"):
+        return config
+    return None
+
+
+def get_embedding_client_config_from_api_config(api_config: dict | None = None) -> dict:
+    """Resolve RAG embedding config from request api_config, falling back to env."""
+    request_config = _valid_model_channel((api_config or {}).get("rag_embedding"))
+    if request_config:
+        return {
+            "api_key": request_config["api_key"],
+            "base_url": request_config["base_url"],
+            "model": request_config["model"],
+            "dimensions": int(os.getenv("EMBEDDING_DIM", "1536")),
+        }
+    return {
+        "api_key": os.getenv("OPENAI_API_KEY", ""),
+        "base_url": os.getenv("OPENAI_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
+        "model": os.getenv("EMBEDDING_MODEL", "text-embedding-v4"),
+        "dimensions": int(os.getenv("EMBEDDING_DIM", "1536")),
+    }
+
+
 class ModelGateway:
     """模型网关：Redis 全局调度优先，通道回退与进程内降级。"""
 
@@ -382,24 +409,36 @@ class ModelGateway:
             dimensions: 调用方传入的 `dimensions` 参数。
         """
         return {
-            "model": model or os.getenv("EMBEDDING_MODEL", "text-embedding-3-small"),
+            "model": model or os.getenv("EMBEDDING_MODEL", "text-embedding-v4"),
             "dimensions": dimensions or int(os.getenv("EMBEDDING_DIM", "1536")),
         }
 
-    def get_embedding_client_config(self, model: str | None = None, dimensions: int | None = None) -> dict:
+    def get_embedding_client_config(
+        self,
+        model: str | None = None,
+        dimensions: int | None = None,
+        api_config: dict | None = None,
+    ) -> dict:
         """获取 `embedding client config`。
 
         Args:
             model: 模型对象。
             dimensions: 调用方传入的 `dimensions` 参数。
+            api_config: 前端请求携带的模型配置。
         """
+        config = get_embedding_client_config_from_api_config(api_config)
         return {
-            "api_key": os.getenv("OPENAI_API_KEY", ""),
-            "base_url": os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1"),
-            **self.get_embedding_request_options(model=model, dimensions=dimensions),
+            **config,
+            **self.get_embedding_request_options(model=model or config["model"], dimensions=dimensions or config["dimensions"]),
         }
 
-    async def create_embeddings(self, input_value: str | list[str], model: str | None = None, dimensions: int | None = None):
+    async def create_embeddings(
+        self,
+        input_value: str | list[str],
+        model: str | None = None,
+        dimensions: int | None = None,
+        api_config: dict | None = None,
+    ):
         """创建 `embeddings`。
 
         Args:
@@ -407,7 +446,7 @@ class ModelGateway:
             model: 模型对象。
             dimensions: 调用方传入的 `dimensions` 参数。
         """
-        config = self.get_embedding_client_config(model=model, dimensions=dimensions)
+        config = self.get_embedding_client_config(model=model, dimensions=dimensions, api_config=api_config)
         identity = _identity(config)
         self.scheduler.start(identity)
         started = time()
@@ -469,7 +508,7 @@ def create_embedding_client(config: dict):
 
     if not config or not config.get("api_key"):
         raise ValueError("未检测到 Embedding API 配置")
-    base_url = config.get("base_url") or "https://api.openai.com/v1"
+    base_url = config.get("base_url") or "https://dashscope.aliyuncs.com/compatible-mode/v1"
     validate_outbound_url(base_url, allow_private=get_settings().allow_private_model_base_urls)
     return AsyncOpenAI(
         api_key=config["api_key"],
@@ -485,7 +524,7 @@ def get_async_omni_client(voice_config: dict):
 
     if not voice_config or not voice_config.get("api_key"):
         raise ValueError("未检测到语音模型 API 配置")
-    base_url = voice_config.get("base_url") or "https://api.openai.com/v1"
+    base_url = voice_config.get("base_url") or "https://dashscope.aliyuncs.com/compatible-mode/v1"
     validate_outbound_url(base_url, allow_private=get_settings().allow_private_model_base_urls)
     return AsyncOpenAI(
         api_key=voice_config["api_key"],

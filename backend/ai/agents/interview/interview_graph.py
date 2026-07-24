@@ -266,6 +266,7 @@ async def node_planner(state: InterviewState):
                 session_id=session_id,
                 round_type=round_type,
                 weakness_report=weakness_report,
+                api_config=api_config,
             )
         except Exception as e:
             logger.warning(f"RAG 检索失败，使用默认 planner: {e}")

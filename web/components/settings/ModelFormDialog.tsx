@@ -73,7 +73,8 @@ export function ModelFormDialog({ open, onClose, onSave, editingModel, initialVa
     const [showTutorial, setShowTutorial] = useState(false);
     const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
     const [testedConfiguration, setTestedConfiguration] = useState<string | null>(null);
-    const configuration = [provider, apiKey, baseUrl, model].join('\u0000');
+    const modelKind = model.toLowerCase().includes('embedding') ? 'embedding' : 'chat';
+    const configuration = [provider, apiKey, baseUrl, model, modelKind].join('\u0000');
     const currentTestResult = testedConfiguration === configuration ? testResult : null;
 
     // 选择提供商
@@ -112,7 +113,8 @@ export function ModelFormDialog({ open, onClose, onSave, editingModel, initialVa
                 body: JSON.stringify({
                     api_key: apiKey,
                     base_url: baseUrl,
-                    model: model
+                    model: model,
+                    kind: modelKind
                 })
             });
 
@@ -279,7 +281,7 @@ export function ModelFormDialog({ open, onClose, onSave, editingModel, initialVa
                                 value={baseUrl}
                                 onChange={(e) => setBaseUrl(e.target.value)}
                                 className="w-full rounded-lg border border-gray-200 px-4 py-2.5 text-sm focus:border-orange-500 focus:ring-2 focus:ring-orange-50 focus:outline-none"
-                                placeholder="https://api.openai.com/v1"
+                                placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1"
                             />
                         </div>
 
@@ -305,7 +307,7 @@ export function ModelFormDialog({ open, onClose, onSave, editingModel, initialVa
                                     value={model}
                                     onChange={(e) => setModel(e.target.value)}
                                     className="w-full rounded-lg border border-gray-200 px-4 py-2.5 text-sm focus:border-orange-500 focus:ring-2 focus:ring-orange-50 focus:outline-none"
-                                    placeholder="输入模型名称，如 gpt-4o"
+                                    placeholder="输入模型名称，如 deepseek-v4-flash 或 text-embedding-v4"
                                 />
                             )}
                         </div>

@@ -47,6 +47,10 @@ class ApiConfig(BaseModel):
     hr_reviewer: Optional[ModelChannelConfig] = Field(default=None, description="HR审核官通道")
     reflector: Optional[ModelChannelConfig] = Field(default=None, description="质量审核通道")
     voice: Optional[ModelChannelConfig] = Field(default=None, description="语音面试通道，未配置时回退到 fast")
+    # 检索/记忆通道（可选，未配置时回退到服务端 .env）
+    rag_embedding: Optional[ModelChannelConfig] = Field(default=None, description="RAG 向量检索 Embedding 通道")
+    mem0_llm: Optional[ModelChannelConfig] = Field(default=None, description="mem0 记忆提取 LLM 通道")
+    mem0_embedder: Optional[ModelChannelConfig] = Field(default=None, description="mem0 语义检索 Embedding 通道")
 
 
 
@@ -161,6 +165,7 @@ class ApiConfigValidateRequest(BaseModel):
     api_key: str = Field(..., description="API Key")
     base_url: str = Field(..., description="API Base URL")
     model: str = Field(..., description="模型名称")
+    kind: Literal["chat", "embedding"] = Field(default="chat", description="模型类型")
 
 
 class ProfileGenerateRequest(BaseModel):
