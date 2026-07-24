@@ -28,6 +28,7 @@ class InterviewRetrievalService:
         round_type: str = "tech_initial",
         weakness_report: Optional[Dict] = None,
         limit: int = 10,
+        api_config: Optional[dict] = None,
     ) -> Dict[str, Any]:
         """检索 `for question generation`。
 
@@ -48,6 +49,7 @@ class InterviewRetrievalService:
                 weakness_report=weakness_report,
                 target_skills=target_skills,
                 round_type=round_type,
+                api_config=api_config,
             )
             logger.info(
                 "RAG 检索完成: user=%s mode=%s evidences=%s",

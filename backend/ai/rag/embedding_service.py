@@ -13,7 +13,7 @@ from ai.llm import llms
 logger = logging.getLogger(__name__)
 
 # 配置（可通过环境变量覆盖）
-EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-v4")
 EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "1536"))
 
 def compute_content_hash(content: str) -> str:
@@ -27,6 +27,7 @@ async def generate_embedding(
     text: str,
     model: Optional[str] = None,
     dimensions: Optional[int] = None,
+    api_config: Optional[dict] = None,
 ) -> List[float]:
     """
     为单条文本生成 embedding 向量
@@ -54,6 +55,7 @@ async def generate_embedding(
             text,
             model=model,
             dimensions=dims,
+            api_config=api_config,
         )
         return response.data[0].embedding
     except Exception as e:
@@ -66,6 +68,7 @@ async def generate_embeddings_batch(
     model: Optional[str] = None,
     dimensions: Optional[int] = None,
     batch_size: int = 20,
+    api_config: Optional[dict] = None,
 ) -> List[List[float]]:
     """
     批量生成 embedding（自动分批，避免超出 API 限制）
@@ -94,6 +97,7 @@ async def generate_embeddings_batch(
                 batch,
                 model=model,
                 dimensions=dims,
+                api_config=api_config,
             )
             # response.data 按 input 顺序返回
             batch_embeddings = [item.embedding for item in response.data]

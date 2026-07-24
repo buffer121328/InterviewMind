@@ -341,14 +341,49 @@ Compose 会将根目录 `.env` 传入迁移服务、后端和 Worker；显式的
 | frontend | 3000（容器内） | Next.js 前端 |
 | nginx | 80 | HTTP 反向代理；生产 HTTPS 由外部 TLS 终止 |
 
+
 ---
+
+## 已知缺陷、安全风险与改进方案
+
+> 项目已完整落地核心求职 Agent 工作流，并针对区别于普通 demo 的工程化能力做了优化，包括可恢复任务 harness、Agent 运行 loop、模型池调度、评测与可观测追踪等。但更适合个人本地学习、求职辅助和内网自用；若要多人协作或公网部署，建议先完成下列加固项。如有合作需求请邮件联系：gc000507@163.com
+
+| 风险/缺陷 | 简单说明 | 改进方案 |
+| --- | --- | --- |
+| 前端 API Key 明文持久化 | 前端「设置」中的模型 Key 保存在浏览器 `localStorage` 的 `interview-store` 中；同源脚本、恶意浏览器插件或同机用户可能读取。 | 短期改为 `sessionStorage` 或仅内存保存；生产方案改为服务端加密保存 Key，前端只传 `key_id`。 |
+| API Key 会随请求传输 | Smart/Fast/RAG/mem0 等模型配置会随 `api_config` 请求体传给后端。HTTP 本地可用，但公网 HTTP 不安全。 | 公网部署必须使用 HTTPS；限制 CORS 来源；不要在代理、网关或日志中记录请求体。 |
+| 异步任务载荷含敏感信息 | Worker 任务 payload 可能包含简历、JD 和 `api_config`。当前通过 `TASK_PAYLOAD_ENCRYPTION_KEY` 使用 Fernet 加密存入 `agent_runs.payload_encrypted`。 | 必须配置强随机 `TASK_PAYLOAD_ENCRYPTION_KEY`；生产中放 Secret/KMS，不写入 Git、镜像层或截图；支持密钥轮换和旧任务清理。 |
+| 缺少真实认证授权 | 当前多处接口仍依赖演示性质的 `X-User-ID` 标识用户，不等同于登录态或权限校验。 | 接入正式认证（OAuth/OIDC/Session/JWT）；所有用户数据按真实 user id 隔离；接口层做对象级授权检查。 |
+| localStorage 与 XSS 耦合 | 一旦前端存在 XSS，攻击者可读取模型 Key、简历文本和本地状态。 | 强化 CSP，禁用危险 HTML 注入；对 Markdown/富文本严格消毒；依赖升级和安全扫描；避免把不可信内容写入 `dangerouslySetInnerHTML`。 |
+| mem0 客户端进程内缓存 | 前端传来的 mem0 LLM/Embedding Key 不写库，但会存在后端进程内的 mem0 client 中直到进程重启或服务关闭。 | 缓存设置 TTL/LRU；用户退出或 Key 更新时主动清理；多人部署时按用户/租户隔离缓存。 |
+| `.env` 仍可能误放模型 Key | `.env` 现在仅作为服务端兜底，但仍保留 `OPENAI_API_KEY`、`MEM0_*_API_KEY` 占位，容易被误填后泄漏。 | 个人模式优先在前端设置页维护；生产用 Secret 管理；提交前开启 secret scanning/pre-commit。若完全前端化，可删除兜底 Key 变量。 |
+| 出站模型地址存在 SSRF 风险 | 用户可配置 OpenAI-compatible Base URL；项目已有出站 URL 校验，本地模式允许私有地址。 | 公网部署设置 `ALLOW_PRIVATE_MODEL_BASE_URLS=false`；维护 provider allowlist；阻断内网、metadata IP、file/unix socket 等协议。 |
+| BOSS 自动化有真实外部副作用 | BOSS 半自动投递会操作真实网站账号和岗位投递流程，存在误投递、账号风控、验证码和合规风险。 | 始终保留人工登录/预览/确认；发送前二次确认；限流和审计；不要绕过验证码；浏览器 profile 加密或按用户隔离。 |
+| Langfuse/观测可能包含隐私 | Trace 可能记录简历、JD、面试回答、模型输出等敏感内容。 | 默认关闭或采样；脱敏/截断后上报；生产使用私有 Langfuse 或合规区域；禁止上报 API Key。 |
+| 数据保留和删除策略较弱 | PostgreSQL、pgvector、mem0 记忆、上传文件和浏览器 profile 可能长期保存个人数据。 | 增加用户导出/删除数据接口；设置 TTL/retention；定期清理上传文件、旧任务、过期记忆和浏览器 profile。 |
+| 多租户隔离不足 | 个人项目默认配置下数据库、Redis、模型池和任务队列是共享基础设施。 | 引入 tenant/user 维度隔离；Redis key 加租户前缀；数据库查询强制 user_id 条件；增加越权测试。 |
+| 前端设置页缺少 Key 生命周期管理 | 目前可添加/删除模型配置，但没有 Key 过期提醒、轮换历史、最小权限提示。 | 增加 Key 指纹展示、最后验证时间、轮换提醒；支持一键清除本地 Key；前端显示“不要截图/共享配置”的警告。 |
+| 生产安全头和限流待完善 | Nginx/应用层主要满足本地部署；公网场景需要更严格的安全头、速率限制和 WAF 策略。 | 增加 HSTS、CSP、X-Frame-Options、Referrer-Policy；API 限流；上传大小/类型白名单；异常告警。 |
+
+### 推荐加固优先级
+
+1. **个人本地使用**：轮换已暴露过的 DeepSeek/阿里百炼 Key；只在前端设置页填写；不要截图 localStorage；保持 `.env` 不提交。
+2. **内网多人试用**：接入真实登录；HTTPS；服务端加密保存模型 Key；对象级权限校验；关闭私有 Base URL。
+3. **公网生产部署**：Secret/KMS、CSP/HSTS、审计日志、限流、数据删除/导出、租户隔离、自动 secret scanning 和依赖安全扫描。
 
 ## 项目结构
 
-> 以下目录树已按当前代码结构更新；README 仅保留关键入口，接口级调用链请查看本地 `docs/` 文档。
+> 以下目录树已按最新代码结构更新：
 
 ```text
 agent-interview/
+├── AGENTS.md                        # Agent 协作入口：项目简介、禁止事项、规则索引
+├── rules/                           # 分领域开发规则
+│   ├── backend.md                   # 后端、Agent、RAG、mem0、Worker 规则
+│   ├── frontend.md                  # 前端、设置页、Zustand、API 配置规则
+│   ├── directory.md                 # 顶层与子目录职责边界
+│   ├── testing.md                   # ATDD、pytest、typecheck、评测边界
+│   └── git.md                       # gitignore、暂存、阶段提交与推送规范
 ├── backend/                         # Python FastAPI 后端
 │   ├── app/
 │   │   ├── main.py                  # FastAPI 入口、生命周期、Router 注册
@@ -382,12 +417,18 @@ agent-interview/
 ├── web/                             # Next.js 前端应用
 │   ├── app/                         # App Router 页面入口
 │   ├── components/                  # React 业务与 UI 组件
+│   ├── hooks/                       # 前端 hooks，如用户标识和交互状态
 │   ├── lib/                         # API 客户端、流式事件、状态工具
+│   ├── store/                       # Zustand store、模型配置与业务状态 slices
+│   ├── public/                      # 前端公开静态资源
 │   └── package.json
 │
 ├── nginx/                           # 反向代理配置
 ├── docs/                            # 架构、运行、验收和学习文档
-├── docker-compose.yml
+├── static/                          # 本地静态产物，如音频输出
+├── env_example                      # 全量环境变量模板，仅占位值
+├── docker-compose.yml               # PostgreSQL、Redis、后端、Worker、前端、Nginx 编排
+├── LICENSE
 └── README.md
 ```
 

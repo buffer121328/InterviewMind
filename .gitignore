@@ -38,7 +38,6 @@ package-lock.json
 # Misc
 .chainlit/
 meta-output/
-AGENTS.md
 .worktrees/
 .deparch/
 

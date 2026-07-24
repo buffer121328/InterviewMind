@@ -64,11 +64,11 @@ ALLOW_PRIVATE_MODEL_BASE_URLS=true
 
 # ----------------------------------------------------------------------------
 # RAG Embedding（OpenAI-compatible）
-# RAG_VECTOR_ENABLED=true 时必须填写 OPENAI_API_KEY/BASE_URL/MODEL/DIM。
+# 优先使用前端「设置 → RAG / 长期记忆模型」；以下仅作服务端兜底。
 # ----------------------------------------------------------------------------
 OPENAI_API_KEY=
-OPENAI_BASE_URL=https://api.openai.com/v1
-EMBEDDING_MODEL=text-embedding-3-small
+OPENAI_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+EMBEDDING_MODEL=text-embedding-v4
 EMBEDDING_DIM=1536
 
 # ----------------------------------------------------------------------------
@@ -137,7 +137,7 @@ BOSS_APPLY_APPROVAL_TTL_SECONDS=300
 
 # ----------------------------------------------------------------------------
 # mem0 长期记忆
-# MEM0_ENABLED=true 时必须填写 LLM/Embedding Key 与 pgvector 连接。
+# 前端携带 mem0_llm/mem0_embedder 时可启用；以下仅作服务端兜底与 pgvector 配置。
 # ----------------------------------------------------------------------------
 MEM0_ENABLED=false
 MEM0_VECTOR_PROVIDER=pgvector
@@ -150,14 +150,15 @@ MEM0_PGVECTOR_PASSWORD=change_me
 
 # mem0 记忆提取模型
 MEM0_LLM_PROVIDER=openai
-MEM0_LLM_MODEL=deepseek-chat
+MEM0_LLM_MODEL=deepseek-v4-flash
 MEM0_LLM_API_KEY=
 MEM0_LLM_BASE_URL=https://api.deepseek.com/v1
 
 # mem0 语义检索模型
 MEM0_EMBEDDER_PROVIDER=openai
-MEM0_EMBEDDER_MODEL=text-embedding-3-small
+MEM0_EMBEDDER_MODEL=text-embedding-v4
 MEM0_EMBEDDER_API_KEY=
+MEM0_EMBEDDER_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 MEM0_EMBEDDING_DIMS=1536
 
 MEM0_SEARCH_LIMIT=5
