@@ -19,7 +19,7 @@ DATABASE_URL=postgresql://agent_interview:change_me@localhost:5432/agent_intervi
 # ----------------------------------------------------------------------------
 REDIS_PORT=6379
 REDIS_URL=redis://localhost:6379/0
-# 本地不启动 Redis/Worker 时可设为 false，统一任务改为同步执行。
+# 标准全量配置保持 true；false 仅用于单进程排障。
 TASK_QUEUE_ENABLED=true
 # 使用 Fernet.generate_key() 生成；API 和 Worker 必须完全一致。
 TASK_PAYLOAD_ENCRYPTION_KEY=
@@ -64,7 +64,7 @@ ALLOW_PRIVATE_MODEL_BASE_URLS=true
 
 # ----------------------------------------------------------------------------
 # RAG Embedding（OpenAI-compatible）
-# 未配置时建议将 RAG_VECTOR_ENABLED=false。
+# RAG_VECTOR_ENABLED=true 时必须填写 OPENAI_API_KEY/BASE_URL/MODEL/DIM。
 # ----------------------------------------------------------------------------
 OPENAI_API_KEY=
 OPENAI_BASE_URL=https://api.openai.com/v1
@@ -105,39 +105,39 @@ VOICE_TRANSCRIPT_TERM_FIXES={}
 # 示例：VOICE_TRANSCRIPT_TERM_FIXES={"lang graph":"LangGraph","拉姆达":"Lambda"}
 
 # ----------------------------------------------------------------------------
-# Langfuse Agent 可观测性（可选）
+# Langfuse Agent 可观测性
 # ----------------------------------------------------------------------------
 LANGFUSE_ENABLED=false
 LANGFUSE_PUBLIC_KEY=
 LANGFUSE_SECRET_KEY=
 LANGFUSE_BASE_URL=https://cloud.langfuse.com
-# 可选：按环境/版本聚合 Trace，并通过采样控制成本。
+# 按环境/版本聚合 Trace，并通过采样控制成本。
 LANGFUSE_TRACING_ENVIRONMENT=development
 LANGFUSE_RELEASE=local
 LANGFUSE_SAMPLE_RATE=1.0
-# 可选：启用 Langfuse Prompt Management，失败时自动回退本地 Prompt。
+# 启用 Langfuse Prompt Management，失败时自动回退本地 Prompt。
 LANGFUSE_PROMPT_MANAGEMENT_ENABLED=false
 LANGFUSE_PROMPT_LABEL=production
 LANGFUSE_PROMPT_CACHE_TTL_SECONDS=300
-# 可选：离线评估/DeepEval 结果写入 Langfuse Scores。
+# 离线评估/DeepEval 结果写入 Langfuse Scores。
 LANGFUSE_EVAL_REPORTING_ENABLED=false
 
 # ----------------------------------------------------------------------------
-# BOSS 半自动投递（可选）
+# BOSS 半自动投递
 # ----------------------------------------------------------------------------
 BOSS_AUTOMATION_SERVICE_URL=http://host.docker.internal:8765
-# 至少 32 字符，API 与宿主机自动化服务必须一致。
+# 至少 32 字符，API 与宿主机自动化服务必须一致；用 openssl rand -hex 32 生成。
 BOSS_AUTOMATION_SERVICE_TOKEN=
 BOSS_AUTOMATION_REQUEST_TIMEOUT_SECONDS=240
 # 岗位 URL HTTP 抓取最大响应体，超过后中止。
 JOB_CAPTURE_MAX_RESPONSE_BYTES=2097152
-# 仅由宿主机服务读取；留空默认 backend/data/browser_profiles/boss。
+# 仅由宿主机服务读取；为空时使用默认 backend/data/browser_profiles/boss。
 BOSS_BROWSER_PROFILE_DIR=
 BOSS_APPLY_APPROVAL_TTL_SECONDS=300
 
 # ----------------------------------------------------------------------------
-# mem0 长期记忆（可选）
-# 未填写 LLM/Embedding Key 时建议保持 false。
+# mem0 长期记忆
+# MEM0_ENABLED=true 时必须填写 LLM/Embedding Key 与 pgvector 连接。
 # ----------------------------------------------------------------------------
 MEM0_ENABLED=false
 MEM0_VECTOR_PROVIDER=pgvector
