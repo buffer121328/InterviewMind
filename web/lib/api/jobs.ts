@@ -71,9 +71,11 @@ export interface JobListItem {
     id: number;
     company_name: string;
     job_title: string;
+    platform: string;
     salary_text: string;
     city: string;
-    captured_at: string;
+    tags?: string[];
+    captured_at?: string;
     status?: string;
     [k: string]: unknown;
 }
@@ -97,7 +99,7 @@ export interface GreetingItem {
     tone: string;
     message_text: string;
     highlights_used?: string[];
-    risk_notes?: string[];
+    risk_notes?: string;
 }
 
 export interface CapturedJobSummary {
@@ -134,6 +136,30 @@ export interface CaptureRecommendationsResponse {
     total: number;
     jobs: CapturedJobSummary[];
     message?: string;
+}
+
+export interface ApplyPreviewRequest {
+    job_id: number;
+    greeting_index?: number;
+    greeting_text: string;
+    resume_id?: number;
+}
+
+export interface ApplySendRequest extends ApplyPreviewRequest {
+    approval_token: string;
+    confirmed: true;
+}
+
+export interface ApplyResponse {
+    success: boolean;
+    message?: string;
+    screenshot_path?: string;
+    screenshot_base64?: string;
+    send_status: 'pending' | 'sent' | 'failed' | 'manual_takeover' | 'login_required' | 'unavailable' | string;
+    send_ready: boolean;
+    approval_token?: string;
+    approval_expires_in?: number;
+    error?: string;
 }
 
 // ============================================================================
@@ -184,6 +210,26 @@ export async function getJobDetail(jobId: number): Promise<JobDetailResponse> {
  */
 export async function deleteJob(jobId: number): Promise<{ success: boolean; message?: string }> {
     return apiRequest(`/api/jobs/${jobId}`, { method: 'DELETE' });
+}
+
+/**
+ * 生成真实投递前的只读预览，并签发短期一次性审批许可。
+ */
+export async function previewJobApplication(req: ApplyPreviewRequest): Promise<ApplyResponse> {
+    return apiRequest<ApplyResponse>('/api/jobs/apply/preview', {
+        method: 'POST',
+        body: JSON.stringify(req),
+    });
+}
+
+/**
+ * 消费预览许可执行一次发送。调用方必须在 UI 中取得用户显式确认。
+ */
+export async function sendJobApplication(req: ApplySendRequest): Promise<ApplyResponse> {
+    return apiRequest<ApplyResponse>('/api/jobs/apply/send', {
+        method: 'POST',
+        body: JSON.stringify(req),
+    });
 }
 
 /**

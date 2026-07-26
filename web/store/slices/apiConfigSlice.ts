@@ -101,7 +101,9 @@ export const createApiConfigSlice = (set: SetState, get: GetState): ApiConfigSli
             newConfig.contentWriterModelId = newModel.id;
             newConfig.hrReviewerModelId = newModel.id;
             newConfig.reflectorModelId = newModel.id;
-            newConfig.voiceModelId = newModel.id;
+            if (newModel.kind === 'voice' || /omni|audio/i.test(newModel.model)) {
+                newConfig.voiceModelId = newModel.id;
+            }
         }
 
         set({ apiConfig: newConfig });
@@ -146,21 +148,21 @@ export const createApiConfigSlice = (set: SetState, get: GetState): ApiConfigSli
 
     setSmartModel: (id) => {
         const { apiConfig } = get();
-        if (!apiConfig.models.find(m => m.id === id)) return false;
+        if (id && !apiConfig.models.find(m => m.id === id)) return false;
         set({ apiConfig: { ...apiConfig, smartModelId: id } });
         return true;
     },
 
     setFastModel: (id) => {
         const { apiConfig } = get();
-        if (!apiConfig.models.find(m => m.id === id)) return false;
+        if (id && !apiConfig.models.find(m => m.id === id)) return false;
         set({ apiConfig: { ...apiConfig, fastModelId: id } });
         return true;
     },
 
     toggleReasoningPoolModel: (id) => {
         const { apiConfig } = get();
-        if (!apiConfig.models.find(m => m.id === id)) return false;
+        if (id && !apiConfig.models.find(m => m.id === id)) return false;
         const current = apiConfig.reasoningPoolModelIds || [];
         const reasoningPoolModelIds = current.includes(id)
             ? current.filter(modelId => modelId !== id)
@@ -171,7 +173,7 @@ export const createApiConfigSlice = (set: SetState, get: GetState): ApiConfigSli
 
     toggleFastPoolModel: (id) => {
         const { apiConfig } = get();
-        if (!apiConfig.models.find(m => m.id === id)) return false;
+        if (id && !apiConfig.models.find(m => m.id === id)) return false;
         const current = apiConfig.fastPoolModelIds || [];
         const fastPoolModelIds = current.includes(id)
             ? current.filter(modelId => modelId !== id)
@@ -183,63 +185,63 @@ export const createApiConfigSlice = (set: SetState, get: GetState): ApiConfigSli
     // 简历工具专家模型 setters
     setGeneralModel: (id) => {
         const { apiConfig } = get();
-        if (!apiConfig.models.find(m => m.id === id)) return false;
+        if (id && !apiConfig.models.find(m => m.id === id)) return false;
         set({ apiConfig: { ...apiConfig, generalModelId: id } });
         return true;
     },
 
     setMatchAnalystModel: (id) => {
         const { apiConfig } = get();
-        if (!apiConfig.models.find(m => m.id === id)) return false;
+        if (id && !apiConfig.models.find(m => m.id === id)) return false;
         set({ apiConfig: { ...apiConfig, matchAnalystModelId: id } });
         return true;
     },
 
     setContentWriterModel: (id) => {
         const { apiConfig } = get();
-        if (!apiConfig.models.find(m => m.id === id)) return false;
+        if (id && !apiConfig.models.find(m => m.id === id)) return false;
         set({ apiConfig: { ...apiConfig, contentWriterModelId: id } });
         return true;
     },
 
     setHrReviewerModel: (id) => {
         const { apiConfig } = get();
-        if (!apiConfig.models.find(m => m.id === id)) return false;
+        if (id && !apiConfig.models.find(m => m.id === id)) return false;
         set({ apiConfig: { ...apiConfig, hrReviewerModelId: id } });
         return true;
     },
 
     setReflectorModel: (id) => {
         const { apiConfig } = get();
-        if (!apiConfig.models.find(m => m.id === id)) return false;
+        if (id && !apiConfig.models.find(m => m.id === id)) return false;
         set({ apiConfig: { ...apiConfig, reflectorModelId: id } });
         return true;
     },
 
     setVoiceModel: (id) => {
         const { apiConfig } = get();
-        if (!apiConfig.models.find(m => m.id === id)) return false;
+        if (id && !apiConfig.models.find(m => m.id === id)) return false;
         set({ apiConfig: { ...apiConfig, voiceModelId: id } });
         return true;
     },
 
     setRagEmbeddingModel: (id) => {
         const { apiConfig } = get();
-        if (!apiConfig.models.find(m => m.id === id)) return false;
+        if (id && !apiConfig.models.find(m => m.id === id)) return false;
         set({ apiConfig: { ...apiConfig, ragEmbeddingModelId: id } });
         return true;
     },
 
     setMem0LlmModel: (id) => {
         const { apiConfig } = get();
-        if (!apiConfig.models.find(m => m.id === id)) return false;
+        if (id && !apiConfig.models.find(m => m.id === id)) return false;
         set({ apiConfig: { ...apiConfig, mem0LlmModelId: id } });
         return true;
     },
 
     setMem0EmbedderModel: (id) => {
         const { apiConfig } = get();
-        if (!apiConfig.models.find(m => m.id === id)) return false;
+        if (id && !apiConfig.models.find(m => m.id === id)) return false;
         set({ apiConfig: { ...apiConfig, mem0EmbedderModelId: id } });
         return true;
     },

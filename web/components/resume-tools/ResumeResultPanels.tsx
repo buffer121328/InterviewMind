@@ -23,8 +23,8 @@ export function ResumeAnalyzeResultPanel({ result }: { result: ResumeAnalyzeResu
         const dimensionColors: Record<string, { bar: string; text: string }> = {
             clarity: { bar: "bg-blue-500", text: "text-blue-600" },
             job_match: { bar: "bg-blue-500", text: "text-blue-600" },
-            structure: { bar: "bg-orange-500", text: "text-orange-600" },
-            highlights: { bar: "bg-orange-500", text: "text-orange-600" },
+            structure: { bar: "bg-teal-500", text: "text-teal-600" },
+            highlights: { bar: "bg-teal-500", text: "text-teal-600" },
             completeness: { bar: "bg-purple-500", text: "text-purple-600" },
             quantification: { bar: "bg-purple-500", text: "text-purple-600" },
         };
@@ -33,7 +33,7 @@ export function ResumeAnalyzeResultPanel({ result }: { result: ResumeAnalyzeResu
             dimension: key,
             score: value.score / 10,
             label: getResumeDimensionLabel(key),
-            colors: dimensionColors[key] || { bar: "bg-orange-500", text: "text-orange-600" },
+            colors: dimensionColors[key] || { bar: "bg-teal-500", text: "text-teal-600" },
         }));
 
         return (
@@ -48,7 +48,7 @@ export function ResumeAnalyzeResultPanel({ result }: { result: ResumeAnalyzeResu
                     <CardContent>
                         <div className="flex items-center gap-4 mb-4">
                             <div className="text-center">
-                                <div className="text-4xl font-bold text-orange-600">
+                                <div className="text-4xl font-bold text-teal-600">
                                     {analyzeResult.overall_score.toFixed(0)}
                                 </div>
                                 <div className="text-sm text-gray-500">综合评分</div>
@@ -95,7 +95,7 @@ export function ResumeAnalyzeResultPanel({ result }: { result: ResumeAnalyzeResu
 
                     <Card>
                         <CardHeader className="pb-2">
-                            <CardTitle className="text-sm flex items-center gap-2 text-orange-600">
+                            <CardTitle className="text-sm flex items-center gap-2 text-teal-600">
                                 <AlertCircle size={16} />
                                 待改进
                             </CardTitle>
@@ -103,7 +103,7 @@ export function ResumeAnalyzeResultPanel({ result }: { result: ResumeAnalyzeResu
                         <CardContent>
                             <div className="flex flex-col gap-3">
                                 {analyzeResult.weaknesses.map((item, idx) => (
-                                    <div key={idx} className="p-4 bg-orange-50/80 text-orange-800 rounded-xl text-sm leading-relaxed border border-orange-100/50 shadow-sm">
+                                    <div key={idx} className="p-4 bg-teal-50/80 text-teal-800 rounded-xl text-sm leading-relaxed border border-teal-100/50 shadow-sm">
                                         {item}
                                     </div>
                                 ))}
@@ -151,7 +151,7 @@ export function ResumeAnalyzeResultPanel({ result }: { result: ResumeAnalyzeResu
                                                 px-1.5 py-0.5 rounded text-xs font-bold
                                                 ${isP1
                                                     ? 'bg-red-500/20 text-red-400'
-                                                    : 'bg-orange-500/20 text-orange-400'}
+                                                    : 'bg-teal-500/20 text-teal-400'}
                                             `}>
                                                 {priority}
                                             </span>
@@ -208,7 +208,7 @@ export function ResumeOptimizeResultPanel({
                             </div>
                             <Button
                                 size="sm"
-                                className="h-9 text-sm font-medium bg-gradient-to-r from-orange-500 to-emerald-500 hover:from-orange-600 hover:to-emerald-600 text-white shadow-md hover:shadow-lg transition-all px-4"
+                                className="h-9 text-sm font-medium bg-gradient-to-r from-teal-500 to-emerald-500 hover:from-teal-600 hover:to-emerald-600 text-white shadow-md hover:shadow-lg transition-all px-4"
                                 onClick={scrollToBottom}
                             >
                                 ↓ 下滑直接生成
@@ -218,7 +218,7 @@ export function ResumeOptimizeResultPanel({
                     <CardContent>
                         <div className="flex items-center gap-8 mb-4">
                             <div className="text-center">
-                                <div className="text-3xl font-bold text-orange-600">
+                                <div className="text-3xl font-bold text-teal-600">
                                     {optimizeResult.match_score.toFixed(0)}%
                                 </div>
                                 <div className="text-sm text-gray-500">JD 匹配度</div>
@@ -245,9 +245,9 @@ export function ResumeOptimizeResultPanel({
                                     ? { priority: idx + 1, area: '', issue: rawItem, action: '', example: undefined as string | undefined }
                                     : rawItem;
                                 return (
-                                    <div key={idx} className="border-l-2 border-orange-500 pl-3">
+                                    <div key={idx} className="border-l-2 border-teal-500 pl-3">
                                         <div className="flex items-center gap-2 mb-1">
-                                            <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded">
+                                            <span className="text-xs bg-teal-100 text-teal-700 px-2 py-0.5 rounded">
                                                 优先级 {item.priority}
                                             </span>
                                             {item.area && <span className="text-sm font-medium">{item.area}</span>}
@@ -274,10 +274,10 @@ export function ResumeOptimizeResultPanel({
                         <CardContent className="space-y-3">
                             {optimizeResult.keyword_analysis.missing.length > 0 && (
                                 <div>
-                                    <p className="text-xs text-orange-600 mb-1">缺失的关键词</p>
+                                    <p className="text-xs text-teal-600 mb-1">缺失的关键词</p>
                                     <div className="flex flex-wrap gap-2">
                                         {optimizeResult.keyword_analysis.missing.map((item, idx) => (
-                                            <span key={idx} className="px-2 py-1 bg-orange-100 text-orange-700 rounded text-xs">
+                                            <span key={idx} className="px-2 py-1 bg-teal-100 text-teal-700 rounded text-xs">
                                                 {item}
                                             </span>
                                         ))}
@@ -315,7 +315,7 @@ export function ResumeOptimizeResultPanel({
                 <div className="pt-4 border-t" ref={resultsBottomRef}>
                     <Button
                         onClick={onGenerate}
-                        className="w-full bg-gradient-to-r from-orange-500 to-emerald-500 hover:from-orange-600 hover:to-emerald-600 text-white"
+                        className="w-full bg-gradient-to-r from-teal-500 to-emerald-500 hover:from-teal-600 hover:to-emerald-600 text-white"
                         size="lg"
                     >
                         <FileText className="w-5 h-5 mr-2" />
@@ -341,7 +341,7 @@ export function ResumeJDMatchResultPanel({
     const getScoreColor = (score: number) => {
         if (score >= 80) return { bar: "bg-green-500", text: "text-green-600" };
         if (score >= 60) return { bar: "bg-blue-500", text: "text-blue-600" };
-        return { bar: "bg-orange-500", text: "text-orange-600" };
+        return { bar: "bg-teal-500", text: "text-teal-600" };
     };
 
     const dimensions = [
@@ -419,7 +419,7 @@ export function ResumeJDMatchResultPanel({
 
                     <Card>
                         <CardHeader className="pb-2">
-                            <CardTitle className="text-sm flex items-center gap-2 text-orange-600">
+                            <CardTitle className="text-sm flex items-center gap-2 text-teal-600">
                                 <AlertCircle size={16} />
                                 缺失关键词
                             </CardTitle>
@@ -428,7 +428,7 @@ export function ResumeJDMatchResultPanel({
                             {jdMatchResult.missing_keywords.length > 0 ? (
                                 <div className="flex flex-wrap gap-2">
                                     {jdMatchResult.missing_keywords.map((kw, idx) => (
-                                        <span key={idx} className="px-2.5 py-1 bg-orange-100 text-orange-700 rounded-full text-xs font-medium">
+                                        <span key={idx} className="px-2.5 py-1 bg-teal-100 text-teal-700 rounded-full text-xs font-medium">
                                             {kw}
                                         </span>
                                     ))}
@@ -492,7 +492,7 @@ export function ResumeJDMatchResultPanel({
                             {jdMatchResult.priority_actions.map((action, idx) => (
                                 <div key={idx} className="bg-[#1e293b] rounded-lg p-3 border border-slate-700">
                                     <div className="flex items-center gap-2 mb-1">
-                                        <span className={`px-1.5 py-0.5 rounded text-xs font-bold ${idx === 0 ? 'bg-red-500/20 text-red-400' : 'bg-orange-500/20 text-orange-400'}`}>
+                                        <span className={`px-1.5 py-0.5 rounded text-xs font-bold ${idx === 0 ? 'bg-red-500/20 text-red-400' : 'bg-teal-500/20 text-teal-400'}`}>
                                             P{idx + 1}
                                         </span>
                                     </div>
@@ -509,7 +509,7 @@ export function ResumeJDMatchResultPanel({
                 <div className="pt-4 border-t flex gap-3">
                     <Button
                         onClick={onContinueOptimize}
-                        className="flex-1 bg-gradient-to-r from-orange-500 to-emerald-500 hover:from-orange-600 hover:to-emerald-600 text-white"
+                        className="flex-1 bg-gradient-to-r from-teal-500 to-emerald-500 hover:from-teal-600 hover:to-emerald-600 text-white"
                         size="lg"
                     >
                         <FileText className="w-5 h-5 mr-2" />

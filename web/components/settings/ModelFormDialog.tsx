@@ -1,7 +1,17 @@
 'use client';
 
-import { useState } from 'react';
-import { AlertCircle, Award, Check, ChevronLeft, Eye, EyeOff, HelpCircle, Loader2 } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import {
+    AlertCircle,
+    CheckCircle2,
+    ChevronLeft,
+    ExternalLink,
+    Eye,
+    EyeOff,
+    KeyRound,
+    Loader2,
+    Network,
+} from 'lucide-react';
 import {
     Dialog,
     DialogContent,
@@ -17,7 +27,6 @@ import { getUserId } from '@/hooks/useUserIdentity';
 import { API_BASE_URL } from '@/lib/api/config';
 import { toast } from 'sonner';
 
-// 添加/编辑模型的二级弹窗
 interface ModelFormDialogProps {
     open: boolean;
     onClose: () => void;
@@ -26,366 +35,269 @@ interface ModelFormDialogProps {
     initialValues?: Partial<ModelConfig>;
 }
 
-function getInitialModelFormValues(
-    editingModel?: ModelConfig,
-    initialValues?: Partial<ModelConfig>
-) {
-    if (editingModel) {
+type ModelKind = NonNullable<ModelConfig['kind']>;
+
+function inferKind(model?: Partial<ModelConfig>): ModelKind {
+    if (model?.kind) return model.kind;
+    const modelName = model?.model?.toLowerCase() || '';
+    if (modelName.includes('embedding')) return 'embedding';
+    if (modelName.includes('omni') || modelName.includes('audio')) return 'voice';
+    return 'chat';
+}
+
+function getInitialValues(editingModel?: ModelConfig, initialValues?: Partial<ModelConfig>) {
+    const source = editingModel || initialValues;
+    if (source) {
         return {
-            provider: editingModel.provider,
-            apiKey: editingModel.apiKey,
-            baseUrl: editingModel.baseUrl,
-            model: editingModel.model,
-            name: editingModel.name,
+            provider: source.provider || 'openai',
+            apiKey: source.apiKey || '',
+            baseUrl: source.baseUrl || '',
+            model: source.model || '',
+            name: editingModel?.name || '',
+            kind: inferKind(source),
         };
     }
-
-    if (initialValues) {
-        return {
-            provider: initialValues.provider || '',
-            apiKey: initialValues.apiKey || '',
-            baseUrl: initialValues.baseUrl || '',
-            model: initialValues.model || '',
-            name: '',
-        };
-    }
-
-    const defaultProvider = 'aiping';
-    const providerConfig = API_PROVIDERS.find((item) => item.id === defaultProvider);
+    const provider = API_PROVIDERS.find(item => item.id === 'openai');
     return {
-        provider: defaultProvider,
+        provider: 'openai',
         apiKey: '',
-        baseUrl: providerConfig?.baseUrl || '',
-        model: providerConfig?.models[0] || '',
+        baseUrl: provider?.baseUrl || '',
+        model: '',
         name: '',
+        kind: 'chat' as ModelKind,
     };
 }
 
 export function ModelFormDialog({ open, onClose, onSave, editingModel, initialValues }: ModelFormDialogProps) {
-    const [initialFormValues] = useState(() => getInitialModelFormValues(editingModel, initialValues));
-    const [provider, setProvider] = useState(initialFormValues.provider);
-    const [apiKey, setApiKey] = useState(initialFormValues.apiKey);
-    const [baseUrl, setBaseUrl] = useState(initialFormValues.baseUrl);
-    const [model, setModel] = useState(initialFormValues.model);
-    const [name, setName] = useState(initialFormValues.name);
+    const [initial] = useState(() => getInitialValues(editingModel, initialValues));
+    const [provider, setProvider] = useState(initial.provider);
+    const [kind, setKind] = useState<ModelKind>(initial.kind);
+    const [apiKey, setApiKey] = useState(initial.apiKey);
+    const [baseUrl, setBaseUrl] = useState(initial.baseUrl);
+    const [model, setModel] = useState(initial.model);
+    const [name, setName] = useState(initial.name);
     const [showApiKey, setShowApiKey] = useState(false);
     const [isTesting, setIsTesting] = useState(false);
-    const [showTutorial, setShowTutorial] = useState(false);
     const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
-    const [testedConfiguration, setTestedConfiguration] = useState<string | null>(null);
-    const modelKind = model.toLowerCase().includes('embedding') ? 'embedding' : 'chat';
-    const configuration = [provider, apiKey, baseUrl, model, modelKind].join('\u0000');
-    const currentTestResult = testedConfiguration === configuration ? testResult : null;
+    const [testedFingerprint, setTestedFingerprint] = useState<string | null>(null);
 
-    // 选择提供商
+    const providerConfig = API_PROVIDERS.find(item => item.id === provider);
+    const fingerprint = [provider, kind, apiKey, baseUrl, model].join('\u0000');
+    const currentTestResult = testedFingerprint === fingerprint ? testResult : null;
+    const canSave = Boolean(apiKey.trim() && baseUrl.trim() && model.trim());
+    const suggestedModels = useMemo(() => providerConfig?.models || [], [providerConfig]);
+
     const handleProviderChange = (providerId: string) => {
+        const next = API_PROVIDERS.find(item => item.id === providerId);
         setProvider(providerId);
-        const providerConfig = API_PROVIDERS.find(p => p.id === providerId);
-        if (providerConfig) {
-            setBaseUrl(providerConfig.baseUrl);
-            if (providerConfig.models.length > 0) {
-                setModel(providerConfig.models[0]);
-            } else {
-                setModel('');
-            }
-        }
+        setBaseUrl(next?.baseUrl || '');
+        setModel('');
     };
 
-    // 测试连接
     const handleTestConnection = async () => {
-        if (!apiKey || !baseUrl || !model) {
-            setTestResult({ success: false, message: '请先填写完整的配置信息' });
-            setTestedConfiguration(configuration);
+        if (!canSave) {
+            setTestResult({ success: false, message: '请先填写 API Key、Base URL 和模型名称。' });
+            setTestedFingerprint(fingerprint);
             return;
         }
 
         setIsTesting(true);
         setTestResult(null);
-        setTestedConfiguration(null);
-
+        setTestedFingerprint(null);
         try {
             const response = await fetch(`${API_BASE_URL}/api/config/validate`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'X-User-ID': getUserId()
+                    'X-User-ID': getUserId(),
                 },
                 body: JSON.stringify({
-                    api_key: apiKey,
-                    base_url: baseUrl,
-                    model: model,
-                    kind: modelKind
-                })
+                    api_key: apiKey.trim(),
+                    base_url: baseUrl.trim(),
+                    model: model.trim(),
+                    kind: kind === 'embedding' ? 'embedding' : 'chat',
+                }),
             });
-
-            const data = await response.json();
+            const data = await response.json().catch(() => ({}));
             const result = {
-                success: data.success,
-                message: data.message || (data.success ? '连接成功！' : '连接失败')
+                success: Boolean(response.ok && data.success),
+                message: data.message || (response.ok ? '连接验证通过。' : `验证失败（HTTP ${response.status}）。`),
             };
             setTestResult(result);
-            setTestedConfiguration(configuration);
-
-            if (data.success) {
-                toast.success('连接成功！', {
-                    description: '您的 API 配置已验证通过'
-                });
-            } else {
-                toast.error('连接失败', {
-                    description: result.message
-                });
-            }
+            setTestedFingerprint(fingerprint);
+            if (result.success) toast.success('模型连接验证通过');
+            else toast.error('模型连接验证失败', { description: result.message });
         } catch {
-            const message = '无法连接到服务器，请检查网络';
-            setTestResult({
-                success: false,
-                message
-            });
-            setTestedConfiguration(configuration);
-            toast.error('连接错误', {
-                description: message
-            });
+            const result = { success: false, message: '无法连接后端验证接口，请检查服务状态与网络。' };
+            setTestResult(result);
+            setTestedFingerprint(fingerprint);
+            toast.error('连接验证失败', { description: result.message });
         } finally {
             setIsTesting(false);
         }
     };
 
-    // 保存
     const handleSave = () => {
-        const providerConfig = API_PROVIDERS.find(p => p.id === provider);
-        const configName = name || `${providerConfig?.name || '自定义'} - ${model}`;
-
+        if (!canSave) return;
+        const displayName = name.trim() || `${providerConfig?.name || '自定义'} · ${model.trim()}`;
         onSave({
-            name: configName,
+            name: displayName,
             provider,
-            apiKey,
-            baseUrl,
-            model
+            kind,
+            apiKey: apiKey.trim(),
+            baseUrl: baseUrl.trim().replace(/\/+$/, ''),
+            model: model.trim(),
         });
         onClose();
     };
 
-    const currentProvider = API_PROVIDERS.find(p => p.id === provider);
-    const canSave = apiKey && baseUrl && model;
-
     return (
-        <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
-            <DialogContent className="sm:max-w-[500px] max-h-[90vh] p-0 flex flex-col gap-0 overflow-hidden">
-                <DialogHeader className="p-6 pb-4 border-b">
-                    <div className="flex items-center justify-between">
-                        <DialogTitle className="flex items-center gap-2">
-                            <ChevronLeft className="w-5 h-5 cursor-pointer hover:text-orange-600" onClick={onClose} />
-                            {editingModel ? '编辑模型配置' : '添加模型配置'}
-                        </DialogTitle>
-                        <button
-                            onClick={() => setShowTutorial(!showTutorial)}
-                            className="flex items-center gap-1 text-xs text-orange-600 hover:text-orange-700 font-medium bg-orange-50 px-2 py-1 rounded-md transition-colors"
-                        >
-                            <HelpCircle className="w-3.5 h-3.5" />
-                            教程
+        <Dialog open={open} onOpenChange={nextOpen => !nextOpen && onClose()}>
+            <DialogContent className="flex max-h-[92vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-[620px]">
+                <DialogHeader className="border-b border-slate-200 px-6 py-5 pr-12">
+                    <DialogTitle className="flex items-center gap-2 text-slate-950">
+                        <button type="button" onClick={onClose} className="rounded-md p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-900" aria-label="返回">
+                            <ChevronLeft className="h-5 w-5" />
                         </button>
-                    </div>
-                    <DialogDescription>
-                        配置大模型 API，数据仅保存在本地浏览器中
-                    </DialogDescription>
+                        {editingModel ? '编辑模型连接' : '添加模型连接'}
+                    </DialogTitle>
+                    <DialogDescription className="pl-8">填写一个 OpenAI-compatible 模型端点，并在保存前验证连接。</DialogDescription>
                 </DialogHeader>
 
-                <div className="flex-1 overflow-y-auto p-6">
-                    <div className="space-y-5">
-                        {/* 配置教程面板 */}
-                        {showTutorial && (
-                            <div className="mb-5 p-4 rounded-xl border border-orange-100 bg-orange-50/40 space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
-                                <div className="flex items-center gap-2 text-sm font-bold text-orange-800">
-                                    <Award className="w-4 h-4 text-orange-500" /> 快速配置建议
-                                </div>
-                                <div className="space-y-2 text-[11px] text-orange-700 leading-relaxed">
-                                    <p>1. <strong>获取福利：</strong> 推荐使用 <a href="https://www.aiping.cn/#?invitation_code=SJY0NW" target="_blank" className="underline font-bold text-orange-600 font-bold underline">AI Ping</a> 注册，输入邀请码 <b>SJY0NW</b> 可领 <b>20元</b> 奖励。</p>
-                                    <p>2. <strong>填写说明：</strong> 选择提供商后会自动填入 Base URL。你只需要粘贴你的 <b>API Key</b> ，并选择模型配置即可。</p>
-                                    <p>3. <strong>测试连接：</strong> 保存前请务必点击底部的“测试连接”，确保配置有效。</p>
-                                </div>
-                            </div>
-                        )}
-                        {/* API 提供商 */}
-                        <div className="space-y-2">
-                            <label className="text-sm font-medium text-gray-700">
-                                API 提供商
-                            </label>
-                            <div className="grid grid-cols-3 gap-2">
-                                {API_PROVIDERS.map((p) => (
-                                    <button
-                                        key={p.id}
-                                        onClick={() => handleProviderChange(p.id)}
-                                        className={cn(
-                                            "px-3 py-2 text-sm rounded-lg border transition-all",
-                                            provider === p.id
-                                                ? "border-orange-500 bg-orange-50 text-orange-700 font-medium"
-                                                : "border-gray-200 hover:border-gray-300 text-gray-600"
-                                        )}
-                                    >
-                                        {p.name}
-                                    </button>
-                                ))}
-                            </div>
+                <div className="flex-1 space-y-6 overflow-y-auto px-6 py-5">
+                    <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900">
+                        <div className="flex items-start gap-2">
+                            <KeyRound className="mt-0.5 h-4 w-4 shrink-0" />
+                            <p>Key 会明文保存在当前浏览器，并在执行任务时发送给本项目后端。请勿截图、共享浏览器配置或在非 HTTPS 公网环境使用。</p>
                         </div>
+                    </div>
 
-                        {/* API Key */}
-                        <div className="space-y-2">
-                            <label className="text-sm font-medium text-gray-700">
-                                API Key <span className="text-red-500">*</span>
-                            </label>
-                            <div className="relative">
+                    <div className="space-y-3">
+                        <label className="text-sm font-medium text-slate-800">提供商预设</label>
+                        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                            {API_PROVIDERS.map(item => (
+                                <button
+                                    type="button"
+                                    key={item.id}
+                                    onClick={() => handleProviderChange(item.id)}
+                                    className={cn(
+                                        'rounded-lg border px-3 py-2 text-xs transition',
+                                        provider === item.id
+                                            ? 'border-teal-600 bg-teal-50 font-medium text-teal-800'
+                                            : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300',
+                                    )}
+                                >
+                                    {item.name}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    <div className="space-y-3">
+                        <label className="text-sm font-medium text-slate-800">模型类型</label>
+                        <div className="grid grid-cols-3 gap-2">
+                            {([
+                                ['chat', '文本 / 推理'],
+                                ['embedding', 'Embedding'],
+                                ['voice', '语音 Omni'],
+                            ] as const).map(([value, label]) => (
+                                <button
+                                    type="button"
+                                    key={value}
+                                    onClick={() => setKind(value)}
+                                    className={cn(
+                                        'rounded-lg border px-3 py-2 text-xs transition',
+                                        kind === value
+                                            ? 'border-teal-600 bg-teal-50 font-medium text-teal-800'
+                                            : 'border-slate-200 text-slate-600 hover:border-slate-300',
+                                    )}
+                                >
+                                    {label}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    <div className="grid gap-5 sm:grid-cols-2">
+                        <label className="space-y-2 sm:col-span-2">
+                            <span className="text-sm font-medium text-slate-800">API Key</span>
+                            <span className="relative block">
                                 <input
                                     type={showApiKey ? 'text' : 'password'}
                                     value={apiKey}
-                                    onChange={(e) => setApiKey(e.target.value)}
+                                    onChange={event => setApiKey(event.target.value)}
                                     autoComplete="new-password"
-                                    name="api-key-field"
-                                    className="w-full rounded-lg border border-gray-200 px-4 py-2.5 pr-12 text-sm focus:border-orange-500 focus:ring-2 focus:ring-orange-50 focus:outline-none"
+                                    name="model-api-key"
+                                    placeholder="输入当前提供商的 API Key"
+                                    className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 pr-11 text-sm outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100"
                                 />
-                                <button
-                                    type="button"
-                                    onClick={() => setShowApiKey(!showApiKey)}
-                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                                >
-                                    {showApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                                <button type="button" onClick={() => setShowApiKey(value => !value)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700" aria-label={showApiKey ? '隐藏 Key' : '显示 Key'}>
+                                    {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                                 </button>
-                            </div>
-                            {currentProvider?.apiKeyUrl ? (
-                                <p className="text-xs text-orange-600">
-                                    <a
-                                        href={currentProvider.apiKeyUrl}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="hover:underline inline-flex items-center gap-1"
-                                    >
-                                        → 点击获取 {currentProvider.name} API Key
-                                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                                        </svg>
-                                    </a>
-                                </p>
-                            ) : (
-                                <p className="text-xs text-gray-400">
-                                    您的 API Key 仅保存在浏览器本地，不会上传到服务器
-                                </p>
-                            )}
-                        </div>
-
-                        {/* Base URL */}
-                        <div className="space-y-2">
-                            <label className="text-sm font-medium text-gray-700">
-                                Base URL <span className="text-red-500">*</span>
-                            </label>
-                            <input
-                                type="text"
-                                value={baseUrl}
-                                onChange={(e) => setBaseUrl(e.target.value)}
-                                className="w-full rounded-lg border border-gray-200 px-4 py-2.5 text-sm focus:border-orange-500 focus:ring-2 focus:ring-orange-50 focus:outline-none"
-                                placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1"
-                            />
-                        </div>
-
-                        {/* 模型配置 */}
-                        <div className="space-y-2">
-                            <label className="text-sm font-medium text-gray-700">
-                                模型配置 <span className="text-red-500">*</span>
-                            </label>
-                            {currentProvider && currentProvider.models.length > 0 ? (
-                                <select
-                                    value={model}
-                                    onChange={(e) => setModel(e.target.value)}
-                                    className="w-full rounded-lg border border-gray-200 px-4 py-2.5 text-sm focus:border-orange-500 focus:ring-2 focus:ring-orange-50 focus:outline-none bg-white"
-                                >
-                                    <option value="">选择模型</option>
-                                    {currentProvider.models.map((m) => (
-                                        <option key={m} value={m}>{m}</option>
-                                    ))}
-                                </select>
-                            ) : (
-                                <input
-                                    type="text"
-                                    value={model}
-                                    onChange={(e) => setModel(e.target.value)}
-                                    className="w-full rounded-lg border border-gray-200 px-4 py-2.5 text-sm focus:border-orange-500 focus:ring-2 focus:ring-orange-50 focus:outline-none"
-                                    placeholder="输入模型名称，如 deepseek-v4-flash 或 text-embedding-v4"
-                                />
-                            )}
-                        </div>
-
-                        {/* 配置名称（可选） */}
-                        <div className="space-y-2">
-                            <label className="text-sm font-medium text-gray-700">
-                                配置名称 <span className="text-gray-400 text-xs">（可选）</span>
-                            </label>
-                            <input
-                                type="text"
-                                value={name}
-                                onChange={(e) => setName(e.target.value)}
-                                autoComplete="off"
-                                name="config-name-field"
-                                className="w-full rounded-lg border border-gray-200 px-4 py-2.5 text-sm focus:border-orange-500 focus:ring-2 focus:ring-orange-50 focus:outline-none"
-                            />
-                        </div>
-
-                        {/* 测试连接结果 - 只在失败时显示 Banner，成功则直接体现在按钮上 */}
-                        {currentTestResult && !currentTestResult.success && (
-                            <div className={cn(
-                                "flex items-center gap-2 p-3 rounded-lg text-sm bg-red-50 text-red-700 border border-red-200 animate-in fade-in slide-in-from-top-1"
-                            )}>
-                                <AlertCircle className="w-4 h-4 flex-shrink-0" />
-                                {currentTestResult.message}
-                            </div>
-                        )}
-                    </div>
-                </div>
-
-                <DialogFooter className="p-6 pt-4 border-t bg-gray-50/50 flex-col sm:flex-row gap-2">
-                    {!currentTestResult && (
-                        <div className="flex items-center gap-2 px-1 pb-2">
-                            <span className="relative flex h-2 w-2">
-                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-orange-400 opacity-75"></span>
-                                <span className="relative inline-flex rounded-full h-2 w-2 bg-orange-500"></span>
                             </span>
-                            <p className="text-xs text-orange-600 font-medium">请先测试连接，确保配置可用</p>
+                            {providerConfig?.apiKeyUrl && (
+                                <a href={providerConfig.apiKeyUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-teal-700 hover:underline">
+                                    打开 {providerConfig.name} 官方密钥页 <ExternalLink className="h-3 w-3" />
+                                </a>
+                            )}
+                        </label>
+
+                        <label className="space-y-2 sm:col-span-2">
+                            <span className="text-sm font-medium text-slate-800">Base URL</span>
+                            <input
+                                value={baseUrl}
+                                onChange={event => setBaseUrl(event.target.value)}
+                                placeholder="https://provider.example/v1"
+                                className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 font-mono text-xs outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100"
+                            />
+                        </label>
+
+                        <label className="space-y-2">
+                            <span className="text-sm font-medium text-slate-800">模型名称</span>
+                            <input
+                                value={model}
+                                onChange={event => setModel(event.target.value)}
+                                list="provider-model-suggestions"
+                                placeholder={kind === 'embedding' ? '例如 text-embedding-v4' : kind === 'voice' ? '例如 qwen3-omni-flash-2025-12-01' : '填写提供商模型 ID'}
+                                className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100"
+                            />
+                            <datalist id="provider-model-suggestions">
+                                {suggestedModels.map(item => <option key={item} value={item} />)}
+                            </datalist>
+                        </label>
+
+                        <label className="space-y-2">
+                            <span className="text-sm font-medium text-slate-800">连接名称（可选）</span>
+                            <input
+                                value={name}
+                                onChange={event => setName(event.target.value)}
+                                placeholder="例如 主推理模型"
+                                className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100"
+                            />
+                        </label>
+                    </div>
+
+                    {currentTestResult && (
+                        <div className={cn(
+                            'flex items-start gap-2 rounded-xl border p-3 text-sm',
+                            currentTestResult.success
+                                ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                                : 'border-red-200 bg-red-50 text-red-800',
+                        )}>
+                            {currentTestResult.success ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /> : <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />}
+                            {currentTestResult.message}
                         </div>
                     )}
-                    <Button
-                        variant="outline"
-                        onClick={handleTestConnection}
-                        disabled={isTesting || !canSave}
-                        className={cn(
-                            "flex-1 sm:flex-none transition-all duration-300",
-                            currentTestResult?.success
-                                ? "border-green-200 text-green-700 bg-green-50 hover:bg-green-100 hover:text-green-800 hover:border-green-300"
-                                : "border-orange-200 text-orange-700 bg-orange-50 hover:bg-orange-100 hover:text-orange-800 hover:border-orange-300"
-                        )}
-                    >
-                        {isTesting ? (
-                            <>
-                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                                测试中...
-                            </>
-                        ) : currentTestResult?.success ? (
-                            <>
-                                <Check className="w-4 h-4 mr-2" />
-                                连接成功
-                            </>
-                        ) : (
-                            '测试连接'
-                        )}
+                </div>
+
+                <DialogFooter className="border-t border-slate-200 bg-slate-50 px-6 py-4">
+                    <Button variant="outline" onClick={handleTestConnection} disabled={!canSave || isTesting}>
+                        {isTesting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Network className="h-4 w-4" />}
+                        验证连接
                     </Button>
-                    <div className="flex gap-2 flex-1 sm:flex-none">
-                        <Button variant="outline" onClick={onClose} className="flex-1">
-                            取消
-                        </Button>
-                        <Button
-                            onClick={handleSave}
-                            disabled={!canSave}
-                            className="flex-1 bg-orange-600 hover:bg-orange-700"
-                        >
-                            保存
-                        </Button>
-                    </div>
+                    <Button className="bg-teal-700 hover:bg-teal-800" onClick={handleSave} disabled={!canSave}>
+                        保存连接
+                    </Button>
                 </DialogFooter>
             </DialogContent>
         </Dialog>

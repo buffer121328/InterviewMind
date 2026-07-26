@@ -24,7 +24,7 @@ export function ExecutionPlanPanel({ steps, className, dark = false }: Execution
                 {steps.map((step) => (
                     <div key={step.id} className="flex items-center gap-2 text-sm">
                         {step.status === 'completed' && <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" />}
-                        {step.status === 'running' && <Loader2 className="h-4 w-4 shrink-0 animate-spin text-orange-500" />}
+                        {step.status === 'running' && <Loader2 className="h-4 w-4 shrink-0 animate-spin text-teal-500" />}
                         {step.status === 'failed' && <XCircle className="h-4 w-4 shrink-0 text-red-500" />}
                         {step.status === 'pending' && <Circle className={cn("h-4 w-4 shrink-0", dark ? "text-white/25" : "text-gray-300")} />}
                         <span className={cn(

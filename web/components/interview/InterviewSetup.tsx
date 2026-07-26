@@ -118,7 +118,7 @@ export function InterviewSetup({
                 {/* 1. 上传简历 */}
                 <div className="space-y-2">
                     <label className="text-sm font-medium text-gray-700 flex items-center gap-2">
-                        <span className="flex items-center justify-center w-5 h-5 rounded-full bg-orange-100 text-orange-600 text-xs font-bold">1</span>
+                        <span className="flex items-center justify-center w-5 h-5 rounded-full bg-teal-100 text-teal-600 text-xs font-bold">1</span>
                         上传简历 (PDF/Word)
                     </label>
                     <div className="relative group">
@@ -131,8 +131,8 @@ export function InterviewSetup({
                         <div className={cn(
                             "w-full h-12 rounded-lg border-2 border-dashed flex items-center justify-center gap-2 transition-all text-sm",
                             resume
-                                ? "border-orange-200 bg-orange-50 text-orange-700"
-                                : "border-gray-200 bg-gray-50 text-gray-400 group-hover:border-orange-300 group-hover:bg-orange-50/30"
+                                ? "border-teal-200 bg-teal-50 text-teal-700"
+                                : "border-gray-200 bg-gray-50 text-gray-400 group-hover:border-teal-300 group-hover:bg-teal-50/30"
                         )}>
                             {isLoading ? (
                                 <Loader2 className="w-5 h-5 animate-spin" />
@@ -140,7 +140,7 @@ export function InterviewSetup({
                                 <>
                                     <FileText className="w-5 h-5" />
                                     <span className="font-medium truncate max-w-[200px]">{resume.original_name}</span>
-                                    <span className="text-xs bg-orange-200/50 px-2 py-0.5 rounded-full">已上传</span>
+                                    <span className="text-xs bg-teal-200/50 px-2 py-0.5 rounded-full">已上传</span>
                                 </>
                             ) : (
                                 <>
@@ -155,7 +155,7 @@ export function InterviewSetup({
                 {/* 2. 职位描述 - 点击弹窗编辑 */}
                 <div className="space-y-3">
                     <label className="text-sm font-medium text-gray-700 flex items-center gap-2">
-                        <span className="flex items-center justify-center w-5 h-5 rounded-full bg-orange-100 text-orange-600 text-xs font-bold">2</span>
+                        <span className="flex items-center justify-center w-5 h-5 rounded-full bg-teal-100 text-teal-600 text-xs font-bold">2</span>
                         目标岗位
                     </label>
 
@@ -165,7 +165,7 @@ export function InterviewSetup({
                     >
                         <div className={cn(
                             "w-full rounded-xl border border-gray-200 bg-white p-4 text-sm transition-all",
-                            "hover:border-orange-500 hover:ring-2 hover:ring-orange-50",
+                            "hover:border-teal-500 hover:ring-2 hover:ring-teal-50",
                             "min-h-[100px] max-h-[100px] overflow-hidden relative"
                         )}>
                             {jobDescription ? (
@@ -176,7 +176,7 @@ export function InterviewSetup({
 
                             {/* 悬停遮罩和提示 */}
                             <div className="absolute inset-0 bg-gradient-to-t from-white/80 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end justify-center pb-2">
-                                <span className="text-orange-600 font-medium flex items-center gap-1 bg-white/90 px-3 py-1 rounded-full shadow-sm text-xs">
+                                <span className="text-teal-600 font-medium flex items-center gap-1 bg-white/90 px-3 py-1 rounded-full shadow-sm text-xs">
                                     <Maximize2 className="w-3 h-3" /> 点击展开编辑
                                 </span>
                             </div>
@@ -195,7 +195,7 @@ export function InterviewSetup({
                         type="text"
                         value={companyInfo}
                         onChange={(e) => onCompanyInfoChange(e.target.value)}
-                        className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm transition-all hover:border-orange-500 hover:ring-2 hover:ring-orange-50 focus:border-orange-500 focus:ring-2 focus:ring-orange-50 focus:outline-none"
+                        className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm transition-all hover:border-teal-500 hover:ring-2 hover:ring-teal-50 focus:border-teal-500 focus:ring-2 focus:ring-teal-50 focus:outline-none"
                         placeholder="大厂、创业公司、外企等（主要业务、规模大小）"
                     />
                     <p className="text-xs text-gray-400">
@@ -206,18 +206,18 @@ export function InterviewSetup({
                 {/* 3. 面试类型与题数 */}
                 <div className="space-y-3">
                     <label className="text-sm font-medium text-gray-700 flex items-center gap-2">
-                        <span className="flex items-center justify-center w-5 h-5 rounded-full bg-orange-100 text-orange-600 text-xs font-bold">3</span>
+                        <span className="flex items-center justify-center w-5 h-5 rounded-full bg-teal-100 text-teal-600 text-xs font-bold">3</span>
                         面试类型与题数
                     </label>
 
-                    <div className="rounded-xl border border-orange-100 bg-orange-50/50 px-4 py-3 text-sm text-orange-900">
+                    <div className="rounded-xl border border-teal-100 bg-teal-50/50 px-4 py-3 text-sm text-teal-900">
                         <div className="flex items-center justify-between gap-3">
                             <span className="font-medium">{INTERVIEW_TYPE_OPTIONS.find((option) => option.value === interviewType)?.label ?? "综合面"}</span>
-                            <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-orange-700 shadow-sm">
+                            <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-teal-700 shadow-sm">
                                 {maxQuestions} 道主问题
                             </span>
                         </div>
-                        <p className="mt-2 text-xs text-orange-700/80">
+                        <p className="mt-2 text-xs text-teal-700/80">
                             点击开始面试后会弹窗确认；题数可留空，默认 HR 面 5 道、技术面 20 道、综合面 10 道。追问不单独计数。
                         </p>
                     </div>
@@ -235,9 +235,9 @@ export function InterviewSetup({
                             step="1"
                             value={Math.min(questionBankCount, maxQuestions)}
                             onChange={(e) => onQuestionBankCountChange(parseInt(e.target.value))}
-                            className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-orange-600"
+                            className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-teal-600"
                         />
-                        <div className="w-12 h-10 flex items-center justify-center bg-orange-50 border border-orange-100 rounded-lg text-orange-700 font-semibold">
+                        <div className="w-12 h-10 flex items-center justify-center bg-teal-50 border border-teal-100 rounded-lg text-teal-700 font-semibold">
                             {Math.min(questionBankCount, maxQuestions)}
                         </div>
                     </div>
@@ -251,7 +251,7 @@ export function InterviewSetup({
                 {/* 4. 面试模式选择 */}
                 <div className="space-y-3">
                     <label className="text-sm font-medium text-gray-700 flex items-center gap-2">
-                        <span className="flex items-center justify-center w-5 h-5 rounded-full bg-orange-100 text-orange-600 text-xs font-bold">4</span>
+                        <span className="flex items-center justify-center w-5 h-5 rounded-full bg-teal-100 text-teal-600 text-xs font-bold">4</span>
                         面试模式
                     </label>
 
@@ -263,30 +263,30 @@ export function InterviewSetup({
                             className={cn(
                                 "relative p-4 rounded-xl border-2 transition-all text-left",
                                 selectedMode === "text"
-                                    ? "border-orange-500 bg-orange-50 ring-2 ring-orange-100"
+                                    ? "border-teal-500 bg-teal-50 ring-2 ring-teal-100"
                                     : "border-gray-200 bg-white hover:border-gray-300"
                             )}
                         >
                             <div className="flex items-center gap-3 mb-2">
                                 <div className={cn(
                                     "w-10 h-10 rounded-full flex items-center justify-center",
-                                    selectedMode === "text" ? "bg-orange-100" : "bg-gray-100"
+                                    selectedMode === "text" ? "bg-teal-100" : "bg-gray-100"
                                 )}>
                                     <MessageSquare className={cn(
                                         "w-5 h-5",
-                                        selectedMode === "text" ? "text-orange-600" : "text-gray-500"
+                                        selectedMode === "text" ? "text-teal-600" : "text-gray-500"
                                     )} />
                                 </div>
                                 <div>
                                     <h4 className={cn(
                                         "font-semibold",
-                                        selectedMode === "text" ? "text-orange-700" : "text-gray-700"
+                                        selectedMode === "text" ? "text-teal-700" : "text-gray-700"
                                     )}>文字对话</h4>
                                     <p className="text-xs text-gray-500">打字回答问题</p>
                                 </div>
                             </div>
                             {selectedMode === "text" && (
-                                <div className="absolute top-2 right-2 w-5 h-5 rounded-full bg-orange-500 flex items-center justify-center">
+                                <div className="absolute top-2 right-2 w-5 h-5 rounded-full bg-teal-500 flex items-center justify-center">
                                     <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
                                     </svg>
@@ -346,9 +346,9 @@ export function InterviewSetup({
                 </div>
 
                 {/* 本次面试共享上下文 */}
-                <div className="rounded-xl border border-orange-100 bg-orange-50/50 p-4">
+                <div className="rounded-xl border border-teal-100 bg-teal-50/50 p-4">
                     <div className="mb-3 flex items-center gap-2">
-                        <Link2 className="h-4 w-4 text-orange-600" />
+                        <Link2 className="h-4 w-4 text-teal-600" />
                         <div>
                             <p className="text-sm font-medium text-gray-800">本次面试上下文</p>
                             <p className="text-xs text-gray-500">以下信息会一起用于定制问题</p>
@@ -366,7 +366,7 @@ export function InterviewSetup({
                                 ready: true,
                             },
                         ].map((item) => (
-                            <div key={item.label} className="rounded-lg border border-orange-100 bg-white px-3 py-2">
+                            <div key={item.label} className="rounded-lg border border-teal-100 bg-white px-3 py-2">
                                 <div className="flex items-center gap-1.5 text-xs text-gray-500">
                                     <CheckCircle2 className={cn("h-3.5 w-3.5", item.ready ? "text-emerald-500" : "text-gray-300")} />
                                     {item.label}
@@ -404,7 +404,7 @@ export function InterviewSetup({
                         "w-full h-12 text-base font-medium shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed",
                         selectedMode === "voice"
                             ? "bg-purple-600 hover:bg-purple-700 shadow-purple-200"
-                            : "bg-orange-600 hover:bg-orange-700 shadow-orange-200"
+                            : "bg-teal-600 hover:bg-teal-700 shadow-teal-200"
                     )}
                     onClick={handleStartInterview}
                     disabled={!resume || !jobDescription.trim() || isLoading || !hasApiConfig}
@@ -442,8 +442,8 @@ export function InterviewSetup({
                                         className={cn(
                                             "rounded-xl border p-3 text-left transition-all",
                                             draftInterviewType === option.value
-                                                ? "border-orange-500 bg-orange-50 ring-2 ring-orange-100"
-                                                : "border-gray-200 bg-white hover:border-orange-200"
+                                                ? "border-teal-500 bg-teal-50 ring-2 ring-teal-100"
+                                                : "border-gray-200 bg-white hover:border-teal-200"
                                         )}
                                     >
                                         <div className="font-semibold text-gray-900">{option.label}</div>
@@ -464,7 +464,7 @@ export function InterviewSetup({
                                 max="20"
                                 value={draftQuestionCount}
                                 onChange={(e) => setDraftQuestionCount(e.target.value)}
-                                className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm transition-all focus:border-orange-500 focus:outline-none focus:ring-2 focus:ring-orange-50"
+                                className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm transition-all focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-50"
                                 placeholder={`不填默认 ${getDefaultQuestionCount(draftInterviewType)} 道`}
                             />
                             <p className="text-xs text-gray-400">
@@ -475,7 +475,7 @@ export function InterviewSetup({
 
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setIsStartDialogOpen(false)}>取消</Button>
-                        <Button onClick={handleConfirmStartInterview} className="bg-orange-600 hover:bg-orange-700">
+                        <Button onClick={handleConfirmStartInterview} className="bg-teal-600 hover:bg-teal-700">
                             开始{selectedMode === "voice" ? "语音" : "文字"}面试
                         </Button>
                     </DialogFooter>
@@ -509,7 +509,7 @@ export function InterviewSetup({
                     </div>
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setIsJobDialogOpen(false)}>取消</Button>
-                        <Button onClick={handleSaveJobDescription} className="bg-orange-600 hover:bg-orange-700">确认</Button>
+                        <Button onClick={handleSaveJobDescription} className="bg-teal-600 hover:bg-teal-700">确认</Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>

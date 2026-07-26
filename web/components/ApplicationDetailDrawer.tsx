@@ -52,7 +52,7 @@ type Priority = 'high' | 'medium' | 'low';
 
 const eventMeta: Record<string, { label: string; color: string; icon: LucideIcon }> = {
     saved: { label: '已收藏', color: 'bg-slate-100 text-slate-700 border-slate-200', icon: Sparkles },
-    applied: { label: '已投递', color: 'bg-orange-100 text-orange-700 border-orange-200', icon: CheckCircle2 },
+    applied: { label: '已投递', color: 'bg-teal-100 text-teal-700 border-teal-200', icon: CheckCircle2 },
     phone_screen: { label: '电话面试', color: 'bg-cyan-100 text-cyan-700 border-cyan-200', icon: PhoneCall },
     technical: { label: '技术面', color: 'bg-emerald-100 text-emerald-700 border-emerald-200', icon: FileText },
     behavioral: { label: '行为面', color: 'bg-blue-100 text-blue-700 border-blue-200', icon: MessageSquare },
@@ -60,11 +60,11 @@ const eventMeta: Record<string, { label: string; color: string; icon: LucideIcon
     offer: { label: 'Offer', color: 'bg-amber-100 text-amber-700 border-amber-200', icon: HeartHandshake },
     rejected: { label: '已拒绝', color: 'bg-rose-100 text-rose-700 border-rose-200', icon: X },
     accepted: { label: '已接受', color: 'bg-green-100 text-green-700 border-green-200', icon: CheckCircle2 },
-    note: { label: '复盘笔记', color: 'bg-orange-100 text-orange-700 border-orange-200', icon: PencilLine },
+    note: { label: '复盘笔记', color: 'bg-teal-100 text-teal-700 border-teal-200', icon: PencilLine },
 };
 
 const statusColorMap: Record<string, string> = {
-    applied: 'bg-orange-100 text-orange-700 ring-orange-200',
+    applied: 'bg-teal-100 text-teal-700 ring-teal-200',
     interviewing: 'bg-cyan-100 text-cyan-700 ring-cyan-200',
     offer: 'bg-amber-100 text-amber-700 ring-amber-200',
     rejected: 'bg-rose-100 text-rose-700 ring-rose-200',
@@ -211,7 +211,7 @@ export function ApplicationDetailDrawer({ applicationId, onClose }: Props) {
                                             <Input
                                                 value={draft.company_name ?? ''}
                                                 onChange={(e) => setDraft((p) => ({ ...p, company_name: e.target.value }))}
-                                                className="h-10 border-orange-100 bg-orange-50/40 text-lg font-semibold"
+                                                className="h-10 border-teal-100 bg-teal-50/40 text-lg font-semibold"
                                                 placeholder="公司名称"
                                             />
                                             <Input
@@ -224,7 +224,7 @@ export function ApplicationDetailDrawer({ applicationId, onClose }: Props) {
                                                 <span className={cn('rounded-full px-2.5 py-1 text-xs font-medium ring-1', statusColorMap[currentApplication?.latest_status || ''] || 'bg-slate-100 text-slate-700 ring-slate-200')}>
                                                     {currentApplication?.latest_status || 'unknown'}
                                                 </span>
-                                                <span className="rounded-full bg-orange-50 px-2.5 py-1 text-xs font-medium text-orange-700 ring-1 ring-orange-100">
+                                                <span className="rounded-full bg-teal-50 px-2.5 py-1 text-xs font-medium text-teal-700 ring-1 ring-teal-100">
                                                     优先级 {priorityLabel(currentApplication?.priority)}
                                                 </span>
                                             </div>
@@ -237,7 +237,7 @@ export function ApplicationDetailDrawer({ applicationId, onClose }: Props) {
                                     </div>
 
                                     <div className="mt-4 flex items-center gap-2">
-                                        <Button onClick={handleSave} className="bg-orange-600 hover:bg-orange-700" disabled={saving || loading}>
+                                        <Button onClick={handleSave} className="bg-teal-600 hover:bg-teal-700" disabled={saving || loading}>
                                             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                                             保存
                                         </Button>
@@ -272,7 +272,7 @@ export function ApplicationDetailDrawer({ applicationId, onClose }: Props) {
                                                     <select
                                                         value={draft.priority ?? 'medium'}
                                                         onChange={(e) => setDraft((p) => ({ ...p, priority: e.target.value as Priority }))}
-                                                        className="h-10 rounded-md border border-input bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-orange-500/20"
+                                                        className="h-10 rounded-md border border-input bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-teal-500/20"
                                                     >
                                                         <option value="high">high</option>
                                                         <option value="medium">medium</option>
@@ -294,7 +294,7 @@ export function ApplicationDetailDrawer({ applicationId, onClose }: Props) {
 
                                         <details open className="group rounded-xl border border-slate-200 bg-slate-50/60 p-4">
                                             <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-sm font-semibold text-slate-900">
-                                                <span className="flex items-center gap-2"><FileText className="h-4 w-4 text-orange-600" /> JD 详情</span>
+                                                <span className="flex items-center gap-2"><FileText className="h-4 w-4 text-teal-600" /> JD 详情</span>
                                                 <ChevronDown className="h-4 w-4 text-slate-500 transition-transform group-open:rotate-180" />
                                             </summary>
                                             <div className="mt-3 space-y-3">
@@ -356,18 +356,18 @@ export function ApplicationDetailDrawer({ applicationId, onClose }: Props) {
                                                     ['offer', 'Offer'],
                                                     ['rejected', '已拒绝'],
                                                 ].map(([type, label]) => (
-                                                    <Button key={type} variant="outline" size="sm" onClick={() => void handleQuickEvent(type)} className="border-orange-100 text-orange-700 hover:bg-orange-50">
+                                                    <Button key={type} variant="outline" size="sm" onClick={() => void handleQuickEvent(type)} className="border-teal-100 text-teal-700 hover:bg-teal-50">
                                                         {label}
                                                     </Button>
                                                 ))}
                                             </div>
 
                                             {showNoteComposer && (
-                                                <div className="rounded-xl border border-orange-200 bg-orange-50/50 p-4 space-y-3">
+                                                <div className="rounded-xl border border-teal-200 bg-teal-50/50 p-4 space-y-3">
                                                     <Textarea value={noteText} onChange={(e) => setNoteText(e.target.value)} rows={4} placeholder="输入复盘笔记..." />
                                                     <div className="flex justify-end gap-2">
                                                         <Button variant="outline" onClick={() => setShowNoteComposer(false)}>取消</Button>
-                                                        <Button onClick={() => void handleAddNoteEvent()} className="bg-orange-600 hover:bg-orange-700">保存笔记</Button>
+                                                        <Button onClick={() => void handleAddNoteEvent()} className="bg-teal-600 hover:bg-teal-700">保存笔记</Button>
                                                     </div>
                                                 </div>
                                             )}

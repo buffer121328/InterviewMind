@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import {
     Loader2, Plus, Search, Trash2, BookOpen,
     ChevronDown, ChevronUp, MessageCircle, ArrowLeft,
-    Calendar, Filter
+    AlertTriangle, Calendar, Filter, RefreshCw
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,8 +26,9 @@ import { QuestionFileImportPanel } from "@/components/QuestionFileImportPanel";
 // =====================================================================
 
 interface QuestionBankPageProps {
-    onBack: () => void;
+    onBack?: () => void;
     onStartInterview: () => void;
+    embedded?: boolean;
 }
 
 type TabKey = "bank" | "experience" | "history";
@@ -63,7 +64,7 @@ const difficultyBadge: Record<string, { bg: string; text: string; label: string 
 const typeBadge: Record<string, { bg: string; text: string; label: string }> = {
     tech:           { bg: "bg-blue-100",   text: "text-blue-700",   label: "技术" },
     intro:          { bg: "bg-purple-100",  text: "text-purple-700", label: "介绍" },
-    behavior:       { bg: "bg-orange-100", text: "text-orange-700", label: "行为" },
+    behavior:       { bg: "bg-teal-100", text: "text-teal-700", label: "行为" },
     system_design:  { bg: "bg-indigo-100", text: "text-indigo-700", label: "设计" },
 };
 
@@ -121,6 +122,7 @@ function QuestionCard({
                         variant="ghost"
                         size="icon"
                         className="h-8 w-8 text-stone-400 hover:text-red-500"
+                        aria-label={confirmDelete ? "确认删除题目" : "删除题目"}
                         onClick={() => {
                             if (confirmDelete) {
                                 onDelete(item.id);
@@ -144,7 +146,7 @@ function QuestionCard({
             {/* Expand toggle */}
             {(item.reference_answer || item.tags.length > 0 || item.followups.length > 0) && (
                 <button
-                    className="mt-3 flex items-center gap-1 text-xs text-orange-600 hover:text-orange-700 transition-colors"
+                    className="mt-3 flex items-center gap-1 text-xs text-teal-600 hover:text-teal-700 transition-colors"
                     onClick={() => setExpanded(!expanded)}
                 >
                     {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
@@ -160,7 +162,7 @@ function QuestionCard({
                 )}
             >
                 {item.reference_answer && (
-                    <div className="rounded-xl bg-orange-50/60 p-3 text-sm text-stone-700 leading-relaxed whitespace-pre-wrap">
+                    <div className="rounded-xl bg-teal-50/60 p-3 text-sm text-stone-700 leading-relaxed whitespace-pre-wrap">
                         {item.reference_answer}
                     </div>
                 )}
@@ -225,7 +227,7 @@ function SessionCard({ session }: { session: SessionListItem }) {
                                 session.status === "completed"
                                     ? "bg-emerald-100 text-emerald-700"
                                     : session.status === "active"
-                                        ? "bg-orange-100 text-orange-700"
+                                        ? "bg-teal-100 text-teal-700"
                                         : "bg-stone-100 text-stone-500"
                             )}>
                                 {session.status === "completed" ? "已完成" : session.status === "active" ? "进行中" : "已归档"}
@@ -246,7 +248,7 @@ function SessionCard({ session }: { session: SessionListItem }) {
                 <div className="border-t border-stone-100 bg-stone-50/50">
                     {loading ? (
                         <div className="flex items-center justify-center py-8">
-                            <Loader2 className="h-5 w-5 animate-spin text-orange-500" />
+                            <Loader2 className="h-5 w-5 animate-spin text-teal-500" />
                             <span className="ml-2 text-sm text-stone-400">加载中…</span>
                         </div>
                     ) : detail && detail.messages.length > 0 ? (
@@ -275,12 +277,13 @@ function SessionCard({ session }: { session: SessionListItem }) {
 // Main Component
 // =====================================================================
 
-export default function QuestionBankPage({ onBack, onStartInterview }: QuestionBankPageProps) {
+export default function QuestionBankPage({ onBack, onStartInterview, embedded = false }: QuestionBankPageProps) {
     // ---- state ----
     const [tab, setTab] = useState<TabKey>("bank");
     const [questions, setQuestions] = useState<QuestionBankItem[]>([]);
     const [sessions, setSessions] = useState<SessionListItem[]>([]);
     const [loading, setLoading] = useState(false);
+    const [loadError, setLoadError] = useState<string | null>(null);
 
     // filters
     const [searchQ, setSearchQ] = useState("");
@@ -304,6 +307,7 @@ export default function QuestionBankPage({ onBack, onStartInterview }: QuestionB
 
     const loadQuestions = useCallback(async () => {
         setLoading(true);
+        setLoadError(null);
         try {
             let res;
             if (searchQ.trim()) {
@@ -315,8 +319,14 @@ export default function QuestionBankPage({ onBack, onStartInterview }: QuestionB
                     limit: 200,
                 });
             }
+            if (!res.success) {
+                setQuestions([]);
+                setLoadError("暂时无法连接题库服务。请确认 FastAPI 后端已启动后重试。");
+                return;
+            }
             setQuestions(res.items ?? []);
         } catch {
+            setLoadError("暂时无法连接题库服务。请确认 FastAPI 后端已启动后重试。");
             toast.error("加载题库失败");
         } finally {
             setLoading(false);
@@ -325,10 +335,12 @@ export default function QuestionBankPage({ onBack, onStartInterview }: QuestionB
 
     const loadSessions = useCallback(async () => {
         setLoading(true);
+        setLoadError(null);
         try {
             const list = await fetchSessionList("completed", undefined, 100);
             setSessions(list);
         } catch {
+            setLoadError("暂时无法连接面试历史服务。请确认 FastAPI 后端已启动后重试。");
             toast.error("加载历史失败");
         } finally {
             setLoading(false);
@@ -390,15 +402,23 @@ export default function QuestionBankPage({ onBack, onStartInterview }: QuestionB
     // ---- render ----
 
     return (
-        <div className="flex flex-col h-full bg-[#FFFBF5]">
+        <div className="flex h-full flex-col bg-[#f7faf9]">
             {/* =================== Header =================== */}
-            <header className="sticky top-0 z-20 flex items-center gap-3 border-b border-stone-200 bg-white/80 backdrop-blur px-4 py-3">
-                <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full" onClick={onBack}>
-                    <ArrowLeft className="h-5 w-5 text-stone-600" />
-                </Button>
-                <BookOpen className="h-5 w-5 text-orange-500" />
-                <h1 className="text-lg font-semibold text-stone-800">题库</h1>
-            </header>
+            {!embedded && (
+                <header className="sticky top-0 z-20 flex items-center gap-3 border-b border-stone-200 bg-white/80 backdrop-blur px-4 py-3">
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-9 w-9 rounded-full"
+                        onClick={onBack}
+                        aria-label="返回"
+                    >
+                        <ArrowLeft className="h-5 w-5 text-stone-600" />
+                    </Button>
+                    <BookOpen className="h-5 w-5 text-teal-700" />
+                    <h1 className="text-lg font-semibold text-stone-800">题库与面经</h1>
+                </header>
+            )}
 
             {/* =================== Tabs =================== */}
             <div className="flex items-center gap-1 border-b border-stone-200 bg-white px-4">
@@ -407,13 +427,13 @@ export default function QuestionBankPage({ onBack, onStartInterview }: QuestionB
                         key={key}
                         className={cn(
                             "relative px-4 py-2.5 text-sm font-medium transition-colors",
-                            tab === key ? "text-orange-600" : "text-stone-400 hover:text-stone-600"
+                            tab === key ? "text-teal-600" : "text-stone-400 hover:text-stone-600"
                         )}
                         onClick={() => setTab(key)}
                     >
                         {label}
                         {tab === key && (
-                            <span className="absolute bottom-0 left-2 right-2 h-0.5 rounded-full bg-orange-500" />
+                            <span className="absolute bottom-0 left-2 right-2 h-0.5 rounded-full bg-teal-500" />
                         )}
                     </button>
                 ))}
@@ -433,7 +453,7 @@ export default function QuestionBankPage({ onBack, onStartInterview }: QuestionB
                                     value={searchQ}
                                     onChange={(e) => setSearchQ(e.target.value)}
                                     placeholder="搜索题目…"
-                                    className="pl-9 rounded-xl border-stone-200 bg-white focus-visible:ring-orange-500"
+                                    className="pl-9 rounded-xl border-stone-200 bg-white focus-visible:ring-teal-500"
                                 />
                             </div>
 
@@ -443,7 +463,8 @@ export default function QuestionBankPage({ onBack, onStartInterview }: QuestionB
                                 <select
                                     value={filterDifficulty}
                                     onChange={(e) => setFilterDifficulty(e.target.value)}
-                                    className="rounded-lg border border-stone-200 bg-white px-2.5 py-1.5 text-xs text-stone-600 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                                    aria-label="按难度筛选"
+                                    className="rounded-lg border border-stone-200 bg-white px-2.5 py-1.5 text-xs text-stone-600 focus:outline-none focus:ring-2 focus:ring-teal-500"
                                 >
                                     {DIFFICULTIES.map((d) => (
                                         <option key={d.value} value={d.value}>{d.label}</option>
@@ -452,7 +473,8 @@ export default function QuestionBankPage({ onBack, onStartInterview }: QuestionB
                                 <select
                                     value={filterType}
                                     onChange={(e) => setFilterType(e.target.value)}
-                                    className="rounded-lg border border-stone-200 bg-white px-2.5 py-1.5 text-xs text-stone-600 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                                    aria-label="按题型筛选"
+                                    className="rounded-lg border border-stone-200 bg-white px-2.5 py-1.5 text-xs text-stone-600 focus:outline-none focus:ring-2 focus:ring-teal-500"
                                 >
                                     {QUESTION_TYPES.map((t) => (
                                         <option key={t.value} value={t.value}>{t.label}</option>
@@ -463,7 +485,7 @@ export default function QuestionBankPage({ onBack, onStartInterview }: QuestionB
 
                                 <Button
                                     size="sm"
-                                    className="rounded-xl bg-orange-500 hover:bg-orange-600 text-white gap-1"
+                                    className="rounded-xl bg-teal-500 hover:bg-teal-600 text-white gap-1"
                                     onClick={() => setShowForm(!showForm)}
                                 >
                                     <Plus className="h-4 w-4" />
@@ -475,30 +497,26 @@ export default function QuestionBankPage({ onBack, onStartInterview }: QuestionB
                         <QuestionFileImportPanel onImported={() => void loadQuestions()} />
 
                         {/* Add‑question form */}
-                        <div
-                            className={cn(
-                                "overflow-hidden transition-all duration-300 ease-in-out",
-                                showForm ? "max-h-[500px] opacity-100" : "max-h-0 opacity-0"
-                            )}
-                        >
-                            <div className="mx-4 mb-3 rounded-2xl border border-orange-200 bg-orange-50/50 p-4 space-y-3">
+                        {showForm && (
+                            <div className="mx-4 mb-3 animate-in space-y-3 rounded-2xl border border-teal-200 bg-teal-50/50 p-4 fade-in slide-in-from-top-2">
                                 <Textarea
                                     placeholder="题目内容 *"
                                     value={form.question_text}
                                     onChange={(e) => setForm({ ...form, question_text: e.target.value })}
-                                    className="min-h-[72px] rounded-xl border-orange-200 bg-white focus-visible:ring-orange-500"
+                                    className="min-h-[72px] rounded-xl border-teal-200 bg-white focus-visible:ring-teal-500"
                                 />
                                 <Textarea
                                     placeholder="参考答案（可选）"
                                     value={form.reference_answer ?? ""}
                                     onChange={(e) => setForm({ ...form, reference_answer: e.target.value })}
-                                    className="min-h-[72px] rounded-xl border-orange-200 bg-white focus-visible:ring-orange-500"
+                                    className="min-h-[72px] rounded-xl border-teal-200 bg-white focus-visible:ring-teal-500"
                                 />
                                 <div className="flex items-center gap-3 flex-wrap">
                                     <select
                                         value={form.difficulty}
                                         onChange={(e) => setForm({ ...form, difficulty: e.target.value })}
-                                        className="rounded-lg border border-orange-200 bg-white px-2.5 py-1.5 text-xs text-stone-600 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                                        aria-label="题目难度"
+                                        className="rounded-lg border border-teal-200 bg-white px-2.5 py-1.5 text-xs text-stone-600 focus:outline-none focus:ring-2 focus:ring-teal-500"
                                     >
                                         {DIFFICULTIES.filter((d) => d.value).map((d) => (
                                             <option key={d.value} value={d.value}>{d.label}</option>
@@ -507,7 +525,8 @@ export default function QuestionBankPage({ onBack, onStartInterview }: QuestionB
                                     <select
                                         value={form.question_type}
                                         onChange={(e) => setForm({ ...form, question_type: e.target.value })}
-                                        className="rounded-lg border border-orange-200 bg-white px-2.5 py-1.5 text-xs text-stone-600 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                                        aria-label="题目类型"
+                                        className="rounded-lg border border-teal-200 bg-white px-2.5 py-1.5 text-xs text-stone-600 focus:outline-none focus:ring-2 focus:ring-teal-500"
                                     >
                                         {QUESTION_TYPES.filter((t) => t.value).map((t) => (
                                             <option key={t.value} value={t.value}>{t.label}</option>
@@ -524,7 +543,7 @@ export default function QuestionBankPage({ onBack, onStartInterview }: QuestionB
                                     </Button>
                                     <Button
                                         size="sm"
-                                        className="rounded-xl bg-orange-500 hover:bg-orange-600 text-white gap-1"
+                                        className="rounded-xl bg-teal-500 hover:bg-teal-600 text-white gap-1"
                                         onClick={handleSubmit}
                                         disabled={submitting}
                                     >
@@ -533,13 +552,28 @@ export default function QuestionBankPage({ onBack, onStartInterview }: QuestionB
                                     </Button>
                                 </div>
                             </div>
-                        </div>
+                        )}
 
                         {/* Question list */}
                         <ScrollArea className="flex-1 px-4 pb-4">
                             {loading ? (
                                 <div className="flex items-center justify-center py-20">
-                                    <Loader2 className="h-6 w-6 animate-spin text-orange-500" />
+                                    <Loader2 className="h-6 w-6 animate-spin text-teal-500" />
+                                </div>
+                            ) : loadError ? (
+                                <div className="mx-auto mt-14 flex max-w-md flex-col items-center rounded-2xl border border-amber-200 bg-amber-50 px-6 py-8 text-center">
+                                    <AlertTriangle className="h-8 w-8 text-amber-600" />
+                                    <p className="mt-3 text-sm font-medium text-amber-950">题库服务暂不可用</p>
+                                    <p className="mt-2 text-xs leading-5 text-amber-800">{loadError}</p>
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="mt-4 gap-2 border-amber-300 bg-white"
+                                        onClick={() => void loadQuestions()}
+                                    >
+                                        <RefreshCw className="h-3.5 w-3.5" />
+                                        重新连接
+                                    </Button>
                                 </div>
                             ) : questions.length === 0 ? (
                                 <div className="flex flex-col items-center justify-center py-20 text-stone-400">
@@ -576,7 +610,7 @@ export default function QuestionBankPage({ onBack, onStartInterview }: QuestionB
                                     value={historySearch}
                                     onChange={(e) => setHistorySearch(e.target.value)}
                                     placeholder="搜索面试标题…"
-                                    className="pl-9 rounded-xl border-stone-200 bg-white focus-visible:ring-orange-500"
+                                    className="pl-9 rounded-xl border-stone-200 bg-white focus-visible:ring-teal-500"
                                 />
                             </div>
                         </div>
@@ -585,7 +619,22 @@ export default function QuestionBankPage({ onBack, onStartInterview }: QuestionB
                         <ScrollArea className="flex-1 px-4 pb-4">
                             {loading ? (
                                 <div className="flex items-center justify-center py-20">
-                                    <Loader2 className="h-6 w-6 animate-spin text-orange-500" />
+                                    <Loader2 className="h-6 w-6 animate-spin text-teal-500" />
+                                </div>
+                            ) : loadError ? (
+                                <div className="mx-auto mt-14 flex max-w-md flex-col items-center rounded-2xl border border-amber-200 bg-amber-50 px-6 py-8 text-center">
+                                    <AlertTriangle className="h-8 w-8 text-amber-600" />
+                                    <p className="mt-3 text-sm font-medium text-amber-950">历史服务暂不可用</p>
+                                    <p className="mt-2 text-xs leading-5 text-amber-800">{loadError}</p>
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="mt-4 gap-2 border-amber-300 bg-white"
+                                        onClick={() => void loadSessions()}
+                                    >
+                                        <RefreshCw className="h-3.5 w-3.5" />
+                                        重新连接
+                                    </Button>
                                 </div>
                             ) : filteredSessions.length === 0 ? (
                                 <div className="flex flex-col items-center justify-center py-20 text-stone-400">

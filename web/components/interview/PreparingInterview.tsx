@@ -26,7 +26,7 @@ export function PreparingInterview({ variant = 'light', stage, plan = [] }: Prep
             {/* 背景装饰球 */}
             <div className={cn(
                 "absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 rounded-full blur-3xl animate-pulse",
-                isDark ? "bg-indigo-500/10" : "bg-orange-200/20"
+                isDark ? "bg-indigo-500/10" : "bg-teal-200/20"
             )} />
             <div className={cn(
                 "absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-48 h-48 rounded-full blur-2xl animate-pulse delay-700",
@@ -36,7 +36,7 @@ export function PreparingInterview({ variant = 'light', stage, plan = [] }: Prep
             <div className="relative">
                 <div className={cn(
                     "w-24 h-24 rounded-3xl flex items-center justify-center shadow-2xl rotate-3 animate-bounce",
-                    isDark ? "bg-gradient-to-tr from-indigo-500 to-purple-500 shadow-indigo-500/30" : "bg-gradient-to-tr from-orange-500 to-emerald-400 shadow-orange-200/50"
+                    isDark ? "bg-gradient-to-tr from-indigo-500 to-purple-500 shadow-indigo-500/30" : "bg-gradient-to-tr from-teal-500 to-emerald-400 shadow-teal-200/50"
                 )}>
                     <Bot className="w-12 h-12 text-white" />
                 </div>
@@ -50,7 +50,7 @@ export function PreparingInterview({ variant = 'light', stage, plan = [] }: Prep
                     "absolute -bottom-4 -left-4 w-12 h-12 rounded-2xl flex items-center justify-center shadow-lg animate-pulse",
                     isDark ? "bg-slate-800" : "bg-white"
                 )}>
-                    <Loader2 className={cn("w-6 h-6 animate-spin", isDark ? "text-indigo-400" : "text-orange-600")} />
+                    <Loader2 className={cn("w-6 h-6 animate-spin", isDark ? "text-indigo-400" : "text-teal-600")} />
                 </div>
             </div>
 
@@ -69,9 +69,9 @@ export function PreparingInterview({ variant = 'light', stage, plan = [] }: Prep
                         {stageText[stage || ''] || 'AI 面试官正在深度分析您的简历'}
                     </p>
                     <div className="flex gap-1">
-                        <span className={cn("w-1 h-1 rounded-full animate-bounce", isDark ? "bg-indigo-400" : "bg-orange-400")} style={{ animationDelay: '0ms' }} />
-                        <span className={cn("w-1 h-1 rounded-full animate-bounce", isDark ? "bg-indigo-400" : "bg-orange-400")} style={{ animationDelay: '150ms' }} />
-                        <span className={cn("w-1 h-1 rounded-full animate-bounce", isDark ? "bg-indigo-400" : "bg-orange-400")} style={{ animationDelay: '300ms' }} />
+                        <span className={cn("w-1 h-1 rounded-full animate-bounce", isDark ? "bg-indigo-400" : "bg-teal-400")} style={{ animationDelay: '0ms' }} />
+                        <span className={cn("w-1 h-1 rounded-full animate-bounce", isDark ? "bg-indigo-400" : "bg-teal-400")} style={{ animationDelay: '150ms' }} />
+                        <span className={cn("w-1 h-1 rounded-full animate-bounce", isDark ? "bg-indigo-400" : "bg-teal-400")} style={{ animationDelay: '300ms' }} />
                     </div>
                 </div>
             </div>

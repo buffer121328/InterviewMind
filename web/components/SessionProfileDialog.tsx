@@ -87,7 +87,7 @@ export function SessionProfileDialog({ sessionId, open, onOpenChange, defaultTab
             <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2">
-                        <Brain className="w-5 h-5 text-orange-600" />
+                        <Brain className="w-5 h-5 text-teal-600" />
                         本轮面试评估
                     </DialogTitle>
                 </DialogHeader>
@@ -126,7 +126,7 @@ export function SessionProfileDialog({ sessionId, open, onOpenChange, defaultTab
                         {/* 加载状态 */}
                         {loading && (
                             <div className="flex flex-col items-center justify-center py-20">
-                                <Loader2 className="w-8 h-8 text-orange-600 animate-spin mb-4" />
+                                <Loader2 className="w-8 h-8 text-teal-600 animate-spin mb-4" />
                                 <p className="text-sm text-gray-500">加载中...</p>
                             </div>
                         )}
@@ -134,8 +134,8 @@ export function SessionProfileDialog({ sessionId, open, onOpenChange, defaultTab
                         {/* 生成中状态 */}
                         {!loading && generating && (
                             <div className="flex flex-col items-center justify-center py-20 px-6">
-                                <div className="w-16 h-16 bg-orange-50 rounded-full flex items-center justify-center mb-4">
-                                    <Loader2 className="w-8 h-8 text-orange-600 animate-spin" />
+                                <div className="w-16 h-16 bg-teal-50 rounded-full flex items-center justify-center mb-4">
+                                    <Loader2 className="w-8 h-8 text-teal-600 animate-spin" />
                                 </div>
                                 <h3 className="text-lg font-semibold text-gray-900 mb-2">画像生成中</h3>
                                 <p className="text-sm text-gray-500 text-center mb-6 max-w-sm">
@@ -188,7 +188,7 @@ export function SessionProfileDialog({ sessionId, open, onOpenChange, defaultTab
                                                     <ul className="space-y-2">
                                                         {profile.key_strengths.map((strength, index) => (
                                                             <li key={index} className="text-sm text-gray-700 flex items-start gap-2">
-                                                                <span className="text-orange-600 mt-0.5">✓</span>
+                                                                <span className="text-teal-600 mt-0.5">✓</span>
                                                                 <span>{strength}</span>
                                                             </li>
                                                         ))}
@@ -196,7 +196,7 @@ export function SessionProfileDialog({ sessionId, open, onOpenChange, defaultTab
                                                 </div>
                                             )}
                                             {profile.key_weaknesses && profile.key_weaknesses.length > 0 && (
-                                                <div className="bg-orange-50 rounded-xl p-6">
+                                                <div className="bg-teal-50 rounded-xl p-6">
                                                     <h3 className="text-base font-semibold text-gray-900 mb-3">待提升项</h3>
                                                     <ul className="space-y-2">
                                                         {profile.key_weaknesses.map((weakness, index) => (
@@ -222,7 +222,7 @@ export function SessionProfileDialog({ sessionId, open, onOpenChange, defaultTab
                                                     <div key={key} className="border border-gray-100 rounded-lg p-3">
                                                         <div className="flex items-center justify-between mb-1">
                                                             <span className="text-sm font-medium text-gray-900">{label}</span>
-                                                            <span className="text-sm font-bold text-orange-600">{dim.score}/10</span>
+                                                            <span className="text-sm font-bold text-teal-600">{dim.score}/10</span>
                                                         </div>
                                                         {dim.reason && (
                                                             <p className="text-xs text-blue-600">{dim.reason}</p>

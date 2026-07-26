@@ -1,173 +1,167 @@
 "use client";
 
-import { useState } from "react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  BookOpenCheck,
+  Bot,
+  BriefcaseBusiness,
+  Database,
+  FileText,
+  KeyRound,
+  ListChecks,
+  ShieldCheck,
+  Target,
+  Workflow,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Bot, FileText, ArrowLeft, Upload, Settings, MessageSquare, FileOutput, UserCheck, Layout, BookOpen } from "lucide-react";
-import { cn } from "@/lib/utils";
+import type { MainView } from "@/lib/navigation";
+import { PRODUCT_NAME } from "@/lib/product";
 
 interface GuidePageProps {
-    onBack: () => void;
+  onBack: () => void;
+  onNavigate: (view: MainView) => void;
+  onOpenSettings: () => void;
 }
 
-export function GuidePage({ onBack }: GuidePageProps) {
-    const [activeTab, setActiveTab] = useState<"interview" | "resume">("interview");
+const sections: Array<{
+  view: MainView;
+  title: string;
+  summary: string;
+  icon: typeof Bot;
+  steps: string[];
+}> = [
+  {
+    view: "interview",
+    title: "模拟面试",
+    summary: "根据简历、JD、公司信息、个人题库和面经候选题生成定向面试。",
+    icon: Bot,
+    steps: ["配置 Smart / Fast 通道", "上传简历并填写目标 JD", "选择轮次、题数与文字/语音模式", "完成后生成能力画像和短板报告"],
+  },
+  {
+    view: "resume",
+    title: "简历工作台",
+    summary: "把简历分析、优化、JD 匹配、素材库、项目改写与成品生成串成一条流程。",
+    icon: FileText,
+    steps: ["导入或粘贴原始简历", "关联目标 JD 与历史面试", "选择分析、优化或匹配任务", "审核建议后生成并保存简历版本"],
+  },
+  {
+    view: "questionbank",
+    title: "题库与面经",
+    summary: "沉淀手工题目、文件题库、面经页面和历史面试追问。",
+    icon: BookOpenCheck,
+    steps: ["新增题目或解析文件预览", "确认后写入个人题库", "按类型、难度和关键词检索", "在面试设置中选择抽题数量"],
+  },
+  {
+    view: "boss",
+    title: "岗位中心",
+    summary: "支持单个 JD 采集和 BOSS 推荐页半自动化，并通过后台任务生成投递资产。",
+    icon: Target,
+    steps: ["确认宿主机自动化服务和登录状态", "采集岗位或搜索推荐页", "等待 JD 分析、定制简历和招呼语生成", "先预览，再对真实发送作二次确认"],
+  },
+  {
+    view: "applications",
+    title: "投递管理",
+    summary: "管理收藏、已投递、面试、Offer 与终止状态，并记录完整事件流水。",
+    icon: BriefcaseBusiness,
+    steps: ["创建或补录投递", "绑定所用简历版本", "更新岗位状态和优先级", "在详情中记录电话面、技术面与结果"],
+  },
+  {
+    view: "memory",
+    title: "长期记忆",
+    summary: "查看系统从面试中提取的偏好与经历，必要时搜索、审计或删除。",
+    icon: Database,
+    steps: ["配置 mem0 LLM 与 Embedding 通道", "在面试中形成可复用记忆", "按关键词或语义搜索", "删除错误记忆，清空全部记忆需再次确认"],
+  },
+  {
+    view: "runs",
+    title: "任务运行",
+    summary: "追踪异步 AgentRun 的执行阶段、版本、尝试次数和错误原因。",
+    icon: Workflow,
+    steps: ["查看活跃与历史任务", "展开执行计划和当前阶段", "取消仍可取消的任务", "仅对后端允许的失败任务发起重试"],
+  },
+];
 
-    return (
-        <div className="flex flex-col min-h-screen bg-white">
-            {/* Header */}
-            <header className="fixed top-0 left-0 right-0 z-50 bg-white/80 backdrop-blur-md border-b border-gray-100">
-                <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                        <Button variant="ghost" size="icon" onClick={onBack} className="rounded-full hover:bg-gray-100">
-                            <ArrowLeft className="w-5 h-5 text-gray-600" />
-                        </Button>
-                        <div className="font-bold text-xl text-gray-900 flex items-center gap-2">
-                            <div className="w-8 h-8 bg-orange-600 rounded-lg flex items-center justify-center text-white shadow-md">
-                                <BookOpen className="w-5 h-5" />
-                            </div>
-                            使用指南
-                        </div>
-                    </div>
-                </div>
-            </header>
-
-            <main className="flex-1 pt-24 pb-20 px-6">
-                <div className="max-w-4xl mx-auto">
-                    {/* 介绍 */}
-                    <div className="text-center mb-12 space-y-4">
-                        <h1 className="text-4xl font-bold text-gray-900">如何使用 AI 求职助手？</h1>
-                        <p className="text-lg text-gray-500">只需几步，轻松开启您的智能化求职准备之旅</p>
-                    </div>
-
-                    {/* 选项卡 */}
-                    <div className="flex justify-center mb-12">
-                        <div className="bg-gray-100 p-1.5 rounded-full inline-flex">
-                            <button
-                                onClick={() => setActiveTab("interview")}
-                                className={cn(
-                                    "px-8 py-3 rounded-full text-sm font-semibold transition-all duration-300 flex items-center gap-2",
-                                    activeTab === "interview"
-                                        ? "bg-white text-orange-600 shadow-md transform scale-105"
-                                        : "text-gray-500 hover:text-gray-900"
-                                )}
-                            >
-                                <Bot className="w-4 h-4" />
-                                AI 模拟面试
-                            </button>
-                            <button
-                                onClick={() => setActiveTab("resume")}
-                                className={cn(
-                                    "px-8 py-3 rounded-full text-sm font-semibold transition-all duration-300 flex items-center gap-2",
-                                    activeTab === "resume"
-                                        ? "bg-white text-blue-600 shadow-md transform scale-105"
-                                        : "text-gray-500 hover:text-gray-900"
-                                )}
-                            >
-                                <FileText className="w-4 h-4" />
-                                简历智能优化
-                            </button>
-                        </div>
-                    </div>
-
-                    {/* 内容 */}
-                    <div className="relative min-h-[500px]">
-                        {/* 模拟面试指南 */}
-                        <div className={cn(
-                            "transition-all duration-500 absolute top-0 left-0 w-full",
-                            activeTab === "interview"
-                                ? "opacity-100 translate-x-0 z-10"
-                                : "opacity-0 -translate-x-10 z-0 pointer-events-none"
-                        )}>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                                <GuideCard
-                                    step="01"
-                                    title="配置 API 设置"
-                                    description="在使用任何功能前，请点击左下角的设置按钮，配置您的 LLM API Key,并测试链接是否正常。这是智能体运行的基础。"
-                                    icon={<Settings className="w-6 h-6 text-white" />}
-                                    color="bg-orange-500"
-                                />
-                                <GuideCard
-                                    step="02"
-                                    title="上传简历与职位描述"
-                                    description="上传您的 PDF 简历，粘贴目标职位的 JD，添加公司信息（可选），配置题目数量。AI 将基于以上内容为您生成定制化的面试问题。"
-                                    icon={<Upload className="w-6 h-6 text-white" />}
-                                    color="bg-orange-500"
-                                />
-                                <GuideCard
-                                    step="03"
-                                    title="专业性面试"
-                                    description="对话框回答您可以选择同步打开语音输入。支持进阶面试对您的能力与岗位匹配程度进行深度评估，总共3轮。"
-                                    icon={<MessageSquare className="w-6 h-6 text-white" />}
-                                    color="bg-orange-500"
-                                />
-                                <GuideCard
-                                    step="04"
-                                    title="获取评估报告"
-                                    description="每轮面试结束后，可以获取详细的评分报告、能力画像。包含优势、不足及改进建议。"
-                                    icon={<FileOutput className="w-6 h-6 text-white" />}
-                                    color="bg-orange-500"
-                                />
-                            </div>
-                        </div>
-
-                        {/* 简历智能优化指南 */}
-                        <div className={cn(
-                            "transition-all duration-500 absolute top-0 left-0 w-full",
-                            activeTab === "resume"
-                                ? "opacity-100 translate-x-0 z-10"
-                                : "opacity-0 translate-x-10 z-0 pointer-events-none"
-                        )}>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                                <GuideCard
-                                    step="01"
-                                    title="配置 API 设置"
-                                    description="同样需要先配置好 API Key。我们支持 OpenAI 及兼容协议的模型，简历助手请尽量选择非免费API，避免运行失败。"
-                                    icon={<Settings className="w-6 h-6 text-white" />}
-                                    color="bg-blue-500"
-                                />
-                                <GuideCard
-                                    step="02"
-                                    title="导入原始简历"
-                                    description="将现有的简历内容粘贴到工具中，或直接上传 PDF 文档进行智能解析。"
-                                    icon={<Upload className="w-6 h-6 text-white" />}
-                                    color="bg-blue-500"
-                                />
-                                <GuideCard
-                                    step="03"
-                                    title="智能诊断与优化"
-                                    description="三位 AI 专家（分析师、优化师、HR）协同工作，基于目标 JD 对简历进行全方位诊断和提出内容优化建议。"
-                                    icon={<UserCheck className="w-6 h-6 text-white" />}
-                                    color="bg-blue-500"
-                                />
-                                <GuideCard
-                                    step="04"
-                                    title="简历生成"
-                                    description="内容优化建议生成后，您可以直接点击生成简历按钮，AI 将根据您的优化建议生成一份全新的简历。"
-                                    icon={<Layout className="w-6 h-6 text-white" />}
-                                    color="bg-blue-500"
-                                />
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </main>
-        </div>
-    );
-}
-
-function GuideCard({ step, title, description, icon, color }: { step: string, title: string, description: string, icon: React.ReactNode, color: string }) {
-    return (
-        <div className="bg-white border border-gray-100 rounded-2xl p-6 shadow-xl shadow-gray-100/50 hover:shadow-2xl hover:shadow-gray-200/50 transition-all hover:-translate-y-1 group">
-            <div className="flex items-start justify-between mb-4">
-                <div className={cn("w-12 h-12 rounded-xl flex items-center justify-center shadow-lg transform group-hover:scale-110 transition-transform", color)}>
-                    {icon}
-                </div>
-                <span className="text-5xl font-black text-gray-300 select-none group-hover:text-gray-500 transition-colors">{step}</span>
+export function GuidePage({ onBack, onNavigate, onOpenSettings }: GuidePageProps) {
+  return (
+    <div className="min-h-screen bg-[#f7faf9]">
+      <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/90 backdrop-blur-xl">
+        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-5 sm:px-8">
+          <div className="flex items-center gap-3">
+            <Button variant="ghost" size="icon" onClick={onBack} aria-label="返回首页">
+              <ArrowLeft className="h-5 w-5" />
+            </Button>
+            <div>
+              <div className="text-sm font-semibold">{PRODUCT_NAME}使用指南</div>
+              <div className="text-[10px] uppercase tracking-[0.2em] text-teal-700">Workflow guide</div>
             </div>
-            <h3 className="text-xl font-bold text-gray-900 mb-2">{title}</h3>
-            <p className="text-gray-500 leading-relaxed text-sm">
-                {description}
-            </p>
+          </div>
+          <Button variant="outline" onClick={onOpenSettings}>
+            <KeyRound className="h-4 w-4" /> 模型设置
+          </Button>
         </div>
-    )
+      </header>
+
+      <main className="mx-auto max-w-6xl px-5 py-14 sm:px-8">
+        <section className="grid gap-8 lg:grid-cols-[1fr_0.72fr] lg:items-end">
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-[0.24em] text-teal-700">Getting started</div>
+            <h1 className="mt-4 text-4xl font-semibold tracking-[-0.035em] text-slate-950 sm:text-5xl">先建立上下文，再让 Agent 工作。</h1>
+            <p className="mt-5 max-w-3xl text-base leading-8 text-slate-600">最佳使用方式不是逐个尝试功能，而是先配置模型、导入简历与 JD，再沿着面试、复盘、补强、投递的顺序持续沉淀数据。</p>
+          </div>
+          <div className="rounded-2xl border border-teal-200 bg-teal-50 p-5 text-sm leading-7 text-teal-950">
+            <div className="flex items-center gap-2 font-semibold"><ShieldCheck className="h-4 w-4" /> 安全边界</div>
+            <p className="mt-2 text-teal-900/75">API Key 保存在浏览器本地并随任务请求传给后端；BOSS 真实发送必须经过预览、短期许可和显式确认。</p>
+          </div>
+        </section>
+
+        <section className="mt-12 grid gap-4 md:grid-cols-3">
+          {[
+            ["1", "连接模型", "至少配置 Smart 与 Fast；其余通道可按能力独立分配。"],
+            ["2", "建立资料", "导入简历、JD、题库和面试经历，形成候选人上下文。"],
+            ["3", "执行与复盘", "通过任务运行查看进度，把报告、记忆和投递事件继续沉淀。"],
+          ].map(([number, title, text]) => (
+            <div key={number} className="surface-panel p-5">
+              <div className="text-xs font-semibold text-teal-700">STEP {number}</div>
+              <h2 className="mt-4 font-semibold">{title}</h2>
+              <p className="mt-2 text-sm leading-6 text-slate-600">{text}</p>
+            </div>
+          ))}
+        </section>
+
+        <section className="mt-16">
+          <div className="flex items-center gap-2 text-sm font-semibold text-slate-950">
+            <ListChecks className="h-4 w-4 text-teal-700" />
+            七个工作区模块
+          </div>
+          <div className="mt-5 grid gap-4 lg:grid-cols-2">
+            {sections.map((section) => (
+              <article key={section.view} className="surface-panel flex flex-col p-6">
+                <div className="flex items-start gap-4">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-teal-950 text-teal-100">
+                    <section.icon className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h2 className="text-base font-semibold">{section.title}</h2>
+                    <p className="mt-1 text-sm leading-6 text-slate-600">{section.summary}</p>
+                  </div>
+                </div>
+                <ol className="mt-5 grid gap-2 sm:grid-cols-2">
+                  {section.steps.map((step, index) => (
+                    <li key={step} className="flex gap-2 rounded-xl bg-slate-50 px-3 py-2.5 text-xs leading-5 text-slate-600">
+                      <span className="font-semibold text-teal-700">{index + 1}</span>
+                      {step}
+                    </li>
+                  ))}
+                </ol>
+                <Button variant="ghost" className="mt-4 self-start px-0 text-teal-700 hover:bg-transparent hover:text-teal-900" onClick={() => onNavigate(section.view)}>
+                  打开{section.title} <ArrowRight className="h-4 w-4" />
+                </Button>
+              </article>
+            ))}
+          </div>
+        </section>
+      </main>
+    </div>
+  );
 }

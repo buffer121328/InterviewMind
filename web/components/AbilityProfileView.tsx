@@ -79,7 +79,7 @@ export function AbilityProfileView() {
     if (loading) {
         return (
             <div className="flex flex-col items-center justify-center h-full py-20">
-                <Loader2 className="w-8 h-8 text-orange-600 animate-spin mb-4" />
+                <Loader2 className="w-8 h-8 text-teal-600 animate-spin mb-4" />
                 <p className="text-sm text-gray-500">加载中...</p>
             </div>
         );
@@ -89,8 +89,8 @@ export function AbilityProfileView() {
     if (!profile) {
         return (
             <div className="flex flex-col items-center justify-center h-full py-20 px-6">
-                <div className="w-16 h-16 bg-orange-50 rounded-full flex items-center justify-center mb-4">
-                    <Brain className="w-8 h-8 text-orange-600" />
+                <div className="w-16 h-16 bg-teal-50 rounded-full flex items-center justify-center mb-4">
+                    <Brain className="w-8 h-8 text-teal-600" />
                 </div>
                 <h3 className="text-lg font-semibold text-gray-900 mb-2">尚未生成能力画像</h3>
                 <p className="text-sm text-gray-500 text-center mb-6 max-w-sm">
@@ -99,7 +99,7 @@ export function AbilityProfileView() {
                 <Button
                     onClick={handleGenerate}
                     disabled={generating}
-                    className="bg-orange-600 hover:bg-orange-700 text-white px-6 py-2 rounded-lg flex items-center gap-2"
+                    className="bg-teal-600 hover:bg-teal-700 text-white px-6 py-2 rounded-lg flex items-center gap-2"
                 >
                     {generating ? (
                         <>
@@ -171,17 +171,17 @@ export function AbilityProfileView() {
                     <div className="absolute inset-0 bg-white/5 opacity-20"></div>
                     <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none">
                         <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-purple-500/10 rounded-full blur-[80px]"></div>
-                        <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-orange-500/10 rounded-full blur-[80px]"></div>
+                        <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-teal-500/10 rounded-full blur-[80px]"></div>
                     </div>
 
                     {/* 背景装饰 - 中间发光 */}
-                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 bg-orange-500/10 rounded-full blur-3xl pointer-events-none"></div>
+                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 bg-teal-500/10 rounded-full blur-3xl pointer-events-none"></div>
 
                     <div className="relative z-10 flex flex-col md:flex-row items-center gap-8">
                         {/* 左侧：雷达图 */}
                         <div className="flex-1 w-full max-w-md">
                             <h3 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
-                                <span className="w-1 h-6 bg-orange-400 rounded-full inline-block"></span>
+                                <span className="w-1 h-6 bg-teal-400 rounded-full inline-block"></span>
                                 能力雷达图
                             </h3>
                             <div className="bg-white/5 rounded-2xl border border-white/5 p-4 backdrop-blur-sm">
@@ -198,7 +198,7 @@ export function AbilityProfileView() {
                                         {profile.skill_tags.map((tag, index) => (
                                             <span
                                                 key={index}
-                                                className="px-3 py-1.5 bg-white/10 text-orange-50 border border-white/10 rounded-lg text-sm font-medium hover:bg-white/20 hover:border-orange-500/30 transition-all cursor-default"
+                                                className="px-3 py-1.5 bg-white/10 text-teal-50 border border-white/10 rounded-lg text-sm font-medium hover:bg-white/20 hover:border-teal-500/30 transition-all cursor-default"
                                             >
                                                 {tag}
                                             </span>
@@ -208,11 +208,11 @@ export function AbilityProfileView() {
                             )}
 
                             {/* 简短的引导文案 */}
-                            <div className="bg-gradient-to-br from-orange-500/20 to-blue-600/20 rounded-xl p-5 border border-white/10">
+                            <div className="bg-gradient-to-br from-teal-500/20 to-blue-600/20 rounded-xl p-5 border border-white/10">
                                 <div className="flex items-start gap-3">
-                                    <Lightbulb className="w-5 h-5 text-orange-400 mt-1 flex-shrink-0" />
+                                    <Lightbulb className="w-5 h-5 text-teal-400 mt-1 flex-shrink-0" />
                                     <p className="text-sm text-gray-300 leading-relaxed">
-                                        基于面试表现，虽然您的经验年限较短，但在<strong className="text-orange-300">{profile.key_strengths?.[0] || '某些领域'}</strong>展现出了不错的潜力。建议重点加强<strong className="text-orange-300">{profile.key_weaknesses?.[0] || '薄弱项'}</strong>的积累。
+                                        基于面试表现，虽然您的经验年限较短，但在<strong className="text-teal-300">{profile.key_strengths?.[0] || '某些领域'}</strong>展现出了不错的潜力。建议重点加强<strong className="text-teal-300">{profile.key_weaknesses?.[0] || '薄弱项'}</strong>的积累。
                                     </p>
                                 </div>
                             </div>
@@ -258,18 +258,18 @@ export function AbilityProfileView() {
                                 </div>
                             )}
                             {profile.key_weaknesses && profile.key_weaknesses.length > 0 && (
-                                <div className="bg-orange-50/60 rounded-2xl border border-orange-100 p-6 shadow-sm relative overflow-hidden h-full">
-                                    <div className="absolute top-0 left-0 w-full h-1 bg-orange-500"></div>
+                                <div className="bg-teal-50/60 rounded-2xl border border-teal-100 p-6 shadow-sm relative overflow-hidden h-full">
+                                    <div className="absolute top-0 left-0 w-full h-1 bg-teal-500"></div>
                                     <h3 className="text-lg font-bold text-gray-900 mb-5 flex items-center gap-2">
-                                        <div className="w-8 h-8 rounded-lg bg-orange-100 flex items-center justify-center text-orange-600">
+                                        <div className="w-8 h-8 rounded-lg bg-teal-100 flex items-center justify-center text-teal-600">
                                             <AlertCircle className="w-4 h-4" />
                                         </div>
-                                        <span className="text-orange-600">待改进</span>
+                                        <span className="text-teal-600">待改进</span>
                                     </h3>
                                     <ul className="space-y-4">
                                         {profile.key_weaknesses.map((weakness, index) => (
                                             <li key={index} className="flex items-start gap-3">
-                                                <span className="flex-shrink-0 w-5 h-5 rounded-full bg-orange-100 text-orange-600 flex items-center justify-center text-xs font-bold mt-0.5">!</span>
+                                                <span className="flex-shrink-0 w-5 h-5 rounded-full bg-teal-100 text-teal-600 flex items-center justify-center text-xs font-bold mt-0.5">!</span>
                                                 <span className="text-sm text-gray-700 leading-relaxed">{weakness}</span>
                                             </li>
                                         ))}
@@ -293,7 +293,7 @@ export function AbilityProfileView() {
                                     <div key={key} className="border border-gray-100 rounded-xl p-4 hover:bg-gray-50/50 transition-colors">
                                         <div className="flex items-center justify-between mb-2">
                                             <span className="font-medium text-gray-900">{label}</span>
-                                            <span className="text-lg font-bold text-orange-600">{dim.score}/10</span>
+                                            <span className="text-lg font-bold text-teal-600">{dim.score}/10</span>
                                         </div>
                                         {dim.evidence && (
                                             <p className="text-sm text-gray-600 mb-2">{dim.evidence}</p>

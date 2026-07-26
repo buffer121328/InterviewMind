@@ -90,7 +90,7 @@ export function ResumeInputPanel({
                                 placeholder="粘贴简历内容，或点击上方导入文件..."
                                 value={resume}
                                 onChange={(e) => onResumeChange(e.target.value)}
-                                className="h-[250px] focus:h-[550px] transition-all duration-300 resize-none border-gray-200 focus:border-orange-500 font-mono text-sm leading-relaxed p-4"
+                                className="h-[250px] focus:h-[550px] transition-all duration-300 resize-none border-gray-200 focus:border-teal-500 font-mono text-sm leading-relaxed p-4"
                             />
                         </div>
 
@@ -102,7 +102,7 @@ export function ResumeInputPanel({
                                 placeholder={requiresJD ? '输入目标职位的 JD/岗位名...' : '输入目标职位的 JD/岗位名，分析匹配度更准确...'}
                                 value={jobDescription}
                                 onChange={(e) => onJobDescriptionChange(e.target.value)}
-                                className="h-[150px] focus:h-[280px] transition-all duration-300 resize-none border-gray-200 focus:border-orange-500 text-sm"
+                                className="h-[150px] focus:h-[280px] transition-all duration-300 resize-none border-gray-200 focus:border-teal-500 text-sm"
                             />
                         </div>
 
@@ -142,7 +142,7 @@ export function ResumeInputPanel({
                                     id="include-profile"
                                     checked={includeProfile}
                                     onCheckedChange={onIncludeProfileChange}
-                                    className="data-[state=checked]:bg-orange-600"
+                                    className="data-[state=checked]:bg-teal-600"
                                 />
                             </div>
                         )}
@@ -155,7 +155,7 @@ export function ResumeInputPanel({
                     <Button
                         onClick={onSubmit}
                         disabled={submitDisabled}
-                        className="w-full bg-orange-600 hover:bg-orange-700 h-11 text-[15px] font-medium shadow-md shadow-orange-100 transition-all"
+                        className="w-full bg-teal-600 hover:bg-teal-700 h-11 text-[15px] font-medium shadow-md shadow-teal-100 transition-all"
                     >
                         {isSubmitting ? (
                             <>

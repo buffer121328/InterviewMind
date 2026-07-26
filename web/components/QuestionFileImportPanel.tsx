@@ -53,7 +53,7 @@ export function QuestionFileImportPanel({ onImported }: { onImported: () => void
     return (
         <div className="mx-4 mb-3 rounded-2xl border border-stone-200 bg-white p-4">
             <div className="flex items-center gap-3">
-                <FileUp className="h-5 w-5 text-orange-500" />
+                <FileUp className="h-5 w-5 text-teal-500" />
                 <div className="min-w-0 flex-1">
                     <p className="text-sm font-medium text-stone-700">从 PDF / Markdown 导入</p>
                     <p className="text-xs text-stone-400">先解析预览，确认后才写入题库；扫描版 PDF 暂不支持。</p>
@@ -70,7 +70,7 @@ export function QuestionFileImportPanel({ onImported }: { onImported: () => void
                             event.target.value = "";
                         }}
                     />
-                    <span className="inline-flex h-9 items-center gap-2 rounded-xl bg-orange-500 px-3 text-sm text-white hover:bg-orange-600">
+                    <span className="inline-flex h-9 items-center gap-2 rounded-xl bg-teal-500 px-3 text-sm text-white hover:bg-teal-600">
                         {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
                         选择文件
                     </span>

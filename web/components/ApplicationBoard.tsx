@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Loader2, Plus, Search, Trash2 } from "lucide-react";
 import { useInterviewStore } from "@/store/useInterviewStore";
 import { Button } from "@/components/ui/button";
@@ -72,6 +72,10 @@ export function ApplicationBoard({ onOpenDetail }: ApplicationBoardProps) {
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({ company_name: "", job_title: "", channel: "", priority: "medium" as Priority, notes: "" });
 
+  useEffect(() => {
+    void fetchApplications(undefined, 100);
+  }, [fetchApplications]);
+
   const filtered = useMemo(
     () => (status ? applications.filter((item) => item.latest_status === status) : applications),
     [applications, status]
@@ -110,7 +114,7 @@ export function ApplicationBoard({ onOpenDetail }: ApplicationBoardProps) {
             <h3 className="text-base font-semibold text-gray-900">投递记录</h3>
             <p className="text-xs text-gray-500">跟踪每个岗位的状态变化</p>
           </div>
-          <Button onClick={() => setCreateOpen(true)} className="bg-orange-600 hover:bg-orange-700">
+          <Button onClick={() => setCreateOpen(true)} className="bg-teal-600 hover:bg-teal-700">
             <Plus className="mr-2 h-4 w-4" /> 新建投递
           </Button>
         </div>
@@ -121,7 +125,7 @@ export function ApplicationBoard({ onOpenDetail }: ApplicationBoardProps) {
               <TabsTrigger
                 key={opt.label}
                 value={opt.value ?? "all"}
-                className="h-8 flex-none rounded-full border border-gray-200 bg-white px-3 text-xs text-gray-600 data-[state=active]:border-orange-200 data-[state=active]:bg-orange-50 data-[state=active]:text-orange-700"
+                className="h-8 flex-none rounded-full border border-gray-200 bg-white px-3 text-xs text-gray-600 data-[state=active]:border-teal-200 data-[state=active]:bg-teal-50 data-[state=active]:text-teal-700"
               >
                 {opt.label}
               </TabsTrigger>
@@ -146,7 +150,7 @@ export function ApplicationBoard({ onOpenDetail }: ApplicationBoardProps) {
             ))
           ) : filtered.length === 0 ? (
             <div className="flex min-h-[240px] flex-col items-center justify-center rounded-2xl border border-dashed border-gray-200 bg-white text-center">
-              <Search className="mb-3 h-10 w-10 text-orange-500/50" />
+              <Search className="mb-3 h-10 w-10 text-teal-500/50" />
               <div className="text-sm font-medium text-gray-900">暂无投递记录</div>
               <div className="mt-1 text-xs text-gray-500">点击右上角按钮创建第一条记录</div>
             </div>
@@ -157,7 +161,7 @@ export function ApplicationBoard({ onOpenDetail }: ApplicationBoardProps) {
               return (
                 <Card
                   key={item.id}
-                  className="group cursor-pointer border-gray-200 bg-white shadow-sm transition hover:border-orange-200 hover:shadow-md"
+                  className="group cursor-pointer border-gray-200 bg-white shadow-sm transition hover:border-teal-200 hover:shadow-md"
                   onClick={() => onOpenDetail(item.id)}
                 >
                   <CardContent className="p-4">
@@ -173,7 +177,7 @@ export function ApplicationBoard({ onOpenDetail }: ApplicationBoardProps) {
                             <span className={cn("h-1.5 w-1.5 rounded-full", priorityInfo.dotClassName)} />
                             优先级 {priorityInfo.label}
                           </span>
-                          {item.channel ? <span className="rounded-full bg-orange-50 px-2 py-0.5 text-orange-700">{item.channel}</span> : null}
+                          {item.channel ? <span className="rounded-full bg-teal-50 px-2 py-0.5 text-teal-700">{item.channel}</span> : null}
                         </div>
                       </div>
                       <div className="flex flex-col items-end gap-2">
@@ -234,7 +238,7 @@ export function ApplicationBoard({ onOpenDetail }: ApplicationBoardProps) {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCreateOpen(false)}>取消</Button>
-            <Button className="bg-orange-600 hover:bg-orange-700" onClick={handleCreate} disabled={saving || !form.company_name.trim() || !form.job_title.trim()}>
+            <Button className="bg-teal-600 hover:bg-teal-700" onClick={handleCreate} disabled={saving || !form.company_name.trim() || !form.job_title.trim()}>
               {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
               创建
             </Button>

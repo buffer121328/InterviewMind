@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { Toaster } from "sonner";
+import { PRODUCT_DESCRIPTION, PRODUCT_NAME } from "@/lib/product";
 
 export const metadata: Metadata = {
-  title: "面面-AI求职助手",
-  description: "智能求职助手，提供模拟面试和简历优化服务",
+  title: PRODUCT_NAME,
+  description: PRODUCT_DESCRIPTION,
 };
 
 export default function RootLayout({
@@ -14,7 +15,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="zh-CN">
-      <body className="antialiased">
+      <body className="antialiased selection:bg-teal-200 selection:text-teal-950">
         {children}
         <Toaster position="top-center" richColors />
       </body>

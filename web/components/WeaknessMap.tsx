@@ -38,7 +38,7 @@ const SEVERITY_STYLES: Record<string, { bg: string; text: string; border: string
 // 优先级颜色
 const PRIORITY_STYLES: Record<number, string> = {
     1: 'bg-red-100 text-red-700',
-    2: 'bg-orange-100 text-orange-700',
+    2: 'bg-teal-100 text-teal-700',
     3: 'bg-amber-100 text-amber-700',
     4: 'bg-blue-100 text-blue-700',
     5: 'bg-gray-100 text-gray-700',
@@ -120,7 +120,7 @@ export function WeaknessMap({ sessionId, autoLoad = true }: WeaknessMapProps) {
     if (loading) {
         return (
             <div className="flex flex-col items-center justify-center py-16">
-                <Loader2 className="w-8 h-8 text-orange-600 animate-spin mb-4" />
+                <Loader2 className="w-8 h-8 text-teal-600 animate-spin mb-4" />
                 <p className="text-sm text-gray-500">加载短板地图...</p>
             </div>
         );
@@ -130,8 +130,8 @@ export function WeaknessMap({ sessionId, autoLoad = true }: WeaknessMapProps) {
     if (!report) {
         return (
             <div className="flex flex-col items-center justify-center py-16 px-6">
-                <div className="w-16 h-16 bg-orange-50 rounded-full flex items-center justify-center mb-4">
-                    <Target className="w-8 h-8 text-orange-500" />
+                <div className="w-16 h-16 bg-teal-50 rounded-full flex items-center justify-center mb-4">
+                    <Target className="w-8 h-8 text-teal-500" />
                 </div>
                 <h3 className="text-lg font-semibold text-gray-900 mb-2">暂无短板地图</h3>
                 <p className="text-sm text-gray-500 text-center mb-6 max-w-sm">
@@ -140,7 +140,7 @@ export function WeaknessMap({ sessionId, autoLoad = true }: WeaknessMapProps) {
                 <Button
                     onClick={handleGenerate}
                     disabled={generating}
-                    className="bg-orange-600 hover:bg-orange-700 text-white px-6 py-2 rounded-lg flex items-center gap-2"
+                    className="bg-teal-600 hover:bg-teal-700 text-white px-6 py-2 rounded-lg flex items-center gap-2"
                 >
                     {generating ? (
                         <>
@@ -174,8 +174,8 @@ export function WeaknessMap({ sessionId, autoLoad = true }: WeaknessMapProps) {
             {/* 标题和操作栏 */}
             <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-orange-100 rounded-xl flex items-center justify-center">
-                        <Target className="w-5 h-5 text-orange-600" />
+                    <div className="w-10 h-10 bg-teal-100 rounded-xl flex items-center justify-center">
+                        <Target className="w-5 h-5 text-teal-600" />
                     </div>
                     <div>
                         <h3 className="text-lg font-bold text-gray-900">面试短板地图</h3>
@@ -222,7 +222,7 @@ export function WeaknessMap({ sessionId, autoLoad = true }: WeaknessMapProps) {
             {report_data.weakness_categories.length > 0 && (
                 <div className="space-y-3">
                     <h4 className="text-base font-semibold text-gray-900 flex items-center gap-2">
-                        <span className="w-1 h-5 bg-orange-500 rounded-full inline-block"></span>
+                        <span className="w-1 h-5 bg-teal-500 rounded-full inline-block"></span>
                         短板分类
                     </h4>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -316,7 +316,7 @@ export function WeaknessMap({ sessionId, autoLoad = true }: WeaknessMapProps) {
             {report_data.improvement_actions.length > 0 && (
                 <div className="space-y-3">
                     <h4 className="text-base font-semibold text-gray-900 flex items-center gap-2">
-                        <span className="w-1 h-5 bg-orange-500 rounded-full inline-block"></span>
+                        <span className="w-1 h-5 bg-teal-500 rounded-full inline-block"></span>
                         改进行动
                     </h4>
                     <div className="space-y-2">
@@ -369,17 +369,17 @@ export function WeaknessMap({ sessionId, autoLoad = true }: WeaknessMapProps) {
 
             {/* 优先级排序提示 */}
             {report_data.priority_order.length > 0 && (
-                <div className="bg-gradient-to-r from-orange-50 to-amber-50 rounded-xl border border-orange-100 p-4">
+                <div className="bg-gradient-to-r from-teal-50 to-amber-50 rounded-xl border border-teal-100 p-4">
                     <div className="flex items-start gap-3">
-                        <Lightbulb className="w-5 h-5 text-orange-500 mt-0.5 flex-shrink-0" />
+                        <Lightbulb className="w-5 h-5 text-teal-500 mt-0.5 flex-shrink-0" />
                         <div>
-                            <p className="text-sm font-medium text-orange-800 mb-1">建议练习顺序</p>
+                            <p className="text-sm font-medium text-teal-800 mb-1">建议练习顺序</p>
                             <div className="flex flex-wrap items-center gap-2">
                                 {report_data.priority_order.map((cat, index) => (
                                     <span key={index} className="flex items-center gap-1">
-                                        <span className="text-sm text-orange-700 font-medium">{cat}</span>
+                                        <span className="text-sm text-teal-700 font-medium">{cat}</span>
                                         {index < report_data.priority_order.length - 1 && (
-                                            <ArrowRight className="w-3 h-3 text-orange-400" />
+                                            <ArrowRight className="w-3 h-3 text-teal-400" />
                                         )}
                                     </span>
                                 ))}

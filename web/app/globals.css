@@ -45,38 +45,38 @@
 }
 
 :root {
-  --radius: 0.75rem;
-  --background: #FFFBF5;
-  --foreground: #292524;
+  --radius: 0.875rem;
+  --background: #f7faf9;
+  --foreground: #172321;
   --card: #ffffff;
-  --card-foreground: #292524;
+  --card-foreground: #172321;
   --popover: #ffffff;
-  --popover-foreground: #292524;
-  --primary: #f97316;
+  --popover-foreground: #172321;
+  --primary: #0f766e;
   --primary-foreground: #ffffff;
-  --secondary: #fef3e2;
-  --secondary-foreground: #9a3412;
-  --muted: #f5f0eb;
-  --muted-foreground: #78716c;
-  --accent: #fef3e2;
-  --accent-foreground: #9a3412;
+  --secondary: #e9f5f2;
+  --secondary-foreground: #115e59;
+  --muted: #edf2f1;
+  --muted-foreground: #62706d;
+  --accent: #e5f4f1;
+  --accent-foreground: #115e59;
   --destructive: #ef4444;
-  --border: #e7e0d9;
-  --input: #e7e0d9;
-  --ring: #f97316;
-  --chart-1: #f97316;
+  --border: #dce6e3;
+  --input: #dce6e3;
+  --ring: #0f766e;
+  --chart-1: #0f766e;
   --chart-2: #10b981;
   --chart-3: #8b5cf6;
   --chart-4: #f59e0b;
   --chart-5: #ec4899;
-  --sidebar: #fefaf6;
-  --sidebar-foreground: #292524;
-  --sidebar-primary: #292524;
-  --sidebar-primary-foreground: #fefaf6;
-  --sidebar-accent: #fef3e2;
-  --sidebar-accent-foreground: #292524;
-  --sidebar-border: #e7e0d9;
-  --sidebar-ring: #d6cfc8;
+  --sidebar: #0d1f1d;
+  --sidebar-foreground: #f3faf8;
+  --sidebar-primary: #5eead4;
+  --sidebar-primary-foreground: #0d1f1d;
+  --sidebar-accent: #173532;
+  --sidebar-accent-foreground: #f3faf8;
+  --sidebar-border: #21433f;
+  --sidebar-ring: #2dd4bf;
 }
 
 .dark {
@@ -86,7 +86,7 @@
   --card-foreground: #fafaf9;
   --popover: #1c1917;
   --popover-foreground: #fafaf9;
-  --primary: #fb923c;
+  --primary: #2dd4bf;
   --primary-foreground: #1c1917;
   --secondary: #292524;
   --secondary-foreground: #fafaf9;
@@ -97,15 +97,15 @@
   --destructive: #7f1d1d;
   --border: #292524;
   --input: #292524;
-  --ring: #fb923c;
-  --chart-1: #fb923c;
+  --ring: #2dd4bf;
+  --chart-1: #2dd4bf;
   --chart-2: #34d399;
   --chart-3: #a78bfa;
   --chart-4: #fbbf24;
   --chart-5: #f472b6;
   --sidebar: #1c1917;
   --sidebar-foreground: #fafaf9;
-  --sidebar-primary: #fb923c;
+  --sidebar-primary: #2dd4bf;
   --sidebar-primary-foreground: #1c1917;
   --sidebar-accent: #292524;
   --sidebar-accent-foreground: #fafaf9;
@@ -120,6 +120,24 @@
 
   body {
     @apply bg-background text-foreground;
+    min-width: 320px;
+    background-image:
+      radial-gradient(circle at 10% 0%, rgb(20 184 166 / 0.06), transparent 28rem),
+      linear-gradient(180deg, #fbfdfc 0%, #f5f9f8 100%);
+    background-attachment: fixed;
+  }
+}
+
+@layer utilities {
+  .surface-panel {
+    @apply rounded-2xl border border-slate-200/80 bg-white shadow-[0_16px_50px_-32px_rgba(15,23,42,0.35)];
+  }
+
+  .workspace-grid {
+    background-image:
+      linear-gradient(to right, rgb(15 118 110 / 0.035) 1px, transparent 1px),
+      linear-gradient(to bottom, rgb(15 118 110 / 0.035) 1px, transparent 1px);
+    background-size: 28px 28px;
   }
 }
 

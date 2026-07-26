@@ -118,7 +118,7 @@ export function InterviewExperiencePanel({ onImported, onStartInterview }: Inter
                             placeholder="例如：字节 Python 后端面经"
                             className="min-w-56 flex-1"
                         />
-                        <Button onClick={handleCollect} disabled={loading} className="gap-2 bg-orange-500 hover:bg-orange-600">
+                        <Button onClick={handleCollect} disabled={loading} className="gap-2 bg-teal-500 hover:bg-teal-600">
                             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
                             采集并抽题
                         </Button>
@@ -151,7 +151,7 @@ export function InterviewExperiencePanel({ onImported, onStartInterview }: Inter
                                 </Button>
                             </div>
                         </div>
-                        {queuedCount > 0 && <p className="mb-3 text-xs text-orange-600">当前已有 {queuedCount} 道面经题等待用于下次模拟面试。</p>}
+                        {queuedCount > 0 && <p className="mb-3 text-xs text-teal-600">当前已有 {queuedCount} 道面经题等待用于下次模拟面试。</p>}
                         <div className="space-y-2">
                             {result.questions.map((question, index) => (
                                 <label key={`${question.source_id}-${index}`} className="flex cursor-pointer gap-3 rounded-xl border border-stone-100 p-3 hover:bg-stone-50">
@@ -169,7 +169,7 @@ export function InterviewExperiencePanel({ onImported, onStartInterview }: Inter
                                         <p className="text-sm leading-relaxed text-stone-800">{question.question_text}</p>
                                         <p className="mt-1 text-xs text-stone-400">{question.tags.join(" · ")}</p>
                                     </div>
-                                    <CheckSquare className="h-4 w-4 shrink-0 text-orange-400" />
+                                    <CheckSquare className="h-4 w-4 shrink-0 text-teal-400" />
                                 </label>
                             ))}
                             {result.questions.length === 0 && <p className="py-8 text-center text-sm text-stone-400">未抽取到问句，可调整关键词或导出内容后重试。</p>}

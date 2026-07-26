@@ -65,6 +65,7 @@ export interface ModelConfig {
     id: string;
     name: string;
     provider: string;
+    kind?: 'chat' | 'embedding' | 'voice';
     apiKey: string;
     baseUrl: string;
     model: string;
@@ -332,16 +333,15 @@ export interface QuestionBankImportItem {
 // 常量配置
 // ============================================================================
 
-// API 提供商配置 (2025年最新模型)
+// OpenAI-compatible 提供商预设。模型名称始终允许用户按实际账号手动填写。
 export const API_PROVIDERS = [
-    { id: 'openai', name: 'OpenAI', baseUrl: 'https://api.openai.com/v1', apiKeyUrl: 'https://platform.openai.com/api-keys', models: ['gpt-5.2', 'gpt-5.1', 'gpt-5-mini', 'gpt-4o-mini', 'gpt-4o'] },
-    { id: 'deepseek', name: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1', apiKeyUrl: 'https://platform.deepseek.com/api_keys', models: ['deepseek-v4-flash', 'deepseek-v4-pro'] },
-    { id: 'zhipu', name: '智谱 AI', baseUrl: 'https://open.bigmodel.cn/api/paas/v4', apiKeyUrl: 'https://open.bigmodel.cn/usercenter/apikeys', models: ['glm-5', 'glm-4.7', 'glm-4.6', 'glm-4.7-flash'] },
-    { id: 'aliyun', name: '阿里云百炼 (含语音配置，新用户实名赠送百万token)', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', apiKeyUrl: 'https://bailian.console.aliyun.com/#/api-key', models: ['text-embedding-v4', 'qwen3-omni-flash-2025-12-01', 'qwen3-max', 'qwen3-235b-a22b-instruct-2507', 'deepseek-v3.2', 'Moonshot-Kimi-K2-Instruct', 'qwen3-next-80b-a3b-instruct', 'qwen3-30b-a3b-instruct-2507'] },
-    { id: 'moonshot', name: 'Moonshot', baseUrl: 'https://api.moonshot.cn/v1', apiKeyUrl: 'https://platform.moonshot.cn/console/api-keys', models: ['kimi-k2.5', 'kimi-k2-turbo-preview', 'kimi-k2'] },
-    { id: 'siliconflow', name: 'SiliconFlow', baseUrl: 'https://api.siliconflow.cn/v1', apiKeyUrl: 'https://cloud.siliconflow.cn/account/ak', models: ['deepseek-ai/DeepSeek-V3.2', 'MiniMaxAI/MiniMax-M2', 'zai-org/GLM-4.7', 'moonshotai/Kimi-K2-Instruct-0905'] },
-    { id: 'modelscope', name: '魔搭社区（免费，含资源限制，且需关联阿里云百炼）', baseUrl: 'https://api-inference.modelscope.cn/v1', apiKeyUrl: 'https://www.modelscope.cn/my/myaccesstoken', models: ['deepseek-ai/DeepSeek-V3.2', 'XiaomiMiMo/MiMo-V2-Flash', 'Qwen/Qwen3-Coder-480B-A35B-Instruct', 'Qwen/Qwen3-235B-A22B-Instruct-2507'] },
-    { id: 'aiping', name: 'AI Ping ', baseUrl: 'https://aiping.cn/api/v1', apiKeyUrl: 'https://www.aiping.cn/user/apikey', models: ['GLM-5', 'DeepSeek-V3.2', 'Qwen3-235B-A22B', 'MiMo-V2-Flash'] },
+    { id: 'openai', name: 'OpenAI', baseUrl: 'https://api.openai.com/v1', apiKeyUrl: 'https://platform.openai.com/api-keys', models: [] },
+    { id: 'deepseek', name: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1', apiKeyUrl: 'https://platform.deepseek.com/api_keys', models: [] },
+    { id: 'zhipu', name: '智谱 AI', baseUrl: 'https://open.bigmodel.cn/api/paas/v4', apiKeyUrl: 'https://open.bigmodel.cn/usercenter/apikeys', models: [] },
+    { id: 'aliyun', name: '阿里云百炼', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', apiKeyUrl: 'https://bailian.console.aliyun.com/#/api-key', models: ['qwen3-omni-flash-2025-12-01', 'text-embedding-v4'] },
+    { id: 'moonshot', name: 'Moonshot', baseUrl: 'https://api.moonshot.cn/v1', apiKeyUrl: 'https://platform.moonshot.cn/console/api-keys', models: [] },
+    { id: 'siliconflow', name: 'SiliconFlow', baseUrl: 'https://api.siliconflow.cn/v1', apiKeyUrl: 'https://cloud.siliconflow.cn/account/ak', models: [] },
+    { id: 'modelscope', name: '魔搭社区', baseUrl: 'https://api-inference.modelscope.cn/v1', apiKeyUrl: 'https://www.modelscope.cn/my/myaccesstoken', models: [] },
     { id: 'custom', name: '自定义', baseUrl: '', apiKeyUrl: '', models: [] },
 ];
 

@@ -1,25 +1,44 @@
-import { useState, useEffect } from 'react';
+'use client';
+
+import { useEffect, useState } from 'react';
 import Image from 'next/image';
-import { motion, AnimatePresence } from 'framer-motion';
-import { PanelLeftClose, Plus, Settings, User, FileText, MessageCircle, Target, Trash2, MoreHorizontal, Briefcase, BookOpen, ListTodo } from 'lucide-react';
+import { AnimatePresence, motion } from 'framer-motion';
+import {
+    Activity,
+    Award,
+    BookOpenCheck,
+    BriefcaseBusiness,
+    Database,
+    FileText,
+    Home,
+    MessageCircle,
+    MoreHorizontal,
+    PanelLeftClose,
+    Plus,
+    Settings,
+    ShieldCheck,
+    Target,
+    Trash2,
+    UserRound,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { SessionList } from './SessionList';
 import { ResumeHistoryList } from './ResumeHistoryList';
 import { GeneratedResumeList } from './GeneratedResumeList';
 import { ResumePreviewDialog } from './ResumePreviewDialog';
 import { cn } from '@/lib/utils';
-import { Avatar } from "@/components/ui/avatar";
+import { Avatar } from '@/components/ui/avatar';
 import { useInterviewStore } from '@/store/useInterviewStore';
 import { updateGeneratedResume } from '@/lib/api/resume';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { TaskCenterDialog } from './TaskCenterDialog';
+import type { WorkspaceView } from '@/lib/navigation';
+import { PRODUCT_NAME } from '@/lib/product';
 import {
     DropdownMenu,
     DropdownMenuContent,
     DropdownMenuItem,
     DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+} from '@/components/ui/dropdown-menu';
 import {
     AlertDialog,
     AlertDialogAction,
@@ -29,27 +48,66 @@ import {
     AlertDialogFooter,
     AlertDialogHeader,
     AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+} from '@/components/ui/alert-dialog';
 
 interface SessionSidebarProps {
     isOpen: boolean;
     onClose: () => void;
     onOpenSettings: () => void;
-    currentView: 'interview' | 'resume' | 'applications' | 'questionbank' | 'boss';
-    onViewChange: (view: 'interview' | 'resume' | 'applications' | 'questionbank' | 'boss') => void;
+    onGoHome: () => void;
+    currentView: WorkspaceView;
+    onViewChange: (view: WorkspaceView) => void;
     onViewSessionDetail?: (sessionId: string) => void;
 }
+
+const NAV_SECTIONS: Array<{
+    label: string;
+    items: Array<{ view: WorkspaceView; label: string; icon: typeof MessageCircle }>;
+}> = [
+    {
+        label: '求职准备',
+        items: [
+            { view: 'interview', label: '模拟面试', icon: MessageCircle },
+            { view: 'resume', label: '简历工作台', icon: FileText },
+            { view: 'questionbank', label: '题库与面经', icon: BookOpenCheck },
+        ],
+    },
+    {
+        label: '机会管理',
+        items: [
+            { view: 'boss', label: '岗位中心', icon: Target },
+            { view: 'applications', label: '投递管理', icon: BriefcaseBusiness },
+        ],
+    },
+    {
+        label: 'Agent 系统',
+        items: [
+            { view: 'memory', label: '长期记忆', icon: Database },
+            { view: 'runs', label: '任务运行', icon: Activity },
+        ],
+    },
+];
+
+const VIEW_CONTEXT: Record<WorkspaceView, { title: string; description: string }> = {
+    interview: { title: '面试会话', description: '继续历史面试或创建新一轮。' },
+    resume: { title: '简历记录', description: '分析、JD 匹配与生成版本。' },
+    questionbank: { title: '题库与面经', description: '维护个人题目、导入文件并沉淀历史追问。' },
+    boss: { title: '岗位中心', description: '采集岗位、生成投递资产并保留人工确认。' },
+    applications: { title: '投递管理', description: '跟踪岗位状态、简历版本和面试事件。' },
+    memory: { title: '长期记忆', description: '搜索、审计和删除用于个性化的 mem0 记忆。' },
+    runs: { title: '任务运行', description: '查看 AgentRun 阶段、失败原因、取消与重试。' },
+};
 
 export function SessionSidebar({
     isOpen,
     onClose,
     onOpenSettings,
+    onGoHome,
     currentView,
     onViewChange,
     onViewSessionDetail,
 }: SessionSidebarProps) {
     const {
-        // Interview Sessions
         sessions,
         sessionsTotal,
         currentSession,
@@ -60,8 +118,6 @@ export function SessionSidebar({
         deleteSession,
         updateSessionTitle,
         togglePinSession,
-
-        // Resume History
         resumeResults,
         currentResumeResult,
         resumeResultLoading,
@@ -70,230 +126,228 @@ export function SessionSidebar({
         selectResumeResult,
         deleteResumeResult,
         clearResumeResult,
-
-        // Generated Resumes
         generatedResumes,
         generatedResumesLoading,
         fetchGeneratedResumes,
         selectGeneratedResume,
         deleteGeneratedResume,
         currentGeneratedResume,
-
-        // JD Match
         jdMatchResults,
         jdMatchResultsLoading,
         fetchJDMatchResults,
         selectJDMatchResult,
         deleteJDMatchResult: deleteJDMatchResultAction,
         clearJDMatchResult,
-
-        // Common
-        setShowAbilityProfile
+        setShowAbilityProfile,
+        apiConfig,
     } = useInterviewStore();
 
     const [resumeSubTab, setResumeSubTab] = useState<'analysis' | 'generated' | 'jd-match'>('analysis');
     const [showPreview, setShowPreview] = useState(false);
     const [jdMatchDeleteId, setJDMatchDeleteId] = useState<number | null>(null);
-    const [showTaskCenter, setShowTaskCenter] = useState(false);
 
-    // 当切换到简历模式时，加载历史记录
     useEffect(() => {
-        if (currentView === 'resume') {
-            if (resumeResults.length === 0) fetchResumeResults();
-            if (generatedResumes.length === 0) fetchGeneratedResumes();
-            if (jdMatchResults.length === 0) fetchJDMatchResults();
-        }
-    }, [currentView, fetchResumeResults, fetchGeneratedResumes, fetchJDMatchResults, resumeResults.length, generatedResumes.length, jdMatchResults.length]);
+        if (currentView !== 'resume') return;
+        if (resumeResults.length === 0) void fetchResumeResults();
+        if (generatedResumes.length === 0) void fetchGeneratedResumes();
+        if (jdMatchResults.length === 0) void fetchJDMatchResults();
+    }, [
+        currentView,
+        fetchResumeResults,
+        fetchGeneratedResumes,
+        fetchJDMatchResults,
+        resumeResults.length,
+        generatedResumes.length,
+        jdMatchResults.length,
+    ]);
+
+    const closeOnMobile = () => {
+        if (window.innerWidth < 768) onClose();
+    };
 
     const handleSessionSelect = (sessionId: string) => {
-        selectSession(sessionId);
-        if (window.innerWidth < 768) {
-            onClose();
-        }
+        void selectSession(sessionId);
+        closeOnMobile();
     };
 
     const handleSessionDetail = (sessionId: string) => {
         onViewSessionDetail?.(sessionId);
-        if (window.innerWidth < 768) {
-            onClose();
-        }
+        closeOnMobile();
     };
 
     const handleResumeSelect = async (resultId: number) => {
         await selectResumeResult(resultId);
-        if (window.innerWidth < 768) {
-            onClose();
-        }
+        closeOnMobile();
     };
 
     const handleGeneratedResumeSelect = async (id: number) => {
         await selectGeneratedResume(id);
         setShowPreview(true);
-        if (window.innerWidth < 768) {
-            onClose();
-        }
+        closeOnMobile();
     };
 
     const handleJDMatchSelect = async (analysisId: number) => {
         await selectJDMatchResult(analysisId);
         onViewChange('resume');
-        if (window.innerWidth < 768) {
-            onClose();
-        }
+        closeOnMobile();
     };
 
-    const handleJDMatchDelete = async (analysisId: number) => {
-        await deleteJDMatchResultAction(analysisId);
-        setJDMatchDeleteId(null);
-    };
-
-    const handleNewSession = () => {
-        if (currentView === 'interview') {
-            createNewSession();
-        } else {
-            // 简历模式下，新建 = 清空当前选中的结果，回到输入界面
+    const handleNew = () => {
+        if (currentView === 'interview') createNewSession();
+        if (currentView === 'resume') {
             clearResumeResult();
             clearJDMatchResult();
         }
-        if (window.innerWidth < 768) {
-            onClose();
-        }
+        closeOnMobile();
     };
+
+    const switchView = (view: WorkspaceView) => {
+        onViewChange(view);
+        closeOnMobile();
+    };
+
+    const assignedModels = new Set([
+        apiConfig.smartModelId,
+        apiConfig.fastModelId,
+        apiConfig.generalModelId,
+        apiConfig.matchAnalystModelId,
+        apiConfig.contentWriterModelId,
+        apiConfig.hrReviewerModelId,
+        apiConfig.reflectorModelId,
+        apiConfig.voiceModelId,
+        apiConfig.ragEmbeddingModelId,
+        apiConfig.mem0LlmModelId,
+        apiConfig.mem0EmbedderModelId,
+    ].filter(Boolean)).size;
+    const coreReady = Boolean(
+        apiConfig.models.find(model => model.id === apiConfig.smartModelId)?.apiKey
+        && apiConfig.models.find(model => model.id === apiConfig.fastModelId)?.apiKey,
+    );
 
     return (
         <>
-            <AnimatePresence mode="wait">
+            <AnimatePresence>
                 {isOpen && (
-                    <motion.aside
-                        initial={{ width: 0, opacity: 0 }}
-                        animate={{
-                            width: 260,
-                            opacity: 1,
-                            transition: {
-                                width: { duration: 0.2, ease: "easeInOut" },
-                                opacity: { duration: 0.2 }
-                            }
-                        }}
-                        exit={{
-                            width: 0,
-                            opacity: 0,
-                            transition: {
-                                width: { duration: 0.2, ease: "easeInOut" },
-                                opacity: { duration: 0.1 }
-                            }
-                        }}
-                        className="flex-shrink-0 h-full relative z-40 bg-[#fefaf6] border-r border-gray-200 flex flex-col"
-                    >
-                        <div className="flex flex-col">
-                            {/* 1. 顶部图标和关闭按钮 */}
-                            <div className="px-4 pt-6 pb-2 flex items-center justify-between">
-                                <div className="w-10 h-10 relative flex items-center justify-center rounded-xl overflow-hidden">
-                                    <Image src="/logo.png" alt="Logo" width={40} height={40} className="object-cover" />
+                    <>
+                        <motion.button
+                            type="button"
+                            aria-label="关闭侧边栏"
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            className="fixed inset-0 z-30 bg-slate-950/25 backdrop-blur-[1px] md:hidden"
+                            onClick={onClose}
+                        />
+                        <motion.aside
+                            initial={{ x: -24, opacity: 0 }}
+                            animate={{ x: 0, opacity: 1 }}
+                            exit={{ x: -24, opacity: 0 }}
+                            transition={{ duration: 0.18, ease: 'easeOut' }}
+                            className="fixed inset-y-0 left-0 z-40 flex w-72 shrink-0 flex-col border-r border-slate-200 bg-[#f4f8f7] shadow-xl md:relative md:z-20 md:shadow-none"
+                        >
+                            <div className="border-b border-slate-200 bg-[#102724] px-4 py-3 text-white">
+                                <div className="flex items-center justify-between gap-3">
+                                    <button type="button" className="flex min-w-0 items-center gap-3 text-left" onClick={onGoHome}>
+                                        <Image src="/logo.png" alt="" width={38} height={38} className="rounded-xl ring-1 ring-white/10" />
+                                        <div className="min-w-0">
+                                            <div className="truncate text-sm font-semibold">{PRODUCT_NAME}</div>
+                                            <div className="mt-0.5 text-[9px] uppercase tracking-[0.2em] text-teal-200/70">Career workspace</div>
+                                        </div>
+                                    </button>
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        onClick={onClose}
+                                        className="h-9 w-9 text-teal-50 hover:bg-white/10 hover:text-white"
+                                        aria-label="收起侧边栏"
+                                    >
+                                        <PanelLeftClose className="h-5 w-5" />
+                                    </Button>
                                 </div>
-                                <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    onClick={onClose}
-                                    className="h-10 w-10 text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg"
-                                >
-                                    <PanelLeftClose className="w-6 h-6" />
-                                </Button>
                             </div>
 
-                            {/* 2. 模式切换 Tabs */}
-                            <div className="px-4 pb-4">
-                                <Tabs value={currentView} onValueChange={(v) => onViewChange(v as 'interview' | 'resume' | 'questionbank')} className="w-full">
-                                    <TabsList className="w-full grid grid-cols-2 bg-orange-100/40 p-1 rounded-lg">
-                                        <TabsTrigger
-                                            value="interview"
-                                            className="text-xs font-medium data-[state=active]:bg-white data-[state=active]:text-orange-700 data-[state=active]:shadow-sm rounded-md transition-all gap-1.5"
-                                        >
-                                            <MessageCircle size={14} />
-                                            模拟面试
-                                        </TabsTrigger>
-                                        <TabsTrigger
-                                            value="resume"
-                                            className="text-xs font-medium data-[state=active]:bg-white data-[state=active]:text-orange-700 data-[state=active]:shadow-sm rounded-md transition-all gap-1.5"
-                                        >
-                                            <FileText size={14} />
-                                            简历工具
-                                        </TabsTrigger>
-                                    </TabsList>
-                                </Tabs>
+                            <div className="border-b border-slate-200 px-3 py-2">
+                                <button type="button" onClick={onGoHome} className="mb-1 flex w-full items-center gap-3 rounded-lg px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-white hover:text-slate-950">
+                                    <Home className="h-4 w-4" />产品首页
+                                </button>
+                                <div className="space-y-2">
+                                    {NAV_SECTIONS.map(section => (
+                                        <div key={section.label}>
+                                            <div className="mb-0.5 px-3 text-[9px] font-semibold uppercase tracking-[0.18em] text-slate-400">{section.label}</div>
+                                            <div className="space-y-0.5">
+                                                {section.items.map(item => (
+                                                    <button
+                                                        type="button"
+                                                        key={item.view}
+                                                        onClick={() => switchView(item.view)}
+                                                        className={cn(
+                                                            'flex w-full items-center gap-3 rounded-lg px-3 py-1.5 text-left text-sm transition',
+                                                            currentView === item.view
+                                                                ? 'bg-teal-950 font-medium text-white shadow-sm'
+                                                                : 'text-slate-600 hover:bg-white hover:text-slate-950',
+                                                        )}
+                                                    >
+                                                        <item.icon className={cn('h-4 w-4', currentView === item.view ? 'text-teal-200' : 'text-slate-400')} />
+                                                        {item.label}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
                             </div>
 
-                            {/* 3. 新建按钮 */}
-                            <div className="px-4 pb-4">
-                                <Button
-                                    onClick={handleNewSession}
-                                    variant="ghost"
-                                    className={cn(
-                                        "w-full justify-start gap-3 h-11 rounded-xl bg-[#FFF7ED] hover:bg-[#FFEDD5]",
-                                        "text-orange-700 hover:text-orange-900",
-                                        "transition-all px-4"
-                                    )}
-                                >
-                                    <Plus className="w-5 h-5 text-orange-600" strokeWidth={2.5} />
-                                    <span className="text-[15px] font-semibold tracking-wide">
-                                        {currentView === 'interview' ? '新建模拟面试' : '新建简历分析'}
-                                    </span>
-                                </Button>
-                            </div>
-
-                            {/* 4. 分隔线 */}
-                            <div className="h-[1px] bg-gray-200 mx-4 mb-2" />
-                        </div>
-
-                        {/* 列表区域 */}
-                        <div className="flex-1 overflow-hidden px-4 py-2">
-                            {currentView === 'interview' ? (
-                                <SessionList
-                                    sessions={sessions}
-                                    onSessionSelect={handleSessionSelect}
-                                    onDeleteSession={deleteSession}
-                                    onEditSession={updateSessionTitle}
-                                    onTogglePin={togglePinSession}
-                                    onViewDetails={onViewSessionDetail ? handleSessionDetail : undefined}
-                                    currentSessionId={currentSession?.session_id}
-                                    loading={sessionLoading}
-                                    hasMore={sessions.length < sessionsTotal}
-                                    onLoadMore={() => void fetchSessions(undefined, undefined, true)}
-                                />
-                            ) : (
-                                <div className="h-full flex flex-col">
-                                    <div className="px-2 mb-2">
-                                        <div className="flex p-1 bg-gray-100 rounded-lg">
-                                            <button
-                                                onClick={() => setResumeSubTab('analysis')}
-                                                className={cn(
-                                                    "flex-1 text-xs font-medium py-1.5 rounded-md transition-all",
-                                                    resumeSubTab === 'analysis' ? "bg-white text-orange-700 shadow-sm" : "text-gray-500 hover:text-gray-700"
-                                                )}
-                                            >
-                                                分析记录
-                                            </button>
-                                            <button
-                                                onClick={() => setResumeSubTab('jd-match')}
-                                                className={cn(
-                                                    "flex-1 text-xs font-medium py-1.5 rounded-md transition-all",
-                                                    resumeSubTab === 'jd-match' ? "bg-white text-orange-700 shadow-sm" : "text-gray-500 hover:text-gray-700"
-                                                )}
-                                            >
-                                                JD 匹配
-                                            </button>
-                                            <button
-                                                onClick={() => setResumeSubTab('generated')}
-                                                className={cn(
-                                                    "flex-1 text-xs font-medium py-1.5 rounded-md transition-all",
-                                                    resumeSubTab === 'generated' ? "bg-white text-orange-700 shadow-sm" : "text-gray-500 hover:text-gray-700"
-                                                )}
-                                            >
-                                                我的简历
-                                            </button>
+                            {(currentView === 'interview' || currentView === 'resume') ? (
+                                <div className="flex min-h-0 flex-1 flex-col">
+                                    <div className="px-4 pb-2 pt-4">
+                                        <div className="flex items-end justify-between gap-3">
+                                            <div>
+                                                <div className="text-xs font-semibold text-slate-900">{VIEW_CONTEXT[currentView].title}</div>
+                                                <div className="mt-0.5 text-[10px] text-slate-500">{VIEW_CONTEXT[currentView].description}</div>
+                                            </div>
+                                            <Button size="icon" className="h-8 w-8 shrink-0 bg-teal-700 hover:bg-teal-800" onClick={handleNew} aria-label={currentView === 'interview' ? '新建面试' : '新建简历任务'}>
+                                                <Plus className="h-4 w-4" />
+                                            </Button>
                                         </div>
                                     </div>
-                                    <div className="flex-1 overflow-hidden">
-                                        {resumeSubTab === 'analysis' ? (
+
+                                    {currentView === 'resume' && (
+                                        <div className="mx-4 mb-2 grid grid-cols-3 gap-1 rounded-lg bg-slate-200/60 p-1">
+                                            {([
+                                                ['analysis', '分析'],
+                                                ['jd-match', 'JD'],
+                                                ['generated', '成品'],
+                                            ] as const).map(([value, label]) => (
+                                                <button
+                                                    type="button"
+                                                    key={value}
+                                                    onClick={() => setResumeSubTab(value)}
+                                                    className={cn(
+                                                        'rounded-md px-2 py-1.5 text-[10px] font-medium',
+                                                        resumeSubTab === value ? 'bg-white text-teal-800 shadow-sm' : 'text-slate-500',
+                                                    )}
+                                                >
+                                                    {label}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
+
+                                    <div className="min-h-0 flex-1 overflow-hidden px-3 pb-3">
+                                        {currentView === 'interview' ? (
+                                            <SessionList
+                                                sessions={sessions}
+                                                onSessionSelect={handleSessionSelect}
+                                                onDeleteSession={deleteSession}
+                                                onEditSession={updateSessionTitle}
+                                                onTogglePin={togglePinSession}
+                                                onViewDetails={onViewSessionDetail ? handleSessionDetail : undefined}
+                                                currentSessionId={currentSession?.session_id}
+                                                loading={sessionLoading}
+                                                hasMore={sessions.length < sessionsTotal}
+                                                onLoadMore={() => void fetchSessions(undefined, undefined, true)}
+                                            />
+                                        ) : resumeSubTab === 'analysis' ? (
                                             <ResumeHistoryList
                                                 results={resumeResults}
                                                 onSelect={handleResumeSelect}
@@ -307,7 +361,7 @@ export function SessionSidebar({
                                             <JDMatchHistoryList
                                                 results={jdMatchResults}
                                                 onSelect={handleJDMatchSelect}
-                                                onDelete={(id) => setJDMatchDeleteId(id)}
+                                                onDelete={setJDMatchDeleteId}
                                                 loading={jdMatchResultsLoading}
                                             />
                                         ) : (
@@ -321,144 +375,75 @@ export function SessionSidebar({
                                         )}
                                     </div>
                                 </div>
+                            ) : (
+                                <div className="min-h-0 flex-1 p-4">
+                                    <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                                        <div className="text-xs font-semibold text-slate-900">{VIEW_CONTEXT[currentView].title}</div>
+                                        <p className="mt-2 text-xs leading-5 text-slate-500">{VIEW_CONTEXT[currentView].description}</p>
+                                    </div>
+                                </div>
                             )}
-                        </div>
 
-                        {/* 底部设置区域 */}
-                        <div className="p-4 border-t border-gray-200 space-y-2">
-                            {/* 题库入口 */}
-                            <Button
-                                variant="ghost"
-                                className={cn(
-                                    "w-full justify-start gap-3 h-10 transition-all",
-                                    currentView === 'questionbank'
-                                        ? "bg-orange-50 border border-orange-200 text-orange-700 hover:bg-orange-100"
-                                        : "text-gray-600 hover:text-gray-900 hover:bg-gray-100"
+                            <div className="space-y-2 border-t border-slate-200 bg-white/70 p-3">
+                                {currentView === 'interview' && (
+                                    <Button
+                                        variant="ghost"
+                                        className="w-full justify-start gap-3 text-slate-600 hover:bg-white hover:text-slate-950"
+                                        onClick={() => {
+                                            setShowAbilityProfile(true);
+                                            closeOnMobile();
+                                        }}
+                                    >
+                                        <Award className="h-4 w-4 text-teal-700" />综合能力画像
+                                    </Button>
                                 )}
-                                onClick={() => {
-                                    onViewChange('questionbank');
-                                    if (window.innerWidth < 768) onClose();
-                                }}
-                            >
-                                <BookOpen className="w-4 h-4" />
-                                <span className="text-sm font-medium">题库</span>
-                            </Button>
-
-                            {/* 投递追踪入口 */}
-                            <Button
-                                variant="ghost"
-                                className={cn(
-                                    "w-full justify-start gap-3 h-10 transition-all",
-                                    currentView === 'applications'
-                                        ? "bg-orange-50 border border-orange-200 text-orange-700 hover:bg-orange-100"
-                                        : "text-gray-600 hover:text-gray-900 hover:bg-gray-100"
-                                )}
-                                onClick={() => {
-                                    onViewChange('applications');
-                                    if (window.innerWidth < 768) onClose();
-                                }}
-                            >
-                                <Briefcase className="w-4 h-4" />
-                                <span className="text-sm font-medium">投递追踪</span>
-                            </Button>
-
-                            {/* BOSS 半自动化入口 */}
-                            <Button
-                                variant="ghost"
-                                className={cn(
-                                    "w-full justify-start gap-3 h-10 transition-all",
-                                    currentView === 'boss'
-                                        ? "bg-orange-50 border border-orange-200 text-orange-700 hover:bg-orange-100"
-                                        : "text-gray-600 hover:text-gray-900 hover:bg-gray-100"
-                                )}
-                                onClick={() => {
-                                    onViewChange('boss');
-                                    if (window.innerWidth < 768) onClose();
-                                }}
-                            >
-                                <Briefcase className="w-4 h-4" />
-                                <span className="text-sm font-medium">BOSS 半自动化</span>
-                            </Button>
-
-                            {/* 能力画像入口 (仅面试模式显示) */}
-                            {currentView === 'interview' && (
-                                <Button
-                                    variant="ghost"
-                                    className="w-full justify-start gap-3 h-10 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-white via-gray-100 to-gray-300 border border-gray-200 text-gray-700 hover:from-gray-50 hover:to-gray-400 hover:text-gray-900 shadow-sm transition-all"
-                                    onClick={() => {
-                                        setShowAbilityProfile(true);
-                                        if (window.innerWidth < 768) onClose();
-                                    }}
-                                >
-                                    <Award className="w-4 h-4 text-orange-500" />
-                                    <span className="text-sm font-medium">综合能力画像</span>
+                                <Button variant="ghost" className="w-full justify-start gap-3 text-slate-600 hover:bg-white hover:text-slate-950" onClick={onOpenSettings}>
+                                    <Settings className="h-4 w-4" />模型设置
                                 </Button>
-                            )}
-
-                            {/* 设置入口 */}
-                            <Button
-                                variant="ghost"
-                                className="w-full justify-start gap-3 h-10 text-gray-600 hover:text-gray-900 hover:bg-gray-100"
-                                onClick={() => setShowTaskCenter(true)}
-                            >
-                                <ListTodo className="w-4 h-4" />
-                                <span className="text-sm font-medium">任务中心</span>
-                            </Button>
-
-                            {/* 设置入口 */}
-                            <Button
-                                variant="ghost"
-                                className="w-full justify-start gap-3 h-10 text-gray-600 hover:text-gray-900 hover:bg-gray-100"
-                                onClick={onOpenSettings}
-                            >
-                                <Settings className="w-4 h-4" />
-                                <span className="text-sm font-medium">设置</span>
-                            </Button>
-
-                            {/* 用户信息 */}
-                            <div className="flex items-center gap-3 px-2 py-2">
-                                <Avatar className="h-8 w-8 bg-orange-100 flex items-center justify-center">
-                                    <User className="w-5 h-5 text-orange-700" />
-                                </Avatar>
-                                <div className="flex-1 min-w-0">
-                                    <p className="text-sm font-medium text-gray-900 truncate">面试候选人</p>
-                                    <p className="text-xs text-gray-500 truncate">Pro Plan</p>
+                                <div className="flex items-center gap-3 rounded-xl bg-slate-100/80 px-3 py-2.5">
+                                    <Avatar className="flex h-8 w-8 items-center justify-center bg-teal-950 text-white">
+                                        <UserRound className="h-4 w-4" />
+                                    </Avatar>
+                                    <div className="min-w-0 flex-1">
+                                        <div className="text-xs font-medium text-slate-800">本地候选人工作区</div>
+                                        <div className={`mt-0.5 flex items-center gap-1 text-[10px] ${coreReady ? 'text-emerald-700' : 'text-amber-700'}`}>
+                                            <ShieldCheck className="h-3 w-3" />
+                                            {coreReady ? `${assignedModels} 个模型连接已分配` : 'Smart / Fast 尚未就绪'}
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
-                    </motion.aside>
+                        </motion.aside>
+                    </>
                 )}
             </AnimatePresence>
-
 
             <ResumePreviewDialog
                 isOpen={showPreview}
                 onClose={() => setShowPreview(false)}
                 title={currentGeneratedResume?.title || '简历预览'}
                 content={currentGeneratedResume?.content || ''}
-                onContentChange={async (newContent) => {
-                    if (currentGeneratedResume?.id) {
-                        await updateGeneratedResume(currentGeneratedResume.id, newContent);
-                        fetchGeneratedResumes();
-                    }
+                onContentChange={async newContent => {
+                    if (!currentGeneratedResume?.id) return;
+                    await updateGeneratedResume(currentGeneratedResume.id, newContent);
+                    void fetchGeneratedResumes();
                 }}
             />
-            <TaskCenterDialog open={showTaskCenter} onOpenChange={setShowTaskCenter} />
 
-            {/* JD 匹配删除确认 */}
             <AlertDialog open={jdMatchDeleteId !== null} onOpenChange={() => setJDMatchDeleteId(null)}>
                 <AlertDialogContent className="max-w-md">
                     <AlertDialogHeader>
-                        <AlertDialogTitle>删除此记录？</AlertDialogTitle>
-                        <AlertDialogDescription>
-                            此 JD 匹配分析记录将被永久删除，不可恢复
-                        </AlertDialogDescription>
+                        <AlertDialogTitle>删除此 JD 匹配记录？</AlertDialogTitle>
+                        <AlertDialogDescription>记录删除后不可恢复，但不会删除关联简历。</AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
                         <AlertDialogCancel>取消</AlertDialogCancel>
                         <AlertDialogAction
-                            onClick={() => jdMatchDeleteId && handleJDMatchDelete(jdMatchDeleteId)}
-                            className="bg-red-600 hover:bg-red-700 focus:ring-red-600"
+                            className="bg-red-600 hover:bg-red-700"
+                            onClick={() => {
+                                if (jdMatchDeleteId !== null) void deleteJDMatchResultAction(jdMatchDeleteId);
+                                setJDMatchDeleteId(null);
+                            }}
                         >
                             删除
                         </AlertDialogAction>
@@ -468,11 +453,6 @@ export function SessionSidebar({
         </>
     );
 }
-
-
-// ============================================================================
-// JD 匹配历史列表组件
-// ============================================================================
 
 interface JDMatchHistoryListProps {
     results: Array<{ id: number; resume_source_type: string; job_description: string; created_at: string }>;
@@ -484,82 +464,50 @@ interface JDMatchHistoryListProps {
 function JDMatchHistoryList({ results, onSelect, onDelete, loading }: JDMatchHistoryListProps) {
     if (loading && results.length === 0) {
         return (
-            <div className="flex flex-col items-center justify-center h-40 space-y-2">
-                <div className="w-4 h-4 border-2 border-gray-300 border-t-transparent rounded-full animate-spin" />
-                <div className="text-xs text-gray-400">加载中...</div>
+            <div className="flex h-40 flex-col items-center justify-center gap-2 text-xs text-slate-400">
+                <div className="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-transparent" />
+                加载中...
             </div>
         );
     }
-
     if (results.length === 0) {
         return (
-            <div className="flex flex-col items-center justify-center h-40 px-4 text-center">
-                <Target className="w-8 h-8 text-gray-300 mb-2" />
-                <p className="text-xs text-gray-400">暂无 JD 匹配记录</p>
+            <div className="flex h-40 flex-col items-center justify-center px-4 text-center">
+                <Target className="mb-2 h-7 w-7 text-slate-300" />
+                <p className="text-xs text-slate-400">暂无 JD 匹配记录</p>
             </div>
         );
     }
-
     return (
         <ScrollArea className="h-full">
-            <div className="space-y-0.5 px-1">
-                {results.map((item) => (
-                    <div
+            <div className="space-y-1">
+                {results.map(item => (
+                    <button
+                        type="button"
                         key={item.id}
                         onClick={() => onSelect(item.id)}
-                        className="group flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer transition-all text-sm text-gray-600 hover:bg-gray-100 hover:text-gray-900 w-[226px]"
+                        className="group flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm text-slate-600 transition hover:bg-white hover:text-slate-950"
                     >
-                        <Target className="w-4 h-4 flex-shrink-0 text-orange-600" />
-                        <div className="flex-1 min-w-0">
-                            <div className="truncate leading-none font-medium mb-1">
-                                JD 匹配分析
-                            </div>
-                            <div className="text-[10px] text-gray-400 truncate" title={item.job_description}>
-                                {item.job_description.slice(0, 20)}{item.job_description.length > 20 ? '...' : ''}
-                            </div>
+                        <Target className="h-4 w-4 shrink-0 text-teal-700" />
+                        <div className="min-w-0 flex-1">
+                            <div className="truncate text-xs font-medium">JD 匹配分析</div>
+                            <div className="mt-1 truncate text-[10px] text-slate-400">{item.job_description}</div>
                         </div>
-                        <div className="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <DropdownMenu>
-                                <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-                                    <Button variant="ghost" size="icon" className="h-6 w-6 p-0 hover:bg-gray-200 rounded-md">
-                                        <MoreHorizontal className="w-3.5 h-3.5 text-gray-500" />
-                                    </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end" className="w-36">
-                                    <DropdownMenuItem
-                                        className="text-red-600 focus:text-red-600 focus:bg-red-50"
-                                        onClick={(e) => { e.stopPropagation(); onDelete(item.id); }}
-                                    >
-                                        <Trash2 className="w-3.5 h-3.5 mr-2 text-red-600" />
-                                        删除记录
-                                    </DropdownMenuItem>
-                                </DropdownMenuContent>
-                            </DropdownMenu>
-                        </div>
-                    </div>
+                        <DropdownMenu>
+                            <DropdownMenuTrigger asChild onClick={event => event.stopPropagation()}>
+                                <Button variant="ghost" size="icon" className="h-7 w-7 opacity-0 group-hover:opacity-100">
+                                    <MoreHorizontal className="h-3.5 w-3.5" />
+                                </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                                <DropdownMenuItem className="text-red-600" onClick={event => { event.stopPropagation(); onDelete(item.id); }}>
+                                    <Trash2 className="mr-2 h-3.5 w-3.5" />删除记录
+                                </DropdownMenuItem>
+                            </DropdownMenuContent>
+                        </DropdownMenu>
+                    </button>
                 ))}
             </div>
         </ScrollArea>
     );
-}
-
-
-function Award(props: React.SVGProps<SVGSVGElement>) {
-    return (
-        <svg
-            {...props}
-            xmlns="http://www.w3.org/2000/svg"
-            width="24"
-            height="24"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-        >
-            <circle cx="12" cy="8" r="7" />
-            <polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88" />
-        </svg>
-    )
 }

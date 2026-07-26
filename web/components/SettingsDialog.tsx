@@ -1,7 +1,16 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { Settings, Plus, Copy, HelpCircle, ExternalLink, Key, Award } from 'lucide-react';
+import { useState } from 'react';
+import {
+    CheckCircle2,
+    Copy,
+    KeyRound,
+    Pencil,
+    Plus,
+    ServerCog,
+    ShieldAlert,
+    Trash2,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
     Dialog,
@@ -11,8 +20,7 @@ import {
     DialogHeader,
     DialogTitle,
 } from '@/components/ui/dialog';
-import { ModelConfig, API_PROVIDERS, useInterviewStore } from '@/store/useInterviewStore';
-
+import { maskApiKey, type ModelConfig, useInterviewStore } from '@/store/useInterviewStore';
 import { ModelFormDialog } from './settings/ModelFormDialog';
 import { ModelAssignments } from './settings/ModelAssignments';
 
@@ -21,299 +29,193 @@ interface SettingsDialogProps {
     onOpenChange: (open: boolean) => void;
 }
 
-// 主设置弹窗
-export function SettingsDialog({
-    open,
-    onOpenChange
-}: SettingsDialogProps) {
-    const {
-        apiConfig: config,
-        addModel: onAddModel,
-        updateModel: onUpdateModel,
-        deleteModel: onDeleteModel,
-        setSmartModel: onSetSmartModel,
-        setFastModel: onSetFastModel,
-        toggleReasoningPoolModel: onToggleReasoningPoolModel,
-        toggleFastPoolModel: onToggleFastPoolModel,
-        // 简历工具专家模型
-        setGeneralModel: onSetGeneralModel,
-        setMatchAnalystModel: onSetMatchAnalystModel,
-        setContentWriterModel: onSetContentWriterModel,
-        setHrReviewerModel: onSetHrReviewerModel,
-        setReflectorModel: onSetReflectorModel,
-        setVoiceModel: onSetVoiceModel,
-        setRagEmbeddingModel: onSetRagEmbeddingModel,
-        setMem0LlmModel: onSetMem0LlmModel,
-        setMem0EmbedderModel: onSetMem0EmbedderModel
-    } = useInterviewStore();
+const KIND_LABEL: Record<string, string> = {
+    chat: '文本 / 推理',
+    embedding: 'Embedding',
+    voice: '语音',
+};
+
+function safeEndpointLabel(baseUrl: string) {
+    try {
+        return new URL(baseUrl).host;
+    } catch {
+        return baseUrl;
+    }
+}
+
+export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
+    const store = useInterviewStore();
+    const config = store.apiConfig;
     const [showModelForm, setShowModelForm] = useState(false);
-    const [showTutorial, setShowTutorial] = useState(false);
     const [editingModel, setEditingModel] = useState<ModelConfig | undefined>();
     const [sourceModel, setSourceModel] = useState<ModelConfig | undefined>();
 
-    // 当没有配置任何模型时，默认开启教程
-    useEffect(() => {
-        if (!open || config.models.length !== 0) return;
-
-        const timer = window.setTimeout(() => setShowTutorial(true), 0);
-        return () => window.clearTimeout(timer);
-    }, [open, config.models.length]);
-
-    // 打开添加模型弹窗
-    const handleAddModel = () => {
+    const handleAdd = () => {
         setEditingModel(undefined);
         setSourceModel(undefined);
         setShowModelForm(true);
     };
 
-    // 复制模型配置
-    const handleDuplicateModel = (model: ModelConfig, e: React.MouseEvent) => {
-        e.stopPropagation();
-        setSourceModel(model);
-        setEditingModel(undefined);
-        setShowModelForm(true);
-    };
-
-    // 打开编辑模型弹窗
-    const handleEditModel = (model: ModelConfig) => {
+    const handleEdit = (model: ModelConfig) => {
         setEditingModel(model);
+        setSourceModel(undefined);
         setShowModelForm(true);
     };
 
-    // 保存模型配置
-    const handleSaveModel = (modelData: Omit<ModelConfig, 'id' | 'createdAt'>) => {
-        if (editingModel) {
-            onUpdateModel(editingModel.id, modelData);
-        } else {
-            onAddModel(modelData);
-        }
+    const handleDuplicate = (model: ModelConfig) => {
+        setEditingModel(undefined);
+        setSourceModel(model);
+        setShowModelForm(true);
+    };
+
+    const handleSave = (modelData: Omit<ModelConfig, 'id' | 'createdAt'>) => {
+        if (editingModel) store.updateModel(editingModel.id, modelData);
+        else store.addModel(modelData);
         setShowModelForm(false);
         setEditingModel(undefined);
+        setSourceModel(undefined);
     };
 
-    // 删除模型
-    const handleDeleteModel = (id: string, e: React.MouseEvent) => {
-        e.stopPropagation();
-        if (confirm('确定要删除这个模型配置吗？')) {
-            onDeleteModel(id);
+    const handleDelete = (model: ModelConfig) => {
+        if (window.confirm(`确认删除模型连接「${model.name}」？相关通道分配会同时清空。`)) {
+            store.deleteModel(model.id);
         }
     };
+
+    const handleClearAll = () => {
+        if (!window.confirm('确认清除当前浏览器中的全部模型连接和 API Key？此操作无法撤销。')) return;
+        config.models.forEach(model => store.deleteModel(model.id));
+    };
+
+    const smartReady = Boolean(config.models.find(model => model.id === config.smartModelId)?.apiKey);
+    const fastReady = Boolean(config.models.find(model => model.id === config.fastModelId)?.apiKey);
+    const coreReady = smartReady && fastReady;
 
     return (
         <>
             <Dialog open={open && !showModelForm} onOpenChange={onOpenChange}>
-                <DialogContent className="sm:max-w-[550px] max-h-[90vh] p-0 flex flex-col gap-0 overflow-hidden">
-                    <DialogHeader className="p-6 pb-4 border-b">
-                        <div className="flex items-center justify-between">
-                            <DialogTitle className="flex items-center gap-2">
-                                <Settings className="w-5 h-5 text-orange-600" />
-                                API 设置
-                            </DialogTitle>
-                            <button
-                                onClick={() => setShowTutorial(!showTutorial)}
-                                className="flex items-center gap-1 text-xs text-orange-600 hover:text-orange-700 font-medium bg-orange-50 px-2 py-1 rounded-md transition-colors"
-                            >
-                                <HelpCircle className="w-3.5 h-3.5" />
-                                配置教程
-                            </button>
+                <DialogContent className="flex max-h-[92vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-[900px]">
+                    <DialogHeader className="border-b border-slate-200 px-6 py-5 pr-12">
+                        <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+                            <div>
+                                <DialogTitle className="flex items-center gap-2 text-slate-950">
+                                    <ServerCog className="h-5 w-5 text-teal-700" />
+                                    模型连接与通道路由
+                                </DialogTitle>
+                                <DialogDescription className="mt-1.5">连接模型端点，并按后端 Smart、Fast、专家、RAG、mem0 与 Voice 通道分配。</DialogDescription>
+                            </div>
+                            <div className={`inline-flex w-fit items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium ${coreReady ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-800'}`}>
+                                {coreReady ? <CheckCircle2 className="h-3.5 w-3.5" /> : <ShieldAlert className="h-3.5 w-3.5" />}
+                                {coreReady ? '核心通道已就绪' : '需要配置 Smart 与 Fast'}
+                            </div>
                         </div>
-                        <DialogDescription>
-                            添加和管理您的大模型 API 配置
-                        </DialogDescription>
                     </DialogHeader>
 
-                    <div className="flex-1 overflow-y-auto p-6">
-                        <div className="space-y-5">
-                            {/* 配置教程面板 */}
-                            {showTutorial && (
-                                <div className="p-5 rounded-2xl border border-orange-100 bg-orange-50/40 space-y-4 animate-in fade-in slide-in-from-top-4 duration-300 shadow-inner">
-                                    <div className="flex items-center justify-between">
-                                        <div className="flex items-center gap-2 text-base font-bold text-orange-900">
-                                            <HelpCircle className="w-5 h-5" />
-                                            小白配置全攻略 (2026年1月版)
-                                        </div>
-                                        <button onClick={() => setShowTutorial(false)} className="text-orange-400 hover:text-orange-600">×</button>
-                                    </div>
-
-                                    {/* 1. 核心概念 */}
-                                    <div className="grid grid-cols-2 gap-3">
-                                        <div className="p-3 bg-white/60 rounded-xl border border-orange-50">
-                                            <div className="font-bold text-xs text-orange-800 mb-1 flex items-center gap-1">
-                                                <Key className="w-3 h-3" /> API Key 是什么？
-                                            </div>
-                                            <p className="text-[11px] text-orange-600 leading-snug">就像是给 AI 拨号的“手机卡卡密”，每个账号独有且必须有余额才能通话。</p>
-                                        </div>
-                                        <div className="p-3 bg-white/60 rounded-xl border border-orange-50">
-                                            <div className="font-bold text-xs text-orange-800 mb-1 flex items-center gap-1">
-                                                <ExternalLink className="w-3 h-3" /> Base URL 是什么？
-                                            </div>
-                                            <p className="text-[11px] text-orange-600 leading-snug">AI 的“服务器地址”，通常以 <code>/v1</code> 结尾，不能填错。</p>
-                                        </div>
-                                    </div>
-
-                                    {/* 2. 步骤引导 */}
-                                    <div className="space-y-3">
-                                        <div className="flex gap-3">
-                                            <div className="flex-shrink-0 w-6 h-6 rounded-full bg-orange-600 text-white flex items-center justify-center text-xs font-bold">1</div>
-                                            <div className="space-y-1">
-                                                <p className="text-sm font-bold text-orange-900">获取密钥 (福利推荐)</p>
-                                                <p className="text-[11px] text-orange-700 leading-relaxed">
-                                                    首选 <a href="https://www.aiping.cn/#?invitation_code=SJY0NW" target="_blank" className="underline font-bold text-orange-600">AI Ping</a> 注册（通过此链接或者输入邀请码 <b>SJY0NW</b> 可领<b>20元</b>算力点奖励）
-                                                </p>
-                                            </div>
-                                        </div>
-                                        <div className="flex gap-3">
-                                            <div className="flex-shrink-0 w-6 h-6 rounded-full bg-orange-600 text-white flex items-center justify-center text-xs font-bold">2</div>
-                                            <div className="space-y-1">
-                                                <p className="text-sm font-bold text-orange-900">录入模型配置</p>
-                                                <p className="text-[11px] text-orange-700">点击下方的 <span className="px-1.5 py-0.5 bg-white border border-gray-200 rounded text-gray-400"><Plus className="w-2.5 h-2.5 inline" /></span> 按钮，提供商选 <b>AI Ping</b> 或 <b>其他免费模型提供商</b>，粘贴 Key，保存即可。</p>
-                                            </div>
-                                        </div>
-                                        <div className="flex gap-3">
-                                            <div className="flex-shrink-0 w-6 h-6 rounded-full bg-orange-600 text-white flex items-center justify-center text-xs font-bold">3</div>
-                                            <div className="space-y-1">
-                                                <p className="text-sm font-bold text-orange-900">分配各个“大脑”任务</p>
-                                                <p className="text-[11px] text-orange-700 leading-relaxed">
-                                                    在下方下拉框中选择你刚才添加的模型：<br />
-                                                    - <b>Smart (指挥官):</b> 选 <code>deepseek-v3</code> 或 <code>qwen3-max</code>。<br />
-                                                    - <b>Fast (对话员):</b> 选 <code>mimo-v2-flash</code>，速度极快顺滑。
-                                                </p>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    {/* 3. 最佳方案推荐 */}
-                                    <div className="p-3 bg-orange-600/5 rounded-xl border border-orange-200 dashed">
-                                        <div className="text-xs font-bold text-orange-900 mb-2 flex items-center gap-1.5">
-                                            <Award className="w-4 h-4 text-orange-500" /> 当前最省心组合方案（均可免费白嫖）
-                                        </div>
-                                        <div className="grid grid-cols-2 gap-2 text-[10px]">
-                                            <div className="flex items-center gap-1 text-orange-800">
-                                                <span className="w-1 h-1 rounded-full bg-orange-400"></span>
-                                                主力模型：DeepSeek-Chat
-                                            </div>
-                                            <div className="flex items-center gap-1 text-orange-800">
-                                                <span className="w-1 h-1 rounded-full bg-orange-400"></span>
-                                                对话模型：MiMo-V2（ai ping）
-                                            </div>
-                                            <div className="flex items-center gap-1 text-orange-800">
-                                                <span className="w-1 h-1 rounded-full bg-orange-400"></span>
-                                                通用任务：GLM-4.7（ai ping）
-                                            </div>
-                                            <div className="flex items-center gap-1 text-orange-800">
-                                                <span className="w-1 h-1 rounded-full bg-orange-400"></span>
-                                                语音面试：Qwen3-Omni（阿里云百炼）
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    <div className="pt-2 border-t border-orange-100/50 flex items-center justify-between">
-                                        <div className="flex gap-2.5">
-                                            {API_PROVIDERS.filter(p => p.apiKeyUrl).slice(0, 3).map(p => (
-                                                <a key={p.id} href={p.apiKeyUrl} target="_blank" className="flex items-center gap-0.5 text-[10px] text-orange-600 hover:underline">
-                                                    <ExternalLink className="w-2 h-2" />
-                                                    {p.name.split('(')[0]}
-                                                </a>
-                                            ))}
-                                        </div>
-                                        <span className="text-[10px] text-orange-500 italic">设置将实时保存到浏览器本地</span>
-                                    </div>
-                                </div>
-                            )}
-                            {/* 添加模型区域 - 水平排列的卡片 */}
-                            <div className="space-y-3">
-                                <label className="text-sm font-medium text-gray-700">添加模型：</label>
-                                <div className="flex flex-wrap gap-3">
-                                    {/* 已配置的模型卡片 */}
-                                    {config.models.map((model) => {
-                                        return (
-                                            <div
-                                                key={model.id}
-                                                onClick={() => handleEditModel(model)}
-                                                className="group relative px-4 py-3 rounded-xl border border-gray-200 bg-white hover:border-orange-400 hover:shadow-sm transition-all cursor-pointer min-w-[120px]"
-                                            >
-                                                <div className="text-sm font-medium text-gray-900 truncate max-w-[100px]">
-                                                    {model.name.split(' - ')[0]}
-                                                </div>
-                                                <div className="text-xs text-gray-400 truncate">
-                                                    {model.model}
-                                                </div>
-                                                <div className="absolute -top-2 -right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                    <button
-                                                        onClick={(e) => handleDuplicateModel(model, e)}
-                                                        className="w-5 h-5 rounded-full bg-orange-500 text-white flex items-center justify-center hover:bg-orange-600 shadow-sm"
-                                                        title="复制配置"
-                                                    >
-                                                        <Copy className="w-3 h-3" />
-                                                    </button>
-                                                    <button
-                                                        onClick={(e) => handleDeleteModel(model.id, e)}
-                                                        className="w-5 h-5 rounded-full bg-red-500 text-white flex items-center justify-center hover:bg-red-600 shadow-sm"
-                                                        title="删除配置"
-                                                    >
-                                                        ×
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        );
-                                    })}
-
-                                    {/* 添加按钮 */}
-                                    <button
-                                        onClick={handleAddModel}
-                                        className="w-[72px] h-[72px] border-2 border-dashed border-gray-200 rounded-xl flex items-center justify-center text-gray-400 hover:border-orange-400 hover:text-orange-600 hover:bg-orange-50/50 transition-all"
-                                    >
-                                        <Plus className="w-6 h-6" />
-                                    </button>
+                    <div className="flex-1 overflow-y-auto px-6 py-5">
+                        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-xs leading-5 text-amber-950">
+                            <div className="flex items-start gap-2">
+                                <KeyRound className="mt-0.5 h-4 w-4 shrink-0" />
+                                <div>
+                                    <div className="font-semibold">本地 Key 安全提示</div>
+                                    <p className="mt-1 text-amber-900/80">API Key 会明文保存在浏览器 localStorage，并在执行任务时随 `api_config` 发送给后端。不要截图或共享本页；公网部署必须使用 HTTPS。</p>
                                 </div>
                             </div>
+                        </div>
 
-                            <ModelAssignments
-                                config={config}
-                                onSetSmartModel={onSetSmartModel}
-                                onSetFastModel={onSetFastModel}
-                                onToggleReasoningPoolModel={onToggleReasoningPoolModel}
-                                onToggleFastPoolModel={onToggleFastPoolModel}
-                                onSetGeneralModel={onSetGeneralModel}
-                                onSetMatchAnalystModel={onSetMatchAnalystModel}
-                                onSetContentWriterModel={onSetContentWriterModel}
-                                onSetHrReviewerModel={onSetHrReviewerModel}
-                                onSetReflectorModel={onSetReflectorModel}
-                                onSetVoiceModel={onSetVoiceModel}
-                                onSetRagEmbeddingModel={onSetRagEmbeddingModel}
-                                onSetMem0LlmModel={onSetMem0LlmModel}
-                                onSetMem0EmbedderModel={onSetMem0EmbedderModel}
-                            />
+                        <section className="mt-6">
+                            <div className="flex items-center justify-between gap-4">
+                                <div>
+                                    <h2 className="text-sm font-semibold text-slate-950">模型连接</h2>
+                                    <p className="mt-1 text-xs text-slate-500">一个连接可被多个后端通道复用。</p>
+                                </div>
+                                <Button size="sm" className="bg-teal-700 hover:bg-teal-800" onClick={handleAdd}>
+                                    <Plus className="h-4 w-4" /> 添加连接
+                                </Button>
+                            </div>
 
-                            {/* 空状态提示 */}
-                            {config.models.length === 0 && (
-                                <div className="text-center py-6 text-gray-400 text-sm">
-                                    点击上方 + 按钮添加模型配置
+                            {config.models.length === 0 ? (
+                                <button type="button" onClick={handleAdd} className="mt-4 flex min-h-40 w-full flex-col items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-slate-50 text-center transition hover:border-teal-400 hover:bg-teal-50/40">
+                                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white text-teal-700 shadow-sm"><Plus className="h-5 w-5" /></div>
+                                    <div className="mt-3 text-sm font-medium text-slate-900">添加第一个模型连接</div>
+                                    <div className="mt-1 text-xs text-slate-500">至少准备 Smart 与 Fast 两个通道，也可以先复用同一个连接。</div>
+                                </button>
+                            ) : (
+                                <div className="mt-4 grid gap-3 md:grid-cols-2">
+                                    {config.models.map(model => (
+                                        <div key={model.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                                            <div className="flex items-start justify-between gap-3">
+                                                <div className="min-w-0">
+                                                    <div className="truncate text-sm font-semibold text-slate-950">{model.name}</div>
+                                                    <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                                                        <span className="rounded-full bg-teal-50 px-2 py-0.5 text-[10px] font-medium text-teal-700">{KIND_LABEL[model.kind || 'chat']}</span>
+                                                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-600">{model.provider}</span>
+                                                    </div>
+                                                </div>
+                                                <div className="flex items-center gap-1">
+                                                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleDuplicate(model)} aria-label="复制连接"><Copy className="h-3.5 w-3.5" /></Button>
+                                                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleEdit(model)} aria-label="编辑连接"><Pencil className="h-3.5 w-3.5" /></Button>
+                                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-red-500 hover:bg-red-50 hover:text-red-700" onClick={() => handleDelete(model)} aria-label="删除连接"><Trash2 className="h-3.5 w-3.5" /></Button>
+                                                </div>
+                                            </div>
+                                            <dl className="mt-4 grid gap-2 text-xs">
+                                                <div className="flex justify-between gap-3"><dt className="text-slate-400">模型</dt><dd className="truncate font-mono text-slate-700">{model.model}</dd></div>
+                                                <div className="flex justify-between gap-3"><dt className="text-slate-400">端点</dt><dd className="truncate text-slate-700">{safeEndpointLabel(model.baseUrl)}</dd></div>
+                                                <div className="flex justify-between gap-3"><dt className="text-slate-400">Key</dt><dd className="font-mono text-slate-700">{maskApiKey(model.apiKey)}</dd></div>
+                                            </dl>
+                                        </div>
+                                    ))}
                                 </div>
                             )}
-                        </div>
+                        </section>
+
+                        {config.models.length > 0 && (
+                            <section className="mt-8">
+                                <div className="mb-4">
+                                    <h2 className="text-sm font-semibold text-slate-950">后端通道路由</h2>
+                                    <p className="mt-1 text-xs text-slate-500">选择每类 Agent 任务实际使用的模型连接。</p>
+                                </div>
+                                <ModelAssignments
+                                    config={config}
+                                    onSetSmartModel={store.setSmartModel}
+                                    onSetFastModel={store.setFastModel}
+                                    onToggleReasoningPoolModel={store.toggleReasoningPoolModel}
+                                    onToggleFastPoolModel={store.toggleFastPoolModel}
+                                    onSetGeneralModel={store.setGeneralModel}
+                                    onSetMatchAnalystModel={store.setMatchAnalystModel}
+                                    onSetContentWriterModel={store.setContentWriterModel}
+                                    onSetHrReviewerModel={store.setHrReviewerModel}
+                                    onSetReflectorModel={store.setReflectorModel}
+                                    onSetVoiceModel={store.setVoiceModel}
+                                    onSetRagEmbeddingModel={store.setRagEmbeddingModel}
+                                    onSetMem0LlmModel={store.setMem0LlmModel}
+                                    onSetMem0EmbedderModel={store.setMem0EmbedderModel}
+                                />
+                            </section>
+                        )}
                     </div>
 
-                    <DialogFooter className="p-6 pt-4 border-t bg-gray-50/50">
-                        <Button onClick={() => onOpenChange(false)} className="bg-orange-600 hover:bg-orange-700">
-                            完成
-                        </Button>
+                    <DialogFooter className="flex-col gap-3 border-t border-slate-200 bg-slate-50 px-6 py-4 sm:flex-row sm:justify-between">
+                        <div className="text-xs leading-5 text-slate-500">更改会立即保存到当前浏览器。</div>
+                        <div className="flex gap-2">
+                            {config.models.length > 0 && <Button variant="ghost" className="text-red-600 hover:bg-red-50 hover:text-red-700" onClick={handleClearAll}>清除全部本地 Key</Button>}
+                            <Button variant="outline" onClick={() => onOpenChange(false)}>完成</Button>
+                        </div>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
 
-            {/* 添加/编辑模型的二级弹窗 */}
             {showModelForm && (
                 <ModelFormDialog
+                    key={editingModel?.id || sourceModel?.id || 'new'}
                     open={showModelForm}
                     onClose={() => {
                         setShowModelForm(false);
                         setEditingModel(undefined);
                         setSourceModel(undefined);
                     }}
-                    onSave={handleSaveModel}
+                    onSave={handleSave}
                     editingModel={editingModel}
-                    initialValues={sourceModel}
+                    initialValues={sourceModel ? { ...sourceModel, name: undefined } : undefined}
                 />
             )}
         </>
