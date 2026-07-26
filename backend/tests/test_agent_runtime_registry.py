@@ -270,3 +270,49 @@ def test_production_agent_definitions_are_registered():
         assert definition.prompt_name is not None
         assert definition.prompt_version is not None
         assert definition.prompt_version in prompt_registry.versions(definition.prompt_name)
+
+
+def test_contract_driven_governance_derives_permissions_and_approval():
+    from ai.tools.contracts import derive_tool_governance
+    from ai.tools.job_tools import make_jobs_tools
+
+    tools = make_jobs_tools(user_id="user-1", api_config={}, resume_content="resume")
+    governance = derive_tool_governance(tools)
+
+    assert governance.permissions["open_boss_search_page"] == frozenset({"boss.browser.read"})
+    assert "open_boss_search_page" in governance.approval_tools
+    assert "save_job" not in governance.approval_tools
+
+
+def test_guarded_agent_uses_external_contract_to_require_checkpointer():
+    from ai.runtime.factory import create_guarded_agent
+    from ai.tools.job_tools import make_jobs_tools
+
+    tools = make_jobs_tools(user_id="user-1", api_config={}, resume_content="resume")
+    external_tool = next(tool for tool in tools if tool.name == "open_boss_search_page")
+
+    with pytest.raises(ValueError, match="approval_tools require a checkpointer"):
+        create_guarded_agent("demo", [external_tool])
+
+
+@pytest.mark.asyncio
+async def test_tool_guard_awaits_async_audit_sink_and_redacts_input_summary():
+    audit_events: list[dict] = []
+
+    async def audit_sink(event: dict) -> None:
+        audit_events.append(event)
+
+    async def call_with_secret(*, api_key: str):
+        return {"status": "ok"}
+
+    result = await ToolExecutionGuard().execute(
+        call_with_secret,
+        context=AgentContext(user_id="user-1"),
+        tool_name="call_with_secret",
+        audit_callback=audit_sink,
+        api_key="very-secret-value",
+    )
+
+    assert result == {"status": "ok"}
+    assert [event["status"] for event in audit_events] == ["started", "completed"]
+    assert "very-secret-value" not in str(audit_events)

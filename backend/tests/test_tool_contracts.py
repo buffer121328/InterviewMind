@@ -36,3 +36,10 @@ def test_read_only_tools_declare_summary_retention():
         assert contract["effect"] == "read"
         assert contract["permissions"]
         assert contract["result_retention"] == "summary"
+
+
+def test_external_tool_contracts_require_human_confirmation_by_default():
+    contracts = _contracts(make_jobs_tools(user_id="user-1", api_config={}, resume_content="resume"))
+
+    assert contracts["open_boss_search_page"]["requires_confirmation"] is True
+    assert contracts["save_job"]["requires_confirmation"] is False

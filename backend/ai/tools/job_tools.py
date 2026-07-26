@@ -58,23 +58,22 @@ def make_jobs_tools(user_id: str, api_config: Optional[dict], resume_content: st
         """检测当前环境是否支持自动化。"""
         return await _tools.check_environment()
 
+    def attach(contract_name: str, tool: Any) -> Any:
+        contract = _tools.get_boss_tool_contract(contract_name)
+        return attach_tool_contract(
+            tool,
+            effect=contract.effect,
+            permissions=contract.permissions,
+            requires_confirmation=contract.requires_confirmation,
+            idempotency_key_strategy=contract.idempotency_key_strategy,
+            result_retention=contract.result_retention,
+        )
+
     return [
-        attach_tool_contract(check_environment, effect="read", permissions=("jobs.environment.read",), result_retention="summary"),
-        attach_tool_contract(open_boss_search_page, effect="external", permissions=("boss.browser.read",), result_retention="summary"),
-        attach_tool_contract(extract_job_cards, effect="read", permissions=("jobs.cards.extract",), result_retention="summary"),
-        attach_tool_contract(score_jobs, effect="read", permissions=("jobs.score",), result_retention="summary"),
-        attach_tool_contract(
-            save_job,
-            effect="write",
-            permissions=("jobs.capture.write",),
-            idempotency_key_strategy="user_id:platform:source_hash",
-            result_retention="reference",
-        ),
-        attach_tool_contract(
-            generate_assets,
-            effect="write",
-            permissions=("jobs.assets.write",),
-            idempotency_key_strategy="user_id:job_id:resume_hash",
-            result_retention="reference",
-        ),
+        attach("check_environment", check_environment),
+        attach("open_boss_search_page", open_boss_search_page),
+        attach("extract_job_cards_from_page", extract_job_cards),
+        attach("score_jobs_by_match", score_jobs),
+        attach("save_job_to_database", save_job),
+        attach("generate_job_assets", generate_assets),
     ]

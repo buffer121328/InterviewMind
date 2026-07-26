@@ -59,6 +59,23 @@ async def init_generation_session(
 ) -> dict[str, Any]:
     """初始化简历生成会话。"""
     from ai.agents.resume import resume_generation_graph
+    from ai.runtime.guardrails import (
+        GuardrailViolation,
+        persist_guardrail_decision,
+        screen_untrusted_text,
+    )
+
+    jd_decision = screen_untrusted_text(
+        job_description,
+        source="resume_generation_job_description",
+    )
+    await persist_guardrail_decision(
+        run_id=agent_run_id,
+        user_id=user_id,
+        decision=jd_decision,
+    )
+    if not jd_decision.allowed:
+        raise GuardrailViolation(jd_decision)
 
     session_id = str(uuid.uuid4())
 
@@ -182,6 +199,26 @@ async def _complete_generation(
             or "# 生成失败\n请稍后重试"
         )
         final_state["title"] = "新简历"
+
+    from ai.runtime.guardrails import (
+        GuardrailViolation,
+        persist_guardrail_decision,
+        validate_final_resume_output,
+    )
+
+    output_decision = validate_final_resume_output(final_state["final_markdown"])
+    await persist_guardrail_decision(
+        run_id=state.get("agent_run_id"),
+        user_id=state["user_id"],
+        decision=output_decision,
+    )
+    if not output_decision.allowed:
+        await session_store.update(
+            session_id,
+            user_id=state["user_id"],
+            status="failed",
+        )
+        raise GuardrailViolation(output_decision)
 
     service = get_generation_repo()
     session = await session_store.get(session_id, user_id=state["user_id"])

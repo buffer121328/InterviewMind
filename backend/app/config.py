@@ -22,6 +22,12 @@ class AppSettings(BaseSettings):
     llm_pool_inflight_ttl_seconds: int = Field(default=600, ge=30, le=3600)
     allow_private_model_base_urls: bool = True
     api_config_validation_timeout_seconds: int = Field(default=10, ge=1, le=60)
+
+    # Guardrails 仅运行本地 validator，默认 fail closed，且不使用 Guardrails Hub 或 vendor telemetry。
+    guardrails_enabled: bool = True
+    guardrails_fail_closed: bool = True
+    guardrails_max_untrusted_context_chars: int = Field(default=20_000, ge=1_000, le=100_000)
+
     # 本地开发默认自动同步表结构；需要严格迁移验证时设为 false，仅使用 Alembic。
     auto_create_tables: bool = True
 

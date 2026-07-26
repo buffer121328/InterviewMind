@@ -37,6 +37,7 @@ def build_resume_graph(
 
     def temporary_state(values: ResumeGraphState, runtime: Runtime[ResumeRuntimeContext]) -> PipelineState:
         state = _pipeline_state(values, api_config=runtime.context.api_config)
+        state.guardrail_results = []
         state.trace = []
         state.errors = []
         return state

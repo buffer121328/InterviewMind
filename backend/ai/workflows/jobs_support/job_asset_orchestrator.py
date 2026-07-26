@@ -60,6 +60,24 @@ async def generate_assets(
     risk_flags: List[str] = []
     messages: List[str] = []
 
+    from ai.runtime.guardrails import persist_guardrail_decision, screen_untrusted_text
+
+    jd_decision = screen_untrusted_text(
+        job_description,
+        source="job_capture_job_description",
+    )
+    await persist_guardrail_decision(
+        run_id=agent_run_id,
+        user_id=user_id,
+        decision=jd_decision,
+    )
+    if not jd_decision.allowed:
+        return {
+            "success": False,
+            "message": jd_decision.message,
+            "guardrail": jd_decision.to_audit_payload(),
+        }
+
     # ======================================================================
     # Step 1: JD 分析
     # ======================================================================

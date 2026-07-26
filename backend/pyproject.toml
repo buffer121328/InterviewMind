@@ -30,6 +30,7 @@ dependencies = [
     "greenlet>=3.5.1",
     "alembic>=1.18.4",
     "playwright>=1.60.0",
+    "guardrails-ai>=0.10.2",
 ]
 
 [project.optional-dependencies]

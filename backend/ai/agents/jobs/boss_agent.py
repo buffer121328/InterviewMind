@@ -33,8 +33,38 @@ def _build_boss_graph(
     """构造一次请求专用的图；密钥留在闭包中，不进入 state/checkpoint。"""
     context = AgentContext(
         user_id=user_id,
-        permissions=frozenset({"jobs:automate"}),
+        permissions=frozenset({
+            "jobs:automate",
+            "jobs.environment.read",
+            "boss.browser.read",
+            "jobs.cards.extract",
+            "jobs.score",
+            "jobs.capture.write",
+            "jobs.assets.write",
+        }),
     )
+
+    async def execute_tool(
+        contract_name: str,
+        call: Any,
+        *args: Any,
+        confirmed: bool = False,
+        audit_callback: Any = None,
+        **kwargs: Any,
+    ) -> Any:
+        contract = boss_tools.get_boss_tool_contract(contract_name)
+        return await guard.execute(
+            call,
+            *args,
+            context=context,
+            effect=contract.effect,
+            required_permissions=contract.permissions,
+            requires_confirmation=contract.requires_confirmation,
+            confirmed=confirmed,
+            tool_name=contract_name,
+            audit_callback=audit_callback,
+            **kwargs,
+        )
 
     def record_audit(event: dict[str, Any]) -> None:
         """记录 `audit`。
@@ -50,12 +80,10 @@ def _build_boss_graph(
         Args:
             state: 当前流程状态。
         """
-        result = await guard.execute(
+        result = await execute_tool(
+            "check_environment",
             boss_tools.check_environment,
-            context=context,
-            effect="read",
             audit_callback=record_audit,
-            tool_name="check_environment",
         )
         error = "" if result.startswith("✅") else result
         return {"environment": result, "error": error}
@@ -74,29 +102,25 @@ def _build_boss_graph(
         Args:
             state: 当前流程状态。
         """
-        page_text = await guard.execute(
+        page_text = await execute_tool(
+            "open_boss_search_page",
             boss_tools.open_boss_search_page,
             state["query"],
             state.get("city", ""),
-            context=context,
-            effect="external",
-            required_permissions={"jobs:automate"},
-            requires_confirmation=True,
             confirmed=True,  # 调用此接口即确认本次搜索，不授权投递或发消息。
+            audit_callback=record_audit,
         )
         error = page_text if page_text.startswith(("ERROR:", "CAPTCHA:")) else ""
         if error:
             return {"cards": [], "error": error}
-        cards = await guard.execute(
+        cards = await execute_tool(
+            "extract_job_cards_from_page",
             boss_tools.extract_job_cards_from_page,
             page_text,
             top_n=15,
             query_filter=state["query"],
             api_config=api_config,
-            context=context,
-            effect="read",
             audit_callback=record_audit,
-            tool_name="extract_job_cards_from_page",
         )
         return {"cards": cards, "error": "" if cards else "未提取到岗位"}
 
@@ -114,16 +138,14 @@ def _build_boss_graph(
         Args:
             state: 当前流程状态。
         """
-        cards = await guard.execute(
+        cards = await execute_tool(
+            "score_jobs_by_match",
             boss_tools.score_jobs_by_match,
             state["cards"],
             resume_content,
             query=state["query"],
             api_config=api_config,
-            context=context,
-            effect="read",
             audit_callback=record_audit,
-            tool_name="score_jobs_by_match",
         )
         return {"cards": cards[: state["top_n"]]}
 
@@ -133,30 +155,24 @@ def _build_boss_graph(
         Args:
             card: 调用方传入的 `card` 参数。
         """
-        saved = await guard.execute(
+        saved = await execute_tool(
+            "save_job_to_database",
             boss_tools.save_job_to_database,
             card,
             user_id,
-            context=context,
-            effect="write",
-            required_permissions={"jobs:automate"},
             audit_callback=record_audit,
-            tool_name="save_job_to_database",
         )
         result = {"card": card, "save": saved}
         job_id = saved.get("job_id")
         if saved.get("success") and job_id and not saved.get("is_duplicate"):
-            result["assets"] = await guard.execute(
+            result["assets"] = await execute_tool(
+                "generate_job_assets",
                 boss_tools.generate_job_assets,
                 job_id,
                 user_id,
                 resume_content,
                 api_config,
-                context=context,
-                effect="write",
-                required_permissions={"jobs:automate"},
                 audit_callback=record_audit,
-                tool_name="generate_job_assets",
             )
         return result
 

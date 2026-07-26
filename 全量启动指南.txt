@@ -1,0 +1,184 @@
+面必过项目：全量启动指南
+========================
+
+适用目录：项目根目录（本文件所在目录）
+推荐模式：Docker Compose 全容器启动
+
+启动后会包含：
+  PostgreSQL + pgvector、Redis、数据库迁移、FastAPI 后端、
+  Dramatiq Worker、Next.js 前端、Nginx 反向代理。
+
+------------------------------------------------------------
+一、首次启动前检查
+------------------------------------------------------------
+
+1. 安装并启动 Docker Desktop。
+   在终端确认：
+
+     docker compose version
+
+2. 确保根目录存在 .env。
+   当前项目已有 .env；如果新环境没有，可执行：
+
+     cp env_example .env
+
+3. 检查 .env 至少已正确填写以下内容：
+
+     POSTGRES_PASSWORD=<数据库密码>
+     TASK_PAYLOAD_ENCRYPTION_KEY=<Fernet 密钥>
+     NEXT_PUBLIC_API_URL=/api
+     TASK_QUEUE_ENABLED=true
+
+   生成 TASK_PAYLOAD_ENCRYPTION_KEY 的命令：
+
+     uv run --project backend python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+
+   注意：
+   - 不要把 .env 提交到 Git。
+   - Docker 全容器模式下 NEXT_PUBLIC_API_URL 必须保持为 /api，
+     不要改成 http://localhost:8000。
+   - TASK_QUEUE_ENABLED=true 时必须同时运行 Redis 和 Worker；
+     本指南的 Compose 启动会自动包含它们。
+
+------------------------------------------------------------
+二、一条命令全量启动
+------------------------------------------------------------
+
+在项目根目录执行：
+
+  mkdir -p nginx/logs
+  docker compose --env-file .env config --quiet
+  docker compose --env-file .env up -d --build
+
+说明：
+  - 第一次执行会构建 backend 和 frontend 镜像，耗时会更长。
+  - migrate 是一次性数据库迁移服务；它显示 Exited (0) 表示迁移成功，属于正常状态。
+  - 后续代码或依赖有改动时，用同一条 up -d --build 重新构建并更新服务。
+
+如果只想用 Compose 默认自动读取根目录 .env，也可以执行：
+
+  docker compose up -d --build
+
+但推荐保留 --env-file .env，以明确指定使用哪份配置文件。
+
+------------------------------------------------------------
+三、确认服务全部正常
+------------------------------------------------------------
+
+1. 查看服务状态：
+
+  docker compose --env-file .env ps --all
+
+预期：
+  - postgres、redis、backend、worker、frontend、nginx 处于 running / healthy（状态文字会因 Docker 版本不同而略有差异）。
+  - migrate 为 Exited (0)。
+
+2. 验证网站健康检查：
+
+  curl -fsS http://localhost/health
+
+3. 验证后端完整依赖就绪情况：
+
+  docker compose --env-file .env exec backend \
+    python -m app.entrypoints.deployment readiness
+
+4. 打开页面：
+
+  前端页面： http://localhost
+  API 文档：  http://localhost/api/docs
+
+------------------------------------------------------------
+四、首次进入系统后的必要操作
+------------------------------------------------------------
+
+打开 http://localhost 后，进入：设置 → 模型配置。
+
+至少配置并验证：
+
+  1. 一个 Smart 模型通道；
+  2. 一个 Fast 模型通道。
+
+如需使用 RAG 或 mem0 长期记忆，还应在前端配置对应的 Embedding / 长期记忆模型。
+
+模型 Key、Base URL 等敏感信息不要粘贴到 Git、README 或终端输出中。
+
+------------------------------------------------------------
+五、查看日志与常用维护命令
+------------------------------------------------------------
+
+实时查看关键服务日志：
+
+  docker compose --env-file .env logs -f migrate backend worker frontend nginx
+
+仅查看后端日志：
+
+  docker compose --env-file .env logs -f backend
+
+仅查看 Worker 日志：
+
+  docker compose --env-file .env logs -f worker
+
+重启后端和 Worker：
+
+  docker compose --env-file .env restart backend worker
+
+停止服务（保留数据库数据卷）：
+
+  docker compose --env-file .env down
+
+停止服务并删除数据库数据（危险：会删除本地 PostgreSQL 数据）：
+
+  docker compose --env-file .env down -v
+
+------------------------------------------------------------
+六、BOSS 半自动化（可选，不在主 Compose 内）
+------------------------------------------------------------
+
+主系统启动后，如需使用 BOSS 半自动化，还必须在宿主机另开一个终端启动 Playwright 服务：
+
+  cd backend
+  uv sync
+  uv run playwright install chromium
+  uv run uvicorn app.entrypoints.boss_service:app --host 0.0.0.0 --port 8765
+
+根目录 .env 需设置：
+
+  BOSS_AUTOMATION_SERVICE_URL=http://host.docker.internal:8765
+  BOSS_AUTOMATION_SERVICE_TOKEN=<至少 32 字符的随机 token>
+
+生成 token：
+
+  openssl rand -hex 32
+
+首次使用会在项目专用浏览器 profile 中要求手动登录、处理验证码。
+真实投递仍必须在系统中预览并由用户确认；不要绕过审批边界直接调用自动化服务。
+
+------------------------------------------------------------
+七、常见问题
+------------------------------------------------------------
+
+1. docker compose 无法连接 Docker daemon
+   - 打开 Docker Desktop，等待其完全启动后重试。
+
+2. backend / worker 启动失败
+   - 查看日志：docker compose --env-file .env logs -f backend worker
+   - 检查 .env 中 DATABASE_URL、POSTGRES_PASSWORD、TASK_PAYLOAD_ENCRYPTION_KEY。
+
+3. 任务一直处于 queued
+   - 确认 TASK_QUEUE_ENABLED=true。
+   - 确认 redis 和 worker 都在运行。
+   - 检查 Worker 日志及 TASK_PAYLOAD_ENCRYPTION_KEY 是否由 API 和 Worker 共用。
+
+4. /health 正常但实际功能报错
+   - /health 不覆盖所有依赖；执行：
+
+       docker compose --env-file .env exec backend \
+         python -m app.entrypoints.deployment readiness
+
+5. 模型调用失败
+   - 在前端“设置 → 模型配置”中检查 API 地址、模型名、凭据、超时与连接验证结果。
+
+6. 修改 NEXT_PUBLIC_API_URL 后页面仍使用旧值
+   - 该变量在前端构建期写入产物；执行：
+
+       docker compose --env-file .env up -d --build frontend nginx

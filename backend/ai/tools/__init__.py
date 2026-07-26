@@ -12,6 +12,8 @@ from .memory_tools import make_memory_tools, search_memory
 from .resume_tools import make_resume_tools, search_jd_keywords, validate_resume_claim
 from .executor import ToolApprovalRequired, ToolExecutionGuard, ToolExecutionPolicy
 from .registry import ToolRegistry, ToolSpec, tool_registry
+from .contracts import ToolGovernance, derive_tool_governance
+from .audit import agent_run_audit_callback
 
 __all__ = [
     'search_question_bank',
@@ -31,4 +33,7 @@ __all__ = [
     'ToolRegistry',
     'ToolSpec',
     'tool_registry',
+    'ToolGovernance',
+    'derive_tool_governance',
+    'agent_run_audit_callback',
 ]

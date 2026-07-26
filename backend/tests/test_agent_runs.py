@@ -686,3 +686,72 @@ async def test_mark_cancelled_uses_cancelled_state_and_event(monkeypatch):
     assert run.finished_at is not None
     assert appended == [("run.cancelled", {"message": "用户取消"})]
     assert calls == ["commit", "close"]
+
+
+@pytest.mark.asyncio
+async def test_record_governance_event_persists_sanitized_tool_audit(monkeypatch):
+    from ai.runtime.agent_runs import service as service_module
+
+    now = datetime.now()
+    run = AgentRunModel(
+        id="run-governance",
+        user_id="user-1",
+        task_type="resume_optimize",
+        status="running",
+        stage="optimizing",
+        idempotency_key="governance-key",
+        payload_encrypted="encrypted",
+        result=None,
+        error_message=None,
+        attempts=1,
+        created_at=now,
+        updated_at=now,
+        started_at=now,
+        finished_at=None,
+    )
+    appended: list[tuple[str, dict | None]] = []
+
+    class FakeSession:
+        async def get(self, _model, run_id, with_for_update=False):
+            assert run_id == "run-governance"
+            assert with_for_update is True
+            return run
+
+        async def commit(self):
+            return None
+
+        async def rollback(self):
+            raise AssertionError("不应回滚成功路径")
+
+        async def close(self):
+            return None
+
+    class FakeUnitOfWork:
+        def __init__(self, _factory):
+            self.db = FakeSession()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            await self.db.commit()
+            await self.db.close()
+            return False
+
+    async def append_event(self, _session, _run, event_type, payload=None):
+        appended.append((event_type, payload))
+
+    monkeypatch.setattr(service_module, "UnitOfWork", FakeUnitOfWork)
+    monkeypatch.setattr(service_module.AgentRunService, "_append_event", append_event)
+
+    persisted = await service_module.AgentRunService().record_governance_event(
+        "run-governance",
+        user_id="user-1",
+        event_type="tool.execution",
+        payload={"api_key": "secret", "output_summary": "x" * 500},
+    )
+
+    assert persisted is True
+    assert appended[0][0] == "tool.execution"
+    assert appended[0][1]["api_key"] == "***REDACTED***"
+    assert len(appended[0][1]["output_summary"]) == 300

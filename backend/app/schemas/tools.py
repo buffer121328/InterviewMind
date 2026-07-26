@@ -14,6 +14,7 @@ class ToolContract:
     """表示 `ToolContract` 相关的数据或行为。"""
     effect: ToolEffect
     permissions: tuple[str, ...]
+    requires_confirmation: bool = False
     idempotency_key_strategy: str | None = None
     result_retention: ResultRetention = "summary"
 
@@ -29,6 +30,7 @@ def attach_tool_contract(
     *,
     effect: ToolEffect,
     permissions: tuple[str, ...],
+    requires_confirmation: bool | None = None,
     idempotency_key_strategy: str | None = None,
     result_retention: ResultRetention = "summary",
 ) -> Any:
@@ -37,6 +39,7 @@ def attach_tool_contract(
     contract = ToolContract(
         effect=effect,
         permissions=permissions,
+        requires_confirmation=(effect == "external" if requires_confirmation is None else requires_confirmation),
         idempotency_key_strategy=idempotency_key_strategy,
         result_retention=result_retention,
     )

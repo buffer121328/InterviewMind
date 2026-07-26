@@ -26,6 +26,7 @@ class PipelineState:
     judge_result: Optional[dict] = None
     retry_guidance: str = ""
     retry_count: int = 0
+    guardrail_results: List[dict] = field(default_factory=list)
     trace: List[dict] = field(default_factory=list)
 
     errors: List[str] = field(default_factory=list)
@@ -46,6 +47,7 @@ class ResumeGraphState(TypedDict, total=False):
     judge_result: Optional[dict]
     retry_guidance: str
     retry_count: int
+    guardrail_results: Annotated[List[dict], operator.add]
     trace: Annotated[List[dict], operator.add]
     errors: Annotated[List[str], operator.add]
 
@@ -76,6 +78,7 @@ def _pipeline_state(values: Mapping[str, Any], *, api_config: Optional[Mapping[s
         judge_result=values.get("judge_result"),
         retry_guidance=values.get("retry_guidance", ""),
         retry_count=values.get("retry_count", 0),
+        guardrail_results=list(values.get("guardrail_results", [])),
         trace=list(values.get("trace", [])),
         errors=list(values.get("errors", [])),
     )
@@ -96,6 +99,7 @@ def _graph_values(state: PipelineState, *fields: str) -> dict:
         "judge_result",
         "retry_guidance",
         "retry_count",
+        "guardrail_results",
         "trace",
         "errors",
     )
@@ -105,6 +109,7 @@ def _graph_values(state: PipelineState, *fields: str) -> dict:
 def _node_result(state: PipelineState, *fields: str) -> dict:
     """节点只返回本次新增的 trace/errors，避免 reducer 重复累加。"""
     result = _graph_values(state, *fields)
+    result["guardrail_results"] = state.guardrail_results
     result["trace"] = state.trace
     result["errors"] = state.errors
     return result

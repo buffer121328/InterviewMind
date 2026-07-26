@@ -7,6 +7,7 @@ from langchain.agents import create_agent
 
 from ai.runtime.context import AgentContext
 from ai.runtime.middleware import build_default_middleware
+from ai.tools.contracts import derive_tool_governance
 
 
 def create_guarded_agent(
@@ -23,12 +24,17 @@ def create_guarded_agent(
     **kwargs: Any,
 ) -> Any:
     """创建统一受控 Agent；需要人审时强制提供 checkpoint。"""
-    if approval_tools and checkpointer is None:
+    governance = derive_tool_governance(
+        tools,
+        tool_permissions=tool_permissions,
+        approval_tools=approval_tools,
+    )
+    if governance.approval_tools and checkpointer is None:
         raise ValueError("approval_tools require a checkpointer")
 
     middleware = build_default_middleware(
-        tool_permissions=tool_permissions,
-        approval_tools=approval_tools,
+        tool_permissions=governance.permissions,
+        approval_tools=governance.approval_tools,
         fallback_models=fallback_models,
         max_model_calls=max_model_calls,
         max_tool_calls=max_tool_calls,

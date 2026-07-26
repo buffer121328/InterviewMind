@@ -100,6 +100,7 @@ async def run_pipeline(
             api_config=api_config,
             session_ids=session_ids,
             include_profile=include_profile,
+            run_id=run_id,
             mode=mode,
         )
         observation.set_output({
@@ -118,12 +119,25 @@ async def _run_pipeline(
     api_config: Optional[dict],
     session_ids: List[str],
     include_profile: bool,
+    run_id: Optional[str],
     mode: str,
 ) -> Dict[str, Any]:
     """执行不含观测上下文的流水线主体。"""
     from ai.memory.memory import get_checkpointer
 
+    from ai.runtime.guardrails import (
+        GuardrailViolation,
+        persist_guardrail_decision,
+        screen_untrusted_text,
+    )
+
     initial = PipelineState(resume_content=resume_content, job_description=job_description, user_id=user_id)
+    jd_decision = screen_untrusted_text(job_description, source="resume_job_description")
+    initial.guardrail_results.append(jd_decision.to_audit_payload())
+    if not jd_decision.allowed:
+        await persist_guardrail_decision(run_id=run_id, user_id=user_id, decision=jd_decision)
+        raise GuardrailViolation(jd_decision)
+
     _append_trace(
         initial,
         step="pipeline_start",
@@ -164,6 +178,14 @@ async def _run_pipeline(
         )
     state = _pipeline_state(result)
 
+    from ai.runtime.guardrails import GuardrailDecision, GuardrailViolation, persist_guardrail_decision
+
+    for raw_decision in state.guardrail_results:
+        decision = GuardrailDecision(**raw_decision)
+        await persist_guardrail_decision(run_id=run_id, user_id=user_id, decision=decision)
+        if decision.phase == "output" and not decision.allowed:
+            raise GuardrailViolation(decision)
+
     logger.info(f"[ResumePipeline] 流水线完成, {len(state.change_items)} 条改写, {len(state.confirmation_items)} 条需确认")
     _append_trace(
         state,
@@ -181,6 +203,7 @@ async def _run_pipeline(
         "fact_check": state.fact_check_result,
         "confirmation_items": state.confirmation_items,
         "judge_result": state.judge_result,
+        "guardrail_results": state.guardrail_results,
         "errors": state.errors,
         "overall_confidence": _calc_confidence(state.change_items),
         "requires_user_review": len(state.confirmation_items) > 0,
@@ -599,6 +622,23 @@ async def stage4_assemble(state: PipelineState) -> PipelineState:
             if lines and lines[-1].startswith("```"):
                 lines = lines[:-1]
             assembled = "\n".join(lines)
+
+        from ai.runtime.guardrails import validate_final_resume_output
+
+        decision = validate_final_resume_output(assembled)
+        state.guardrail_results.append(decision.to_audit_payload())
+        if not decision.allowed:
+            state.assembled_resume = state.resume_content
+            state.errors.append(f"Guardrails: {decision.code}")
+            _append_trace(
+                state,
+                step="stage4_assemble",
+                phase="assemble",
+                status="blocked",
+                output_summary=f"guardrail={decision.code}",
+                error=decision.message,
+            )
+            return state
 
         state.assembled_resume = assembled
         logger.info(f"[Stage4] 简历组装完成: {len(assembled)} 字符")

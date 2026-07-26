@@ -25,6 +25,7 @@ from app.domain.agent_runs import (
 )
 from app.db.unit_of_work import UnitOfWork
 from app.db.models import AgentRunEventModel, AgentRunModel, async_session
+from app.security.security import redact_secrets
 from ai.runtime.agent_runs.crypto import decrypt_payload, encrypt_payload
 from ai.runtime.agent_runs.outbox import enqueue_agent_run_outbox
 from ai.runtime.agent_runs.policies import allows_whole_run_retry
@@ -121,6 +122,23 @@ def serialize_event(event: AgentRunEventModel) -> dict:
     }
 
 
+def _sanitize_governance_payload(value: Any, *, max_text_chars: int = 300) -> Any:
+    """递归脱敏和截断治理审计载荷。"""
+
+    value = redact_secrets(value)
+    if isinstance(value, str):
+        return value[:max_text_chars]
+    if isinstance(value, dict):
+        return {str(key)[:80]: _sanitize_governance_payload(item, max_text_chars=max_text_chars) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_sanitize_governance_payload(item, max_text_chars=max_text_chars) for item in value[:20]]
+    if isinstance(value, tuple):
+        return [_sanitize_governance_payload(item, max_text_chars=max_text_chars) for item in value[:20]]
+    if isinstance(value, (int, float, bool)) or value is None:
+        return value
+    return str(value)[:max_text_chars]
+
+
 
 
 class AgentRunService:
@@ -153,6 +171,39 @@ class AgentRunService:
         )
         session.add(event)
         return event
+
+    async def record_governance_event(
+        self,
+        run_id: str,
+        *,
+        user_id: str,
+        event_type: str,
+        payload: dict[str, Any] | None = None,
+    ) -> bool:
+        """持久化工具或 Guardrails 的最小审计事件。
+
+        只接收摘要载荷，避免把原始简历、JD、模型输出或密钥写入可重放事件流。
+        不存在的 run、跨用户 run 或非治理事件会被拒绝，调用方可将审计失败视作
+        非业务失败，以免影响已完成的工具动作。
+        """
+
+        if not event_type.startswith(("tool.", "guardrail.")):
+            raise ValueError("governance event_type must start with tool. or guardrail.")
+
+        async with UnitOfWork(async_session) as uow:
+            session = uow.db
+            run = await session.get(AgentRunModel, run_id, with_for_update=True)
+            if not run or run.user_id != user_id:
+                return False
+
+            await self._append_event(
+                session,
+                run,
+                event_type,
+                _sanitize_governance_payload(payload or {}),
+            )
+            run.updated_at = _now()
+        return True
 
     async def record_observation(
         self,

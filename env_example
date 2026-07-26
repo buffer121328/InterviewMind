@@ -63,6 +63,15 @@ LLM_POOL_INFLIGHT_TTL_SECONDS=600
 ALLOW_PRIVATE_MODEL_BASE_URLS=true
 
 # ----------------------------------------------------------------------------
+# Guardrails AI 本地安全校验
+# 只使用仓库内置 validator：不下载 Hub validator、不上传简历/JD、不启用 vendor telemetry。
+# 关闭仅用于本地排障；生产建议保持 true + fail closed。
+# ----------------------------------------------------------------------------
+GUARDRAILS_ENABLED=true
+GUARDRAILS_FAIL_CLOSED=true
+GUARDRAILS_MAX_UNTRUSTED_CONTEXT_CHARS=20000
+
+# ----------------------------------------------------------------------------
 # RAG Embedding（OpenAI-compatible）
 # 优先使用前端「设置 → RAG / 长期记忆模型」；以下仅作服务端兜底。
 # ----------------------------------------------------------------------------

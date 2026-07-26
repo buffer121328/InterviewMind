@@ -3,10 +3,60 @@ BOSS 直聘 ReAct Agent 工具集
 """
 
 import logging
+from types import MappingProxyType
 from typing import Optional, Dict, Any, List
 from urllib.parse import quote_plus
 
+from app.schemas.tools import ToolContract
+from ai.runtime.guardrails import screen_untrusted_text
+
 logger = logging.getLogger(__name__)
+
+
+_BOSS_TOOL_CONTRACTS = MappingProxyType({
+    "check_environment": ToolContract(
+        effect="read",
+        permissions=("jobs.environment.read",),
+        result_retention="summary",
+    ),
+    "open_boss_search_page": ToolContract(
+        effect="external",
+        permissions=("boss.browser.read",),
+        requires_confirmation=True,
+        result_retention="summary",
+    ),
+    "extract_job_cards_from_page": ToolContract(
+        effect="read",
+        permissions=("jobs.cards.extract",),
+        result_retention="summary",
+    ),
+    "score_jobs_by_match": ToolContract(
+        effect="read",
+        permissions=("jobs.score",),
+        result_retention="summary",
+    ),
+    "save_job_to_database": ToolContract(
+        effect="write",
+        permissions=("jobs.capture.write",),
+        idempotency_key_strategy="user_id:platform:source_hash",
+        result_retention="reference",
+    ),
+    "generate_job_assets": ToolContract(
+        effect="write",
+        permissions=("jobs.assets.write",),
+        idempotency_key_strategy="user_id:job_id:resume_hash",
+        result_retention="reference",
+    ),
+})
+
+
+def get_boss_tool_contract(name: str) -> ToolContract:
+    """返回 BOSS 确定性工作流的唯一工具契约。"""
+
+    try:
+        return _BOSS_TOOL_CONTRACTS[name]
+    except KeyError as exc:
+        raise KeyError(f"unknown BOSS tool contract: {name}") from exc
 
 
 async def open_boss_search_page(query: str, city: str = "", wait_seconds: int = 8,
@@ -40,6 +90,11 @@ async def extract_job_cards_from_page(page_text: str, top_n: int = 10,
     from ai.llm.llm_utils import invoke_structured
     from app.schemas.llm_outputs import JobCardList
     from ai.prompts.jobs import build_job_card_extraction_prompt
+
+    decision = screen_untrusted_text(page_text, source="boss_search_page")
+    if not decision.allowed:
+        logger.warning("[BossTool] 已阻断不可信页面文本: %s", decision.code)
+        return []
 
     for marker in ["综合排序", "最新优先", "BOSS直聘"]:
         if marker in page_text:

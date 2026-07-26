@@ -1,10 +1,13 @@
 """统一的工具执行边界。"""
 
 import asyncio
+import inspect
 import ipaddress
 import time
 from dataclasses import asdict, dataclass
 from typing import Any, Awaitable, Callable, Collection
+
+from app.security.security import redact_secrets, safe_error_message
 from urllib.parse import urlparse
 
 from ai.runtime.context import AgentContext
@@ -80,7 +83,7 @@ class ToolExecutionGuard:
         requires_confirmation: bool | None = None,
         confirmed: bool = False,
         tool_name: str | None = None,
-        audit_callback: Callable[[dict[str, Any]], None] | None = None,
+        audit_callback: Callable[[dict[str, Any]], Awaitable[None] | None] | None = None,
         **kwargs: Any,
     ) -> Any:
         """执行 当前对象。
@@ -112,9 +115,10 @@ class ToolExecutionGuard:
         self.calls += 1
         attempts = 1 + (self.policy.max_retries if effect in self.policy.retry_effects else 0)
         started = time.perf_counter()
-        input_summary = str((args, kwargs))[:200]
+        input_summary = _summarize_for_audit({"args": args, "kwargs": kwargs}, limit=200)
         if audit_callback is not None:
-            audit_callback(
+            await _emit_audit(
+                audit_callback,
                 asdict(
                     ToolAuditRecord(
                         tool_name=tool_name or getattr(call, "__name__", "tool"),
@@ -122,7 +126,7 @@ class ToolExecutionGuard:
                         status="started",
                         input_summary=input_summary,
                     )
-                )
+                ),
             )
         for attempt in range(attempts):
             try:
@@ -131,7 +135,8 @@ class ToolExecutionGuard:
                 )
                 output = _redact(result) if self.policy.redact_results else result
                 if audit_callback is not None:
-                    audit_callback(
+                    await _emit_audit(
+                        audit_callback,
                         asdict(
                             ToolAuditRecord(
                                 tool_name=tool_name or getattr(call, "__name__", "tool"),
@@ -139,15 +144,16 @@ class ToolExecutionGuard:
                                 status="completed",
                                 duration_ms=max(0, int((time.perf_counter() - started) * 1000)),
                                 input_summary=input_summary,
-                                output_summary=str(output)[:300],
+                                output_summary=_summarize_for_audit(output, limit=300),
                             )
-                        )
+                        ),
                     )
                 return output
             except Exception as exc:
                 if attempt == attempts - 1:
                     if audit_callback is not None:
-                        audit_callback(
+                        await _emit_audit(
+                            audit_callback,
                             asdict(
                                 ToolAuditRecord(
                                     tool_name=tool_name or getattr(call, "__name__", "tool"),
@@ -156,11 +162,28 @@ class ToolExecutionGuard:
                                     duration_ms=max(0, int((time.perf_counter() - started) * 1000)),
                                     input_summary=input_summary,
                                     error_type=type(exc).__name__,
-                                    error_message=str(exc)[:200],
+                                    error_message=safe_error_message(exc),
                                 )
-                            )
+                            ),
                         )
                     raise
+
+
+async def _emit_audit(
+    callback: Callable[[dict[str, Any]], Awaitable[None] | None],
+    event: dict[str, Any],
+) -> None:
+    """投递审计事件；兼容同步和异步 sink。"""
+
+    result = callback(event)
+    if inspect.isawaitable(result):
+        await result
+
+
+def _summarize_for_audit(value: Any, *, limit: int) -> str:
+    """生成脱敏且有长度上限的审计摘要。"""
+
+    return str(redact_secrets(_redact(value)))[:limit]
 
 
 _SECRET_KEYS = {"api_key", "apikey", "authorization", "token", "secret", "password"}
