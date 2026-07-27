@@ -1,6 +1,24 @@
 import { apiRequest, getUserId, API_BASE_URL } from './config';
 import type { AgentRun, AgentRunStatus, AgentRunTaskType } from './agentRunTypes';
 
+/** A server-defined collection of matching runs. Session groups contain every matching child run; the other group is the legacy unassociated-task bucket. */
+export interface GroupedAgentRun {
+    group_type: 'session' | 'other';
+    session_id: string | null;
+    session_title: string | null;
+    runs: AgentRun[];
+}
+
+/** The paginated grouped-run response. `total` counts interview groups, while `other_total` counts individual unassociated runs. */
+export interface GroupedAgentRunsResponse {
+    groups: GroupedAgentRun[];
+    total: number;
+    session_total: number;
+    other_total: number;
+    limit: number;
+    offset: number;
+}
+
 export type {
     AgentRun,
     AgentRunEvent,
@@ -12,6 +30,7 @@ export type {
 export { AGENT_RUN_EVENT_TYPES } from './agentRunTypes';
 export { listAgentRunEvents, streamAgentRunEvents } from './agentRunEvents';
 
+/** Calls the backend for list agent runs; the shared API client supplies request identity and error normalization, and this helper returns the typed endpoint result. */
 export async function listAgentRuns(params: {
     status?: AgentRunStatus;
     taskType?: AgentRunTaskType;
@@ -30,32 +49,86 @@ export async function listAgentRuns(params: {
     return { runs: response.runs || [], total: response.total || 0, limit: response.limit, offset: response.offset };
 }
 
+/**
+ * Lists backend-owned AgentRun groups without reconstructing interview parents in the browser.
+ *
+ * Pagination applies to interview groups, and each returned session group contains all child
+ * runs matching the supplied filters. The API client supplies the user identity header.
+ */
+export async function listGroupedAgentRuns(params: {
+    status?: AgentRunStatus;
+    taskType?: AgentRunTaskType;
+    limit?: number;
+    offset?: number;
+} = {}): Promise<GroupedAgentRunsResponse> {
+    const query = new URLSearchParams({
+        limit: String(params.limit || 20),
+        offset: String(params.offset || 0),
+    });
+    if (params.status) query.set('status', params.status);
+    if (params.taskType) query.set('task_type', params.taskType);
+    const response = await apiRequest<Partial<GroupedAgentRunsResponse>>(`/api/agent-runs/groups?${query}`);
+    return {
+        groups: response.groups || [],
+        total: response.total || 0,
+        session_total: response.session_total ?? response.total ?? 0,
+        other_total: response.other_total || 0,
+        limit: response.limit ?? params.limit ?? 20,
+        offset: response.offset ?? params.offset ?? 0,
+    };
+}
+
+/**
+ * Requests an explicit, owner-scoped repair of legacy interview session links.
+ *
+ * The backend obtains the user identity through the shared API client, accepts
+ * no payload, and returns only an update count rather than decrypted task data.
+ */
+export async function backfillAgentRunSessionLinks(): Promise<{ updated: number }> {
+    return apiRequest<{ updated: number }>('/api/agent-runs/backfill-session-links', { method: 'POST' });
+}
+
+/** Calls the backend for get agent run; the shared API client supplies request identity and error normalization, and this helper returns the typed endpoint result. */
 export async function getAgentRun(runId: string): Promise<AgentRun> {
     return apiRequest<AgentRun>(`/api/agent-runs/${runId}`);
 }
 
+/** Calls the backend for get agent run trace link; the shared API client supplies request identity and error normalization, and this helper returns the typed endpoint result. */
+export async function getAgentRunTraceLink(runId: string): Promise<{
+    available: boolean;
+    url: string | null;
+    message: string | null;
+}> {
+    return apiRequest(`/api/agent-runs/${runId}/trace-link`);
+}
+
+/** Calls the backend for retry agent run; the shared API client supplies request identity and error normalization, and this helper returns the typed endpoint result. */
 export async function retryAgentRun(runId: string): Promise<AgentRun> {
     return apiRequest<AgentRun>(`/api/agent-runs/${runId}/retry`, { method: 'POST' });
 }
 
+/** Calls the backend for cancel agent run; the shared API client supplies request identity and error normalization, and this helper returns the typed endpoint result. */
 export async function cancelAgentRun(runId: string): Promise<AgentRun> {
     return apiRequest<AgentRun>(`/api/agent-runs/${runId}/cancel`, { method: 'POST' });
 }
 
+/** Creates a resumable optimization run; omitting a per-attempt key lets the backend reuse its stable payload digest on retry. */
 export async function createResumeOptimizeRun(payload: Record<string, unknown>): Promise<AgentRun | { status: 'succeeded'; result: Record<string, unknown> }> {
-    const response = await fetch(`${API_BASE_URL}/api/agent-runs/resume-optimize`, {
+    return apiRequest('/api/agent-runs/resume-optimize', {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'X-User-ID': getUserId(),
-            'Idempotency-Key': crypto.randomUUID(),
-        },
         body: JSON.stringify(payload),
     });
-    if (!response.ok) throw new Error(`创建简历优化任务失败: HTTP ${response.status}`);
-    return response.json();
 }
 
+/** Creates the single resumable workspace run. The backend owns orchestration; this client only submits user-approved inputs. */
+export async function createResumeWorkspaceRun(payload: Record<string, unknown>): Promise<AgentRun | { status: 'succeeded'; result: Record<string, unknown> }> {
+    return apiRequest('/api/agent-runs/resume-workspace', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+    });
+}
+
+/** Calls the backend for create interview report run; the shared API client supplies request identity and error normalization, and this helper returns the typed endpoint result. */
 export async function createInterviewReportRun(payload: Record<string, unknown>): Promise<AgentRun | { status: 'succeeded'; result: Record<string, unknown> }> {
     return apiRequest('/api/agent-runs/interview-report', {
         method: 'POST',
@@ -64,6 +137,7 @@ export async function createInterviewReportRun(payload: Record<string, unknown>)
     });
 }
 
+/** Calls the backend for create job assets run; the shared API client supplies request identity and error normalization, and this helper returns the typed endpoint result. */
 export async function createJobAssetsRun(payload: Record<string, unknown>): Promise<AgentRun | { status: 'succeeded'; result: Record<string, unknown> }> {
     return apiRequest('/api/agent-runs/job-assets', {
         method: 'POST',
@@ -72,6 +146,7 @@ export async function createJobAssetsRun(payload: Record<string, unknown>): Prom
     });
 }
 
+/** Calls the backend for poll agent run; the shared API client supplies request identity and error normalization, and this helper returns the typed endpoint result. */
 export async function pollAgentRun(
     runId: string,
     onUpdate?: (run: AgentRun) => void,
@@ -83,6 +158,7 @@ export async function pollAgentRun(
         onUpdate?.(run);
         if (['succeeded', 'failed', 'cancelled'].includes(run.status)) return run;
         await new Promise<void>((resolve, reject) => {
+            /** Handles the on abort callback and keeps the related event or cancellation boundary local to this module. */
             const onAbort = () => {
                 window.clearTimeout(timer);
                 signal?.removeEventListener('abort', onAbort);

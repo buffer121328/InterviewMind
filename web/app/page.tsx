@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useMemo, useSyncExternalStore } from "react";
-import { Activity, BookOpenCheck, Bot, BriefcaseBusiness, Database, Loader2, Award, Plus, MessageCircle, FileText, ArrowDown, Square, Lightbulb, X, Mic, Target } from "lucide-react";
+import { Activity, BookOpenCheck, Bot, BriefcaseBusiness, Database, Loader2, Award, Plus, MessageCircle, FileText, ArrowDown, Square, Lightbulb, X, Mic, Target, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ChatMessage } from "@/components/ChatMessage";
 import { AbilityProfileView } from "@/components/AbilityProfileView";
@@ -29,20 +29,24 @@ import QuestionBankPage from "@/components/QuestionBankPage";
 import { BossCenter } from "@/components/BossCenter";
 import { MemoryCenter } from "@/components/MemoryCenter";
 import { RunCenter } from "@/components/RunCenter";
+import { PromptManagementPage } from "@/components/PromptManagementPage";
 import { WorkspaceShell } from "@/components/WorkspaceShell";
 import { QUESTION_COUNT_OPTIONS, defaultQuestionsForRoundIndex } from "@/lib/interview/questionDefaults";
 
 // 定义视图类型，包含 'landing'
 type ViewType = MainView;
 
+/** Supplies the stable external-store subscription required by hydration-aware rendering; this store has no runtime subscribers. */
 const subscribeToHydration = () => () => {};
 
+/** Restores the last main view from browser storage while returning the landing view during SSR or when the saved value is invalid. */
 function getSavedMainTab(): ViewType {
   if (typeof window === "undefined") return "landing";
 
   return parseSavedMainView(localStorage.getItem("activeMainTab"));
 }
 
+/** Renders the interview page UI and coordinates its typed props, local state, and approved backend interactions. */
 export default function InterviewPage() {
   // ===== 局部 UI 状态 =====
   const [showSidebar, setShowSidebar] = useState(true);
@@ -145,6 +149,7 @@ export default function InterviewPage() {
   // ===== 事件处理 =====
 
   // Resume upload handler for InterviewSetup
+  /** Handles upload resume; updates local UI state first and delegates server mutations through the approved API boundary. */
   const handleUploadResume = async (file: File) => {
     await uploadResume(file);
   };
@@ -154,6 +159,7 @@ export default function InterviewPage() {
     return !!getVoiceModel?.();
   }, [getVoiceModel]);
 
+  /** Handles start interview; updates local UI state first and delegates server mutations through the approved API boundary. */
   const handleStartInterview = async (mode: 'text' | 'voice' = 'text', options?: { interviewType: 'tech_initial' | 'tech_deep' | 'hr_comprehensive'; maxQuestions: number }) => {
     try {
       if (options) {
@@ -173,6 +179,7 @@ export default function InterviewPage() {
     }
   };
 
+  /** Handles send; updates local UI state first and delegates server mutations through the approved API boundary. */
   const handleSend = async () => {
     if (!input.trim() || isStreaming) return;
     const content = input;
@@ -180,6 +187,7 @@ export default function InterviewPage() {
     await sendMessage(content);
   };
 
+  /** Handles key down; updates local UI state first and delegates server mutations through the approved API boundary. */
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -188,6 +196,7 @@ export default function InterviewPage() {
   };
 
   // ===== 消息编辑和重新生成 =====
+  /** Handles edit message; updates local UI state first and delegates server mutations through the approved API boundary. */
   const handleEditMessage = async (index: number, newContent: string) => {
     if (isStreaming) return;
     // 回退到该消息之前的状态
@@ -196,6 +205,7 @@ export default function InterviewPage() {
     await sendMessage(newContent);
   };
 
+  /** Handles regenerate message; updates local UI state first and delegates server mutations through the approved API boundary. */
   const handleRegenerateMessage = async (aiMessageIndex: number) => {
     if (isStreaming) return;
 
@@ -222,6 +232,7 @@ export default function InterviewPage() {
     await sendMessage(userMessage.content);
   };
 
+  /** Encapsulates scroll to bottom; returns typed data or state and keeps side effects within the owning module boundary. */
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     setShowScrollButton(false);
@@ -229,6 +240,7 @@ export default function InterviewPage() {
   };
 
   // 获取回答提示
+  /** Handles get hint; updates local UI state first and delegates server mutations through the approved API boundary. */
   const handleGetHint = async () => {
     if (!threadId || isLoadingHint) return;
 
@@ -268,6 +280,7 @@ export default function InterviewPage() {
     }
   };
 
+  /** Handles switch to voice; updates local UI state first and delegates server mutations through the approved API boundary. */
   const handleSwitchToVoice = async () => {
     if (!threadId) return;
 
@@ -299,6 +312,7 @@ export default function InterviewPage() {
     }
   };
 
+  /** Handles scroll; updates local UI state first and delegates server mutations through the approved API boundary. */
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
     // 距离底部 100px 以内视为在底部
@@ -332,6 +346,7 @@ export default function InterviewPage() {
 
   // 防止 Hydration 错误
   // 导航处理函数
+  /** Handles navigate; updates local UI state first and delegates server mutations through the approved API boundary. */
   const handleNavigate = (page: ViewType) => {
     if (typeof window !== 'undefined' && window.innerWidth < 768) {
       setShowSidebar(false);
@@ -504,6 +519,17 @@ export default function InterviewPage() {
           description="查看 AgentRun 阶段、实时事件、失败原因、取消与重试"
         >
           <RunCenter />
+        </WorkspaceShell>
+        <SettingsDialog open={showSettingsDialog} onOpenChange={setShowSettingsDialog} />
+      </>
+    );
+  }
+
+  if (activeMainTab === 'prompts') {
+    return (
+      <>
+        <WorkspaceShell sidebarOpen={showSidebar} onSidebarOpenChange={setShowSidebar} currentView="prompts" onViewChange={handleNavigate} onOpenSettings={() => setShowSettingsDialog(true)} onGoHome={() => setActiveMainTab('landing')} icon={<Sparkles className="h-4 w-4" />} title="Prompt 管理" description="安全地查看、预览和发布 Langfuse Prompt 版本">
+          <PromptManagementPage />
         </WorkspaceShell>
         <SettingsDialog open={showSettingsDialog} onOpenChange={setShowSettingsDialog} />
       </>

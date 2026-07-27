@@ -17,6 +17,7 @@ import {
     Plus,
     Settings,
     ShieldCheck,
+    Sparkles,
     Target,
     Trash2,
     UserRound,
@@ -84,6 +85,7 @@ const NAV_SECTIONS: Array<{
         items: [
             { view: 'memory', label: '长期记忆', icon: Database },
             { view: 'runs', label: '任务运行', icon: Activity },
+            { view: 'prompts', label: 'Prompt 管理', icon: Sparkles },
         ],
     },
 ];
@@ -96,8 +98,10 @@ const VIEW_CONTEXT: Record<WorkspaceView, { title: string; description: string }
     applications: { title: '投递管理', description: '跟踪岗位状态、简历版本和面试事件。' },
     memory: { title: '长期记忆', description: '搜索、审计和删除用于个性化的 mem0 记忆。' },
     runs: { title: '任务运行', description: '查看 AgentRun 阶段、失败原因、取消与重试。' },
+    prompts: { title: 'Prompt 管理', description: '查看、预览和安全发布不可变的 Prompt 版本。' },
 };
 
+/** Encapsulates session sidebar; returns typed data or state and keeps side effects within the owning module boundary. */
 export function SessionSidebar({
     isOpen,
     onClose,
@@ -161,37 +165,44 @@ export function SessionSidebar({
         jdMatchResults.length,
     ]);
 
+    /** Encapsulates close on mobile; returns typed data or state and keeps side effects within the owning module boundary. */
     const closeOnMobile = () => {
         if (window.innerWidth < 768) onClose();
     };
 
+    /** Handles session select; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleSessionSelect = (sessionId: string) => {
         void selectSession(sessionId);
         closeOnMobile();
     };
 
+    /** Handles session detail; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleSessionDetail = (sessionId: string) => {
         onViewSessionDetail?.(sessionId);
         closeOnMobile();
     };
 
+    /** Handles resume select; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleResumeSelect = async (resultId: number) => {
         await selectResumeResult(resultId);
         closeOnMobile();
     };
 
+    /** Handles generated resume select; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleGeneratedResumeSelect = async (id: number) => {
         await selectGeneratedResume(id);
         setShowPreview(true);
         closeOnMobile();
     };
 
+    /** Handles jdmatch select; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleJDMatchSelect = async (analysisId: number) => {
         await selectJDMatchResult(analysisId);
         onViewChange('resume');
         closeOnMobile();
     };
 
+    /** Handles new; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleNew = () => {
         if (currentView === 'interview') createNewSession();
         if (currentView === 'resume') {
@@ -201,6 +212,7 @@ export function SessionSidebar({
         closeOnMobile();
     };
 
+    /** Renders the switch view UI and coordinates its typed props, local state, and approved backend interactions. */
     const switchView = (view: WorkspaceView) => {
         onViewChange(view);
         closeOnMobile();
@@ -223,6 +235,7 @@ export function SessionSidebar({
         apiConfig.models.find(model => model.id === apiConfig.smartModelId)?.apiKey
         && apiConfig.models.find(model => model.id === apiConfig.fastModelId)?.apiKey,
     );
+    const showsHistory = currentView === 'interview' || currentView === 'resume';
 
     return (
         <>
@@ -243,9 +256,9 @@ export function SessionSidebar({
                             animate={{ x: 0, opacity: 1 }}
                             exit={{ x: -24, opacity: 0 }}
                             transition={{ duration: 0.18, ease: 'easeOut' }}
-                            className="fixed inset-y-0 left-0 z-40 flex w-72 shrink-0 flex-col border-r border-slate-200 bg-[#f4f8f7] shadow-xl md:relative md:z-20 md:shadow-none"
+                            className="fixed inset-y-0 left-0 z-40 flex w-72 shrink-0 flex-col overflow-y-auto border-r border-slate-200 bg-[#f4f8f7] shadow-xl md:relative md:z-20 md:shadow-none"
                         >
-                            <div className="border-b border-slate-200 bg-[#102724] px-4 py-3 text-white">
+                            <div className="shrink-0 border-b border-slate-200 bg-[#102724] px-4 py-3 text-white">
                                 <div className="flex items-center justify-between gap-3">
                                     <button type="button" className="flex min-w-0 items-center gap-3 text-left" onClick={onGoHome}>
                                         <Image src="/logo.png" alt="" width={38} height={38} className="rounded-xl ring-1 ring-white/10" />
@@ -266,22 +279,23 @@ export function SessionSidebar({
                                 </div>
                             </div>
 
-                            <div className="border-b border-slate-200 px-3 py-2">
+                            <div className="shrink-0 border-b border-slate-200 px-3 py-2">
                                 <button type="button" onClick={onGoHome} className="mb-1 flex w-full items-center gap-3 rounded-lg px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-white hover:text-slate-950">
                                     <Home className="h-4 w-4" />产品首页
                                 </button>
-                                <div className="space-y-2">
+                                <div className={cn(showsHistory ? 'space-y-1' : 'space-y-2')}>
                                     {NAV_SECTIONS.map(section => (
                                         <div key={section.label}>
                                             <div className="mb-0.5 px-3 text-[9px] font-semibold uppercase tracking-[0.18em] text-slate-400">{section.label}</div>
-                                            <div className="space-y-0.5">
+                                            <div className={cn(showsHistory ? 'grid grid-cols-2 gap-0.5' : 'space-y-0.5')}>
                                                 {section.items.map(item => (
                                                     <button
                                                         type="button"
                                                         key={item.view}
                                                         onClick={() => switchView(item.view)}
                                                         className={cn(
-                                                            'flex w-full items-center gap-3 rounded-lg px-3 py-1.5 text-left text-sm transition',
+                                                            'flex w-full items-center rounded-lg text-left transition',
+                                                            showsHistory ? 'gap-2 px-2 py-1 text-xs' : 'gap-3 px-3 py-1.5 text-sm',
                                                             currentView === item.view
                                                                 ? 'bg-teal-950 font-medium text-white shadow-sm'
                                                                 : 'text-slate-600 hover:bg-white hover:text-slate-950',
@@ -297,8 +311,8 @@ export function SessionSidebar({
                                 </div>
                             </div>
 
-                            {(currentView === 'interview' || currentView === 'resume') ? (
-                                <div className="flex min-h-0 flex-1 flex-col">
+                            {showsHistory ? (
+                                <div className="flex min-h-52 shrink-0 flex-1 flex-col">
                                     <div className="px-4 pb-2 pt-4">
                                         <div className="flex items-end justify-between gap-3">
                                             <div>
@@ -376,7 +390,7 @@ export function SessionSidebar({
                                     </div>
                                 </div>
                             ) : (
-                                <div className="min-h-0 flex-1 p-4">
+                                <div className="min-h-40 shrink-0 flex-1 p-4">
                                     <div className="rounded-2xl border border-slate-200 bg-white p-4">
                                         <div className="text-xs font-semibold text-slate-900">{VIEW_CONTEXT[currentView].title}</div>
                                         <p className="mt-2 text-xs leading-5 text-slate-500">{VIEW_CONTEXT[currentView].description}</p>
@@ -384,7 +398,7 @@ export function SessionSidebar({
                                 </div>
                             )}
 
-                            <div className="space-y-2 border-t border-slate-200 bg-white/70 p-3">
+                            <div className="shrink-0 space-y-2 border-t border-slate-200 bg-white/70 p-3">
                                 {currentView === 'interview' && (
                                     <Button
                                         variant="ghost"
@@ -424,8 +438,9 @@ export function SessionSidebar({
                 title={currentGeneratedResume?.title || '简历预览'}
                 content={currentGeneratedResume?.content || ''}
                 onContentChange={async newContent => {
-                    if (!currentGeneratedResume?.id) return;
-                    await updateGeneratedResume(currentGeneratedResume.id, newContent);
+                    if (!currentGeneratedResume?.id) throw new Error('未找到要保存的简历');
+                    const saved = await updateGeneratedResume(currentGeneratedResume.id, newContent);
+                    if (!saved) throw new Error('保存简历失败，请重试');
                     void fetchGeneratedResumes();
                 }}
             />
@@ -461,6 +476,7 @@ interface JDMatchHistoryListProps {
     loading?: boolean;
 }
 
+/** Renders the jdmatch history list UI and coordinates its typed props, local state, and approved backend interactions. */
 function JDMatchHistoryList({ results, onSelect, onDelete, loading }: JDMatchHistoryListProps) {
     if (loading && results.length === 0) {
         return (

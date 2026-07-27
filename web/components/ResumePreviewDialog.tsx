@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import Image from "next/image";
 
 import ReactMarkdown from 'react-markdown';
@@ -6,7 +6,7 @@ import rehypeHighlight from 'rehype-highlight';
 import 'highlight.js/styles/atom-one-dark.css';
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import { Copy, Download, Check, X, FileText, Edit3, Eye, ImagePlus, Trash2, Save } from "lucide-react";
+import { Copy, FileDown, Check, X, FileText, Edit3, Eye, ImagePlus, Trash2, Save, Printer, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Textarea } from "@/components/ui/textarea";
@@ -16,9 +16,99 @@ interface ResumePreviewDialogProps {
     onClose: () => void;
     title: string;
     content: string;
-    onContentChange?: (newContent: string) => void;
+    onContentChange?: (newContent: string) => Promise<void>;
 }
 
+const A4_HEIGHT_CSS_PIXELS = 1122.52;
+// Account for CSS-pixel rounding and the preview border around an exact A4 minimum height.
+const A4_MEASUREMENT_TOLERANCE_CSS_PIXELS = 4;
+
+/** Keeps exported resumes self-contained, predictable on A4 paper, and free of editor chrome. */
+const RESUME_EXPORT_STYLES = `
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: #e9edf2; color: #17202b; }
+  body { font-family: "Avenir Next", "Segoe UI", "Microsoft YaHei", sans-serif; font-size: 11pt; line-height: 1.45; }
+  .resume-sheet { width: 210mm; min-height: 297mm; margin: 12mm auto; padding: 16mm 17mm; background: #fff; }
+  .resume-header { min-height: 34mm; padding-right: 31mm; position: relative; }
+  .resume-photo { position: absolute; top: 0; right: 0; width: 25mm; height: 31mm; border: 1px solid #cbd5e1; border-radius: 2mm; object-fit: cover; }
+  .resume-placeholder { display: grid; place-items: center; color: #64748b; background: #f8fafc; font-size: 8pt; text-align: center; }
+  .resume-content h1 { margin: 0 0 5mm; font-size: 22pt; line-height: 1.1; letter-spacing: -.02em; }
+  .resume-content h2 { margin: 6mm 0 2mm; padding-bottom: 1mm; border-bottom: 1px solid #17202b; font-size: 11pt; text-transform: uppercase; letter-spacing: .08em; break-after: avoid; }
+  .resume-content h3 { margin: 3mm 0 1mm; font-size: 10.5pt; break-after: avoid; }
+  .resume-content p { margin: 0 0 1.5mm; }
+  .resume-content blockquote { margin: 0 0 5mm; color: #526173; text-align: center; border: 0; }
+  .resume-content ul, .resume-content ol { margin: 1mm 0 2mm; padding-left: 5mm; }
+  .resume-content li { margin-bottom: 1mm; }
+  .resume-content a { color: inherit; text-decoration: none; }
+  .resume-content img { max-width: 100%; }
+  h1, h2, h3, p, li, blockquote { orphans: 3; widows: 3; }
+  @page { size: A4; margin: 0; }
+  @media print {
+    html, body { background: #fff; }
+    .resume-sheet { margin: 0; box-shadow: none; }
+    .resume-content h2, .resume-content h3 { break-before: auto; }
+    .resume-content ul, .resume-content ol, .resume-content blockquote { break-inside: avoid; }
+  }
+`;
+
+/** Mirrors export geometry so page feedback reflects the actual A4 layout rather than a fixed guess. */
+const RESUME_PREVIEW_STYLES = `
+  .resume-preview-sheet { box-sizing: border-box; width: 210mm; min-height: 297mm; margin: 0 auto 8mm; padding: 16mm 17mm; background: #fff; color: #17202b; font-family: "Avenir Next", "Segoe UI", "Microsoft YaHei", sans-serif; font-size: 11pt; line-height: 1.45; }
+  .resume-preview-header { min-height: 36mm; position: relative; }
+  .resume-preview-photo { position: absolute; top: 0; right: 0; width: 27mm; height: 33mm; border: 1px solid #cbd5e1; border-radius: 2mm; object-fit: cover; }
+  .resume-preview-placeholder { display: grid; place-items: center; color: #64748b; background: #f8fafc; font-size: 8pt; text-align: center; }
+  .resume-preview-content h1 { margin: 0 0 5mm; padding-right: 39mm; font-size: 22pt; line-height: 1.1; letter-spacing: -.02em; text-align: center; }
+  .resume-preview-content > h1 + p, .resume-preview-content > h1 + blockquote { padding-right: 39mm; }
+  .resume-preview-content h2 { margin: 6mm 0 2mm; padding-bottom: 1mm; border-bottom: 1px solid #17202b; font-size: 11pt; text-transform: uppercase; letter-spacing: .08em; }
+  .resume-preview-content h3 { margin: 3mm 0 1mm; font-size: 10.5pt; }
+  .resume-preview-content p { margin: 0 0 1.5mm; color: #526173; }
+  .resume-preview-content blockquote { margin: 0 0 5mm; color: #526173; text-align: center; border: 0; }
+  .resume-preview-content ul, .resume-preview-content ol { margin: 1mm 0 2mm; padding-left: 5mm; }
+  .resume-preview-content li { margin-bottom: 1mm; color: #526173; }
+  .resume-preview-content a { color: inherit; text-decoration: none; }
+  .resume-preview-content img { max-width: 100%; }
+`;
+
+/** Creates an export document with text nodes for metadata, preventing title injection. */
+function createResumeExportDocument(title: string, contentElement: HTMLElement, photo: string | null): Document {
+    const exportDocument = document.implementation.createHTMLDocument(title || "简历");
+    const style = exportDocument.createElement("style");
+    style.textContent = `${RESUME_EXPORT_STYLES}
+      .resume-header { min-height: 36mm; padding-right: 0; }
+      .resume-photo { width: 27mm; height: 33mm; }
+      .resume-content > h1, .resume-content > h1 + p, .resume-content > h1 + blockquote { padding-right: 39mm; }
+    `;
+    exportDocument.head.appendChild(style);
+    const sheet = exportDocument.createElement("main");
+    sheet.className = "resume-sheet";
+    const header = exportDocument.createElement("header");
+    header.className = "resume-header";
+    const photoElement = exportDocument.createElement("div");
+    photoElement.className = "resume-photo resume-placeholder";
+    photoElement.setAttribute("aria-label", photo ? "简历照片" : "照片位置");
+    if (photo) {
+        const image = exportDocument.createElement("img");
+        image.src = photo;
+        image.alt = "简历照片";
+        image.className = "resume-photo";
+        header.appendChild(image);
+    } else {
+        photoElement.textContent = "PHOTO";
+        header.appendChild(photoElement);
+    }
+    const previewContent = contentElement.querySelector(".resume-preview-content");
+    const clonedContent = (previewContent || contentElement).cloneNode(true) as HTMLElement;
+    clonedContent.removeAttribute("id");
+    clonedContent.querySelectorAll("[data-resume-control]").forEach((control) => control.remove());
+    clonedContent.querySelectorAll(".resume-photo-display").forEach((photoNode) => photoNode.remove());
+    clonedContent.classList.add("resume-content");
+    header.appendChild(clonedContent);
+    sheet.appendChild(header);
+    exportDocument.body.appendChild(sheet);
+    return exportDocument;
+}
+
+/** Renders the resume preview dialog UI and coordinates its typed props, local state, and approved backend interactions. */
 export function ResumePreviewDialog({
     isOpen,
     onClose,
@@ -29,23 +119,58 @@ export function ResumePreviewDialog({
     const [isCopied, setIsCopied] = useState(false);
     const [isEditMode, setIsEditMode] = useState(false);
     const [editableContent, setEditableContent] = useState(content);
+    const [savedContent, setSavedContent] = useState(content);
     const [photo, setPhoto] = useState<string | null>(null);
     const [hasChanges, setHasChanges] = useState(false);
+    const [isSaving, setIsSaving] = useState(false);
+    const [saveError, setSaveError] = useState<string | null>(null);
+    const [pageFit, setPageFit] = useState<"one" | "two" | "overflow">("one");
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const previewSheetRef = useRef<HTMLDivElement>(null);
 
     const handleContentChange = useCallback((value: string) => {
         setEditableContent(value);
-        setHasChanges(value !== content);
-    }, [content]);
+        setHasChanges(value !== savedContent);
+        setSaveError(null);
+    }, [savedContent]);
 
-    const handleSave = useCallback(() => {
-        if (onContentChange) {
-            onContentChange(editableContent);
+    const handleSave = useCallback(async () => {
+        if (!onContentChange) return;
+        setIsSaving(true);
+        setSaveError(null);
+        try {
+            await onContentChange(editableContent);
+            setSavedContent(editableContent);
+            setHasChanges(false);
+            toast.success("简历内容已保存");
+        } catch (error) {
+            const message = error instanceof Error ? error.message : "保存简历失败，请重试";
+            setSaveError(message);
+            toast.error(message);
+        } finally {
+            setIsSaving(false);
         }
-        setHasChanges(false);
-        toast.success("简历内容已保存");
     }, [editableContent, onContentChange]);
 
+    const updatePageFit = useCallback(() => {
+        const sheet = previewSheetRef.current;
+        if (!sheet) return;
+        const next = sheet.scrollHeight > A4_HEIGHT_CSS_PIXELS * 2 + A4_MEASUREMENT_TOLERANCE_CSS_PIXELS ? "overflow" : sheet.scrollHeight > A4_HEIGHT_CSS_PIXELS + A4_MEASUREMENT_TOLERANCE_CSS_PIXELS ? "two" : "one";
+        setPageFit(current => current === next ? current : next);
+    }, []);
+
+    useEffect(() => {
+        if (isEditMode) return;
+        const sheet = previewSheetRef.current;
+        if (!sheet) return;
+        const frame = requestAnimationFrame(updatePageFit);
+        if (typeof ResizeObserver === "undefined") return () => cancelAnimationFrame(frame);
+        const observer = new ResizeObserver(updatePageFit);
+        observer.observe(sheet);
+        return () => { cancelAnimationFrame(frame); observer.disconnect(); };
+    }, [editableContent, isEditMode, photo, updatePageFit]);
+
+    /** Handles copy; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleCopy = async () => {
         try {
             await navigator.clipboard.writeText(editableContent);
@@ -57,231 +182,42 @@ export function ResumePreviewDialog({
         }
     };
 
-    const handleDownload = async () => {
+    /** Downloads a standalone, safely constructed HTML file that can be opened or printed later. */
+    const handleExportHtml = useCallback(() => {
         const element = document.getElementById('resume-preview-content');
         if (!element) {
             toast.error("无法找到简历内容");
             return;
         }
+        const exportDocument = createResumeExportDocument(title, element, photo);
+        const blob = new Blob([`<!doctype html>\n${exportDocument.documentElement.outerHTML}`], { type: "text/html;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = `${(title || "resume").replace(/[^\w\u4e00-\u9fff-]+/g, "-")}.html`;
+        anchor.click();
+        URL.revokeObjectURL(url);
+        toast.success("HTML 简历已导出");
+    }, [photo, title]);
 
-        // 克隆元素
-        const clonedElement = element.cloneNode(true) as HTMLElement;
-
-        // 仅移除照片容器中的删除按钮，保留照片本身以维持布局
-        // 查找包含图片的容器
-        const photoContainer = clonedElement.querySelector('.absolute .relative.group');
-        if (photoContainer) {
-            const deleteBtn = photoContainer.querySelector('button');
-            if (deleteBtn) {
-                deleteBtn.remove();
-            }
+    /** Opens a sanitized export document and waits for fonts and images before invoking the browser PDF flow. */
+    const handlePrint = useCallback(async () => {
+        const element = document.getElementById('resume-preview-content');
+        if (!element) return toast.error("无法找到简历内容");
+        const printWindow = window.open("", "_blank");
+        if (!printWindow) return toast.error("无法打开打印窗口，请检查浏览器是否阻止了弹窗");
+        // Never truncate content when a third page is unavoidable.
+        if (element.scrollHeight > A4_HEIGHT_CSS_PIXELS * 2 + A4_MEASUREMENT_TOLERANCE_CSS_PIXELS) {
+            toast.warning("内容超过两页 A4；将完整保留，请在打印预览中确认分页", { duration: 5000 });
         }
-
-        // 创建打印专用的窗口
-        const printWindow = window.open('', '_blank');
-        if (!printWindow) {
-            toast.error("无法打开打印窗口，请检查浏览器是否阻止了弹窗");
-            return;
-        }
-
-        // 获取当前页面的样式
-        const styles = Array.from(document.styleSheets)
-            .map(styleSheet => {
-                try {
-                    return Array.from(styleSheet.cssRules)
-                        .map(rule => rule.cssText)
-                        .join('\n');
-                } catch {
-                    // 跨域样式表无法访问
-                    return '';
-                }
-            })
-            .join('\n');
-
-        // 构建打印页面
-        printWindow.document.write(`
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <title>${title || '简历'}</title>
-                <style>
-                    ${styles}
-
-                    /* 基础样式重置 */
-                    * {
-                        margin: 0;
-                        padding: 0;
-                        box-sizing: border-box;
-                    }
-                    
-                    /* 屏幕显示样式 (打印预览前的样子) */
-                    body {
-                        font-family: -apple-system, BlinkMacSystemFont, 'Microsoft YaHei', 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-                        line-height: 1.5;
-                        color: #1a1a1a;
-                        background: #f0f2f5;
-                        padding: 20px;
-                        display: flex;
-                        justify-content: center;
-                        font-size: 12px;
-                    }
-                    #resume-content-wrapper {
-                        background: white;
-                        width: 210mm;
-                        min-height: 297mm;
-                        padding: 15mm 18mm;
-                        margin: 0 auto;
-                        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-                        box-sizing: border-box;
-                    }
-
-                    /* 简历内容样式 */
-                    .resume-content h1 {
-                        font-size: 22px !important;
-                        margin-bottom: 24px !important;
-                        text-align: center;
-                        font-weight: 700;
-                    }
-                    .resume-content h2 {
-                        font-size: 14px !important;
-                        margin-top: 12px !important;
-                        margin-bottom: 6px !important;
-                        padding-bottom: 3px !important;
-                        border-bottom: 1.5px solid #1a1a1a !important;
-                        text-transform: uppercase;
-                        letter-spacing: 0.5px;
-                    }
-                    .resume-content h3 {
-                        font-size: 13px !important;
-                        margin-top: 8px !important;
-                        margin-bottom: 3px !important;
-                        font-weight: 600;
-                    }
-                    .resume-content p {
-                        font-size: 12px !important;
-                        line-height: 1.5 !important;
-                        margin-bottom: 4px !important;
-                        color: #333;
-                    }
-                    .resume-content blockquote {
-                        font-size: 11px !important;
-                        text-align: center;
-                        margin: 4px 0 25px 0 !important;
-                        background: #f8f9fa;
-                        border: none !important;
-                        border-radius: 4px;
-                        color: #555;
-                    }
-                    .resume-content blockquote p {
-                        margin: 0 !important;
-                    }
-                    .resume-content ul, .resume-content ol {
-                        font-size: 12px !important;
-                        margin: 4px 0 6px 0 !important;
-                        padding-left: 18px !important;
-                    }
-                    .resume-content li {
-                        margin-bottom: 2px !important;
-                        line-height: 1.45 !important;
-                    }
-                    .resume-content strong {
-                        font-weight: 600;
-                    }
-                    
-                    /* 照片样式 */
-                    .resume-content img {
-                        width: 75px !important;
-                        height: 90px !important;
-                        object-fit: cover;
-                        border-radius: 2px;
-                    }
-                    .resume-content .absolute {
-                        position: absolute;
-                        top: 15mm !important;
-                        right: 18mm !important;
-                    }
-
-                    /* 打印样式 */
-                    @media print {
-                        body {
-                            margin: 0;
-                            padding: 0;
-                            background: white !important;
-                            display: block;
-                            font-size: 13px;
-                        }
-                        #resume-content-wrapper {
-                            margin: 0 !important;
-                            padding: 10mm 12mm !important;
-                            box-shadow: none !important;
-                            border: none !important;
-                            width: 100% !important;
-                            min-height: auto !important;
-                        }
-                        .resume-content h1 {
-                            font-size: 24px !important;
-                            margin-bottom: 12px !important;
-                            padding-right: 100px !important;
-                        }
-                        .resume-content h2 {
-                            font-size: 15px !important;
-                            margin-top: 12px !important;
-                            margin-bottom: 6px !important;
-                        }
-                        .resume-content h3 {
-                            font-size: 14px !important;
-                            margin-top: 8px !important;
-                        }
-                        .resume-content p, .resume-content li {
-                            font-size: 13px !important;
-                            line-height: 1.5 !important;
-                        }
-                        .resume-content blockquote {
-                            font-size: 12px !important;
-                            margin: 4px 0 14px 0 !important;
-                            padding-right: 100px !important;
-                        }
-                        .resume-content ul, .resume-content ol {
-                            margin: 4px 0 6px 0 !important;
-                            padding-left: 18px !important;
-                        }
-                        .resume-content li {
-                            margin-bottom: 2px !important;
-                        }
-                        .resume-content img {
-                            width: 75px !important;
-                            height: 90px !important;
-                        }
-                        .resume-content .absolute {
-                            top: 10mm !important;
-                            right: 12mm !important;
-                        }
-                        @page {
-                            size: A4;
-                            margin: 0;
-                        }
-                    }
-                </style>
-            </head>
-            <body>
-                <div id="resume-content-wrapper" class="resume-content relative">
-                    ${clonedElement.innerHTML}
-                </div>
-            </body>
-            </html>
-        `);
-        printWindow.document.close();
-
-        // 等待内容加载完成后打印
-        printWindow.onload = () => {
-            setTimeout(() => {
-                printWindow.print();
-                printWindow.close();
-            }, 250);
-        };
-
-        toast.success("打印对话框已打开，请选择「另存为 PDF」来保存", { duration: 5000 });
-    };
+        const exportDocument = createResumeExportDocument(title, element, photo);
+        printWindow.document.replaceChild(printWindow.document.importNode(exportDocument.documentElement, true), printWindow.document.documentElement);
+        await Promise.all(Array.from(printWindow.document.images).map((image) => image.complete ? Promise.resolve() : new Promise<void>((resolve) => { image.addEventListener("load", () => resolve(), { once: true }); image.addEventListener("error", () => resolve(), { once: true }); })));
+        await printWindow.document.fonts?.ready;
+        printWindow.focus();
+        printWindow.print();
+        toast.success("打印对话框已打开，请选择“另存为 PDF”保存", { duration: 5000 });
+    }, [photo, title]);
 
     const handlePhotoUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -316,17 +252,17 @@ export function ResumePreviewDialog({
             // 从编辑模式切换到预览模式时，提示用户保存
             const confirmSwitch = window.confirm("您有未保存的更改，是否放弃更改？");
             if (!confirmSwitch) return;
-            setEditableContent(content);
+            setEditableContent(savedContent);
             setHasChanges(false);
         }
         setIsEditMode(!isEditMode);
-    }, [isEditMode, hasChanges, content]);
+    }, [isEditMode, hasChanges, savedContent]);
 
     return (
         <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
             <DialogContent className="max-w-4xl h-[90vh] flex flex-col p-0 gap-0 bg-gray-50/95 backdrop-blur overflow-hidden">
                 {/* Header Toolbar */}
-                <div className="flex items-center justify-between px-6 py-4 bg-white border-b border-gray-200 shadow-sm z-10">
+                <div className="flex flex-wrap items-center justify-between gap-3 px-4 sm:px-6 py-4 bg-white border-b border-gray-200 shadow-sm z-10">
                     <div className="flex items-center gap-3">
                         <div className="w-10 h-10 bg-orange-100 rounded-lg flex items-center justify-center">
                             <FileText className="w-6 h-6 text-orange-600" />
@@ -337,10 +273,14 @@ export function ResumePreviewDialog({
                                 {isEditMode ? "编辑模式" : "Markdown 预览模式"}
                                 {hasChanges && <span className="ml-2 text-amber-500">• 有未保存的更改</span>}
                             </p>
+                            {!isEditMode && <p className={cn("mt-0.5 text-xs", pageFit === "overflow" ? "text-amber-700" : "text-gray-500")}>
+                                {pageFit === "one" ? "A4 预计 1 页" : pageFit === "two" ? "A4 预计 2 页" : "超过 2 页 A4；导出将保留全部内容"}
+                            </p>}
+                            {saveError && <p role="alert" className="mt-0.5 text-xs text-red-600">保存失败：{saveError}</p>}
                         </div>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center justify-end gap-2">
                         {/* 模式切换按钮 */}
                         <Button
                             variant={isEditMode ? "default" : "outline"}
@@ -358,10 +298,11 @@ export function ResumePreviewDialog({
                                 variant="default"
                                 size="sm"
                                 onClick={handleSave}
+                                disabled={isSaving}
                                 className="gap-2 bg-green-600 hover:bg-green-700"
                             >
-                                <Save className="w-4 h-4" />
-                                保存
+                                {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                                {isSaving ? "保存中..." : "保存"}
                             </Button>
                         )}
 
@@ -400,9 +341,13 @@ export function ResumePreviewDialog({
                             {isCopied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
                             {isCopied ? "已复制" : "复制"}
                         </Button>
-                        <Button variant="outline" size="sm" onClick={handleDownload} className="gap-2">
-                            <Download className="w-4 h-4" />
-                            下载
+                        <Button variant="outline" size="sm" onClick={handleExportHtml} className="gap-2" aria-label="导出简历 HTML">
+                            <FileDown className="w-4 h-4" />
+                            导出 HTML
+                        </Button>
+                        <Button variant="default" size="sm" onClick={handlePrint} className="gap-2 bg-slate-900 hover:bg-slate-800" aria-label="打印简历或保存为 PDF">
+                            <Printer className="w-4 h-4" />
+                            打印 / 保存 PDF
                         </Button>
                         <Button variant="ghost" size="icon" onClick={onClose} className="rounded-full hover:bg-gray-100">
                             <X className="w-5 h-5 text-gray-500" />
@@ -411,30 +356,39 @@ export function ResumePreviewDialog({
                 </div>
 
                 {/* Content Area */}
-                <div className="flex-1 overflow-y-auto bg-gray-100/50 p-6">
-                    <div id="resume-preview-content" className="max-w-3xl mx-auto bg-white rounded-xl shadow-md border border-gray-200 min-h-[1000px] p-10 md:p-14 mb-8 relative">
+                <div className="flex-1 overflow-auto bg-gray-100/50 p-6">
+                    <style>{RESUME_PREVIEW_STYLES}</style>
+                    <div ref={previewSheetRef} id="resume-preview-content" className="resume-preview-sheet shadow-md border border-gray-200 relative">
                         {/* 照片显示区域 */}
-                        {photo && (
-                            <div className="absolute top-10 right-10 md:top-14 md:right-14 z-10">
-                                <div className="relative group">
+                        <div className="resume-preview-photo z-10">
+                            {photo ? (
+                                <div className="relative group resume-photo-display">
                                     <Image
                                         src={photo}
                                         alt="简历照片"
                                         width={80}
                                         height={96}
                                         unoptimized
-                                        className="w-20 h-24 object-cover rounded-sm"
+                                        className="w-full h-full object-cover rounded-sm"
                                     />
                                     <button
+                                        type="button"
+                                        data-resume-control
+                                        aria-label="移除简历照片"
                                         onClick={handleRemovePhoto}
                                         className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-md hover:bg-red-600"
                                     >
                                         <X className="w-4 h-4" />
                                     </button>
                                 </div>
-                            </div>
-                        )}
+                            ) : (
+                                <div className="resume-preview-placeholder resume-photo-display w-full h-full border border-dashed border-slate-300 rounded-sm tracking-widest" aria-label="照片位置">
+                                    PHOTO
+                                </div>
+                            )}
+                        </div>
 
+                        <div className="resume-preview-header">
                         {isEditMode ? (
                             /* 编辑模式 */
                             <div className="min-h-[900px]">
@@ -458,17 +412,7 @@ export function ResumePreviewDialog({
                             </div>
                         ) : (
                             /* 预览模式 */
-                            <div className={cn(
-                                "prose prose-slate max-w-none",
-                                "prose-headings:font-bold prose-headings:text-gray-900",
-                                "prose-h1:text-center prose-h1:text-4xl prose-h1:mb-6",
-                                "prose-h2:text-xl prose-h2:border-b-2 prose-h2:border-gray-900 prose-h2:pb-2 prose-h2:mt-8 prose-h2:uppercase",
-                                "prose-h3:text-lg prose-h3:mt-4 prose-h3:mb-2",
-                                "prose-p:text-gray-700 prose-p:leading-relaxed",
-                                "prose-li:text-gray-700 prose-li:marker:text-gray-500",
-                                "prose-strong:text-gray-900 prose-strong:font-bold",
-                                "[&>blockquote]:text-center [&>blockquote]:text-gray-600 [&>blockquote]:border-none [&>blockquote]:bg-gray-50 [&>blockquote]:py-2 [&>blockquote]:px-4 [&>blockquote]:rounded-md [&>blockquote]:not-italic",
-                            )}>
+                            <div className="resume-preview-content">
                                 <ReactMarkdown
                                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
                                     rehypePlugins={[rehypeHighlight as any]}
@@ -477,6 +421,7 @@ export function ResumePreviewDialog({
                                 </ReactMarkdown>
                             </div>
                         )}
+                        </div>
                     </div>
                 </div>
             </DialogContent>

@@ -8,6 +8,7 @@ TASK_TYPE_INTERVIEW_START = "interview_start"
 TASK_TYPE_INTERVIEW_TURN = "interview_turn"
 TASK_TYPE_VOICE_INTERVIEW_TURN = "voice_interview_turn"
 TASK_TYPE_RESUME_OPTIMIZE = "resume_optimize"
+TASK_TYPE_RESUME_WORKSPACE = "resume_workspace"
 TASK_TYPE_INTERVIEW_REPORT = "interview_report"
 TASK_TYPE_JOB_ASSETS = "job_assets"
 

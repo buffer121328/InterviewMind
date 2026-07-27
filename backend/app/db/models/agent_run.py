@@ -17,7 +17,7 @@ from .base import Base
 
 
 class AgentRunModel(Base):
-    """
+    """SQLAlchemy 持久化模型，描述 `AgentRun` 的数据库字段、关系和约束；由仓储层负责 owner 过滤、事务提交和敏感数据边界。
     单个 Agent 任务的运行记录。
 
     一条记录对应一次任务从入队 -> 执行中 -> 完成 / 失败 的完整生命周期。
@@ -31,6 +31,7 @@ class AgentRunModel(Base):
     # ── 任务标识 ──────────────────────────────────────────────────
     id: Mapped[str] = mapped_column(String, primary_key=True)         # 全局唯一任务 ID（UUID）
     user_id: Mapped[str] = mapped_column(String, index=True)          # 所属用户 ID，用于查询隔离
+    session_id: Mapped[str | None] = mapped_column(String, nullable=True)  # 关联的面试会话 ID；仅用于按会话分组，不保存会话载荷
     task_type: Mapped[str] = mapped_column(String)                    # 任务类型标识，例如 "code_review"、"doc_generation"
     agent_name: Mapped[str] = mapped_column(String, default="unknown")   # 执行本次任务的 agent 名称
     agent_version: Mapped[str] = mapped_column(String, default="1")  # agent 版本号，用于追踪行为变更
@@ -65,11 +66,13 @@ class AgentRunModel(Base):
         UniqueConstraint("user_id", "task_type", "idempotency_key", name="uq_agent_run_idempotency"),
         # 复合索引：加速按状态过滤 + 按创建时间排序的常见查询（如 "查询所有 running 状态的任务，按创建时间倒序"）
         Index("idx_agent_runs_status_created", "status", "created_at"),
+        # 会话分组列表始终先按 owner 过滤，再按会话和创建时间读取子任务。
+        Index("idx_agent_runs_user_session_created", "user_id", "session_id", "created_at"),
     )
 
 
 class AgentRunEventModel(Base):
-    """
+    """SQLAlchemy 持久化模型，描述 `AgentRunEvent` 的数据库字段、关系和约束；由仓储层负责 owner 过滤、事务提交和敏感数据边界。
     Agent 运行事件流记录。
 
     用于持久化任务执行过程中产生的离散事件，例如：
@@ -107,7 +110,7 @@ class AgentRunEventModel(Base):
 
 
 class TaskOutboxModel(Base):
-    """
+    """SQLAlchemy 持久化模型，描述 `TaskOutbox` 的数据库字段、关系和约束；由仓储层负责 owner 过滤、事务提交和敏感数据边界。
     事务性任务投递 Outbox。
 
     实现"发件箱模式"（Transactional Outbox）：

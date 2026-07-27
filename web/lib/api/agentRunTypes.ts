@@ -1,5 +1,5 @@
 export type AgentRunStatus = 'queued' | 'retrying' | 'running' | 'cancel_requested' | 'succeeded' | 'failed' | 'cancelled';
-export type AgentRunTaskType = 'interview_start' | 'interview_turn' | 'voice_interview_turn' | 'resume_optimize' | 'interview_report' | 'job_assets';
+export type AgentRunTaskType = 'interview_start' | 'interview_turn' | 'voice_interview_turn' | 'resume_optimize' | 'resume_workspace' | 'interview_report' | 'job_assets';
 
 export const AGENT_RUN_EVENT_TYPES = [
     'run.created',
@@ -12,6 +12,9 @@ export const AGENT_RUN_EVENT_TYPES = [
     'run.retry.requested',
     'run.recovered',
     'run.requeued',
+    'tool.execution',
+    'guardrail.input',
+    'guardrail.output',
 ] as const;
 
 export type AgentRunEventType = typeof AGENT_RUN_EVENT_TYPES[number];
@@ -24,6 +27,10 @@ export interface AgentRunPlanStep {
 
 export interface AgentRun {
     run_id: string;
+    /** Optional interview session owner; absent on legacy and non-session AgentRun records. */
+    session_id?: string | null;
+    /** Optional, ownership-scoped human-readable title for the linked interview session. */
+    session_title?: string | null;
     agent_name: string;
     agent_version: string;
     task_type: AgentRunTaskType;
@@ -33,6 +40,7 @@ export interface AgentRun {
     plan: AgentRunPlanStep[];
     result?: Record<string, unknown> | null;
     error_message?: string | null;
+    trace_id?: string | null;
     attempts: number;
     max_attempts: number;
     can_retry: boolean;

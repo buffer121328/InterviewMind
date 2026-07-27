@@ -14,6 +14,7 @@ from app.domain.agent_runs import (
     TASK_TYPE_INTERVIEW_START,
     TASK_TYPE_JOB_ASSETS,
     TASK_TYPE_RESUME_OPTIMIZE,
+    TASK_TYPE_RESUME_WORKSPACE,
     TERMINAL_STATUSES,
 )
 from app.domain.agent_definitions import get_agent_definition
@@ -23,6 +24,7 @@ from ai.runtime.agent_runs.event_stream import replay_cursor
 from ai.workflows.agent_tasks.registry import execute_registered_task
 from ai.workflows.agent_tasks.interview_start import execute_interview_start
 from ai.runtime.agent_runs.outbox import dispatch_pending_outbox
+from app.db.repositories.session.session_repo import SessionRepo
 from ai.runtime.agent_runs.service import (
     AgentRunService,
     serialize_event,
@@ -66,7 +68,13 @@ class AgentRunUseCases:
     """Create, list, mutate and stream resumable AgentRun tasks."""
 
     def __init__(self) -> None:
+        """初始化 AgentRun 用例服务及其仓储/调度依赖；路由层只通过该服务访问任务生命周期。"""
         self._service = AgentRunService()
+        self._session_repo = SessionRepo()
+
+    async def _ensure_owned_existing_session(self, session_id: str, user_id: str) -> bool:
+        """Return whether a session exists and belongs to the requesting user."""
+        return await self._session_repo.get_session(session_id, user_id=user_id) is not None
 
     async def create_interview_start(
         self,
@@ -76,6 +84,9 @@ class AgentRunUseCases:
         idempotency_key: str,
     ) -> AgentRunResponse:
         """Create or execute an interview-start task."""
+        if await self._session_repo.get_session(payload["thread_id"]) is not None:
+            if not await self._ensure_owned_existing_session(payload["thread_id"], user_id):
+                raise AgentRunNotFound("会话不存在或无权访问", status_code=404)
         if not task_queue_enabled():
             lease = await get_run_gate().acquire()
             if lease is None:
@@ -96,6 +107,7 @@ class AgentRunUseCases:
             payload=payload,
             user_id=user_id,
             idempotency_key=idempotency_key,
+            session_id=payload["thread_id"],
         )
 
     async def create_resume_optimize(
@@ -113,6 +125,29 @@ class AgentRunUseCases:
             idempotency_key=idempotency_key,
         )
 
+    async def create_resume_workspace(
+        self,
+        *,
+        payload: dict[str, Any],
+        user_id: str,
+        idempotency_key: str,
+    ) -> AgentRunResponse:
+        """Create a workspace run after owner-scoping every referenced interview session.
+
+        The executor repeats owner-scoped reads as a defense in depth measure, while
+        this boundary rejects inaccessible session references before encrypting and
+        enqueueing the sensitive resume payload.
+        """
+        for session_id in payload.get("session_ids") or []:
+            if not await self._ensure_owned_existing_session(session_id, user_id):
+                raise AgentRunNotFound("会话不存在或无权访问", status_code=404)
+        return await self.create_queued_run(
+            task_type=TASK_TYPE_RESUME_WORKSPACE,
+            payload=payload,
+            user_id=user_id,
+            idempotency_key=idempotency_key,
+        )
+
     async def create_interview_report(
         self,
         *,
@@ -121,11 +156,14 @@ class AgentRunUseCases:
         idempotency_key: str,
     ) -> AgentRunResponse:
         """Create an interview-report task."""
+        if not await self._ensure_owned_existing_session(payload["session_id"], user_id):
+            raise AgentRunNotFound("会话不存在或无权访问", status_code=404)
         return await self.create_queued_run(
             task_type=TASK_TYPE_INTERVIEW_REPORT,
             payload=payload,
             user_id=user_id,
             idempotency_key=idempotency_key,
+            session_id=payload["session_id"],
         )
 
     async def create_job_assets(
@@ -150,6 +188,7 @@ class AgentRunUseCases:
         payload: dict[str, Any],
         user_id: str,
         idempotency_key: str,
+        session_id: str | None = None,
         enqueue_fn: Callable[..., Any] | None = None,
     ) -> AgentRunResponse:
         """Create an AgentRun, executing inline when the queue is disabled."""
@@ -160,6 +199,7 @@ class AgentRunUseCases:
             stages: list[str] = []
 
             async def progress(stage: str) -> None:
+                """更新当前用户任务的进度并写入可恢复事件流，拒绝跨用户或不存在任务的更新。"""
                 stages.append(stage)
 
             try:
@@ -184,6 +224,7 @@ class AgentRunUseCases:
                 payload=payload,
                 idempotency_key=idempotency_key,
                 task_type=task_type,
+                session_id=session_id,
             )
         except TaskPayloadConfigurationError as exc:
             raise AgentRunUnavailable(str(exc), status_code=503) from exc
@@ -236,6 +277,81 @@ class AgentRunUseCases:
             "limit": limit,
             "offset": offset,
         }
+
+    async def list_grouped_runs(
+        self,
+        *,
+        user_id: str,
+        status: str | None,
+        task_type: str | None,
+        limit: int,
+        offset: int,
+    ) -> dict[str, Any]:
+        """List runs grouped by session, with pagination applied to session groups.
+
+        Response shape: ``groups`` contains zero or more ``session`` groups and,
+        when matching unassociated runs exist, one ``other`` group. ``total`` and
+        ``session_total`` count session groups (the paginated resource), while
+        ``other_total`` counts all matching unassociated child runs.
+        """
+        if task_type:
+            try:
+                get_agent_definition(task_type)
+            except KeyError as exc:
+                raise AgentRunUseCaseError("未知任务类型", status_code=400) from exc
+        recovered = await self._service.recover_stale_runs(user_id)
+        if recovered:
+            success, failed = await dispatch_pending_outbox(limit=200, enqueue_fn=enqueue_agent_run)
+            if failed:
+                logger.warning(
+                    "用户触发 AgentRun Outbox 恢复投递失败，等待后台重试: success=%s failed=%s",
+                    success,
+                    failed,
+                )
+        session_groups, other_runs, session_total = await self._service.list_grouped_runs(
+            user_id,
+            status=status,
+            task_type=task_type,
+            limit=limit,
+            offset=offset,
+        )
+        groups = [
+            {
+                "group_type": "session",
+                "session_id": session_id,
+                "session_title": getattr(runs[0], "session_title", None) if runs else None,
+                "runs": [serialize_run(run) for run in runs],
+            }
+            for session_id, runs in session_groups
+        ]
+        if other_runs:
+            groups.append(
+                {
+                    "group_type": "other",
+                    "session_id": None,
+                    "session_title": None,
+                    "runs": [serialize_run(run) for run in other_runs],
+                }
+            )
+        return {
+            "success": True,
+            "groups": groups,
+            "total": session_total,
+            "session_total": session_total,
+            "other_total": len(other_runs),
+            "limit": limit,
+            "offset": offset,
+        }
+
+    async def backfill_session_links(self, *, user_id: str) -> dict[str, int]:
+        """Repair a bounded batch of the requesting user's legacy interview links.
+
+        This user-triggered maintenance use case delegates ownership validation and
+        encrypted-reference handling to ``AgentRunService``. It accepts no client
+        payload and returns only the update count, never decrypted task contents.
+        """
+        updated = await self._service.backfill_interview_session_ids(user_id)
+        return {"updated": updated}
 
     async def get_run(self, *, run_id: str, user_id: str) -> dict[str, Any]:
         """Get one AgentRun."""
@@ -296,6 +412,7 @@ class AgentRunUseCases:
         cursor = replay_cursor(after_sequence=after_sequence, last_event_id=last_event_id)
 
         async def generate() -> AsyncGenerator[str, None]:
+            """创建并调度异步 AgentRun，使用加密 payload 持久化敏感输入，返回可轮询的任务摘要。"""
             nonlocal cursor
             while True:
                 events = await self._service.list_events(run_id, user_id, after_sequence=cursor, limit=200) or []

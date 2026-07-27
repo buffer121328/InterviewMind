@@ -3,15 +3,45 @@
  */
 
 import { apiRequest } from './config';
-import { createResumeOptimizeRun, pollAgentRun, type AgentRun } from './agentRuns';
-import type { ApiConfig, CompletedSession, GeneratedResumeItem, ResumeAnalyzeResult, ResumeGenerateInitResponse, ResumeGenerateSubmitResponse, ResumeOptimizeMode, ResumeOptimizeResult } from './resumeTypes';
+import { createResumeOptimizeRun, createResumeWorkspaceRun, pollAgentRun, type AgentRun } from './agentRuns';
+import type { ApiConfig, CompletedSession, GeneratedResumeItem, JDMatchResult, ResumeAnalyzeResult, ResumeGenerateInitResponse, ResumeGenerateSubmitResponse, ResumeOptimizeMode, ResumeOptimizeResult, ResumeReviewDecision, ResumeReviewState, ResumeWorkspaceResult } from './resumeTypes';
 import { buildResumeOptimizePayload } from './resumePayloads';
+import { isResumeWorkspaceResult, safeWorkspaceErrorMessage } from '../resumeWorkspaceResult';
+export { getResumeWorkspaceStage } from '../resumeWorkspaceHelpers';
 
 // ============================================================================
 // 类型定义
 // ============================================================================
 
-export type { JsonObject, DimensionScore, ResumeAnalyzeResult, OptimizedSection, KeyImprovement, ResumeChangeItem, ResumeOptimizeMode, ResumeOptimizeResult, CompletedSession, ApiConfig, GeneratedResumeItem, ResumeGenerateInitResponse, ResumeGenerateSubmitResponse, GenerationSessionStatus } from './resumeTypes';
+export type { JsonObject, DimensionScore, ResumeAnalyzeResult, OptimizedSection, KeyImprovement, ResumeChangeItem, ResumeOptimizeMode, ResumeOptimizeResult, ResumeReviewDecision, ResumeReviewItem, ResumeReviewState, JDMatchResult, ResumeWorkspaceWarning, ResumeWorkspaceResult, CompletedSession, ApiConfig, GeneratedResumeItem, ResumeGenerateInitResponse, ResumeGenerateSubmitResponse, GenerationSessionStatus } from './resumeTypes';
+
+/** Starts and polls the resumable unified workflow, preserving warnings and the terminal result shape. */
+export async function runResumeWorkspace(params: {
+    resume_content: string;
+    job_description: string;
+    session_ids?: string[];
+    include_overall_profile?: boolean;
+    mode?: ResumeOptimizeMode;
+    api_config: ApiConfig;
+    onUpdate?: (run: AgentRun) => void;
+}): Promise<ResumeWorkspaceResult> {
+    const created = await createResumeWorkspaceRun({
+        resume_content: params.resume_content,
+        job_description: params.job_description,
+        session_ids: params.session_ids || [],
+        include_overall_profile: params.include_overall_profile || false,
+        mode: params.mode || 'balanced',
+        api_config: params.api_config,
+    });
+    const completed = 'run_id' in created ? await pollAgentRun(created.run_id, params.onUpdate) : created;
+    if (completed.status !== 'succeeded' || !completed.result) {
+        throw new Error(safeWorkspaceErrorMessage(completed, '简历工作区任务未完成'));
+    }
+    if (!isResumeWorkspaceResult(completed.result)) {
+        throw new Error('简历工作区结果格式无效，请重试');
+    }
+    return completed.result;
+}
 
 // ============================================================================
 // API 函数
@@ -151,6 +181,36 @@ export async function deleteResumeResult(resultId: number): Promise<boolean> {
         console.error('删除结果失败:', error);
         return false;
     }
+}
+
+/** Calls the backend for get resume review; the shared API client supplies request identity and error normalization, and this helper returns the typed endpoint result. */
+export async function getResumeReview(resultId: number): Promise<ResumeReviewState> {
+    const response = await apiRequest<{
+        success: boolean;
+        result_id: number;
+        review: ResumeReviewState;
+    }>(`/api/resume/optimize/${resultId}/review`);
+    return response.review;
+}
+
+/** Calls the backend for submit resume review; the shared API client supplies request identity and error normalization, and this helper returns the typed endpoint result. */
+export async function submitResumeReview(
+    resultId: number,
+    expectedVersion: number,
+    decisions: Array<{ item_id: string; decision: ResumeReviewDecision }>,
+): Promise<ResumeReviewState> {
+    const response = await apiRequest<{
+        success: boolean;
+        result_id: number;
+        review: ResumeReviewState;
+    }>(`/api/resume/optimize/${resultId}/review`, {
+        method: 'POST',
+        body: JSON.stringify({
+            expected_version: expectedVersion,
+            decisions,
+        }),
+    });
+    return response.review;
 }
 
 /**
@@ -432,24 +492,6 @@ export async function updateGeneratedResume(resumeId: number, content: string, t
 // ============================================================================
 // JD 匹配分析 API
 // ============================================================================
-
-export interface JDMatchResult {
-    overall_match_score: number;
-    skill_match_score: number;
-    project_match_score: number;
-    experience_match_score: number;
-    education_match_score: number;
-    matched_keywords: string[];
-    missing_keywords: string[];
-    strengths: string[];
-    risks: string[];
-    priority_actions: string[];
-    selection_hints?: {
-        recommended_projects?: string[];
-        recommended_skills?: string[];
-        rewrite_focus?: string[];
-    };
-}
 
 export interface JDMatchHistoryItem {
     id: number;

@@ -9,29 +9,41 @@ from app.domain.agent_runs import (
     TASK_TYPE_INTERVIEW_START,
     TASK_TYPE_JOB_ASSETS,
     TASK_TYPE_RESUME_OPTIMIZE,
+    TASK_TYPE_RESUME_WORKSPACE,
 )
 from ai.workflows.agent_tasks.types import ExecutionResult, ProgressCallback, TaskExecutor
 
 
 async def _execute_interview_start(payload: dict, user_id: str, progress: ProgressCallback) -> ExecutionResult:
+    """延迟导入并转发面试启动任务，避免 worker 注册阶段加载完整 Agent 图和模型依赖。"""
     from ai.workflows.agent_tasks.interview_start import execute_interview_start
 
     return await execute_interview_start(payload, user_id, progress)
 
 
 async def _execute_resume_optimize(payload: dict, user_id: str, progress: ProgressCallback) -> ExecutionResult:
+    """延迟导入并转发简历优化任务，保持任务注册表与具体 Agent 解耦。"""
     from ai.workflows.agent_tasks.resume_optimize import execute_resume_optimize
 
     return await execute_resume_optimize(payload, user_id, progress)
 
 
+async def _execute_resume_workspace(payload: dict, user_id: str, progress: ProgressCallback) -> ExecutionResult:
+    """延迟导入并转发简历工作台任务，避免 worker 初始化加载完整简历依赖图。"""
+    from ai.workflows.agent_tasks.resume_workspace import execute_resume_workspace
+
+    return await execute_resume_workspace(payload, user_id, progress)
+
+
 async def _execute_interview_report(payload: dict, user_id: str, progress: ProgressCallback) -> ExecutionResult:
+    """延迟导入并转发面试报告任务，保持 worker 启动依赖最小化。"""
     from ai.workflows.agent_tasks.interview_report import execute_interview_report
 
     return await execute_interview_report(payload, user_id, progress)
 
 
 async def _execute_job_assets(payload: dict, user_id: str, progress: ProgressCallback) -> ExecutionResult:
+    """延迟导入并转发岗位资产任务，保持任务注册表只负责路由。"""
     from ai.workflows.agent_tasks.job_assets import execute_job_assets
 
     return await execute_job_assets(payload, user_id, progress)
@@ -40,6 +52,7 @@ async def _execute_job_assets(payload: dict, user_id: str, progress: ProgressCal
 EXECUTORS: dict[str, TaskExecutor] = {
     TASK_TYPE_INTERVIEW_START: _execute_interview_start,
     TASK_TYPE_RESUME_OPTIMIZE: _execute_resume_optimize,
+    TASK_TYPE_RESUME_WORKSPACE: _execute_resume_workspace,
     TASK_TYPE_INTERVIEW_REPORT: _execute_interview_report,
     TASK_TYPE_JOB_ASSETS: _execute_job_assets,
 }

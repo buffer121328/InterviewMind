@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager, contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any, AsyncIterator, Optional
+from urllib.parse import urlsplit
 
 
 logger = logging.getLogger(__name__)
@@ -56,7 +57,7 @@ def _env_float_optional(name: str) -> float | None:
 
 @dataclass(frozen=True)
 class LangfuseConfig:
-    """表示配置数据。"""
+    """数据对象，承载 `LangfuseConfig` 的结构化字段和跨模块契约；只表达数据，不在构造或序列化时执行外部调用。"""
     enabled: bool
     public_key: str = ""
     secret_key: str = ""
@@ -70,7 +71,7 @@ class LangfuseConfig:
 
     @classmethod
     def from_env(cls) -> "LangfuseConfig":
-        """执行 `from_env` 相关逻辑。"""
+        """从环境变量构造 Langfuse 配置，统一开关、项目和凭据的延迟读取边界。"""
         prompt_label = os.getenv("LANGFUSE_PROMPT_LABEL", "production").strip() or None
         return cls(
             enabled=_env_bool("LANGFUSE_ENABLED"),
@@ -99,7 +100,7 @@ class AgentObservation:
     model_events: list[dict[str, Any]] | None = None
 
     def set_output(self, output_payload: dict[str, Any]) -> None:
-        """设置 `output`。
+        """更新当前观测或流程状态中的 output；遵循调用方的数据脱敏和生命周期边界。
 
         Args:
             output_payload: output 载荷。
@@ -107,10 +108,10 @@ class AgentObservation:
         self.output_payload = output_payload
 
     def set_error(self, error: Exception) -> None:
-        """设置 `error`。
+        """更新当前观测或流程状态中的 error；遵循调用方的数据脱敏和生命周期边界。
 
         Args:
-            error: 调用方传入的 `error` 参数。
+            error: 对外或日志使用的错误语义；必须保持脱敏，不包含凭据和完整输入。
         """
         self.error_payload = {
             "type": type(error).__name__,
@@ -159,10 +160,10 @@ def record_model_event(**event: Any) -> None:
 
 
 async def _persist_agent_observation(observation: "AgentObservation") -> None:
-    """异步执行 `_persist_agent_observation` 相关逻辑。
+    """持久化 Agent 观测结果；失败只记录脱敏异常类型，不阻断已完成的业务流程。
 
     Args:
-        observation: 调用方传入的 `observation` 参数。
+        observation: 当前观测对象；更新前会应用脱敏和失败不阻断业务的约束。
     """
     if not observation.run_id:
         return
@@ -178,12 +179,12 @@ async def _persist_agent_observation(observation: "AgentObservation") -> None:
 
 
 def get_current_model_events() -> list[dict[str, Any]]:
-    """获取 `current model events`。"""
+    """读取当前运行上下文中的 model events；只返回本次请求可见的状态，不修改共享配置。"""
     events = _model_events.get()
     return list(events or [])
 
 def _create_langfuse_client(config: LangfuseConfig) -> Any:
-    """创建 `langfuse client`。
+    """按配置创建 Langfuse 客户端；外部追踪不可用时使用安全降级，不让观测初始化阻断业务流程。
 
     Args:
         config: 配置对象。
@@ -201,32 +202,32 @@ def _create_langfuse_client(config: LangfuseConfig) -> Any:
 
 
 def _get_agent_run_service() -> Any:
-    """获取 `agent run service`。"""
+    """获取 AgentRun 持久化服务，用于记录观测关联状态；服务不可用时由调用方遵循不阻断业务的 fallback。"""
     from ai.runtime.agent_runs.service import AgentRunService
 
     return AgentRunService()
 
 
 def _get_propagate_attributes():
-    """获取 `propagate attributes`。"""
+    """生成 LangChain/Langfuse 传播属性，限制在当前请求的 trace 边界内，不把完整敏感上下文放入外部追踪。"""
     from langfuse import propagate_attributes
 
     return propagate_attributes
 
 
 def _get_callback_handler():
-    """获取 `callback handler`。"""
+    """按当前请求配置创建观测回调处理器；回调只接收脱敏事件，追踪失败不影响主流程返回。"""
     try:
         from langfuse.langchain import CallbackHandler
     except ModuleNotFoundError:
         class CallbackHandler:  # pragma: no cover - 轻量测试环境占位
-            """表示 `CallbackHandler` 相关的数据或行为。"""
+            """应用或基础设施协作者，负责 `CallbackHandler` 的职责；依赖通过构造或模块边界注入，外部调用、状态持久化和安全校验不向调用方隐藏。"""
             def __call__(self, *args: Any, **kwargs: Any) -> None:
                 """实现 `__call__` 协议方法。
 
                 Args:
-                    *args: 调用方传入的 `args` 参数。
-                    **kwargs: 调用方传入的 `kwargs` 参数。
+                    *args: 经过类型边界校验的 `args`；其格式和可选值由参数类型及调用流程约束。
+                    **kwargs: 经过类型边界校验的 `kwargs`；其格式和可选值由参数类型及调用流程约束。
                 """
                 return None
 
@@ -273,10 +274,17 @@ async def agent_observation(
     if not _configured:
         configure_langfuse()
 
+    trace_id = str(uuid.uuid4())
+    if _client is not None:
+        try:
+            trace_id = str(_client.create_trace_id())
+        except Exception as error:
+            logger.warning("Langfuse Trace ID 创建失败，使用本地 ID: %s", type(error).__name__)
+
     observation = AgentObservation(
         enabled=_client is not None,
         input_payload=input_payload,
-        trace_id=str(uuid.uuid4()),
+        trace_id=trace_id,
         run_id=run_id,
     )
     token_run_id = _agent_run_id.set(run_id)
@@ -298,7 +306,11 @@ async def agent_observation(
         metadata = {"agent_type": agent_type, "trace_id": observation.trace_id}
         if run_id:
             metadata["agent_run_id"] = run_id
-        with _client.start_as_current_observation(as_type="span", name=name) as span:
+        with _client.start_as_current_observation(
+            as_type="span",
+            name=name,
+            trace_context={"trace_id": observation.trace_id},
+        ) as span:
             with propagate_attributes(
                 trace_name=name,
                 user_id=user_id,
@@ -343,11 +355,11 @@ async def agent_observation(
 
 
 def _update_span(span: Any, observation: AgentObservation) -> None:
-    """更新 `span`。
+    """把观测结果安全地同步到 span；先应用脱敏和字段长度限制，外部追踪失败只记录本地日志。
 
     Args:
-        span: 调用方传入的 `span` 参数。
-        observation: 调用方传入的 `observation` 参数。
+        span: 当前观测对象；更新前会应用脱敏和失败不阻断业务的约束。
+        observation: 当前观测对象；更新前会应用脱敏和失败不阻断业务的约束。
     """
     output_payload = {"trace_id": observation.trace_id, **(observation.output_payload or {})}
     if observation.run_id:
@@ -449,6 +461,35 @@ def get_langfuse_client() -> Any | None:
     if not _configured:
         configure_langfuse()
     return _client
+
+
+def get_langfuse_trace_url(trace_id: str) -> str | None:
+    """返回已配置项目中的 Trace URL，不向前端暴露 Langfuse 凭据。"""
+    normalized_trace_id = trace_id.strip()
+    if not normalized_trace_id:
+        return None
+
+    client = get_langfuse_client()
+    if client is None:
+        return None
+    try:
+        url = client.get_trace_url(trace_id=normalized_trace_id)
+    except Exception as error:
+        logger.warning("Langfuse Trace URL 获取失败: %s", type(error).__name__)
+        return None
+
+    if not isinstance(url, str) or len(url) > 2048:
+        return None
+    parsed = urlsplit(url)
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not parsed.netloc
+        or parsed.username is not None
+        or parsed.password is not None
+    ):
+        logger.warning("Langfuse 返回了无效的 Trace URL")
+        return None
+    return url
 
 
 def _current_config() -> LangfuseConfig:

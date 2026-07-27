@@ -22,6 +22,21 @@ class ResumeOptimizeRequest(BaseModel):
     api_config: Optional[ApiConfig] = Field(default=None, description="用户自定义 API 配置")
 
 
+class ResumeWorkspaceRequest(BaseModel):
+    """启动单份简历和单个 JD 的可恢复工作台任务。
+
+    请求仅承载一次工作台运行所需的简历、JD 和可选的当前用户面试上下文；
+    路由层使用认证用户作为 owner，不信任也不使用 ``user_id`` 客户端字段。
+    """
+
+    resume_content: str = Field(..., min_length=1, description="本次工作台唯一使用的简历内容")
+    job_description: str = Field(..., min_length=1, description="本次工作台唯一使用的目标 JD")
+    session_ids: List[str] = Field(default_factory=list, max_length=3, description="当前用户可选的最多三个面试会话")
+    include_overall_profile: bool = Field(default=False, description="是否在优化时使用当前用户能力画像")
+    mode: Literal["fast", "balanced", "quality"] = Field(default="balanced", description="内容优化模式")
+    api_config: Optional[ApiConfig] = Field(default=None, description="经过模型网关处理的模型配置")
+
+
 class ResumeAnalyzeRequest(BaseModel):
     """简历竞争力分析请求"""
     resume_content: str = Field(..., description="简历内容")
@@ -32,19 +47,19 @@ class ResumeAnalyzeRequest(BaseModel):
 
 
 class ResumeReviewDecision(BaseModel):
-    """表示 `ResumeReviewDecision` 的接口数据模型。"""
+    """数据对象，承载 `ResumeReviewDecision` 的结构化字段和跨模块契约；只表达数据，不在构造或序列化时执行外部调用。"""
     item_id: str = Field(..., min_length=1, max_length=64)
     decision: Literal["approved", "rejected"]
 
 
 class ResumeReviewRequest(BaseModel):
-    """表示 `ResumeReviewRequest` 的接口数据模型。"""
+    """API 请求数据对象，定义 `ResumeReview` 的字段校验和反序列化契约；只承载数据，不执行业务副作用。"""
     expected_version: int = Field(..., ge=1)
     decisions: List[ResumeReviewDecision] = Field(..., min_length=1, max_length=100)
 
 
 class ResumeReviewResponse(BaseModel):
-    """表示 `ResumeReviewResponse` 的接口数据模型。"""
+    """API 响应数据对象，定义 `ResumeReview` 的序列化契约；只暴露当前 owner 可见且已脱敏的结果。"""
     success: bool = True
     result_id: int
     review: Dict[str, Any]
@@ -97,6 +112,44 @@ class ResumeAnalyzeResult(BaseModel):
     interview_insights: Optional[str] = Field(default=None, description="基于面试的洞察")
 
 
+class JDMatchResult(BaseModel):
+    """JD 匹配 Agent 的稳定公开输出，不包含模型请求或凭据。"""
+
+    overall_match_score: float = Field(..., ge=0, le=100)
+    skill_match_score: float = Field(..., ge=0, le=100)
+    project_match_score: float = Field(..., ge=0, le=100)
+    experience_match_score: float = Field(..., ge=0, le=100)
+    education_match_score: float = Field(..., ge=0, le=100)
+    matched_keywords: List[str] = Field(default_factory=list)
+    missing_keywords: List[str] = Field(default_factory=list)
+    strengths: List[str] = Field(default_factory=list)
+    risks: List[str] = Field(default_factory=list)
+    priority_actions: List[str] = Field(default_factory=list)
+    selection_hints: Dict[str, Any] = Field(default_factory=dict)
+
+
+class ResumeWorkspaceResult(BaseModel):
+    """一个完成工作台任务返回的竞争力、匹配和受审阅优化结果。"""
+
+    success: bool = True
+    result_id: int
+    competition_analysis: ResumeAnalyzeResult
+    jd_matching: JDMatchResult
+    content_optimization: ResumeOptimizeResult
+    review: Dict[str, Any] = Field(default_factory=dict, description="高风险优化项的持久化人工审阅状态")
+    warnings: List[str] = Field(default_factory=list)
+
+
+class ResumeWorkspaceRunResponse(BaseModel):
+    """工作台 AgentRun 创建或内联完成时的 HTTP 响应契约。"""
+
+    task_type: Literal["resume_workspace"]
+    status: str
+    run_id: Optional[str] = None
+    stage: Optional[str] = None
+    result: Optional[ResumeWorkspaceResult] = None
+
+
 # ============================================================================
 # API 响应包装
 # ============================================================================
@@ -133,7 +186,7 @@ class ResumeHistoryItem(BaseModel):
 
 
 class ResumeHistoryListResponse(BaseModel):
-    """表示 `ResumeHistoryListResponse` 的接口数据模型。"""
+    """API 响应数据对象，定义 `ResumeHistoryList` 的序列化契约；只暴露当前 owner 可见且已脱敏的结果。"""
     success: bool
     results: List[ResumeHistoryItem] = Field(default_factory=list)
     total: int = 0
@@ -143,7 +196,7 @@ class ResumeHistoryListResponse(BaseModel):
 
 
 class ResumeHistoryDetail(BaseModel):
-    """表示 `ResumeHistoryDetail` 的接口数据模型。"""
+    """围绕 `ResumeHistoryDetail` 的领域对象，集中表达其职责、边界和与相邻模块的协作契约。"""
     id: int
     user_id: str
     result_type: Literal["analyze", "optimize"]
@@ -156,7 +209,7 @@ class ResumeHistoryDetail(BaseModel):
 
 
 class ResumeHistoryDetailResponse(BaseModel):
-    """表示 `ResumeHistoryDetailResponse` 的接口数据模型。"""
+    """API 响应数据对象，定义 `ResumeHistoryDetail` 的序列化契约；只暴露当前 owner 可见且已脱敏的结果。"""
     success: bool
     result: ResumeHistoryDetail
 

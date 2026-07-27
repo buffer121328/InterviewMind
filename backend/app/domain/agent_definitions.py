@@ -16,6 +16,7 @@ from app.domain.agent_runs import (
     TASK_TYPE_INTERVIEW_TURN,
     TASK_TYPE_JOB_ASSETS,
     TASK_TYPE_RESUME_OPTIMIZE,
+    TASK_TYPE_RESUME_WORKSPACE,
     TASK_TYPE_VOICE_INTERVIEW_TURN,
 )
 
@@ -43,6 +44,7 @@ class AgentDefinitionRegistry:
     """按 task_type 维护 Agent 定义。"""
 
     def __init__(self) -> None:
+        """初始化线程安全的 Agent 定义注册表；注册表只保存领域元数据，不执行外部 I/O。"""
         self._items: dict[str, AgentDefinition] = {}
         self._lock = RLock()
 
@@ -117,6 +119,23 @@ _DEFINITIONS = (
         title="优化简历",
         steps=(("queued", "等待执行资源"), ("preparing", "读取简历、JD 与关联面试"), ("optimizing", "执行简历优化流水线"), ("saving_result", "保存优化结果")),
         graph_name="resume_optimizer",
+        prompt_name="resume.match_analyst",
+        prompt_version="1",
+    ),
+    AgentDefinition(
+        name="resume_workspace",
+        version="1",
+        task_type=TASK_TYPE_RESUME_WORKSPACE,
+        title="生成简历工作台分析与优化",
+        steps=(
+            ("queued", "等待执行资源"),
+            ("competition_analysis", "分析简历竞争力"),
+            ("jd_matching", "分析 JD 匹配度"),
+            ("content_optimization", "生成内容优化建议"),
+            ("saving_result", "保存工作台结果"),
+        ),
+        checkpoint_policy="durable",
+        graph_name="resume_workspace",
         prompt_name="resume.match_analyst",
         prompt_version="1",
     ),

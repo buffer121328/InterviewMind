@@ -31,6 +31,7 @@ interface ResumeInputPanelProps {
     onOptimizeModeChange?: (value: ResumeOptimizeMode) => void;
 }
 
+/** Renders the resume input panel UI and coordinates its typed props, local state, and approved backend interactions. */
 export function ResumeInputPanel({
     mode,
     resume,

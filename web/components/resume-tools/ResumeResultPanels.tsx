@@ -1,9 +1,10 @@
 import type { RefObject } from 'react';
-import { AlertCircle, BarChart3, CheckCircle, FileText, Shield, Target, TrendingUp } from 'lucide-react';
+import { AlertCircle, BarChart3, CheckCircle, FileText, Loader2, Shield, Target, TrendingUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import type { JDMatchResult, ResumeAnalyzeResult, ResumeOptimizeResult } from '@/lib/api/resume';
+import type { JDMatchResult, ResumeAnalyzeResult, ResumeOptimizeResult, ResumeReviewDecision, ResumeReviewState } from '@/lib/api/resume';
 
+/** Maps a resume-analysis dimension key to the human-readable label used in the result panel, preserving unknown keys for forward compatibility. */
 function getResumeDimensionLabel(key: string): string {
     const labels: Record<string, string> = {
         structure: '结构规范',
@@ -16,6 +17,7 @@ function getResumeDimensionLabel(key: string): string {
     return labels[key] || key;
 }
 
+/** Renders the resume analyze result panel UI and coordinates its typed props, local state, and approved backend interactions. */
 export function ResumeAnalyzeResultPanel({ result }: { result: ResumeAnalyzeResult }) {
         const analyzeResult = result;
 
@@ -183,13 +185,26 @@ export function ResumeAnalyzeResultPanel({ result }: { result: ResumeAnalyzeResu
         );
 }
 
+/** Renders the resume optimize result panel UI and coordinates its typed props, local state, and approved backend interactions. */
 export function ResumeOptimizeResultPanel({
     result,
+    review,
+    reviewDecisions,
+    reviewLoading,
+    reviewSubmitting,
+    onReviewDecision,
+    onSubmitReview,
     onScrollToGenerate,
     onGenerate,
     resultsBottomRef,
 }: {
     result: ResumeOptimizeResult;
+    review: ResumeReviewState | null;
+    reviewDecisions: Record<string, ResumeReviewDecision>;
+    reviewLoading: boolean;
+    reviewSubmitting: boolean;
+    onReviewDecision: (itemId: string, decision: ResumeReviewDecision) => void;
+    onSubmitReview: () => void;
     onScrollToGenerate: () => void;
     onGenerate: () => void;
     resultsBottomRef: RefObject<HTMLDivElement | null>;
@@ -211,7 +226,7 @@ export function ResumeOptimizeResultPanel({
                                 className="h-9 text-sm font-medium bg-gradient-to-r from-teal-500 to-emerald-500 hover:from-teal-600 hover:to-emerald-600 text-white shadow-md hover:shadow-lg transition-all px-4"
                                 onClick={scrollToBottom}
                             >
-                                ↓ 下滑直接生成
+                                ↓ 确认并生成
                             </Button>
                         </CardTitle>
                     </CardHeader>
@@ -311,10 +326,99 @@ export function ResumeOptimizeResultPanel({
                     </Card>
                 )}
 
+                {optimizeResult.requires_user_review && (
+                    <Card className="border-amber-200 bg-amber-50/40">
+                        <CardHeader className="pb-3">
+                            <CardTitle className="flex items-center gap-2 text-sm text-amber-950">
+                                <Shield size={17} />
+                                人工确认改写
+                            </CardTitle>
+                            <p className="text-xs leading-5 text-amber-800">
+                                以下内容涉及事实推断或低置信度改写。逐项选择保留优化或恢复原文，全部确认后才会进入简历生成。
+                            </p>
+                        </CardHeader>
+                        <CardContent>
+                            {reviewLoading ? (
+                                <div className="flex items-center justify-center py-6 text-xs text-amber-800">
+                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                    读取待确认项...
+                                </div>
+                            ) : review?.status === 'completed' ? (
+                                <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs font-medium text-emerald-800">
+                                    <CheckCircle className="h-4 w-4" />
+                                    所有改写已确认，生成时将使用审阅后的最终内容。
+                                </div>
+                            ) : review ? (
+                                <div className="space-y-3">
+                                    {review.items.map((item, index) => {
+                                        const selected = reviewDecisions[item.item_id];
+                                        return (
+                                            <div key={item.item_id} className="rounded-xl border border-amber-100 bg-white p-3">
+                                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                                    <span className="text-xs font-semibold text-slate-800">
+                                                        {item.section_name || `改写项 ${index + 1}`}
+                                                    </span>
+                                                    {item.reason && <span className="text-[10px] text-slate-400">{item.reason}</span>}
+                                                </div>
+                                                {item.original_text && (
+                                                    <div className="mt-3 rounded-lg bg-slate-50 p-2.5">
+                                                        <div className="text-[10px] font-medium text-slate-400">原文</div>
+                                                        <p className="mt-1 whitespace-pre-wrap text-xs leading-5 text-slate-600">{item.original_text}</p>
+                                                    </div>
+                                                )}
+                                                <div className="mt-2 rounded-lg bg-teal-50 p-2.5">
+                                                    <div className="text-[10px] font-medium text-teal-600">优化后</div>
+                                                    <p className="mt-1 whitespace-pre-wrap text-xs leading-5 text-teal-900">{item.optimized_text || '未提供优化文本'}</p>
+                                                </div>
+                                                <div className="mt-3 grid grid-cols-2 gap-2">
+                                                    <Button
+                                                        type="button"
+                                                        size="sm"
+                                                        variant="outline"
+                                                        className={selected === 'approved' ? 'border-emerald-400 bg-emerald-50 text-emerald-800' : ''}
+                                                        onClick={() => onReviewDecision(item.item_id, 'approved')}
+                                                    >
+                                                        保留优化
+                                                    </Button>
+                                                    <Button
+                                                        type="button"
+                                                        size="sm"
+                                                        variant="outline"
+                                                        className={selected === 'rejected' ? 'border-slate-400 bg-slate-100 text-slate-800' : ''}
+                                                        onClick={() => onReviewDecision(item.item_id, 'rejected')}
+                                                    >
+                                                        恢复原文
+                                                    </Button>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                    <Button
+                                        type="button"
+                                        className="w-full bg-amber-600 text-white hover:bg-amber-700"
+                                        onClick={onSubmitReview}
+                                        disabled={reviewSubmitting || review.items.some(item => (
+                                            item.status === 'pending' && !reviewDecisions[item.item_id]
+                                        ))}
+                                    >
+                                        {reviewSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                        提交全部确认
+                                    </Button>
+                                </div>
+                            ) : (
+                                <div className="rounded-xl border border-amber-200 bg-white p-3 text-xs leading-5 text-amber-900">
+                                    暂时无法读取待确认项，请重新打开该优化记录后再试。
+                                </div>
+                            )}
+                        </CardContent>
+                    </Card>
+                )}
+
                 {/* 生成简历按钮 */}
                 <div className="pt-4 border-t" ref={resultsBottomRef}>
                     <Button
                         onClick={onGenerate}
+                        disabled={Boolean(optimizeResult.requires_user_review && review?.status !== 'completed')}
                         className="w-full bg-gradient-to-r from-teal-500 to-emerald-500 hover:from-teal-600 hover:to-emerald-600 text-white"
                         size="lg"
                     >
@@ -322,22 +426,26 @@ export function ResumeOptimizeResultPanel({
                         生成优化简历
                     </Button>
                     <p className="text-xs text-gray-500 text-center mt-2">
-                        根据优化建议，自动生成完整简历
+                        {optimizeResult.requires_user_review && review?.status !== 'completed'
+                            ? '完成上方人工确认后才能生成完整简历'
+                            : '根据已确认的优化建议，自动生成完整简历'}
                     </p>
                 </div>
             </div>
         );
 }
 
+/** Renders the resume jdmatch result panel UI and coordinates its typed props, local state, and approved backend interactions. */
 export function ResumeJDMatchResultPanel({
     result,
     onContinueOptimize,
 }: {
     result: JDMatchResult;
-    onContinueOptimize: () => void;
+    onContinueOptimize?: () => void;
 }) {
     const jdMatchResult = result;
 
+    /** Maps a match score to the panel's color tier so score thresholds remain consistent across each displayed dimension. */
     const getScoreColor = (score: number) => {
         if (score >= 80) return { bar: "bg-green-500", text: "text-green-600" };
         if (score >= 60) return { bar: "bg-blue-500", text: "text-blue-600" };
@@ -505,17 +613,17 @@ export function ResumeJDMatchResultPanel({
                     </CardContent>
                 </Card>
 
-                {/* 后续操作按钮 */}
-                <div className="pt-4 border-t flex gap-3">
+                {/* A matching-only result has no unified optimization result to navigate to. */}
+                {onContinueOptimize && <div className="pt-4 border-t flex gap-3">
                     <Button
                         onClick={onContinueOptimize}
                         className="flex-1 bg-gradient-to-r from-teal-500 to-emerald-500 hover:from-teal-600 hover:to-emerald-600 text-white"
                         size="lg"
                     >
                         <FileText className="w-5 h-5 mr-2" />
-                        继续优化简历
+                        查看完整优化建议
                     </Button>
-                </div>
+                </div>}
             </div>
         );
 }

@@ -92,6 +92,51 @@ export interface ResumeOptimizeResult {
     requires_user_review?: boolean;
 }
 
+export type ResumeReviewDecision = 'approved' | 'rejected';
+
+export interface ResumeReviewItem extends ResumeChangeItem {
+    item_id: string;
+    status: 'pending' | ResumeReviewDecision;
+}
+
+export interface ResumeReviewState {
+    status: 'pending' | 'completed' | 'not_required';
+    version: number;
+    items: ResumeReviewItem[];
+    resolved_resume?: string | null;
+}
+
+export interface JDMatchResult {
+    overall_match_score: number;
+    skill_match_score: number;
+    project_match_score: number;
+    experience_match_score: number;
+    education_match_score: number;
+    matched_keywords: string[];
+    missing_keywords: string[];
+    strengths: string[];
+    risks: string[];
+    priority_actions: string[];
+    selection_hints?: {
+        recommended_projects?: string[];
+        recommended_skills?: string[];
+        rewrite_focus?: string[];
+    };
+}
+
+export type ResumeWorkspaceWarning = { node?: string; message?: string } | string;
+
+/** The terminal result returned by the backend's unified resume workspace AgentRun. */
+export interface ResumeWorkspaceResult {
+    success: true;
+    competition_analysis: ResumeAnalyzeResult;
+    jd_matching: JDMatchResult;
+    content_optimization: ResumeOptimizeResult;
+    result_id: number;
+    review: ResumeReviewState;
+    warnings: ResumeWorkspaceWarning[];
+}
+
 export interface CompletedSession {
     session_id: string;
     title: string;

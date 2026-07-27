@@ -1,16 +1,18 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Loader2, Sparkles, BarChart3, FileText, BrainCircuit, Zap } from "lucide-react";
+import { Loader2, Sparkles, BarChart3, FileText, BrainCircuit, Zap, Target } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useEffect, useState } from "react";
 
 interface ResumeProcessingViewProps {
-    type: 'analyze' | 'optimize';
+    type?: 'analyze' | 'optimize';
+    stage?: string;
     message?: string;
 }
 
-export function ResumeProcessingView({ type, message }: ResumeProcessingViewProps) {
+/** Renders the resume processing view UI and coordinates its typed props, local state, and approved backend interactions. */
+export function ResumeProcessingView({ type = 'optimize', stage = 'content_optimization', message }: ResumeProcessingViewProps) {
     const [dots, setDots] = useState("");
 
     useEffect(() => {
@@ -49,7 +51,14 @@ export function ResumeProcessingView({ type, message }: ResumeProcessingViewProp
         }
     };
 
-    const current = config[type];
+    const workspaceStages: Record<string, { title: string; description: string; icon: typeof BarChart3; color: string; glow: string }> = {
+        queued: { title: '工作区已排队', description: '正在为你准备一条可恢复的完整分析流程。', icon: Loader2, color: 'from-slate-600 to-teal-500', glow: 'rgba(20, 184, 166, 0.15)' },
+        competition_analysis: { title: '正在评估简历竞争力', description: '拆解结构、亮点与表达质量，建立你的起始基线。', icon: BarChart3, color: 'from-orange-500 to-emerald-400', glow: 'rgba(20, 184, 166, 0.15)' },
+        jd_matching: { title: '正在比对目标 JD', description: '把岗位要求与经历、技能和关键词逐项对齐。', icon: Target, color: 'from-teal-500 to-cyan-400', glow: 'rgba(20, 184, 166, 0.15)' },
+        content_optimization: { title: '正在生成优化策略', description: '将关键差距转成可执行、可核验的改写建议。', icon: FileText, color: 'from-blue-500 to-indigo-400', glow: 'rgba(59, 130, 246, 0.15)' },
+        saving_result: { title: '正在整理结果', description: '保存完整工作区结果，很快就能查看。', icon: Sparkles, color: 'from-amber-500 to-orange-400', glow: 'rgba(245, 158, 11, 0.15)' },
+    };
+    const current = stage in workspaceStages ? { ...config[type], ...workspaceStages[stage] } : config[type];
     const Icon = current.icon;
 
     return (

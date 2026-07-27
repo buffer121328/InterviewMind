@@ -18,15 +18,16 @@ from app.domain.agent_runs import (
     TASK_TYPE_INTERVIEW_TURN,
     TASK_TYPE_JOB_ASSETS,
     TASK_TYPE_RESUME_OPTIMIZE,
+    TASK_TYPE_RESUME_WORKSPACE,
     TASK_TYPE_VOICE_INTERVIEW_TURN,
     TERMINAL_STATUSES,
     build_task_plan_from_steps,
     can_cancel_status,
 )
 from app.db.unit_of_work import UnitOfWork
-from app.db.models import AgentRunEventModel, AgentRunModel, async_session
+from app.db.models import AgentRunEventModel, AgentRunModel, SessionModel, async_session
 from app.security.security import redact_secrets
-from ai.runtime.agent_runs.crypto import decrypt_payload, encrypt_payload
+from ai.runtime.agent_runs.crypto import TaskPayloadConfigurationError, decrypt_payload, encrypt_payload
 from ai.runtime.agent_runs.outbox import enqueue_agent_run_outbox
 from ai.runtime.agent_runs.policies import allows_whole_run_retry
 
@@ -34,6 +35,31 @@ TASK_DEFINITIONS: dict[str, dict] = {
     definition.task_type: {"title": definition.title, "steps": definition.steps}
     for definition in get_agent_definitions()
 }
+
+# Historical payloads used either key depending on the interview workflow.
+# This allowlist deliberately excludes all non-interview AgentRun payloads.
+INTERVIEW_SESSION_TASK_TYPES: frozenset[str] = frozenset({
+    TASK_TYPE_INTERVIEW_START,
+    TASK_TYPE_INTERVIEW_TURN,
+    TASK_TYPE_VOICE_INTERVIEW_TURN,
+    TASK_TYPE_INTERVIEW_REPORT,
+})
+
+
+def _extract_payload_session_id(payload: object) -> str | None:
+    """Return the legacy interview session reference without retaining other payload data.
+
+    Historical interview payloads used ``thread_id`` for turn/start workflows and
+    ``session_id`` for others.  This helper accepts only non-empty string values,
+    never coerces arbitrary payload values, and does not serialize or log payloads.
+    """
+    if not isinstance(payload, dict):
+        return None
+    for key in ("thread_id", "session_id"):
+        candidate = payload.get(key)
+        if isinstance(candidate, str) and candidate:
+            return candidate
+    return None
 
 
 def task_queue_enabled() -> bool:
@@ -87,6 +113,9 @@ def serialize_run(run: AgentRunModel) -> dict:
     agent_definition = get_agent_definition(run.task_type)
     return {
         "run_id": run.id,
+        "session_id": getattr(run, "session_id", None),
+        # Only set by ownership-scoped lookup; never derive a title from the encrypted task payload.
+        "session_title": getattr(run, "session_title", None),
         "agent_name": getattr(run, "agent_name", None) or agent_definition.name,
         "agent_version": getattr(run, "agent_version", None) or agent_definition.version,
         "task_type": run.task_type,
@@ -228,7 +257,15 @@ class AgentRunService:
             run.trace_id = trace_id
             run.updated_at = _now()
 
-    async def create_or_get(self, *, user_id: str, payload: dict, idempotency_key: str, task_type: str = TASK_TYPE_INTERVIEW_START) -> tuple[AgentRunModel, bool]:
+    async def create_or_get(
+        self,
+        *,
+        user_id: str,
+        payload: dict,
+        idempotency_key: str,
+        task_type: str = TASK_TYPE_INTERVIEW_START,
+        session_id: str | None = None,
+    ) -> tuple[AgentRunModel, bool]:
         """幂等方式创建 AgentRun：同 user+type+idempotency_key 返回已有记录。"""
         if task_type not in TASK_DEFINITIONS:
             raise ValueError(f"unknown task type: {task_type}")
@@ -243,7 +280,7 @@ class AgentRunService:
             now = _now()
             definition = get_agent_definition(task_type)
             run = AgentRunModel(
-                id=str(uuid.uuid4()), user_id=user_id, task_type=task_type,
+                id=str(uuid.uuid4()), user_id=user_id, session_id=session_id, task_type=task_type,
                 agent_name=definition.name, agent_version=definition.version, status="queued", stage="queued",
                 idempotency_key=idempotency_key, payload_encrypted=encrypt_payload(payload), result=None,
                 error_message=None, attempts=0, created_at=now, updated_at=now, started_at=None, finished_at=None,
@@ -275,13 +312,97 @@ class AgentRunService:
             await session.refresh(run)
             return run, True
 
+    async def _attach_owned_session_titles(
+        self,
+        session: AsyncSession,
+        runs: list[AgentRunModel],
+        user_id: str,
+    ) -> None:
+        """Attach display-only titles for the user's referenced interview sessions in one query."""
+        session_ids = {run.session_id for run in runs if run.session_id}
+        if not session_ids:
+            return
+        rows = await session.execute(
+            select(SessionModel.session_id, SessionModel.title).where(
+                SessionModel.user_id == user_id,
+                SessionModel.session_id.in_(session_ids),
+            )
+        )
+        titles = {row.session_id: row.title for row in rows}
+        for run in runs:
+            setattr(run, "session_title", titles.get(run.session_id))
+
+    async def backfill_interview_session_ids(self, user_id: str, *, limit: int = 100) -> int:
+        """Backfill a bounded batch of missing interview session IDs for one owner.
+
+        This explicit maintenance operation is intentionally not called by normal
+        list or display paths: decrypting historical task payloads during a read
+        would increase both request latency and sensitive-data exposure.  It locks
+        only this user's interview runs with a NULL ``session_id``, decrypts each
+        candidate through the established encryption boundary, and persists a value
+        only when the referenced session is owned by the run's user.  Decryption,
+        malformed-payload, and unavailable-key failures are silently skipped so a
+        single legacy row cannot block the batch.  The UnitOfWork commits the batch
+        once; successful updates are idempotent because updated rows no longer match
+        the NULL-session query.
+        """
+        bounded_limit = min(max(limit, 1), 200)
+        updated = 0
+        async with UnitOfWork(async_session) as uow:
+            session = uow.db
+            rows = await session.scalars(
+                select(AgentRunModel).where(
+                    AgentRunModel.user_id == user_id,
+                    AgentRunModel.task_type.in_(INTERVIEW_SESSION_TASK_TYPES),
+                    AgentRunModel.session_id.is_(None),
+                ).order_by(AgentRunModel.created_at).limit(bounded_limit).with_for_update(skip_locked=True)
+            )
+            candidates = list(rows)
+            references: list[tuple[AgentRunModel, str]] = []
+            for run in candidates:
+                # Keep the ownership/type/NULL guard even under a mocked or changed query.
+                if (
+                    run.user_id != user_id
+                    or run.task_type not in INTERVIEW_SESSION_TASK_TYPES
+                    or run.session_id is not None
+                ):
+                    continue
+                try:
+                    session_id = _extract_payload_session_id(decrypt_payload(run.payload_encrypted))
+                except (TaskPayloadConfigurationError, TypeError, AttributeError):
+                    continue
+                if session_id is not None:
+                    references.append((run, session_id))
+
+            if references:
+                # Validate all candidate references in one owner-scoped query rather
+                # than querying sessions per run. No decrypted payload is persisted.
+                owned_session_ids = set(await session.scalars(
+                    select(SessionModel.session_id).where(
+                        SessionModel.user_id == user_id,
+                        SessionModel.session_id.in_({session_id for _, session_id in references}),
+                    )
+                ))
+                for run, session_id in references:
+                    if session_id in owned_session_ids:
+                        run.session_id = session_id
+                        updated += 1
+        return updated
+
     async def get(self, run_id: str, user_id: str) -> AgentRunModel | None:
         """获取单个 AgentRun（带用户归属校验）。"""
         async with async_session() as session:
-            return await session.scalar(select(AgentRunModel).where(AgentRunModel.id == run_id, AgentRunModel.user_id == user_id))
+            run = await session.scalar(select(AgentRunModel).where(AgentRunModel.id == run_id, AgentRunModel.user_id == user_id))
+            if run:
+                await self._attach_owned_session_titles(session, [run], user_id)
+            return run
 
     async def list_runs(self, user_id: str, *, status: str | None = None, task_type: str | None = None, limit: int = 50, offset: int = 0) -> tuple[list[AgentRunModel], int]:
-        """分页查询用户的 AgentRun 列表，支持按状态和类型过滤。"""
+        """分页查询用户的 AgentRun 列表，支持按状态和类型过滤。
+
+        This read path intentionally does not invoke historical session-ID backfill;
+        callers that need repair must explicitly use ``backfill_interview_session_ids``.
+        """
         async with async_session() as session:
             filters = [AgentRunModel.user_id == user_id]
             if status:
@@ -290,7 +411,78 @@ class AgentRunService:
                 filters.append(AgentRunModel.task_type == task_type)
             rows = await session.scalars(select(AgentRunModel).where(*filters).order_by(AgentRunModel.created_at.desc()).limit(limit).offset(offset))
             total = await session.scalar(select(func.count(AgentRunModel.id)).where(*filters))
-            return list(rows), int(total or 0)
+            runs = list(rows)
+            await self._attach_owned_session_titles(session, runs, user_id)
+            return runs, int(total or 0)
+
+    async def list_grouped_runs(
+        self,
+        user_id: str,
+        *,
+        status: str | None = None,
+        task_type: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[tuple[str, list[AgentRunModel]]], list[AgentRunModel], int]:
+        """List matching runs in pages of interview sessions, plus unassociated runs.
+
+        Status and task-type predicates apply before session IDs are selected, so a
+        returned session contains every one of its matching child runs rather than
+        a page-sized subset.  Session titles are resolved separately through the
+        owner-scoped session lookup and never from encrypted task payloads.
+        """
+        filters = [AgentRunModel.user_id == user_id]
+        if status:
+            filters.append(AgentRunModel.status == status)
+        if task_type:
+            filters.append(AgentRunModel.task_type == task_type)
+
+        async with async_session() as session:
+            associated_filters = [*filters, AgentRunModel.session_id.is_not(None)]
+            session_rows = (
+                await session.execute(
+                    select(
+                        AgentRunModel.session_id,
+                        func.max(AgentRunModel.created_at).label("latest_created_at"),
+                    )
+                    .where(*associated_filters)
+                    .group_by(AgentRunModel.session_id)
+                    .order_by(func.max(AgentRunModel.created_at).desc(), AgentRunModel.session_id)
+                    .limit(limit)
+                    .offset(offset)
+                )
+            ).all()
+            session_ids = [row.session_id for row in session_rows]
+            session_total = await session.scalar(
+                select(func.count(func.distinct(AgentRunModel.session_id))).where(*associated_filters)
+            )
+
+            runs_by_session: dict[str, list[AgentRunModel]] = {session_id: [] for session_id in session_ids}
+            if session_ids:
+                associated_runs = list(
+                    await session.scalars(
+                        select(AgentRunModel)
+                        .where(*filters, AgentRunModel.session_id.in_(session_ids))
+                        .order_by(AgentRunModel.created_at.desc(), AgentRunModel.id.desc())
+                    )
+                )
+                for run in associated_runs:
+                    runs_by_session[run.session_id].append(run)
+
+            other_runs = list(
+                await session.scalars(
+                    select(AgentRunModel)
+                    .where(*filters, AgentRunModel.session_id.is_(None))
+                    .order_by(AgentRunModel.created_at.desc(), AgentRunModel.id.desc())
+                )
+            )
+            all_runs = [run for runs in runs_by_session.values() for run in runs] + other_runs
+            await self._attach_owned_session_titles(session, all_runs, user_id)
+            return (
+                [(session_id, runs_by_session[session_id]) for session_id in session_ids],
+                other_runs,
+                int(session_total or 0),
+            )
 
     async def list_events(self, run_id: str, user_id: str, *, after_sequence: int = 0, limit: int = 200) -> list[AgentRunEventModel] | None:
         """查询 AgentRun 的事件列表（支持增量游标）。"""
@@ -475,10 +667,10 @@ class AgentRunService:
     async def succeed(self, run_id: str, result: dict) -> None:
         """标记 AgentRun 为成功状态，直接设置结果。"""
         async def result_writer(_session: AsyncSession) -> dict:
-            """异步执行 `result_writer` 相关逻辑。
+            """将后台任务结果写入 AgentRun 和关联业务表，遵守 owner、事务和脱敏边界。
 
             Args:
-                _session: 调用方传入的 `_session` 参数。
+                _session: 经过类型边界校验的 `_session`；其格式和可选值由参数类型及调用流程约束。
             """
             return result
 
