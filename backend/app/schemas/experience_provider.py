@@ -6,7 +6,7 @@ from typing import Any, Protocol
 
 @dataclass(frozen=True)
 class ExperienceDocument:
-    """表示 `ExperienceDocument` 相关的数据或行为。"""
+    """数据对象，承载 `ExperienceDocument` 的结构化字段和跨模块契约；只表达数据，不在构造或序列化时执行外部调用。"""
     source: str
     source_id: str
     title: str
@@ -27,11 +27,11 @@ class ExperienceProvider(Protocol):
         max_pages: int,
         exported_items: list[dict[str, Any]],
     ) -> list[ExperienceDocument]:
-        """异步执行 `collect` 相关逻辑。
+        """从配置的面经来源采集文档或题目，受页数、超时和来源访问边界约束。
 
         Args:
-            queries: 调用方传入的 `queries` 参数。
-            max_pages: 调用方传入的 `max_pages` 参数。
-            exported_items: 调用方传入的 `exported_items` 参数。
+            queries: 经过类型边界校验的 `queries`；其格式和可选值由参数类型及调用流程约束。
+            max_pages: 经过类型边界校验的 `max_pages`；其格式和可选值由参数类型及调用流程约束。
+            exported_items: 经过类型边界校验的 `exported_items`；其格式和可选值由参数类型及调用流程约束。
         """
         ...

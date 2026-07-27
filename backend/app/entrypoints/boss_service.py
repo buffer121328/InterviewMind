@@ -40,14 +40,14 @@ class EmptyRequest(BaseModel):
 
 
 class ScrapeRequest(BaseModel):
-    """表示 `ScrapeRequest` 的接口数据模型。"""
+    """API 请求数据对象，定义 `Scrape` 的字段校验和反序列化契约；只承载数据，不执行业务副作用。"""
     source_url: str = Field(min_length=1, max_length=2048)
     headless: bool = False
     manual_wait_seconds: int = Field(default=90, ge=1, le=300)
 
 
 class ApplicationRequest(BaseModel):
-    """表示 `ApplicationRequest` 的接口数据模型。"""
+    """API 请求数据对象，定义 `Application` 的字段校验和反序列化契约；只承载数据，不执行业务副作用。"""
     source_url: str = Field(min_length=1, max_length=2048)
     greeting_text: str = Field(min_length=1, max_length=2000)
 
@@ -60,10 +60,10 @@ class SendRequest(ApplicationRequest):
 def require_service_token(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
 ) -> None:
-    """校验 `service token`。
+    """校验内部 BOSS 服务令牌；缺失或不匹配时立即拒绝请求，且日志和响应不得泄露令牌内容。
 
     Args:
-        credentials: 调用方传入的 `credentials` 参数。
+        credentials: 经过类型边界校验的 `credentials`；其格式和可选值由参数类型及调用流程约束。
     """
     expected = os.getenv("BOSS_AUTOMATION_SERVICE_TOKEN", "").strip()
     if len(expected) < 32:
@@ -77,7 +77,7 @@ def require_service_token(
 
 
 def require_allowed_url(source_url: str) -> None:
-    """校验 `allowed url`。
+    """校验 BOSS 页面 URL 是否属于服务白名单，阻止自动化入口访问任意外部或内部地址。
 
     Args:
         source_url: source URL。
@@ -94,7 +94,7 @@ async def health(_: EmptyRequest) -> dict[str, object]:
     """返回健康检查状态。
 
     Args:
-        _: 调用方传入的 `_` 参数。
+        _: 经过类型边界校验的 `_`；其格式和可选值由参数类型及调用流程约束。
     """
     return {
         "success": async_playwright is not None,
@@ -105,7 +105,7 @@ async def health(_: EmptyRequest) -> dict[str, object]:
 
 @app.post("/v1/pages/scrape", dependencies=[Depends(require_service_token)])
 async def scrape(request: ScrapeRequest) -> dict[str, object]:
-    """异步执行 `scrape` 相关逻辑。
+    """执行受控的 BOSS 页面采集请求，返回脱敏结果并保持人工登录和投递确认边界。
 
     Args:
         request: 请求对象。
@@ -120,7 +120,7 @@ async def scrape(request: ScrapeRequest) -> dict[str, object]:
 
 @app.post("/v1/applications/preview", dependencies=[Depends(require_service_token)])
 async def preview(request: ApplicationRequest) -> dict[str, object]:
-    """预览 当前对象。
+    """生成 BOSS 投递预览并返回一次性审批所需的摘要；不执行实际投递，也不泄露完整职位或候选人敏感内容。
 
     Args:
         request: 请求对象。
@@ -131,7 +131,7 @@ async def preview(request: ApplicationRequest) -> dict[str, object]:
 
 @app.post("/v1/applications/send", dependencies=[Depends(require_service_token)])
 async def send(request: SendRequest) -> dict[str, object]:
-    """发送 当前对象。
+    """在审批许可、owner 和限流校验通过后发送 BOSS 投递请求；外部调用结果写入审计边界，失败不得伪装为成功。
 
     Args:
         request: 请求对象。

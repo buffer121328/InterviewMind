@@ -15,12 +15,14 @@ interface UseVoiceChatProps {
     isMuted?: boolean;
 }
 
+/** Provides the export wav frontend hook and owns its browser resource lifecycle. */
 function exportWAV(audioData: Float32Array[], sampleRate: number) {
     const buffer = mergeBuffers(audioData);
     const dataview = encodeWAV(buffer, sampleRate);
     return new Blob([dataview], { type: 'audio/wav' });
 }
 
+/** Provides the merge buffers frontend hook and owns its browser resource lifecycle. */
 function mergeBuffers(audioData: Float32Array[]) {
     let length = 0;
     audioData.forEach(chunk => length += chunk.length);
@@ -33,6 +35,7 @@ function mergeBuffers(audioData: Float32Array[]) {
     return result;
 }
 
+/** Provides the encode wav frontend hook and owns its browser resource lifecycle. */
 function encodeWAV(samples: Float32Array, sampleRate: number) {
     const buffer = new ArrayBuffer(44 + samples.length * 2);
     const view = new DataView(buffer);
@@ -53,6 +56,7 @@ function encodeWAV(samples: Float32Array, sampleRate: number) {
     return view;
 }
 
+/** Provides the float to16 bit pcm frontend hook and owns its browser resource lifecycle. */
 function floatTo16BitPCM(output: DataView, offset: number, input: Float32Array) {
     for (let i = 0; i < input.length; i++, offset += 2) {
         const sample = Math.max(-1, Math.min(1, input[i]));
@@ -60,12 +64,14 @@ function floatTo16BitPCM(output: DataView, offset: number, input: Float32Array) 
     }
 }
 
+/** Provides the write string frontend hook and owns its browser resource lifecycle. */
 function writeString(view: DataView, offset: number, value: string) {
     for (let i = 0; i < value.length; i++) {
         view.setUint8(offset + i, value.charCodeAt(i));
     }
 }
 
+/** Provides the use voice chat React hook and encapsulates its subscriptions, lifecycle cleanup, and state updates. */
 export function useVoiceChat({ onAudioInput, onVADStatusChange, onPlaybackComplete, isProcessing = false, isMuted = false }: UseVoiceChatProps) {
     const [isRecording, setIsRecording] = useState(false);
     const [audioLevel, setAudioLevel] = useState(0); // 0-100

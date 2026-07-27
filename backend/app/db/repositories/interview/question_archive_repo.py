@@ -18,7 +18,7 @@ from app.db.repositories.interview.rag_index_repo import get_rag_index_repo
 
 
 class QuestionArchiveRepo:
-    """封装数据仓储访问能力。"""
+    """持久化仓储，封装 `QuestionArchive` 的数据库读写；负责查询范围和事务配合，不编排模型调用或审批流程。"""
     async def archive_session(self, session_id: str, user_id: str) -> dict[str, int]:
         """幂等归档一个用户的已完成面试。"""
         async with async_session() as db:
@@ -155,15 +155,15 @@ class QuestionArchiveRepo:
         asked_question: str,
         now: datetime,
     ) -> QuestionBankItemModel:
-        """获取 `or create question`。
+        """按稳定业务键幂等获取或创建 question，避免重复导入产生重复持久化记录。
 
         Args:
             db: 数据库会话。
             user_id: 当前用户标识。
             session_id: 会话标识。
-            question_index: 调用方传入的 `question_index` 参数。
-            plan_item: 调用方传入的 `plan_item` 参数。
-            asked_question: 调用方传入的 `asked_question` 参数。
+            question_index: 经过类型边界校验的 `question_index`；其格式和可选值由参数类型及调用流程约束。
+            plan_item: 经过类型边界校验的 `plan_item`；其格式和可选值由参数类型及调用流程约束。
+            asked_question: 经过类型边界校验的 `asked_question`；其格式和可选值由参数类型及调用流程约束。
             now: 当前时间。
         """
         item_id = plan_item.get("question_bank_item_id")
@@ -229,7 +229,7 @@ _question_archive_repo: QuestionArchiveRepo | None = None
 
 
 def get_question_archive_repo() -> QuestionArchiveRepo:
-    """获取 `question archive repo`。"""
+    """构造题目归档仓储，并复用调用方的数据库会话和 owner 过滤约束。"""
     global _question_archive_repo
     if _question_archive_repo is None:
         _question_archive_repo = QuestionArchiveRepo()

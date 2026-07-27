@@ -32,12 +32,12 @@ class MaterialSelectionResult:
         selection_reason: str,
         assembled_outline: Dict[str, Any]
     ):
-        """初始化当前对象实例。
+        """初始化 `MaterialSelectionResult` 的依赖和运行配置；构造阶段不执行业务写入，外部客户端仅在后续方法调用时承担对应的访问边界。
 
         Args:
             selected_material_ids: selected material 标识列表。
-            selection_reason: 调用方传入的 `selection_reason` 参数。
-            assembled_outline: 调用方传入的 `assembled_outline` 参数。
+            selection_reason: 经过类型边界校验的 `selection_reason`；其格式和可选值由参数类型及调用流程约束。
+            assembled_outline: 经过类型边界校验的 `assembled_outline`；其格式和可选值由参数类型及调用流程约束。
         """
         self.selected_material_ids = selected_material_ids
         self.selection_reason = selection_reason

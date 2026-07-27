@@ -11,7 +11,7 @@ from .base import Base
 
 
 class SessionModel(Base):
-    """表示数据模型。"""
+    """SQLAlchemy 持久化模型，描述 `Session` 的数据库字段、关系和约束；仓储层负责 owner 过滤、事务提交和敏感数据边界。"""
     __tablename__ = "sessions"
 
     session_id: Mapped[str] = mapped_column(String, primary_key=True)
@@ -54,7 +54,7 @@ class SessionModel(Base):
 
 
 class MessageModel(Base):
-    """表示数据模型。"""
+    """SQLAlchemy 持久化模型，描述 `Message` 的数据库字段、关系和约束；仓储层负责 owner 过滤、事务提交和敏感数据边界。"""
     __tablename__ = "messages"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -76,7 +76,7 @@ class MessageModel(Base):
 
 
 class UserProfileModel(Base):
-    """表示数据模型。"""
+    """SQLAlchemy 持久化模型，描述 `UserProfile` 的数据库字段、关系和约束；仓储层负责 owner 过滤、事务提交和敏感数据边界。"""
     __tablename__ = "user_profile"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

@@ -28,11 +28,11 @@ class ResumeHistoryUseCases:
     """简历历史应用服务。"""
 
     def __init__(self) -> None:
-        """初始化当前对象实例。"""
+        """初始化 `ResumeHistoryUseCases` 的依赖和运行配置；构造阶段不执行业务写入，外部客户端只在后续方法调用时承担访问边界。"""
         self._session_repo = SessionRepo()
 
     async def get_completed_sessions(self, *, user_id: str, limit: int) -> CompletedSessionsResponse:
-        """获取 `completed sessions`。
+        """读取 completed sessions，并通过 owner 校验限制可见范围；资源不存在或状态不合法时返回稳定的业务结果或异常。
 
         Args:
             user_id: 当前用户标识。
@@ -73,11 +73,11 @@ class ResumeHistoryUseCases:
         offset: int,
         include_data: bool,
     ) -> ResumeHistoryListResponse:
-        """列出 `resume results`。
+        """按 owner、筛选条件和分页参数读取 resume results；仅返回当前调用方有权查看的持久化结果。
 
         Args:
             user_id: 当前用户标识。
-            result_type: 调用方传入的 `result_type` 参数。
+            result_type: 经过类型边界校验的 `result_type`；其格式和可选值由参数类型及调用流程约束。
             limit: 返回数量上限。
             offset: 分页偏移量。
             include_data: include 数据。
@@ -110,7 +110,7 @@ class ResumeHistoryUseCases:
             )
 
     async def get_resume_result(self, *, result_id: int, user_id: str) -> ResumeHistoryDetailResponse:
-        """获取 `resume result`。
+        """读取 resume result，并通过 owner 校验限制可见范围；资源不存在或状态不合法时返回稳定的业务结果或异常。
 
         Args:
             result_id: result 标识。
@@ -122,7 +122,7 @@ class ResumeHistoryUseCases:
         return ResumeHistoryDetailResponse(success=True, result=result)
 
     async def delete_resume_result(self, *, result_id: int, user_id: str) -> dict[str, object]:
-        """删除 `resume result`。
+        """在 owner 校验下删除 resume result；删除失败或资源不可见时保持幂等的业务错误语义。
 
         Args:
             result_id: result 标识。

@@ -53,6 +53,7 @@ const DialogContent = React.forwardRef<
 ))
 DialogContent.displayName = DialogPrimitive.Content.displayName
 
+/** Wraps the dialog header primitive while forwarding its typed props/ref and preserving the underlying accessibility semantics. */
 const DialogHeader = ({
     className,
     ...props
@@ -67,6 +68,7 @@ const DialogHeader = ({
 )
 DialogHeader.displayName = "DialogHeader"
 
+/** Wraps the dialog footer primitive while forwarding its typed props/ref and preserving the underlying accessibility semantics. */
 const DialogFooter = ({
     className,
     ...props

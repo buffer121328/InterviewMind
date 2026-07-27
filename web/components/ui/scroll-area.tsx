@@ -5,6 +5,7 @@ import * as ScrollAreaPrimitive from "@radix-ui/react-scroll-area"
 
 import { cn } from "@/lib/utils"
 
+/** Wraps the scroll area primitive while forwarding its typed props/ref and preserving the underlying accessibility semantics. */
 function ScrollArea({
   className,
   children,
@@ -35,6 +36,7 @@ function ScrollArea({
   )
 }
 
+/** Wraps the scroll bar primitive while forwarding its typed props/ref and preserving the underlying accessibility semantics. */
 function ScrollBar({
   className,
   orientation = "vertical",

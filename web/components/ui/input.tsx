@@ -2,6 +2,7 @@ import * as React from "react"
 
 import { cn } from "@/lib/utils"
 
+/** Wraps the input primitive while forwarding its typed props/ref and preserving the underlying accessibility semantics. */
 function Input({ className, type, ...props }: React.ComponentProps<"input">) {
   return (
     <input

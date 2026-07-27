@@ -44,6 +44,7 @@ const PRIORITY_STYLES: Record<number, string> = {
     5: 'bg-gray-100 text-gray-700',
 };
 
+/** Renders the weakness map UI and coordinates its typed props, local state, and approved backend interactions. */
 export function WeaknessMap({ sessionId, autoLoad = true }: WeaknessMapProps) {
     const [report, setReport] = useState<WeaknessReport | null>(null);
     const [loading, setLoading] = useState(true);
@@ -71,6 +72,7 @@ export function WeaknessMap({ sessionId, autoLoad = true }: WeaknessMapProps) {
         };
     }, [sessionId, autoLoad]);
 
+    /** Handles generate; updates local UI state first and delegates server mutations through the approved API boundary. */
     async function handleGenerate() {
         setGenerating(true);
         setError(null);
@@ -104,6 +106,7 @@ export function WeaknessMap({ sessionId, autoLoad = true }: WeaknessMapProps) {
         }
     }
 
+    /** Encapsulates toggle failure; returns typed data or state and keeps side effects within the owning module boundary. */
     function toggleFailure(index: number) {
         setExpandedFailures(prev => {
             const next = new Set(prev);

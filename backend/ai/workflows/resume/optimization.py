@@ -88,7 +88,7 @@ class ResumeOptimizationUseCases:
     """简历分析、优化和审阅应用服务。"""
 
     async def analyze_resume(self, *, request: ResumeAnalyzeRequest, user_id: str) -> ResumeAnalyzeResponse:
-        """异步执行 `analyze_resume` 相关逻辑。
+        """分析简历与岗位要求的匹配关系，返回可供前端展示和后续优化的结构化结果。
 
         Args:
             request: 请求对象。
@@ -119,7 +119,7 @@ class ResumeOptimizationUseCases:
         return ResumeAnalyzeResponse(success=True, result=result, result_id=result_id)
 
     async def optimize_resume(self, *, request: ResumeOptimizeRequest, user_id: str) -> ResumeOptimizeResponse:
-        """异步执行 `optimize_resume` 相关逻辑。
+        """运行简历优化用例并返回待确认结果，不在 HTTP 请求中绕过 AgentRun 生命周期。
 
         Args:
             request: 请求对象。
@@ -158,7 +158,7 @@ class ResumeOptimizationUseCases:
         )
 
     async def get_resume_review(self, *, result_id: int, user_id: str) -> ResumeReviewResponse:
-        """获取 `resume review`。
+        """读取 resume review，并通过 owner 校验限制可见范围；资源不存在或状态不合法时返回稳定的业务结果或异常。
 
         Args:
             result_id: result 标识。
@@ -176,7 +176,7 @@ class ResumeOptimizationUseCases:
         request: ResumeReviewRequest,
         user_id: str,
     ) -> ResumeReviewResponse:
-        """异步执行 `submit_resume_review` 相关逻辑。
+        """提交用户确认的简历评审结果，只持久化明确批准的修改。
 
         Args:
             result_id: result 标识。
@@ -203,7 +203,7 @@ class ResumeOptimizationUseCases:
         return ResumeReviewResponse(result_id=result_id, review=public_review_state(updated["result_data"]))
 
     def optimize_resume_stream(self, *, request: ResumeOptimizeRequest, user_id: str) -> AsyncGenerator[str, None]:
-        """执行 `optimize_resume_stream` 相关逻辑。
+        """以 SSE 事件流输出简历优化进度和结果，事件载荷经过脱敏且可重放。
 
         Args:
             request: 请求对象。
@@ -218,7 +218,7 @@ class ResumeOptimizationUseCases:
         request: ResumeOptimizeRequest,
         user_id: str,
     ) -> AsyncGenerator[str, None]:
-        """异步执行 `_optimize_resume_stream_events` 相关逻辑。
+        """把简历优化阶段转换为可增量消费的事件序列，并保持事件顺序和脱敏边界。
 
         Args:
             request: 请求对象。
@@ -229,7 +229,7 @@ class ResumeOptimizationUseCases:
         sequence = 0
 
         def sse_event(event: dict) -> str:
-            """执行 `sse_event` 相关逻辑。
+            """将单个进度或结果转换为符合 SSE 契约的事件。
 
             Args:
                 event: 事件对象。
@@ -237,11 +237,11 @@ class ResumeOptimizationUseCases:
             return f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
         def run_event(event_type: str, stage: str | None = None, payload: dict | None = None) -> str:
-            """运行 `event`。
+            """运行 event，沿用既有任务状态、重试和持久化边界，不在辅助函数中绕过审批或 owner 校验。
 
             Args:
-                event_type: 调用方传入的 `event_type` 参数。
-                stage: 调用方传入的 `stage` 参数。
+                event_type: 经过类型边界校验的 `event_type`；其格式和可选值由参数类型及调用流程约束。
+                stage: 经过类型边界校验的 `stage`；其格式和可选值由参数类型及调用流程约束。
                 payload: 请求载荷。
             """
             nonlocal sequence
@@ -311,7 +311,7 @@ class ResumeOptimizationUseCases:
 
     @staticmethod
     def _validate_common(request: ResumeAnalyzeRequest | ResumeOptimizeRequest) -> None:
-        """校验 `common`。
+        """校验 common 是否满足当前流程约束；失败时返回可定位的业务异常，不执行副作用。
 
         Args:
             request: 请求对象。

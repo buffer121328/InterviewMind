@@ -46,6 +46,7 @@ const priorityMeta: Record<Priority, { label: string; dotClassName: string; text
   low: { label: "低", dotClassName: "bg-gray-400", textClassName: "text-gray-500" },
 };
 
+/** Formats relative time into the stable display representation used by this view; invalid or empty values use the local fallback. */
 function formatRelativeTime(input: string) {
   const date = new Date(input);
   const diff = Date.now() - date.getTime();
@@ -59,6 +60,7 @@ function formatRelativeTime(input: string) {
   return date.toLocaleDateString("zh-CN", { month: "short", day: "numeric" });
 }
 
+/** Encapsulates application board; returns typed data or state and keeps side effects within the owning module boundary. */
 export function ApplicationBoard({ onOpenDetail }: ApplicationBoardProps) {
   const applications = useInterviewStore((s) => s.applications);
   const applicationsLoading = useInterviewStore((s) => s.applicationsLoading);
@@ -81,6 +83,7 @@ export function ApplicationBoard({ onOpenDetail }: ApplicationBoardProps) {
     [applications, status]
   );
 
+  /** Handles create; updates local UI state first and delegates server mutations through the approved API boundary. */
   const handleCreate = async () => {
     if (!form.company_name.trim() || !form.job_title.trim()) return;
     setSaving(true);
@@ -99,6 +102,7 @@ export function ApplicationBoard({ onOpenDetail }: ApplicationBoardProps) {
     }
   };
 
+  /** Handles delete; updates local UI state first and delegates server mutations through the approved API boundary. */
   const handleDelete = async (id: number) => {
     setDeletingId(id);
     const ok = await deleteApplication(id);

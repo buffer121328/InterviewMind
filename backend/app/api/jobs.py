@@ -36,12 +36,12 @@ _ERROR_STATUS = {
 
 
 async def _call_use_case(action: Callable[[], Awaitable[T]], error_code: str, error_message: str) -> T:
-    """异步执行 `_call_use_case` 相关逻辑。
+    """执行路由传入的 use-case，并将预期业务错误映射为统一的 HTTP 响应。
 
     Args:
-        action: 调用方传入的 `action` 参数。
-        error_code: 调用方传入的 `error_code` 参数。
-        error_message: 调用方传入的 `error_message` 参数。
+        action: 待执行的异步 use-case；异常由本函数统一转换，动作本身的副作用仍由 use-case 负责。
+        error_code: 对外或日志使用的错误语义；必须保持脱敏，不包含凭据和完整输入。
+        error_message: 对外或日志使用的错误语义；必须保持脱敏，不包含凭据和完整输入。
     """
     try:
         return await action()

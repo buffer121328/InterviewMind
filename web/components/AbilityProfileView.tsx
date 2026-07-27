@@ -23,6 +23,7 @@ const PROFILE_DIMENSIONS: Array<{
     { key: 'collaboration', label: '协作能力' },
 ];
 
+/** Renders the ability profile view UI and coordinates its typed props, local state, and approved backend interactions. */
 export function AbilityProfileView() {
     const [profile, setProfile] = useState<AbilityProfile | null>(null);
     const [loading, setLoading] = useState(true);
@@ -51,6 +52,7 @@ export function AbilityProfileView() {
         };
     }, []);
 
+    /** Handles generate; updates local UI state first and delegates server mutations through the approved API boundary. */
     async function handleGenerate() {
         setGenerating(true);
         setError(null);

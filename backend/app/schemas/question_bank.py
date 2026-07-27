@@ -112,7 +112,7 @@ class QuestionFileCandidate(BaseModel):
 
 
 class QuestionFilePreviewResponse(BaseModel):
-    """表示 `QuestionFilePreviewResponse` 的接口数据模型。"""
+    """API 响应数据对象，定义 `QuestionFilePreview` 的序列化契约；只暴露当前 owner 可见且已脱敏的结果。"""
     success: bool
     filename: str
     questions: List[QuestionFileCandidate] = Field(default_factory=list)

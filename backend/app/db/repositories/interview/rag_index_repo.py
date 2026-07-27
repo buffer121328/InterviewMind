@@ -7,8 +7,8 @@ import logging
 from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 
-from sqlalchemy import select, update, delete, func, text
-from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy import cast, select, update, delete, func, text
+from sqlalchemy.dialects.postgresql import JSONB, insert as pg_insert
 
 from app.db.models import async_session
 from app.db.models.rag import RagChunkModel
@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 def _utcnow() -> datetime:
-    """执行 `_utcnow` 相关逻辑。"""
+    """返回带 UTC 时区的当前时间，保证数据库、队列和观测事件时间可比较。"""
     return datetime.now(timezone.utc)
 
 
@@ -220,7 +220,7 @@ class RagIndexRepo:
                     RagChunkModel.source_version,
                     RagChunkModel.chunk_key,
                     RagChunkModel.content,
-                    RagChunkModel.metadata,
+                    RagChunkModel.chunk_metadata,
                     similarity_expr.label("text_score"),
                 )
                 .where(
@@ -242,7 +242,7 @@ class RagIndexRepo:
                     "source_version": r.source_version,
                     "chunk_key": r.chunk_key,
                     "content": r.content,
-                    "metadata": r.metadata or {},
+                    "metadata": r.chunk_metadata or {},
                     "text_score": float(r.text_score or 0),
                 }
                 for r in rows
@@ -262,7 +262,10 @@ class RagIndexRepo:
         """
         async with async_session() as db:
             # 1 - cosine_distance = cosine_similarity
-            cosine_sim = func.cosine_distance(RagChunkModel.embedding, query_embedding)
+            # Keep the pgvector bind type explicit. Passing a bare Python list
+            # to `func.cosine_distance` leaves asyncpg treating it as text.
+            typed_query_embedding = cast(query_embedding, RagChunkModel.embedding.type)
+            cosine_sim = func.cosine_distance(RagChunkModel.embedding, typed_query_embedding)
             stmt = (
                 select(
                     RagChunkModel.id,
@@ -271,7 +274,7 @@ class RagIndexRepo:
                     RagChunkModel.source_version,
                     RagChunkModel.chunk_key,
                     RagChunkModel.content,
-                    RagChunkModel.metadata,
+                    RagChunkModel.chunk_metadata,
                     (1 - cosine_sim).label("vector_score"),
                 )
                 .where(
@@ -295,7 +298,7 @@ class RagIndexRepo:
                     "source_version": r.source_version,
                     "chunk_key": r.chunk_key,
                     "content": r.content,
-                    "metadata": r.metadata or {},
+                    "metadata": r.chunk_metadata or {},
                     "vector_score": float(r.vector_score or 0),
                 }
                 for r in rows
@@ -325,14 +328,18 @@ class RagIndexRepo:
             if tags:
                 # JSONB array contains
                 for tag in tags:
-                    stmt = stmt.where(RagChunkModel.metadata["tags"].contains(tag))
+                    stmt = stmt.where(
+                        RagChunkModel.chunk_metadata["tags"].contains(
+                            cast([tag], JSONB)
+                        )
+                    )
             if target_skill:
                 stmt = stmt.where(
-                    RagChunkModel.metadata["target_skill"].astext == target_skill
+                    RagChunkModel.chunk_metadata["target_skill"].astext == target_skill
                 )
             if is_verified is not None:
                 stmt = stmt.where(
-                    RagChunkModel.metadata["is_verified"].astext == str(is_verified).lower()
+                    RagChunkModel.chunk_metadata["is_verified"].astext == str(is_verified).lower()
                 )
             stmt = stmt.order_by(RagChunkModel.updated_at.desc()).limit(limit)
             rows = (await db.execute(stmt)).scalars().all()
@@ -344,7 +351,7 @@ class RagIndexRepo:
                     "source_version": r.source_version,
                     "chunk_key": r.chunk_key,
                     "content": r.content,
-                    "metadata": r.metadata or {},
+                    "metadata": r.chunk_metadata or {},
                     "retrieval_mode": "structured",
                 }
                 for r in rows
@@ -376,7 +383,7 @@ _rag_index_repo: Optional[RagIndexRepo] = None
 
 
 def get_rag_index_repo() -> RagIndexRepo:
-    """获取 `rag index repo`。"""
+    """构造 RAG 索引仓储，封装 chunk 的持久化查询，不负责嵌入生成或外部模型调用。"""
     global _rag_index_repo
     if _rag_index_repo is None:
         _rag_index_repo = RagIndexRepo()

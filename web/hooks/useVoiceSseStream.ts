@@ -12,6 +12,7 @@ interface VoiceSseStreamHandlers {
     onMalformedFrame?: (error: unknown) => void;
 }
 
+/** Provides the use voice sse stream React hook and encapsulates its subscriptions, lifecycle cleanup, and state updates. */
 export function useVoiceSseStream() {
     const readVoiceSseStream = useCallback(async (response: Response, handlers: VoiceSseStreamHandlers) => {
         const reader = response.body?.getReader();

@@ -136,14 +136,14 @@ async def _plan_rewrite(
     retry_guidance: str,
     api_config: Optional[dict],
 ) -> ResumeRewritePlanOutput:
-    """异步执行 `_plan_rewrite` 相关逻辑。
+    """根据简历事实和 JD 证据生成可审计的重写计划，不直接写入未确认产物。
 
     Args:
-        resume_content: 调用方传入的 `resume_content` 参数。
-        job_description: 调用方传入的 `job_description` 参数。
-        jd_analysis: 调用方传入的 `jd_analysis` 参数。
-        material_pool: 调用方传入的 `material_pool` 参数。
-        retry_guidance: 调用方传入的 `retry_guidance` 参数。
+        resume_content: 经过类型边界校验的 `resume_content`；其格式和可选值由参数类型及调用流程约束。
+        job_description: 经过类型边界校验的 `job_description`；其格式和可选值由参数类型及调用流程约束。
+        jd_analysis: 经过类型边界校验的 `jd_analysis`；其格式和可选值由参数类型及调用流程约束。
+        material_pool: 经过类型边界校验的 `material_pool`；其格式和可选值由参数类型及调用流程约束。
+        retry_guidance: 经过类型边界校验的 `retry_guidance`；其格式和可选值由参数类型及调用流程约束。
         api_config: api 配置。
     """
     prompt = f"""你是简历改写 Agent 的规划器。请先规划本轮改写策略，不要输出最终简历。
@@ -188,17 +188,17 @@ async def _rewrite(
     api_config: Optional[dict],
     mode: ResumeRewriteMode,
 ) -> ContentSuggestionsOutput:
-    """异步执行 `_rewrite` 相关逻辑。
+    """根据评分反馈执行受边界约束的内容重写，不凭空增加简历事实。
 
     Args:
-        resume_content: 调用方传入的 `resume_content` 参数。
-        job_description: 调用方传入的 `job_description` 参数。
-        jd_analysis: 调用方传入的 `jd_analysis` 参数。
-        material_pool: 调用方传入的 `material_pool` 参数。
-        retry_guidance: 调用方传入的 `retry_guidance` 参数。
-        plan: 调用方传入的 `plan` 参数。
+        resume_content: 经过类型边界校验的 `resume_content`；其格式和可选值由参数类型及调用流程约束。
+        job_description: 经过类型边界校验的 `job_description`；其格式和可选值由参数类型及调用流程约束。
+        jd_analysis: 经过类型边界校验的 `jd_analysis`；其格式和可选值由参数类型及调用流程约束。
+        material_pool: 经过类型边界校验的 `material_pool`；其格式和可选值由参数类型及调用流程约束。
+        retry_guidance: 经过类型边界校验的 `retry_guidance`；其格式和可选值由参数类型及调用流程约束。
+        plan: 经过类型边界校验的 `plan`；其格式和可选值由参数类型及调用流程约束。
         api_config: api 配置。
-        mode: 调用方传入的 `mode` 参数。
+        mode: 经过类型边界校验的 `mode`；其格式和可选值由参数类型及调用流程约束。
     """
     plan_section = plan.model_dump() if plan else {}
     max_items = 4 if mode == "fast" else 8
@@ -276,10 +276,10 @@ def normalize_change_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def _material_summary(material_pool: dict[str, Any]) -> str:
-    """执行 `_material_summary` 相关逻辑。
+    """生成候选材料摘要，限制长度并避免把完整隐私材料写入 Prompt 或审计事件。
 
     Args:
-        material_pool: 调用方传入的 `material_pool` 参数。
+        material_pool: 经过类型边界校验的 `material_pool`；其格式和可选值由参数类型及调用流程约束。
     """
     conversations = material_pool.get("interview_conversations") or []
     sample_conversations: list[dict[str, str]] = []
@@ -304,7 +304,7 @@ def _material_summary(material_pool: dict[str, Any]) -> str:
 
 
 def _json_dumps(value: Any) -> str:
-    """执行 `_json_dumps` 相关逻辑。
+    """将值编码为稳定 JSON 文本，避免 Prompt 拼接时丢失结构或引入未转义内容。
 
     Args:
         value: 取值。
@@ -326,7 +326,7 @@ def _normalize_confidence(value: Any) -> float:
 
 
 def _calc_confidence(items: list[dict[str, Any]]) -> float:
-    """执行 `_calc_confidence` 相关逻辑。
+    """根据证据覆盖和修改风险计算简历修改置信度，供用户确认和审计使用。
 
     Args:
         items: 数据列表。

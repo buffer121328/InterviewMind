@@ -58,7 +58,7 @@ async def voice_chat_endpoint(
     try:
         generator = await voice_stream_use_cases.stream_voice_chat(request=request, user_id=user_id)
     except VoiceStreamUseCaseError as exc:
-        raise HTTPException(status_code=409, detail=exc.message) from exc
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
 
     return StreamingResponse(
         generator,
@@ -86,7 +86,7 @@ async def clone_voice_session(
 
 
 class VoiceSummaryRequest(BaseModel):
-    """表示 `VoiceSummaryRequest` 的接口数据模型。"""
+    """API 请求数据对象，定义 `VoiceSummary` 的字段校验和反序列化契约；只承载数据，不执行业务副作用。"""
     session_id: str
     api_config: dict[str, Any]
 

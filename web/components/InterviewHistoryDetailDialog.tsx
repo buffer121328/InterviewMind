@@ -40,12 +40,14 @@ const PROFILE_DIMENSIONS: Array<{ key: keyof AbilityProfile; label: string }> = 
     { key: 'collaboration', label: '协作能力' },
 ];
 
+/** Formats date into the stable display representation used by this view; invalid or empty values use the local fallback. */
 function formatDate(value?: string) {
     if (!value) return '-';
     const date = new Date(value);
     return Number.isNaN(date.getTime()) ? value : date.toLocaleString('zh-CN');
 }
 
+/** Renders the interview history detail dialog UI and coordinates its typed props, local state, and approved backend interactions. */
 export function InterviewHistoryDetailDialog({
     sessionId,
     open,
@@ -308,6 +310,7 @@ export function InterviewHistoryDetailDialog({
     );
 }
 
+/** Encapsulates info card; returns typed data or state and keeps side effects within the owning module boundary. */
 function InfoCard({ label, value }: { label: string; value: string }) {
     return (
         <div className="rounded-xl border border-gray-200 bg-gray-50/60 p-4">
@@ -317,6 +320,7 @@ function InfoCard({ label, value }: { label: string; value: string }) {
     );
 }
 
+/** Encapsulates info row; returns typed data or state and keeps side effects within the owning module boundary. */
 function InfoRow({ label, value }: { label: string; value: string }) {
     return (
         <div className="flex items-start justify-between gap-4">
@@ -326,6 +330,7 @@ function InfoRow({ label, value }: { label: string; value: string }) {
     );
 }
 
+/** Renders the list card UI and coordinates its typed props, local state, and approved backend interactions. */
 function ListCard({ title, items, tone }: { title: string; items: string[]; tone: 'success' | 'warning' }) {
     if (items.length === 0) return null;
     return (

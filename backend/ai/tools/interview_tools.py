@@ -109,11 +109,11 @@ def make_interview_tool_executor(
     """构造绑定上下文的工具执行器，供 InterviewRuntime 使用。"""
 
     async def execute(tool_name: str, **kwargs: Any) -> Any:
-        """执行 当前对象。
+        """执行当前工具或任务调用，先通过契约、权限、审批和审计校验，再把结果返回给上层工作流。
 
         Args:
             tool_name: tool 名称。
-            **kwargs: 调用方传入的 `kwargs` 参数。
+            **kwargs: 经过类型边界校验的 `kwargs`；其格式和可选值由参数类型及调用流程约束。
         """
         if tool_name == "search_question_bank":
             query = str(kwargs.get("query", "")).strip()

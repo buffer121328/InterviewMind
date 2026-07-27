@@ -18,7 +18,7 @@ class AbilityAnalysisService:
     """能力画像聚合服务 - 基于数据库存储"""
 
     def __init__(self):
-        """初始化当前对象实例。"""
+        """初始化 `AbilityAnalysisService` 的依赖和运行配置；构造阶段不执行业务写入，外部客户端只在后续方法调用时承担访问边界。"""
         self.session_repo = SessionRepo()
         self._generate_lock = asyncio.Lock()
         self._last_generate_time = {}  # user_id -> timestamp
@@ -227,7 +227,7 @@ class AbilityAnalysisService:
 _ability_service = None
 
 def get_ability_service() -> AbilityAnalysisService:
-    """获取 `ability service`。"""
+    """读取 ability service，并通过 owner 或生命周期校验限制可见范围；资源不存在或状态不合法时返回稳定的业务结果或异常。"""
     global _ability_service
     if _ability_service is None:
         _ability_service = AbilityAnalysisService()

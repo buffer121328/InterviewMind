@@ -38,7 +38,7 @@ class AgenticSearchContext:
 
 @dataclass(frozen=True)
 class EvidenceQuality:
-    """表示 `EvidenceQuality` 相关的数据或行为。"""
+    """证据质量评估结果，表达检索证据是否达到分数、数量和来源多样性阈值；只描述确定性判定，不执行检索。"""
     passed: bool
     issues: tuple[str, ...] = ()
     evidence_count: int = 0
@@ -49,7 +49,7 @@ class EvidenceQuality:
 
 @dataclass
 class AgenticSearchOutcome:
-    """表示 `AgenticSearchOutcome` 相关的数据或行为。"""
+    """Agentic 检索阶段的结构化结果，保存证据质量、轮次和审计 trace；供面试题生成消费，不直接写入用户材料。"""
     triggered: bool
     evidences: list[Any]
     quality: EvidenceQuality
@@ -61,7 +61,7 @@ ReadOnlyRetriever = Callable[[AgenticSearchQuery], Awaitable[list[Any]]]
 
 
 class _SearchState(TypedDict, total=False):
-    """表示 `_SearchState` 的字典状态结构。"""
+    """数据对象，承载 `SearchState` 的结构化字段和跨模块契约；只表达数据，不在构造或序列化时执行外部调用。"""
     context: AgenticSearchContext
     retrieve: ReadOnlyRetriever
     query: AgenticSearchQuery
@@ -203,7 +203,7 @@ def _rewrite_query(context: AgenticSearchContext) -> AgenticSearchQuery:
 
 
 def _quality_from_state(state: _SearchState) -> EvidenceQuality:
-    """执行 `_quality_from_state` 相关逻辑。
+    """从工作流状态提取检索质量指标，为路由提供稳定的布尔/等级判定。
 
     Args:
         state: 当前流程状态。
@@ -217,7 +217,7 @@ def _quality_from_state(state: _SearchState) -> EvidenceQuality:
 
 
 async def _assess(state: _SearchState) -> dict[str, Any]:
-    """异步执行 `_assess` 相关逻辑。
+    """评估检索结果是否足以支持当前回答，并将判断写入工作流状态。
 
     Args:
         state: 当前流程状态。
@@ -231,7 +231,7 @@ async def _assess(state: _SearchState) -> dict[str, Any]:
 
 
 def _after_assess(state: _SearchState) -> str:
-    """执行 `_after_assess` 相关逻辑。
+    """根据检索评估结果选择继续规划或结束流程，避免无效检索循环。
 
     Args:
         state: 当前流程状态。
@@ -240,7 +240,7 @@ def _after_assess(state: _SearchState) -> str:
 
 
 async def _plan(state: _SearchState) -> dict[str, Any]:
-    """异步执行 `_plan` 相关逻辑。
+    """根据当前检索质量和问题上下文生成下一步检索计划，限制无界扩展。
 
     Args:
         state: 当前流程状态。
@@ -274,7 +274,7 @@ def _dispatch_queries(state: _SearchState) -> list[Send] | str:
 
 
 async def _retrieve_one(state: _SearchState) -> dict[str, Any]:
-    """检索 `one`。
+    """在当前 owner 和检索约束下读取 one，把数据库结果转换为上层检索流程可消费的结构。
 
     Args:
         state: 当前流程状态。
@@ -305,7 +305,7 @@ async def _retrieve_one(state: _SearchState) -> dict[str, Any]:
 
 
 async def _grade(state: _SearchState) -> dict[str, Any]:
-    """异步执行 `_grade` 相关逻辑。
+    """对检索结果进行质量评分，并输出后续重写所需的结构化依据。
 
     Args:
         state: 当前流程状态。
@@ -318,7 +318,7 @@ async def _grade(state: _SearchState) -> dict[str, Any]:
 
 
 def _after_grade(state: _SearchState) -> str:
-    """执行 `_after_grade` 相关逻辑。
+    """根据评分结果选择重写或结束流程，并保持图状态中的质量边界。
 
     Args:
         state: 当前流程状态。
@@ -331,7 +331,7 @@ def _after_grade(state: _SearchState) -> str:
 
 
 async def _rewrite(state: _SearchState) -> dict[str, Any]:
-    """异步执行 `_rewrite` 相关逻辑。
+    """根据评分反馈执行受边界约束的内容重写，不凭空增加简历事实。
 
     Args:
         state: 当前流程状态。

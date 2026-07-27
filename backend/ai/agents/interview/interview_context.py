@@ -54,7 +54,7 @@ class InterviewContextSnapshot:
 
 
 def _question_dict(item: Any) -> dict[str, Any]:
-    """执行 `_question_dict` 相关逻辑。
+    """将题目对象转换为稳定的字典表示，兼容持久化和 Prompt 所需字段。
 
     Args:
         item: 单条数据。

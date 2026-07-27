@@ -12,14 +12,17 @@ export const ROUND_INDEX_DEFAULT_TYPES: Record<number, InterviewType> = {
   3: "hr_comprehensive",
 };
 
+/** Resolves round type by index using the supported compatibility and fallback rules. */
 export function resolveRoundTypeByIndex(roundIndex: number): InterviewType {
   return ROUND_INDEX_DEFAULT_TYPES[roundIndex] ?? "hr_comprehensive";
 }
 
+/** Encapsulates default questions for round type; returns typed data or state and keeps side effects within the owning module boundary. */
 export function defaultQuestionsForRoundType(roundType: InterviewType): number {
   return ROUND_TYPE_DEFAULT_QUESTIONS[roundType];
 }
 
+/** Encapsulates default questions for round index; returns typed data or state and keeps side effects within the owning module boundary. */
 export function defaultQuestionsForRoundIndex(roundIndex: number): number {
   return defaultQuestionsForRoundType(resolveRoundTypeByIndex(roundIndex));
 }

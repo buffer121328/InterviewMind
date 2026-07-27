@@ -21,12 +21,14 @@ import { Bot, Copy, Pencil, Check, X, RefreshCw, Mic } from 'lucide-react';
 import { Button } from './ui/button';
 import { Textarea } from './ui/textarea';
 
+/** Encapsulates chat message; returns typed data or state and keeps side effects within the owning module boundary. */
 export function ChatMessage({ role, content, isStreaming, onEdit, onCancelEdit, onRegenerate }: ChatMessageProps) {
     const isUser = role === 'user';
     const [isCopied, setIsCopied] = useState(false);
     const [isEditing, setIsEditing] = useState(false);
     const [editedContent, setEditedContent] = useState(content);
 
+    /** Handles copy; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleCopy = async () => {
         try {
             await navigator.clipboard.writeText(content);
@@ -37,11 +39,13 @@ export function ChatMessage({ role, content, isStreaming, onEdit, onCancelEdit, 
         }
     };
 
+    /** Handles start edit; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleStartEdit = () => {
         setEditedContent(content);
         setIsEditing(true);
     };
 
+    /** Handles confirm edit; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleConfirmEdit = () => {
         if (editedContent.trim()) {
             onEdit?.(editedContent.trim());
@@ -49,6 +53,7 @@ export function ChatMessage({ role, content, isStreaming, onEdit, onCancelEdit, 
         }
     };
 
+    /** Handles cancel edit; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleCancelEdit = () => {
         setEditedContent(content);
         setIsEditing(false);
@@ -122,6 +127,7 @@ export function ChatMessage({ role, content, isStreaming, onEdit, onCancelEdit, 
                                         components={{
                                             // 自定义 pre 标签（代码块容器）
                                             // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                                            /** Encapsulates pre; returns typed data or state and keeps side effects within the owning module boundary. */
                                             pre({ children, ...props }: any) {
                                                 return (
                                                     <pre className="bg-zinc-950 p-3 rounded-md my-2 overflow-x-auto text-xs text-white" {...props}>
@@ -131,6 +137,7 @@ export function ChatMessage({ role, content, isStreaming, onEdit, onCancelEdit, 
                                             },
                                             // 自定义 code 标签
                                             // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                                            /** Encapsulates code; returns typed data or state and keeps side effects within the owning module boundary. */
                                             code({ inline, className, children, ...props }: any) {
                                                 // 内联代码
                                                 if (inline) {

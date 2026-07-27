@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class GenerationSession:
-    """表示 `GenerationSession` 相关的数据或行为。"""
+    """可恢复的简历生成会话数据对象，保存用户 owner、草稿、问答、状态和关联 AgentRun；由 SessionStore 负责 TTL、事务和跨进程持久化，不在对象本身执行模型调用。"""
     session_id: str
     user_id: str
     resume_content: str
@@ -47,10 +47,10 @@ class SessionStore:
     """PostgreSQL 生成会话存储；支持重启恢复和多进程共享。"""
 
     def __init__(self, ttl_hours: int | None = None):
-        """初始化当前对象实例。
+        """初始化 `SessionStore` 的依赖和运行配置；构造阶段不执行业务写入，外部客户端仅在后续方法调用时承担对应的访问边界。
 
         Args:
-            ttl_hours: 调用方传入的 `ttl_hours` 参数。
+            ttl_hours: 经过类型边界校验的 `ttl_hours`；其格式和可选值由参数类型及调用流程约束。
         """
         import os
 
@@ -58,10 +58,10 @@ class SessionStore:
 
     @staticmethod
     def _to_session(row) -> GenerationSession:
-        """转换 `session`。
+        """把数据库行或兼容对象转换为内部结构，统一缺失字段和默认值，避免持久化层差异向上层扩散。
 
         Args:
-            row: 调用方传入的 `row` 参数。
+            row: 经过类型边界校验的 `row`；其格式和可选值由参数类型及调用流程约束。
         """
         return GenerationSession(
             session_id=row.id,
@@ -84,11 +84,11 @@ class SessionStore:
         )
 
     async def create(self, session_id: str, **kwargs) -> GenerationSession:
-        """创建 当前对象。
+        """创建当前服务声明的资源或运行对象；由所属仓储/注册表负责校验重复、owner 和持久化边界。
 
         Args:
             session_id: 会话标识。
-            **kwargs: 调用方传入的 `kwargs` 参数。
+            **kwargs: 经过类型边界校验的 `kwargs`；其格式和可选值由参数类型及调用流程约束。
         """
         from app.db.models.resume import ResumeGenerationSessionModel
 
@@ -114,7 +114,7 @@ class SessionStore:
             return self._to_session(row)
 
     async def get(self, session_id: str, user_id: Optional[str] = None) -> Optional[GenerationSession]:
-        """获取 当前对象。
+        """读取 get，并通过 owner 校验限制可见范围；资源不存在或状态不合法时返回稳定的业务结果或异常。
 
         Args:
             session_id: 会话标识。
@@ -136,12 +136,12 @@ class SessionStore:
             return self._to_session(row)
 
     async def update(self, session_id: str, user_id: Optional[str] = None, **kwargs) -> Optional[GenerationSession]:
-        """更新 当前对象。
+        """在会话 owner 校验和事务边界内更新生成结果；仅写入允许字段，不改变已完成记录的不可变审计信息。
 
         Args:
             session_id: 会话标识。
             user_id: 当前用户标识。
-            **kwargs: 调用方传入的 `kwargs` 参数。
+            **kwargs: 经过类型边界校验的 `kwargs`；其格式和可选值由参数类型及调用流程约束。
         """
         from app.db.models.resume import ResumeGenerationSessionModel
 
@@ -165,7 +165,7 @@ class SessionStore:
             return self._to_session(row)
 
     async def delete(self, session_id: str, user_id: Optional[str] = None) -> bool:
-        """删除 当前对象。
+        """在会话 owner 校验下删除生成结果，并保持资源不存在时的幂等语义。
 
         Args:
             session_id: 会话标识。
@@ -196,7 +196,7 @@ class ResumeGenerationRepo:
     """简历生成服务 - 管理生成的简历持久化"""
 
     def __init__(self):
-        """初始化当前对象实例。"""
+        """初始化 `ResumeGenerationRepo` 的依赖和运行配置；构造阶段不执行业务写入，外部客户端只在后续方法调用时承担访问边界。"""
         logger.info("ResumeGenerationService 初始化")
 
     async def save_generated_resume(

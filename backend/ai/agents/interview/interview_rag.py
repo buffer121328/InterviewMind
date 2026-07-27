@@ -529,7 +529,7 @@ async def run_rag_pipeline(
             ).strip()
 
             async def retrieve_agentic_query(query: AgenticSearchQuery) -> List[RagEvidence]:
-                """检索 `agentic query`。
+                """在当前 owner 和检索约束下读取 gentic query，把数据库结果转换为上层检索流程可消费的结构。
 
                 Args:
                     query: 查询条件。

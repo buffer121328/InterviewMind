@@ -20,6 +20,7 @@ router = APIRouter(prefix="/api/memory", tags=["记忆管理"])
 
 
 def _internal_error(message: str) -> HTTPException:
+    """构造不包含内部堆栈和敏感数据的统一记忆服务错误响应。"""
     return HTTPException(
         status_code=500,
         detail={"error": "InternalServerError", "message": message},

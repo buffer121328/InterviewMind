@@ -23,8 +23,8 @@ def _is_blocked_address(address: ipaddress.IPv4Address | ipaddress.IPv6Address, 
     """判断 `blocked address` 是否满足条件。
 
     Args:
-        address: 调用方传入的 `address` 参数。
-        allow_private: 调用方传入的 `allow_private` 参数。
+        address: 经过类型边界校验的 `address`；其格式和可选值由参数类型及调用流程约束。
+        allow_private: 经过类型边界校验的 `allow_private`；其格式和可选值由参数类型及调用流程约束。
     """
     if address.is_link_local or address.is_multicast or address.is_unspecified or address.is_reserved:
         return True

@@ -35,6 +35,7 @@ const KIND_LABEL: Record<string, string> = {
     voice: '语音',
 };
 
+/** Encapsulates safe endpoint label; returns typed data or state and keeps side effects within the owning module boundary. */
 function safeEndpointLabel(baseUrl: string) {
     try {
         return new URL(baseUrl).host;
@@ -43,6 +44,7 @@ function safeEndpointLabel(baseUrl: string) {
     }
 }
 
+/** Renders the settings dialog UI and coordinates its typed props, local state, and approved backend interactions. */
 export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     const store = useInterviewStore();
     const config = store.apiConfig;
@@ -50,24 +52,28 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     const [editingModel, setEditingModel] = useState<ModelConfig | undefined>();
     const [sourceModel, setSourceModel] = useState<ModelConfig | undefined>();
 
+    /** Handles add; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleAdd = () => {
         setEditingModel(undefined);
         setSourceModel(undefined);
         setShowModelForm(true);
     };
 
+    /** Handles edit; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleEdit = (model: ModelConfig) => {
         setEditingModel(model);
         setSourceModel(undefined);
         setShowModelForm(true);
     };
 
+    /** Handles duplicate; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleDuplicate = (model: ModelConfig) => {
         setEditingModel(undefined);
         setSourceModel(model);
         setShowModelForm(true);
     };
 
+    /** Handles save; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleSave = (modelData: Omit<ModelConfig, 'id' | 'createdAt'>) => {
         if (editingModel) store.updateModel(editingModel.id, modelData);
         else store.addModel(modelData);
@@ -76,12 +82,14 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
         setSourceModel(undefined);
     };
 
+    /** Handles delete; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleDelete = (model: ModelConfig) => {
         if (window.confirm(`确认删除模型连接「${model.name}」？相关通道分配会同时清空。`)) {
             store.deleteModel(model.id);
         }
     };
 
+    /** Handles clear all; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleClearAll = () => {
         if (!window.confirm('确认清除当前浏览器中的全部模型连接和 API Key？此操作无法撤销。')) return;
         config.models.forEach(model => store.deleteModel(model.id));

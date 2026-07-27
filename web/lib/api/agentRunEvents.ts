@@ -3,6 +3,7 @@ import { parseSseFrames } from '../sse';
 import { parseStreamEvent } from '../streamEvents';
 import type { AgentRunEvent } from './agentRunTypes';
 
+/** Calls the backend for list agent run events; the shared API client supplies request identity and error normalization, and this helper returns the typed endpoint result. */
 export async function listAgentRunEvents(
     runId: string,
     afterSequence = 0,
@@ -13,6 +14,7 @@ export async function listAgentRunEvents(
     return response.events || [];
 }
 
+/** Calls the backend for stream agent run events; the shared API client supplies request identity and error normalization, and this helper returns the typed endpoint result. */
 export async function streamAgentRunEvents(
     runId: string,
     onEvent: (event: AgentRunEvent) => void,

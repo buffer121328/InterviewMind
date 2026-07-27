@@ -27,7 +27,7 @@ class FileSizeExceededError(FileServiceError):
 
 
 class FileService:
-    """
+    """应用/基础设施协作者，负责 `FileService` 的职责；依赖通过构造或模块边界注入，外部调用、状态持久化和安全校验不向调用方隐藏。
     文件服务类，仅负责文本提取，不保存文件
 
     支持的文件格式：

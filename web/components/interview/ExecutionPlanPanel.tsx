@@ -8,6 +8,7 @@ interface ExecutionPlanPanelProps {
     dark?: boolean;
 }
 
+/** Renders the execution plan panel UI and coordinates its typed props, local state, and approved backend interactions. */
 export function ExecutionPlanPanel({ steps, className, dark = false }: ExecutionPlanPanelProps) {
     if (steps.length === 0) return null;
 

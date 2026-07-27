@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 
 class VoiceInterviewState(TypedDict):
-    """
+    """数据对象，承载 `VoiceInterviewState` 的结构化字段和跨模块契约；只表达数据，不在构造或序列化时执行外部调用。
     语音面试状态定义 - 统一的状态结构
     """
     # 基础信息

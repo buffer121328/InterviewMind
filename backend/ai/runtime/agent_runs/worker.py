@@ -24,7 +24,7 @@ dramatiq.set_broker(broker)
 
 @dramatiq.actor(queue_name="interactive", max_retries=10, min_backoff=1000)
 async def execute_agent_run(run_id: str) -> None:
-    """执行 `agent run`。
+    """执行当前工具或任务调用，先通过契约、权限、审批和审计校验，再把结果返回给上层工作流。
 
     Args:
         run_id: 运行标识。
@@ -45,7 +45,7 @@ async def execute_agent_run(run_id: str) -> None:
         cancel_poll_seconds = max(1, int(os.getenv("AGENT_RUN_CANCEL_POLL_SECONDS", "2")))
 
         async def heartbeat() -> None:
-            """异步执行 `heartbeat` 相关逻辑。"""
+            """周期性刷新运行任务的心跳，避免健康 worker 被误判为失联。"""
             while True:
                 await asyncio.sleep(heartbeat_seconds)
                 try:
@@ -64,7 +64,7 @@ async def execute_agent_run(run_id: str) -> None:
         )
 
         async def watch_cancellation() -> None:
-            """异步执行 `watch_cancellation` 相关逻辑。"""
+            """监听任务取消信号并通知协作式执行环，避免强制中断导致状态无法恢复。"""
             while not execution_task.done():
                 await asyncio.sleep(cancel_poll_seconds)
                 if await service.is_cancel_requested(run_id):

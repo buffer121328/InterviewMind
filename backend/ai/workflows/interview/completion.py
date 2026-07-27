@@ -75,6 +75,7 @@ async def queue_or_run_session_reports(
                 task_type=TASK_TYPE_INTERVIEW_REPORT,
                 payload={"session_id": session_id, "api_config": api_config},
                 idempotency_key=f"auto-report:{session_id}",
+                session_id=session_id,
             )
             if run.status in {"failed", "cancelled"}:
                 retried = await run_service.retry(run.id, user_id)

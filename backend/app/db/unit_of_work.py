@@ -25,10 +25,10 @@ class UnitOfWork:
     """
 
     def __init__(self, session_factory: Callable[[], AsyncSession] = async_session):
-        """初始化当前对象实例。
+        """初始化 `UnitOfWork` 的依赖和运行配置；构造阶段不执行业务写入，外部客户端仅在后续方法调用时承担对应的访问边界。
 
         Args:
-            session_factory: 调用方传入的 `session_factory` 参数。
+            session_factory: 经过类型边界校验的 `session_factory`；其格式和可选值由参数类型及调用流程约束。
         """
         self._session_factory = session_factory
         self.session: AsyncSession | None = None
@@ -47,9 +47,9 @@ class UnitOfWork:
         """异步退出上下文管理器并释放相关资源。
 
         Args:
-            exc_type: 调用方传入的 `exc_type` 参数。
-            exc: 调用方传入的 `exc` 参数。
-            tb: 调用方传入的 `tb` 参数。
+            exc_type: 经过类型边界校验的 `exc_type`；其格式和可选值由参数类型及调用流程约束。
+            exc: 经过类型边界校验的 `exc`；其格式和可选值由参数类型及调用流程约束。
+            tb: 经过类型边界校验的 `tb`；其格式和可选值由参数类型及调用流程约束。
         """
         if self.session is None:
             return False

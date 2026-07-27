@@ -40,12 +40,14 @@ const PROFILE_DIMENSIONS: Array<{
     { key: 'collaboration', label: '协作能力' },
 ];
 
+/** Renders the session profile dialog UI and coordinates its typed props, local state, and approved backend interactions. */
 export function SessionProfileDialog({ sessionId, open, onOpenChange, defaultTab = 'profile' }: Props) {
     const [activeTab, setActiveTab] = useState<TabType>(defaultTab);
     const [profile, setProfile] = useState<AbilityProfile | null>(null);
     const [loading, setLoading] = useState(true);
     const [generating, setGenerating] = useState(false);
 
+    /** Encapsulates load profile; returns typed data or state and keeps side effects within the owning module boundary. */
     async function loadProfile() {
         setLoading(true);
         const response = await getSessionProfile(sessionId);

@@ -6,12 +6,14 @@ import { CheckIcon, ChevronRightIcon, CircleIcon } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 
+/** Wraps the dropdown menu primitive while forwarding its typed props/ref and preserving the underlying accessibility semantics. */
 function DropdownMenu({
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Root>) {
   return <DropdownMenuPrimitive.Root data-slot="dropdown-menu" {...props} />
 }
 
+/** Wraps the dropdown menu portal primitive while forwarding its typed props/ref and preserving the underlying accessibility semantics. */
 function DropdownMenuPortal({
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Portal>) {
@@ -20,6 +22,7 @@ function DropdownMenuPortal({
   )
 }
 
+/** Wraps the dropdown menu trigger primitive while forwarding its typed props/ref and preserving the underlying accessibility semantics. */
 function DropdownMenuTrigger({
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Trigger>) {
@@ -31,6 +34,7 @@ function DropdownMenuTrigger({
   )
 }
 
+/** Wraps the dropdown menu content primitive while forwarding its typed props/ref and preserving the underlying accessibility semantics. */
 function DropdownMenuContent({
   className,
   sideOffset = 4,
@@ -51,6 +55,7 @@ function DropdownMenuContent({
   )
 }
 
+/** Wraps the dropdown menu group primitive while forwarding its typed props/ref and preserving the underlying accessibility semantics. */
 function DropdownMenuGroup({
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Group>) {
@@ -59,6 +64,7 @@ function DropdownMenuGroup({
   )
 }
 
+/** Wraps the dropdown menu item primitive while forwarding its typed props/ref and preserving the underlying accessibility semantics. */
 function DropdownMenuItem({
   className,
   inset,
@@ -82,6 +88,7 @@ function DropdownMenuItem({
   )
 }
 
+/** Wraps the dropdown menu checkbox item primitive while forwarding its typed props/ref and preserving the underlying accessibility semantics. */
 function DropdownMenuCheckboxItem({
   className,
   children,
@@ -108,6 +115,7 @@ function DropdownMenuCheckboxItem({
   )
 }
 
+/** Wraps the dropdown menu radio group primitive while forwarding its typed props/ref and preserving the underlying accessibility semantics. */
 function DropdownMenuRadioGroup({
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.RadioGroup>) {
@@ -119,6 +127,7 @@ function DropdownMenuRadioGroup({
   )
 }
 
+/** Wraps the dropdown menu radio item primitive while forwarding its typed props/ref and preserving the underlying accessibility semantics. */
 function DropdownMenuRadioItem({
   className,
   children,
@@ -143,6 +152,7 @@ function DropdownMenuRadioItem({
   )
 }
 
+/** Wraps the dropdown menu label primitive while forwarding its typed props/ref and preserving the underlying accessibility semantics. */
 function DropdownMenuLabel({
   className,
   inset,
@@ -163,6 +173,7 @@ function DropdownMenuLabel({
   )
 }
 
+/** Wraps the dropdown menu separator primitive while forwarding its typed props/ref and preserving the underlying accessibility semantics. */
 function DropdownMenuSeparator({
   className,
   ...props
@@ -176,6 +187,7 @@ function DropdownMenuSeparator({
   )
 }
 
+/** Wraps the dropdown menu shortcut primitive while forwarding its typed props/ref and preserving the underlying accessibility semantics. */
 function DropdownMenuShortcut({
   className,
   ...props
@@ -192,12 +204,14 @@ function DropdownMenuShortcut({
   )
 }
 
+/** Wraps the dropdown menu sub primitive while forwarding its typed props/ref and preserving the underlying accessibility semantics. */
 function DropdownMenuSub({
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Sub>) {
   return <DropdownMenuPrimitive.Sub data-slot="dropdown-menu-sub" {...props} />
 }
 
+/** Wraps the dropdown menu sub trigger primitive while forwarding its typed props/ref and preserving the underlying accessibility semantics. */
 function DropdownMenuSubTrigger({
   className,
   inset,
@@ -222,6 +236,7 @@ function DropdownMenuSubTrigger({
   )
 }
 
+/** Wraps the dropdown menu sub content primitive while forwarding its typed props/ref and preserving the underlying accessibility semantics. */
 function DropdownMenuSubContent({
   className,
   ...props

@@ -104,6 +104,7 @@ const workflow = [
   { title: "审核后进入求职流水", text: "查看结果、保留版本，并由你确认外部动作。", icon: ShieldCheck },
 ];
 
+/** Renders the landing page UI and coordinates its typed props, local state, and approved backend interactions. */
 export function LandingPage({ onNavigate, onOpenSettings }: LandingPageProps) {
   return (
     <div className="min-h-screen bg-[#f7faf9] text-slate-950">
@@ -228,9 +229,9 @@ export function LandingPage({ onNavigate, onOpenSettings }: LandingPageProps) {
         <section className="mx-auto max-w-7xl px-5 py-20 sm:px-8">
           <div className="flex flex-col justify-between gap-5 sm:flex-row sm:items-end">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-teal-700">Workspace</p>
-              <h2 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950">后端能力，都有明确的前端入口</h2>
-              <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-600">每个模块直接对应现有后端 API 和数据边界，配置、运行状态与用户确认不会藏在营销页面之后。</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-teal-700">求职闭环</p>
+              <h2 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950">从准备到投递，把每一步真正串起来</h2>
+              <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-600">简历、JD、题库、面试记录和任务进度在同一处持续流转；你随时知道下一步做什么，也始终保留对外投递的最终决定权。</p>
             </div>
             <Button variant="ghost" className="justify-start text-teal-700" onClick={() => onNavigate("guide")}>
               查看完整使用指南 <ChevronRight className="h-4 w-4" />

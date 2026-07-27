@@ -10,6 +10,7 @@ interface ResumeSessionPickerProps {
     onToggleSession: (sessionId: string) => void;
 }
 
+/** Encapsulates resume session picker; returns typed data or state and keeps side effects within the owning module boundary. */
 export function ResumeSessionPicker({
     sessions,
     selectedSessions,

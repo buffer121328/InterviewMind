@@ -36,6 +36,7 @@ const buttonVariants = cva(
   }
 )
 
+/** Wraps the button primitive while forwarding its typed props/ref and preserving the underlying accessibility semantics. */
 function Button({
   className,
   variant,

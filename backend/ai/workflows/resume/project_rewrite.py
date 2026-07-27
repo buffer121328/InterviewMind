@@ -34,7 +34,7 @@ class ProjectRewriteUseCases:
     """项目经历重写应用服务。"""
 
     async def rewrite(self, *, request: ProjectRewriteRequest, user_id: str) -> ProjectRewriteResponse:
-        """异步执行 `rewrite` 相关逻辑。
+        """根据用户选择和证据执行内容重写，保留事实约束和用户确认边界。
 
         Args:
             request: 请求对象。
@@ -78,11 +78,11 @@ class ProjectRewriteUseCases:
         rewrite_mode: str | None,
         limit: int,
     ) -> ProjectRewriteHistoryResponse:
-        """列出 `results`。
+        """按 owner、筛选条件和分页参数读取 results；仅返回当前调用方有权查看的持久化结果。
 
         Args:
             user_id: 当前用户标识。
-            rewrite_mode: 调用方传入的 `rewrite_mode` 参数。
+            rewrite_mode: 经过类型边界校验的 `rewrite_mode`；其格式和可选值由参数类型及调用流程约束。
             limit: 返回数量上限。
         """
         try:
@@ -107,7 +107,7 @@ class ProjectRewriteUseCases:
             return ProjectRewriteHistoryResponse(success=False, message=str(exc))
 
     async def get_result(self, *, rewrite_id: int, user_id: str) -> ProjectRewriteDetailResponse:
-        """获取 `result`。
+        """读取 result，并通过 owner 校验限制可见范围；资源不存在或状态不合法时返回稳定的业务结果或异常。
 
         Args:
             rewrite_id: rewrite 标识。
@@ -119,7 +119,7 @@ class ProjectRewriteUseCases:
         return ProjectRewriteDetailResponse(success=True, record=record)
 
     async def delete_result(self, *, rewrite_id: int, user_id: str) -> dict[str, object]:
-        """删除 `result`。
+        """在 owner 校验下删除 result；删除失败或资源不可见时保持幂等的业务错误语义。
 
         Args:
             rewrite_id: rewrite 标识。

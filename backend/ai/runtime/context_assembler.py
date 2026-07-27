@@ -23,7 +23,7 @@ DEFAULT_AGENT_CONTEXT_BUDGETS: dict[str, dict[str, int]] = {
 
 @dataclass(frozen=True, slots=True)
 class ContextSource:
-    """表示 `ContextSource` 相关的数据或行为。"""
+    """模型上下文来源记录，保存来源名、可信度、可见性和截断限制；供 ContextAssembler 做 prompt-injection 过滤与审计，不负责读取外部数据。"""
     name: str
     content: str
     score: float | None = None
@@ -35,7 +35,7 @@ class ContextSource:
 
 @dataclass(frozen=True, slots=True)
 class AssembledContext:
-    """表示 `AssembledContext` 相关的数据或行为。"""
+    """上下文组装结果，区分可信运行上下文、模型可见文本和来源审计；下游只能消费已截断、已过滤的内容。"""
     trusted_context: dict[str, Any]
     model_context: str
     source_audit: list[dict[str, Any]]
@@ -43,7 +43,7 @@ class AssembledContext:
 
 
 class ContextAssembler:
-    """表示 `ContextAssembler` 相关的数据或行为。"""
+    """统一组装 Agent 上下文，负责来源分级、预算截断、prompt-injection 过滤和审计记录；不执行数据库或模型调用。"""
     def __init__(
         self,
         *,
@@ -51,12 +51,12 @@ class ContextAssembler:
         total_model_chars: int = 10_000,
         source_budgets: dict[str, int] | None = None,
     ) -> None:
-        """初始化当前对象实例。
+        """初始化 `ContextAssembler` 的依赖和运行配置；构造阶段不执行业务写入，外部客户端仅在后续方法调用时承担对应的访问边界。
 
         Args:
             agent_name: agent 名称。
-            total_model_chars: 调用方传入的 `total_model_chars` 参数。
-            source_budgets: 调用方传入的 `source_budgets` 参数。
+            total_model_chars: 经过类型边界校验的 `total_model_chars`；其格式和可选值由参数类型及调用流程约束。
+            source_budgets: 经过类型边界校验的 `source_budgets`；其格式和可选值由参数类型及调用流程约束。
         """
         self.agent_name = agent_name
         self.total_model_chars = max(0, total_model_chars)
@@ -66,10 +66,10 @@ class ContextAssembler:
         }
 
     def assemble(self, sources: list[ContextSource]) -> AssembledContext:
-        """组装 当前对象。
+        """把已校验的上下文片段组合为工作流输入，保持来源、截断和脱敏规则，不直接调用外部服务。
 
         Args:
-            sources: 调用方传入的 `sources` 参数。
+            sources: 经过类型边界校验的 `sources`；其格式和可选值由参数类型及调用流程约束。
         """
         trusted_context: dict[str, Any] = {}
         visible_sections: list[str] = []

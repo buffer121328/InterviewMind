@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 class InterviewRetrievalService:
     """封装业务服务能力。"""
     def __init__(self, structured_repo: RetrievalRepo | None = None) -> None:
-        """初始化当前对象实例。
+        """初始化 `InterviewRetrievalService` 的依赖和运行配置；构造阶段不执行业务写入，外部客户端仅在后续方法调用时承担对应的访问边界。
 
         Args:
             structured_repo: structured 仓储对象。
@@ -30,15 +30,15 @@ class InterviewRetrievalService:
         limit: int = 10,
         api_config: Optional[dict] = None,
     ) -> Dict[str, Any]:
-        """检索 `for question generation`。
+        """在当前 owner 和检索约束下读取 or question generation，把数据库结果转换为上层检索流程可消费的结构。
 
         Args:
             user_id: 当前用户标识。
-            job_description: 调用方传入的 `job_description` 参数。
-            target_skills: 调用方传入的 `target_skills` 参数。
+            job_description: 经过类型边界校验的 `job_description`；其格式和可选值由参数类型及调用流程约束。
+            target_skills: 经过类型边界校验的 `target_skills`；其格式和可选值由参数类型及调用流程约束。
             session_id: 会话标识。
-            round_type: 调用方传入的 `round_type` 参数。
-            weakness_report: 调用方传入的 `weakness_report` 参数。
+            round_type: 经过类型边界校验的 `round_type`；其格式和可选值由参数类型及调用流程约束。
+            weakness_report: 经过类型边界校验的 `weakness_report`；其格式和可选值由参数类型及调用流程约束。
             limit: 返回数量上限。
         """
         try:
@@ -75,7 +75,7 @@ _retrieval_service: InterviewRetrievalService | None = None
 
 
 def get_interview_retrieval_service() -> InterviewRetrievalService:
-    """获取 `interview retrieval service`。"""
+    """读取 interview retrieval service，并通过 owner 或生命周期校验限制可见范围；资源不存在或状态不合法时返回稳定的业务结果或异常。"""
     global _retrieval_service
     if _retrieval_service is None:
         _retrieval_service = InterviewRetrievalService()

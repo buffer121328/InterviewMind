@@ -28,11 +28,11 @@ class InterviewReportUseCases:
     """面试画像和短板地图应用服务。"""
 
     def __init__(self) -> None:
-        """初始化当前对象实例。"""
+        """初始化 `InterviewReportUseCases` 的依赖和运行配置；构造阶段不执行业务写入，外部客户端只在后续方法调用时承担访问边界。"""
         self._session_repo = SessionRepo()
 
     async def generate_profile(self, *, request: ProfileGenerateRequest | None, user_id: str) -> dict[str, object]:
-        """生成 `profile`。
+        """基于已完成面试内容生成能力画像，并把模型结果限制在当前用户和脱敏后的观测范围内。
 
         Args:
             request: 请求对象。
@@ -55,7 +55,7 @@ class InterviewReportUseCases:
         return response
 
     async def get_overall_profile(self, *, user_id: str) -> dict[str, object]:
-        """获取 `overall profile`。
+        """读取 overall profile，并通过 owner 校验限制可见范围；资源不存在或状态不合法时返回稳定的业务结果或异常。
 
         Args:
             user_id: 当前用户标识。
@@ -66,7 +66,7 @@ class InterviewReportUseCases:
         return {"success": True, "profile": result["profile"], "generated_at": result["updated_at"]}
 
     async def get_session_profile(self, *, session_id: str, user_id: str) -> dict[str, object]:
-        """获取 `session profile`。
+        """读取 session profile，并通过 owner 校验限制可见范围；资源不存在或状态不合法时返回稳定的业务结果或异常。
 
         Args:
             session_id: 会话标识。
@@ -81,7 +81,7 @@ class InterviewReportUseCases:
         return {"success": True, "profile": profile}
 
     async def generate_weakness_report(self, *, request: WeaknessGenerateRequest, user_id: str) -> dict[str, object]:
-        """生成 `weakness report`。
+        """基于面试证据生成短板报告，保留来源和置信边界；结果持久化由用例层负责，不把原始隐私材料写入日志。
 
         Args:
             request: 请求对象。
@@ -102,7 +102,7 @@ class InterviewReportUseCases:
         return {"success": True, "message": "短板地图已生成", "report": report}
 
     async def get_weakness_by_session(self, *, session_id: str, user_id: str) -> dict[str, object]:
-        """获取 `weakness by session`。
+        """读取 weakness by session，并通过 owner 校验限制可见范围；资源不存在或状态不合法时返回稳定的业务结果或异常。
 
         Args:
             session_id: 会话标识。
@@ -114,7 +114,7 @@ class InterviewReportUseCases:
         return {"success": True, "report": report}
 
     async def get_weakness_history(self, *, user_id: str) -> dict[str, object]:
-        """获取 `weakness history`。
+        """读取 weakness history，并通过 owner 校验限制可见范围；资源不存在或状态不合法时返回稳定的业务结果或异常。
 
         Args:
             user_id: 当前用户标识。

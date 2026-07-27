@@ -66,6 +66,7 @@ interface ProjectRewriteDialogProps {
     onRefreshMaterials?: () => void;
 }
 
+/** Renders the project rewrite dialog UI and coordinates its typed props, local state, and approved backend interactions. */
 export function ProjectRewriteDialog({
     open,
     onOpenChange,
@@ -87,6 +88,7 @@ export function ProjectRewriteDialog({
     const [isRewriting, setIsRewriting] = useState(false);
 
     // 执行重写
+    /** Handles rewrite; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleRewrite = async () => {
         if (!projectContent.trim()) {
             toast.error('请输入项目内容');
@@ -132,6 +134,7 @@ export function ProjectRewriteDialog({
     };
 
     // 复制到剪贴板
+    /** Handles copy; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleCopy = async (text: string) => {
         try {
             await navigator.clipboard.writeText(text);
@@ -142,6 +145,7 @@ export function ProjectRewriteDialog({
     };
 
     // 覆盖当前素材
+    /** Handles overwrite material; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleOverwriteMaterial = async () => {
         if (!result || !materialId) return;
         try {
@@ -158,6 +162,7 @@ export function ProjectRewriteDialog({
     };
 
     // 另存为新素材
+    /** Handles save as new; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleSaveAsNew = async () => {
         if (!result) return;
         try {
@@ -181,6 +186,7 @@ export function ProjectRewriteDialog({
     };
 
     // 应用到当前（回调）
+    /** Handles apply; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleApply = () => {
         if (result) {
             onApply?.(result.rewritten_content);

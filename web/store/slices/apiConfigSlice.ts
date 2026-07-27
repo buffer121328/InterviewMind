@@ -73,6 +73,7 @@ export type ApiConfigSlice = ApiConfigState & ApiConfigActions;
 type SetState = (partial: Partial<ApiConfigSlice> | ((state: ApiConfigSlice) => Partial<ApiConfigSlice>)) => void;
 type GetState = () => ApiConfigSlice;
 
+/** Creates the api config Zustand slice; it owns long-lived shared state and leaves server persistence and authorization to the API layer. */
 export const createApiConfigSlice = (set: SetState, get: GetState): ApiConfigSlice => ({
     // ===== 初始状态 =====
     apiConfig: DEFAULT_API_CONFIG,
@@ -325,6 +326,7 @@ export const createApiConfigSlice = (set: SetState, get: GetState): ApiConfigSli
         if (!smartModel || !fastModel) return null;
 
         // 辅助函数：获取模型配置，如果未设置则回退到 smart
+        /** Provides the get model config store helper; request-scoped configuration and session state stay centralized in Zustand, while backend persistence remains in the API layer. */
         const getModelConfig = (model: ModelConfig | null) => {
             const m = model || smartModel;
             return {
@@ -334,6 +336,7 @@ export const createApiConfigSlice = (set: SetState, get: GetState): ApiConfigSli
             };
         };
 
+        /** Provides the get pool config store helper; request-scoped configuration and session state stay centralized in Zustand, while backend persistence remains in the API layer. */
         const getPoolConfig = (ids: string[] | undefined, fallback: ModelConfig) => {
             const selected = (ids || [])
                 .map(id => get().apiConfig.models.find(model => model.id === id))

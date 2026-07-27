@@ -24,6 +24,9 @@ class FakeLangfuseClient:
         self.observations.append((kwargs, span))
         yield span
 
+    def create_trace_id(self):
+        return "0123456789abcdef0123456789abcdef"
+
     def shutdown(self):
         self.shutdown_called = True
 
@@ -102,6 +105,7 @@ async def test_agent_observation_records_safe_input_output_and_trace_attributes(
     assert client.observations[0][0] == {
         "as_type": "span",
         "name": "resume-pipeline",
+        "trace_context": {"trace_id": observation.trace_id},
     }
     assert attributes == [
         {
@@ -300,6 +304,34 @@ def test_shutdown_langfuse_closes_client(monkeypatch):
     observability.shutdown_langfuse()
 
     assert client.shutdown_called is True
+
+
+def test_get_langfuse_trace_url_returns_valid_sdk_link(monkeypatch):
+    import observability
+
+    client = FakeLangfuseClient()
+    client.get_trace_url = lambda *, trace_id: (
+        f"https://langfuse.example/project/project-1/traces/{trace_id}"
+    )
+    monkeypatch.setattr(observability, "_client", client)
+    monkeypatch.setattr(observability, "_configured", True)
+
+    assert observability.get_langfuse_trace_url("trace-1") == (
+        "https://langfuse.example/project/project-1/traces/trace-1"
+    )
+
+
+def test_get_langfuse_trace_url_rejects_credentialed_link(monkeypatch):
+    import observability
+
+    client = FakeLangfuseClient()
+    client.get_trace_url = lambda *, trace_id: (
+        f"https://user:secret@langfuse.example/traces/{trace_id}"
+    )
+    monkeypatch.setattr(observability, "_client", client)
+    monkeypatch.setattr(observability, "_configured", True)
+
+    assert observability.get_langfuse_trace_url("trace-1") is None
 
 
 @pytest.mark.asyncio

@@ -6,12 +6,14 @@ import { ChevronDownIcon } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 
+/** Wraps the accordion primitive while forwarding its typed props/ref and preserving the underlying accessibility semantics. */
 function Accordion({
   ...props
 }: React.ComponentProps<typeof AccordionPrimitive.Root>) {
   return <AccordionPrimitive.Root data-slot="accordion" {...props} />
 }
 
+/** Wraps the accordion item primitive while forwarding its typed props/ref and preserving the underlying accessibility semantics. */
 function AccordionItem({
   className,
   ...props
@@ -25,6 +27,7 @@ function AccordionItem({
   )
 }
 
+/** Wraps the accordion trigger primitive while forwarding its typed props/ref and preserving the underlying accessibility semantics. */
 function AccordionTrigger({
   className,
   children,
@@ -47,6 +50,7 @@ function AccordionTrigger({
   )
 }
 
+/** Wraps the accordion content primitive while forwarding its typed props/ref and preserving the underlying accessibility semantics. */
 function AccordionContent({
   className,
   children,

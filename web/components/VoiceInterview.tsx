@@ -25,10 +25,12 @@ interface VoiceInterviewProps {
     onEnd: () => void;
 }
 
+/** Determines whether is abort error so callers can apply the same UI or safety boundary consistently. */
 function isAbortError(error: unknown): boolean {
     return error instanceof Error && error.name === 'AbortError';
 }
 
+/** Renders the voice interview UI and coordinates its typed props, local state, and approved backend interactions. */
 export function VoiceInterview({ sessionId, onEnd }: VoiceInterviewProps) {
     const [status, setStatus] = useState<VoiceInterviewStatus>('initializing');
     const [isMuted, setIsMuted] = useState(false);
@@ -93,6 +95,7 @@ export function VoiceInterview({ sessionId, onEnd }: VoiceInterviewProps) {
     });
 
     // 挂断并同步数据
+    /** Handles hang up; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleHangUp = async () => {
         try {
             // 只停止录音和音频播放，不中断 SSE 流，让数据继续接收完成
@@ -107,6 +110,7 @@ export function VoiceInterview({ sessionId, onEnd }: VoiceInterviewProps) {
     };
 
     // 专门用于开场白的流式生成（在初始化时调用）
+    /** Encapsulates send to omni for greeting; returns typed data or state and keeps side effects within the owning module boundary. */
     async function sendToOmniForGreeting(
         apiConfig: NonNullable<VoiceRequestApiConfig>,
         prompt: string,
@@ -192,6 +196,7 @@ export function VoiceInterview({ sessionId, onEnd }: VoiceInterviewProps) {
     });
 
     // 3. 发送音频/文本给 Omni (SSE 流式接收)
+    /** Encapsulates send to omni; returns typed data or state and keeps side effects within the owning module boundary. */
     async function sendToOmni(
         apiConfig: NonNullable<VoiceRequestApiConfig>,
         prompt: string,
@@ -314,6 +319,7 @@ export function VoiceInterview({ sessionId, onEnd }: VoiceInterviewProps) {
     }
 
     // 处理用户语音输入
+    /** Handles user audio; updates local UI state first and delegates server mutations through the approved API boundary. */
     async function handleUserAudio(audioBlob: Blob, transcript?: string) {
         if (isMuted) return;
 
@@ -326,6 +332,7 @@ export function VoiceInterview({ sessionId, onEnd }: VoiceInterviewProps) {
     }
 
     // Helper
+    /** Encapsulates blob to base64; returns typed data or state and keeps side effects within the owning module boundary. */
     function blobToBase64(blob: Blob): Promise<string> {
         return new Promise((resolve, reject) => {
             const reader = new FileReader();

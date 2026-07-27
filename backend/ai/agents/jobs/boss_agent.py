@@ -17,7 +17,7 @@ BOSS_AGENT_SYSTEM_PROMPT = """BOSS 求职工作流按固定步骤执行：环境
 
 
 class BossSearchState(TypedDict, total=False):
-    """表示 `BossSearchState` 的字典状态结构。"""
+    """数据对象，承载 `BossSearchState` 的结构化字段和跨模块契约；只表达数据，不在构造或序列化时执行外部调用。"""
     query: str
     city: str
     top_n: int
@@ -52,6 +52,7 @@ def _build_boss_graph(
         audit_callback: Any = None,
         **kwargs: Any,
     ) -> Any:
+        """在当前用户上下文中执行 BOSS 工具，统一应用权限、人工确认、审计和工具副作用策略。"""
         contract = boss_tools.get_boss_tool_contract(contract_name)
         return await guard.execute(
             call,
@@ -89,7 +90,7 @@ def _build_boss_graph(
         return {"environment": result, "error": error}
 
     def after_environment(state: BossSearchState) -> str:
-        """执行 `after_environment` 相关逻辑。
+        """根据环境检查结果决定继续读取页面还是安全结束 BOSS 流程。
 
         Args:
             state: 当前流程状态。
@@ -97,7 +98,7 @@ def _build_boss_graph(
         return "finish" if state.get("error") else "open_page"
 
     async def acquire_cards(state: BossSearchState) -> dict:
-        """异步执行 `acquire_cards` 相关逻辑。
+        """读取 BOSS 搜索结果并提取岗位卡片，失败时写入工作流错误而不继续评分。
 
         Args:
             state: 当前流程状态。
@@ -125,7 +126,7 @@ def _build_boss_graph(
         return {"cards": cards, "error": "" if cards else "未提取到岗位"}
 
     def after_acquire(state: BossSearchState) -> str:
-        """执行 `after_acquire` 相关逻辑。
+        """根据岗位卡片获取结果选择评分或结束分支。
 
         Args:
             state: 当前流程状态。
@@ -133,7 +134,7 @@ def _build_boss_graph(
         return "finish" if state.get("error") else "score"
 
     async def score(state: BossSearchState) -> dict:
-        """异步执行 `score` 相关逻辑。
+        """对岗位卡片进行匹配评分，输入简历和模型配置只在当前请求上下文中使用。
 
         Args:
             state: 当前流程状态。
@@ -150,10 +151,10 @@ def _build_boss_graph(
         return {"cards": cards[: state["top_n"]]}
 
     async def _process_card(card: Dict[str, Any]) -> Dict[str, Any]:
-        """处理 `card`。
+        """处理 card，将单项结果映射为可审计的流程状态，并隔离单项失败对整体任务的影响。
 
         Args:
-            card: 调用方传入的 `card` 参数。
+            card: 经过类型边界校验的 `card`；其格式和可选值由参数类型及调用流程约束。
         """
         saved = await execute_tool(
             "save_job_to_database",
@@ -177,7 +178,7 @@ def _build_boss_graph(
         return result
 
     async def persist(state: BossSearchState) -> dict:
-        """异步执行 `persist` 相关逻辑。
+        """持久化当前阶段结果和审计信息；外部写入失败不应泄露敏感载荷。
 
         Args:
             state: 当前流程状态。
@@ -186,7 +187,7 @@ def _build_boss_graph(
         return {"processed": processed}
 
     async def finish(state: BossSearchState) -> dict:
-        """异步执行 `finish` 相关逻辑。
+        """完成 BOSS 工作流的状态收尾，返回可展示结果并保留工具审计事件。
 
         Args:
             state: 当前流程状态。

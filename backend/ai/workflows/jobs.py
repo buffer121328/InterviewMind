@@ -47,7 +47,7 @@ class JobsUseCases:
     """岗位自动化应用服务。"""
 
     async def capture_job(self, *, request: JobCaptureRequest, user_id: str) -> JobCaptureResponse:
-        """异步执行 `capture_job` 相关逻辑。
+        """保存用户确认的岗位信息，并执行 owner 校验、去重和审计边界。
 
         Args:
             request: 请求对象。
@@ -85,7 +85,7 @@ class JobsUseCases:
         )
 
     async def preview_job_application(self, *, request: ApplyPreviewRequest, user_id: str) -> ApplyResponse:
-        """预览 `job application`。
+        """生成 BOSS 投递预览并创建一次性审批上下文；只读目标和候选人摘要，不执行实际投递或发送消息。
 
         Args:
             request: 请求对象。
@@ -99,7 +99,7 @@ class JobsUseCases:
         )
 
     async def send_job_application(self, *, request: ApplySendRequest, user_id: str) -> ApplyResponse:
-        """发送 `job application`。
+        """在审批许可、owner 和限流校验通过后发送 BOSS 投递请求；外部结果写入审计边界，失败不得伪装为成功。
 
         Args:
             request: 请求对象。
@@ -115,7 +115,7 @@ class JobsUseCases:
         )
 
     async def get_job(self, *, job_id: int, user_id: str) -> JobDetailResponse:
-        """获取 `job`。
+        """读取 job，并通过 owner 校验限制可见范围；资源不存在或状态不合法时返回稳定的业务结果或异常。
 
         Args:
             job_id: 岗位标识。
@@ -136,12 +136,12 @@ class JobsUseCases:
         limit: int,
         offset: int,
     ) -> JobListResponse:
-        """列出 `jobs`。
+        """按 owner、筛选条件和分页参数读取 jobs；仅返回当前调用方有权查看的持久化结果。
 
         Args:
             user_id: 当前用户标识。
-            platform: 调用方传入的 `platform` 参数。
-            status: 调用方传入的 `status` 参数。
+            platform: 经过类型边界校验的 `platform`；其格式和可选值由参数类型及调用流程约束。
+            status: 经过类型边界校验的 `status`；其格式和可选值由参数类型及调用流程约束。
             limit: 返回数量上限。
             offset: 分页偏移量。
         """
@@ -175,7 +175,7 @@ class JobsUseCases:
         return JobListResponse(success=True, jobs=items, total=total)
 
     async def delete_job(self, *, job_id: int, user_id: str) -> dict[str, object]:
-        """删除 `job`。
+        """在 owner 校验下删除 job；删除失败或资源不可见时保持幂等的业务错误语义。
 
         Args:
             job_id: 岗位标识。
@@ -193,7 +193,7 @@ class JobsUseCases:
         request: CaptureRecommendationsRequest,
         user_id: str,
     ) -> CaptureRecommendationsResponse:
-        """异步执行 `capture_recommendations` 相关逻辑。
+        """保存用户选择的岗位推荐结果，不在推荐阶段自动触发投递。
 
         Args:
             request: 请求对象。

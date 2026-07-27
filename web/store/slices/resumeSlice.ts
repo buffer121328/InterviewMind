@@ -110,6 +110,7 @@ export type ResumeSlice = ResumeState & ResumeActions;
 type SetState = (partial: Partial<ResumeSlice> | ((state: ResumeSlice) => Partial<ResumeSlice>)) => void;
 type GetState = () => ResumeSlice;
 
+/** Creates the resume Zustand slice; it owns long-lived shared state and leaves server persistence and authorization to the API layer. */
 export const createResumeSlice = (set: SetState, get: GetState): ResumeSlice => ({
     // ===== 初始状态 =====
     resumeResults: [],

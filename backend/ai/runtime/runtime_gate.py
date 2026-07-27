@@ -17,7 +17,7 @@ class _Lease(Protocol):
     """运行锁协议：释放锁的接口。"""
 
     async def release(self) -> None:
-        """异步执行 `release` 相关逻辑。"""
+        """释放运行锁或资源，并保证重复释放不会破坏其他任务的所有权。"""
         ...
 
 
@@ -37,7 +37,7 @@ class LocalRunGate:
     """本地进程级别的运行门禁（无 Redis 时回退）。"""
 
     def __init__(self) -> None:
-        """初始化当前对象实例。"""
+        """初始化 `LocalRunGate` 的依赖和运行配置；构造阶段不执行业务写入，外部客户端只在后续方法调用时承担访问边界。"""
         self._lock = asyncio.Lock()
 
     async def acquire(self) -> _Lease | None:
@@ -104,7 +104,7 @@ class RedisRunGate:
     """基于 Redis 的跨进程运行门禁。"""
 
     def __init__(self, redis_url: str) -> None:
-        """初始化当前对象实例。
+        """初始化 `RedisRunGate` 的依赖和运行配置；构造阶段不执行业务写入，外部客户端仅在后续方法调用时承担对应的访问边界。
 
         Args:
             redis_url: redis URL。

@@ -37,10 +37,12 @@ interface UseVoiceInterviewSessionParams {
     resetPlaybackFlow: () => void;
 }
 
+/** Provides the is abort error frontend hook and owns its browser resource lifecycle. */
 function isAbortError(error: unknown): boolean {
     return error instanceof Error && error.name === 'AbortError';
 }
 
+/** Provides the use voice interview session React hook and encapsulates its subscriptions, lifecycle cleanup, and state updates. */
 export function useVoiceInterviewSession({
     sessionId,
     status,

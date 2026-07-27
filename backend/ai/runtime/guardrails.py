@@ -35,6 +35,7 @@ class GuardrailViolation(ValueError):
     """不可信输入或最终产物未通过安全策略。"""
 
     def __init__(self, decision: GuardrailDecision) -> None:
+        """初始化 Guardrails 运行时校验器；仅负责本地校验配置，不发送 vendor telemetry。"""
         super().__init__(decision.message)
         self.decision = decision
 
@@ -62,6 +63,7 @@ class PromptInjectionValidator(Validator):
     """复用项目既有检测规则，将不可信指令拦在模型上下文之前。"""
 
     def validate(self, value: Any, metadata: dict[str, Any]) -> PassResult | FailResult:
+        """校验模型输出是否满足指定 Guard，并将失败转换为可审计的领域结果。"""
         _ = metadata
         if contains_prompt_injection(value):
             return FailResult(error_message="prompt injection pattern detected")
@@ -92,14 +94,17 @@ def _settings() -> Any:
 
 
 def _is_enabled() -> bool:
+    """读取 Guardrails 总开关，保持设置延迟加载以支持轻量单测和脚本。"""
     return bool(_settings().guardrails_enabled)
 
 
 def _max_untrusted_chars() -> int:
+    """读取外部不可信上下文的最大字符数，作为进入模型前的硬边界。"""
     return int(_settings().guardrails_max_untrusted_context_chars)
 
 
 def _fail_closed() -> bool:
+    """读取校验器异常时是否拒绝请求的安全策略。"""
     return bool(_settings().guardrails_fail_closed)
 
 
@@ -112,6 +117,7 @@ def _configure_local_guard(guard: Guard) -> Guard:
 
 @lru_cache(maxsize=1)
 def _untrusted_text_guard() -> Guard:
+    """惰性构造外部文本校验 Guard，并禁用供应商遥测以保持审计留在本项目内。"""
     return _configure_local_guard(
         Guard.for_string(
             validators=[PromptInjectionValidator(on_fail="noop")],
@@ -123,6 +129,7 @@ def _untrusted_text_guard() -> Guard:
 
 @lru_cache(maxsize=1)
 def _resume_output_guard() -> Guard:
+    """惰性构造最终简历输出 Guard，在持久化前校验最小结构和长度边界。"""
     return _configure_local_guard(
         Guard.for_pydantic(
             output_class=ResumeMarkdownPayload,

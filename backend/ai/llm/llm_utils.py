@@ -28,7 +28,14 @@ async def _invoke_with_fallback(input_value: object, output_model: Type[T], api_
     for candidate_index, current_llm in enumerate(candidates):
         model_member = getattr(current_llm, "_model_pool_identity", None)
         model_name = getattr(current_llm, "model_name", None) or getattr(current_llm, "model", None)
-        structured_llm = current_llm.with_structured_output(output_model)
+        # DeepSeek-compatible endpoints support JSON Output (`json_object`),
+        # while LangChain's default `json_schema` mode is not available on
+        # every OpenAI-compatible provider.  Keep schema validation local in
+        # LangChain but steer generation through the portable JSON mode.
+        structured_llm = current_llm.with_structured_output(
+            output_model,
+            method="json_mode",
+        )
         attempts = max_retries + 1 if candidate_index == 0 else 1
         for attempt in range(attempts):
             started = time.perf_counter()
@@ -173,7 +180,7 @@ def get_structured_llm(
         绑定了结构化输出的 ChatOpenAI 实例
     """
     current_llm = llms.model_gateway.get_chat_model(api_config, channel=channel)
-    return current_llm.with_structured_output(output_model)
+    return current_llm.with_structured_output(output_model, method="json_mode")
 
 
 def clean_json_response(content: str) -> str:

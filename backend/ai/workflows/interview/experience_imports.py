@@ -31,6 +31,7 @@ class InterviewExperienceBadRequest(InterviewExperienceUseCaseError):
     """面经采集请求不合法。"""
 
     def __init__(self, message: str) -> None:
+        """初始化面经采集用例及其文件解析依赖，保证外部文档导入仍经过统一大小/格式边界。"""
         super().__init__(message=message, status_code=422)
 
 
@@ -38,6 +39,7 @@ class InterviewExperienceSourceUnavailable(InterviewExperienceUseCaseError):
     """面经来源暂时不可用。"""
 
     def __init__(self) -> None:
+        """初始化面经题导入用例及题库仓储，导入结果由仓储记录审计摘要。"""
         super().__init__(message="面经来源暂时不可用，请稍后重试", status_code=502)
 
 
@@ -45,7 +47,7 @@ class InterviewExperienceImportUseCases:
     """面经题目导入应用服务。"""
 
     def __init__(self) -> None:
-        """初始化当前对象实例。"""
+        """初始化 `InterviewExperienceImportUseCases` 的依赖和运行配置；构造阶段不执行业务写入，外部客户端只在后续方法调用时承担访问边界。"""
         self._question_bank_repo = QuestionBankRepo()
         self._experience_service = InterviewExperienceService()
 
@@ -54,7 +56,7 @@ class InterviewExperienceImportUseCases:
         *,
         request: ExperienceCollectRequest,
     ) -> ExperienceCollectResponse:
-        """异步执行 `collect` 相关逻辑。
+        """从配置的面经来源采集文档或题目，受页数、超时和来源访问边界约束。
 
         Args:
             request: 请求对象。
@@ -93,7 +95,7 @@ class InterviewExperienceImportUseCases:
         request: ExperienceQuestionImportRequest,
         user_id: str,
     ) -> ExperienceQuestionImportResponse:
-        """异步执行 `import_questions` 相关逻辑。
+        """导入用户确认的题目并写入导入记录，单条失败不会泄露原文或阻断其余条目。
 
         Args:
             request: 请求对象。

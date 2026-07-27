@@ -20,7 +20,7 @@ class JDAnalysisRepo:
     """JD 匹配分析服务类 - 管理 JD 分析结果"""
 
     def __init__(self):
-        """初始化当前对象实例。"""
+        """初始化 `JDAnalysisRepo` 的依赖和运行配置；构造阶段不执行业务写入，外部客户端只在后续方法调用时承担访问边界。"""
         logger.info("JDAnalysisService 初始化")
 
     async def save_result(
@@ -89,17 +89,17 @@ class JDAnalysisRepo:
         resume_source_id: Optional[int] = None,
         owns_session: bool,
     ) -> int:
-        """保存 `result with session`。
+        """持久化 result with session；沿用调用方的事务边界，并保持 owner 校验、脱敏和提交责任不越层。
 
         Args:
             db: 数据库会话。
             user_id: 当前用户标识。
-            resume_source_type: 调用方传入的 `resume_source_type` 参数。
-            resume_content_snapshot: 调用方传入的 `resume_content_snapshot` 参数。
-            job_description: 调用方传入的 `job_description` 参数。
-            analysis_result: 调用方传入的 `analysis_result` 参数。
+            resume_source_type: 经过类型边界校验的 `resume_source_type`；其格式和可选值由参数类型及调用流程约束。
+            resume_content_snapshot: 经过类型边界校验的 `resume_content_snapshot`；其格式和可选值由参数类型及调用流程约束。
+            job_description: 经过类型边界校验的 `job_description`；其格式和可选值由参数类型及调用流程约束。
+            analysis_result: 待持久化或返回的业务结果；应保持稳定结构并避免写入未脱敏原文。
             resume_source_id: resume source 标识。
-            owns_session: 调用方传入的 `owns_session` 参数。
+            owns_session: 是否由当前方法负责 session 的提交和释放，避免嵌套事务重复处理。
         """
         now = datetime.now()
         db_obj = JdAnalysisResultModel(

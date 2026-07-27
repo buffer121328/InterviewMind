@@ -4,6 +4,7 @@ export interface SseFrame {
     data: string;
 }
 
+/** Parses sse frames at the frontend boundary and returns a typed safe fallback when the payload is malformed or missing. */
 export function parseSseFrames(buffer: string, chunk: string): { frames: SseFrame[]; buffer: string } {
     const normalized = buffer + chunk.replace(/\r\n/g, '\n');
     const blocks = normalized.split('\n\n');
@@ -14,6 +15,7 @@ export function parseSseFrames(buffer: string, chunk: string): { frames: SseFram
     return { frames, buffer: nextBuffer };
 }
 
+/** Parses sse block at the frontend boundary and returns a typed safe fallback when the payload is malformed or missing. */
 function parseSseBlock(block: string): SseFrame | null {
     const dataLines: string[] = [];
     let id: string | undefined;

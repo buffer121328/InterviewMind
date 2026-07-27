@@ -6,6 +6,7 @@ from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 
 from app.schemas.voice import VoiceChatRequest
+from app.db.repositories.session.session_repo import SessionRepo
 from ai.runtime.agent_runs.event_stream import build_run_event_envelope
 from app.domain.agent_runs import TASK_TYPE_VOICE_INTERVIEW_TURN
 from ai.runtime.agent_runs.service import AgentRunService
@@ -18,26 +19,33 @@ class VoiceStreamUseCaseError(Exception):
     """语音面试流式用例异常。"""
 
     message: str
+    status_code: int = 409
 
 
 class VoiceStreamUseCases:
     """语音面试流式应用服务。"""
 
     def __init__(self) -> None:
-        """初始化当前对象实例。"""
+        """初始化 `VoiceStreamUseCases` 的依赖和运行配置；构造阶段不执行业务写入，外部客户端只在后续方法调用时承担访问边界。"""
         self._run_service = AgentRunService()
+        self._session_repo = SessionRepo()
 
     async def stream_voice_chat(self, *, request: VoiceChatRequest, user_id: str) -> AsyncGenerator[str, None]:
-        """流式处理 `voice chat`。
+        """流式执行语音面试回复并发出可恢复事件；模型调用、音频内容和会话 owner 均遵循统一安全与审计边界。
 
         Args:
             request: 请求对象。
             user_id: 当前用户标识。
         """
+        session = await self._session_repo.get_session(request.session_id, user_id=user_id)
+        if session is None:
+            raise VoiceStreamUseCaseError(message="会话不存在或无权访问", status_code=404)
+
         run, _ = await self._run_service.create_or_get(
             user_id=user_id,
             task_type=TASK_TYPE_VOICE_INTERVIEW_TURN,
             idempotency_key=f"voice-turn:{request.session_id}:{request.audio_id or 'text'}:{id(request)}",
+            session_id=request.session_id,
             payload={
                 "session_id": request.session_id,
                 "has_audio": bool(request.audio),
@@ -64,21 +72,21 @@ class VoiceStreamUseCases:
         return self._wrap_stream(source=source, run_id=run.id, session_id=request.session_id)
 
     async def _wrap_stream(self, *, source: AsyncGenerator[str, None], run_id: str, session_id: str) -> AsyncGenerator[str, None]:
-        """异步执行 `_wrap_stream` 相关逻辑。
+        """包装流式事件生成器，统一补充运行上下文和错误收尾事件。
 
         Args:
-            source: 调用方传入的 `source` 参数。
+            source: 经过类型边界校验的 `source`；其格式和可选值由参数类型及调用流程约束。
             run_id: 运行标识。
             session_id: 会话标识。
         """
         run_event_sequence = 0
 
         def run_event(event_type: str, stage: str | None = None, payload: dict | None = None) -> str:
-            """运行 `event`。
+            """运行 event，沿用既有任务状态、重试和持久化边界，不在辅助函数中绕过审批或 owner 校验。
 
             Args:
-                event_type: 调用方传入的 `event_type` 参数。
-                stage: 调用方传入的 `stage` 参数。
+                event_type: 经过类型边界校验的 `event_type`；其格式和可选值由参数类型及调用流程约束。
+                stage: 经过类型边界校验的 `stage`；其格式和可选值由参数类型及调用流程约束。
                 payload: 请求载荷。
             """
             nonlocal run_event_sequence

@@ -151,6 +151,7 @@ async def test_chat_stream_creates_and_completes_agent_run(monkeypatch):
     chunks = [chunk async for chunk in generator]
 
     assert fake_run_service.created[0]["task_type"] == TASK_TYPE_INTERVIEW_TURN
+    assert fake_run_service.created[0]["session_id"] == "thread-1"
     assert fake_run_service.created[0]["payload"]["thread_id"] == "thread-1"
     assert fake_graph.config["configurable"] == {"thread_id": "interview:thread-1:run:run-1"}
     assert fake_graph.config["run_name"] == "interview-turn"

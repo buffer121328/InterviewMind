@@ -41,11 +41,11 @@ class JobApplicationRepo:
         now = datetime.now()
 
         async def _create(db: AsyncSession, *, owns_session: bool) -> ApplicationDetail:
-            """创建 当前对象。
+            """创建投递记录并写入数据库；沿用调用方 owner 和事务约束，不在仓储层触发 BOSS 投递。
 
             Args:
                 db: 数据库会话。
-                owns_session: 调用方传入的 `owns_session` 参数。
+                owns_session: 是否由当前方法负责 session 的提交和释放，避免嵌套事务重复处理。
             """
             db_obj = JobApplicationModel(
                 user_id=user_id,

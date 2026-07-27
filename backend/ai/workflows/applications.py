@@ -56,7 +56,7 @@ class ApplicationUseCases:
         user_id: Optional[str],
         request: ApplicationCreateRequest,
     ) -> ApplicationDetailResponse:
-        """创建 `application`。
+        """创建 application，在写入前沿用请求的 owner、审批和输入校验边界，并返回调用方可继续处理的结果。
 
         Args:
             user_id: 当前用户标识。
@@ -76,11 +76,11 @@ class ApplicationUseCases:
         limit: int,
         offset: int,
     ) -> ApplicationListResponse:
-        """列出 `applications`。
+        """按 owner、筛选条件和分页参数读取 applications；仅返回当前调用方有权查看的持久化结果。
 
         Args:
             user_id: 当前用户标识。
-            status: 调用方传入的 `status` 参数。
+            status: 经过类型边界校验的 `status`；其格式和可选值由参数类型及调用流程约束。
             limit: 返回数量上限。
             offset: 分页偏移量。
         """
@@ -109,7 +109,7 @@ class ApplicationUseCases:
         application_id: int,
         user_id: Optional[str],
     ) -> ApplicationDetailResponse:
-        """获取 `application`。
+        """读取 application，并通过 owner 校验限制可见范围；资源不存在或状态不合法时返回稳定的业务结果或异常。
 
         Args:
             application_id: 投递记录标识。
@@ -125,7 +125,7 @@ class ApplicationUseCases:
         user_id: Optional[str],
         request: ApplicationUpdateRequest,
     ) -> ApplicationDetailResponse:
-        """更新 `application`。
+        """在 owner 校验下更新 application；只写入允许变更的字段，避免绕过状态机或审批约束。
 
         Args:
             application_id: 投递记录标识。
@@ -147,7 +147,7 @@ class ApplicationUseCases:
         application_id: int,
         user_id: Optional[str],
     ) -> dict[str, object]:
-        """删除 `application`。
+        """在 owner 校验下删除 application；删除失败或资源不可见时保持幂等的业务错误语义。
 
         Args:
             application_id: 投递记录标识。
@@ -172,7 +172,7 @@ class ApplicationUseCases:
         user_id: Optional[str],
         request: EventCreateRequest,
     ) -> dict[str, object]:
-        """新增 `event to application`。
+        """在 owner 校验通过后追加投递事件，并沿用用例层的持久化与审计边界；不直接执行外部投递。
 
         Args:
             application_id: 投递记录标识。
@@ -194,7 +194,7 @@ class ApplicationUseCases:
         application_id: int,
         user_id: Optional[str],
     ) -> EventListResponse:
-        """列出 `application events`。
+        """按 owner、筛选条件和分页参数读取 application events；仅返回当前调用方有权查看的持久化结果。
 
         Args:
             application_id: 投递记录标识。
@@ -205,7 +205,7 @@ class ApplicationUseCases:
         return EventListResponse(success=True, events=events)
 
     async def _get_application_or_raise(self, application_id: int, user_id: Optional[str]):
-        """获取 `application or raise`。
+        """按 owner 读取投递记录，不存在或不属于当前用户时抛出统一业务异常，避免路由泄露资源存在性。
 
         Args:
             application_id: 投递记录标识。
@@ -221,7 +221,7 @@ class ApplicationUseCases:
 
     @staticmethod
     def _not_found(application_id: int) -> ApplicationNotFound:
-        """执行 `_not_found` 相关逻辑。
+        """构造统一的 404 错误响应，保持 API 客户端可识别的错误格式。
 
         Args:
             application_id: 投递记录标识。

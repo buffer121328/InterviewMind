@@ -18,10 +18,10 @@ def create_background_task(coro: Coroutine[Any, Any, Any], name: str = "backgrou
     _background_tasks.add(task)
 
     def _on_done(done_task: asyncio.Task) -> None:
-        """执行 `_on_done` 相关逻辑。
+        """在后台任务完成后执行清理和状态收尾，不让收尾异常覆盖原始任务结果。
 
         Args:
-            done_task: 调用方传入的 `done_task` 参数。
+            done_task: 经过类型边界校验的 `done_task`；其格式和可选值由参数类型及调用流程约束。
         """
         _background_tasks.discard(done_task)
         try:

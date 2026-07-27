@@ -4,6 +4,7 @@ interface Props {
     tags: string[];
 }
 
+/** Renders the skill tags UI and coordinates its typed props, local state, and approved backend interactions. */
 export function SkillTags({ tags }: Props) {
     if (tags.length === 0) return null;
 

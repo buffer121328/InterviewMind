@@ -43,6 +43,7 @@ export type ApplicationSlice = ApplicationState & ApplicationActions;
 type SetState = (partial: Partial<ApplicationSlice> | ((state: ApplicationSlice) => Partial<ApplicationSlice>)) => void;
 type GetState = () => ApplicationSlice;
 
+/** Creates the application Zustand slice; it owns long-lived shared state and leaves server persistence and authorization to the API layer. */
 export const createApplicationSlice = (set: SetState, get: GetState): ApplicationSlice => ({
     // ===== 初始状态 =====
     applications: [],

@@ -150,6 +150,7 @@ async def _open_and_read_in_chrome(
         return ""
 
     def _build_script(target_url: str, sec: int) -> str:
+        """构造一次性 AppleScript 页面读取脚本，只返回可解析文本，不执行投递或修改页面状态。"""
         return f'''
         on run
             tell application "Google Chrome"
@@ -172,6 +173,7 @@ async def _open_and_read_in_chrome(
         '''
 
     def _build_recheck_script() -> str:
+        """构造页面稳定性复查脚本，用于兼容 BOSS 页面异步加载，不扩大自动化权限范围。"""
         return '''
         on run
             tell application "Google Chrome"
@@ -190,6 +192,7 @@ async def _open_and_read_in_chrome(
         '''
 
     async def _run_applescript(script: str, timeout: int) -> str:
+        """在受控超时内执行本机 AppleScript，并将外部进程失败转换为集成层错误。"""
         try:
             proc = await asyncio.create_subprocess_exec(
                 "osascript",

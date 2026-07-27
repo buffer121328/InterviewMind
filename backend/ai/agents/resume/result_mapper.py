@@ -4,10 +4,10 @@ from app.schemas.resume_schemas import ResumeOptimizeResult
 
 
 def pipeline_to_optimize_result(pipeline_output: dict) -> ResumeOptimizeResult:
-    """执行 `pipeline_to_optimize_result` 相关逻辑。
+    """将内部简历流水线状态映射为稳定的 API 优化结果，隐藏运行时对象。
 
     Args:
-        pipeline_output: 调用方传入的 `pipeline_output` 参数。
+        pipeline_output: 经过类型边界校验的 `pipeline_output`；其格式和可选值由参数类型及调用流程约束。
     """
     jd = pipeline_output.get("jd_analysis") or {}
     change_items_raw = pipeline_output.get("change_items") or []

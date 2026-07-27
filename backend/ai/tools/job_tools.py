@@ -59,6 +59,7 @@ def make_jobs_tools(user_id: str, api_config: Optional[dict], resume_content: st
         return await _tools.check_environment()
 
     def attach(contract_name: str, tool: Any) -> Any:
+        """把岗位工具的领域契约附加到 LangChain 工具，确保权限、确认、幂等和结果保留策略不被工厂调用方绕过。"""
         contract = _tools.get_boss_tool_contract(contract_name)
         return attach_tool_contract(
             tool,

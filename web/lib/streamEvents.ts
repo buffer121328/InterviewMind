@@ -3,10 +3,12 @@ import type { AgentRunEvent } from './api/agentRunTypes.ts';
 
 type UnknownRecord = Record<string, unknown>;
 
+/** Determines whether is record so callers can apply the same UI or safety boundary consistently. */
 function isRecord(value: unknown): value is UnknownRecord {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+/** Parses maybe json at the frontend boundary and returns a typed safe fallback when the payload is malformed or missing. */
 function parseMaybeJson(value: unknown): unknown {
     if (typeof value !== 'string') return value;
     const trimmed = value.trim();
@@ -18,10 +20,12 @@ function parseMaybeJson(value: unknown): unknown {
     }
 }
 
+/** Parses string at the frontend boundary and returns a typed safe fallback when the payload is malformed or missing. */
 function parseString(value: unknown): string | null {
     return typeof value === 'string' ? value : null;
 }
 
+/** Parses number at the frontend boundary and returns a typed safe fallback when the payload is malformed or missing. */
 function parseNumber(value: unknown): number | null {
     return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
@@ -37,10 +41,12 @@ export interface StreamExecutionPlanStep {
 
 const EXECUTION_PLAN_STATUSES = new Set<StreamExecutionPlanStepStatus>(['pending', 'running', 'completed', 'failed']);
 
+/** Determines whether is execution plan status so callers can apply the same UI or safety boundary consistently. */
 function isExecutionPlanStatus(value: unknown): value is StreamExecutionPlanStepStatus {
     return typeof value === 'string' && EXECUTION_PLAN_STATUSES.has(value as StreamExecutionPlanStepStatus);
 }
 
+/** Determines whether is execution plan step so callers can apply the same UI or safety boundary consistently. */
 function isExecutionPlanStep(value: unknown): value is StreamExecutionPlanStep {
     return isRecord(value)
         && typeof value.id === 'string'
@@ -48,6 +54,7 @@ function isExecutionPlanStep(value: unknown): value is StreamExecutionPlanStep {
         && isExecutionPlanStatus(value.status);
 }
 
+/** Parses execution plan steps at the frontend boundary and returns a typed safe fallback when the payload is malformed or missing. */
 function parseExecutionPlanSteps(value: unknown): StreamExecutionPlanStep[] {
     return Array.isArray(value) ? value.filter(isExecutionPlanStep) : [];
 }
@@ -137,6 +144,7 @@ export type AppStreamEvent =
     | StreamRunEvent
     | StreamAuditEvent;
 
+/** Parses stream event at the frontend boundary and returns a typed safe fallback when the payload is malformed or missing. */
 export function parseStreamEvent(content: unknown): AppStreamEvent | null {
     const value = typeof content === 'string' ? parseMaybeJson(content) : content;
     if (!isRecord(value) || typeof value.type !== 'string') return null;
@@ -212,6 +220,7 @@ export function parseStreamEvent(content: unknown): AppStreamEvent | null {
 }
 
 
+/** Classifies normalized stream events so the UI can route run, audit, UI-delta, and domain events without duplicating type checks. */
 export function getStreamEventCategory(event: AppStreamEvent): StreamEventCategory {
     if (event.type === 'agent_run_event' || event.type === 'run') return 'run_event';
     if (event.type === 'audit') return 'audit_event';
@@ -220,6 +229,7 @@ export function getStreamEventCategory(event: AppStreamEvent): StreamEventCatego
 }
 
 
+/** Applies one normalized stream event to the current execution plan and returns the minimal state delta; malformed or unrelated events are ignored without side effects. */
 export function reduceExecutionPlanStreamEvent(
     currentPlan: StreamExecutionPlanStep[],
     event: AppStreamEvent,

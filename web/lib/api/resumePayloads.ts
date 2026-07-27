@@ -9,6 +9,7 @@ export interface ResumeOptimizePayloadParams {
     api_config: ApiConfig;
 }
 
+/** Calls the backend for build resume optimize payload; the shared API client supplies request identity and error normalization, and this helper returns the typed endpoint result. */
 export function buildResumeOptimizePayload(params: ResumeOptimizePayloadParams) {
     return {
         resume_content: params.resume_content,

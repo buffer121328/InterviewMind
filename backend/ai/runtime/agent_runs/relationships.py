@@ -28,7 +28,7 @@ def child_run_payload(
 
 
 def get_parent_run_id(payload: Mapping[str, Any] | None) -> str | None:
-    """获取 `parent run id`。
+    """读取 parent run id，并保持调用方的错误和生命周期边界；资源不存在或状态不合法时返回稳定的业务结果或异常。
 
     Args:
         payload: 请求载荷。
@@ -38,7 +38,7 @@ def get_parent_run_id(payload: Mapping[str, Any] | None) -> str | None:
 
 
 def get_run_relationship(payload: Mapping[str, Any] | None) -> str | None:
-    """获取 `run relationship`。
+    """读取 run relationship，并保持调用方的错误和生命周期边界；资源不存在或状态不合法时返回稳定的业务结果或异常。
 
     Args:
         payload: 请求载荷。

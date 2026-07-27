@@ -20,7 +20,7 @@ class WeaknessReportRepo:
     """面试短板地图报告服务类"""
 
     def __init__(self):
-        """初始化当前对象实例。"""
+        """初始化 `WeaknessReportRepo` 的依赖和运行配置；构造阶段不执行业务写入，外部客户端只在后续方法调用时承担访问边界。"""
         logger.info("WeaknessReportService 初始化")
 
     async def save_report(

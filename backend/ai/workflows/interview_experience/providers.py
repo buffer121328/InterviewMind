@@ -15,7 +15,7 @@ from app.schemas.experience_provider import ExperienceDocument
 
 
 def _plain_text(value: str) -> str:
-    """执行 `_plain_text` 相关逻辑。
+    """从外部面经文档提取可供模型和规则解析的纯文本，忽略格式噪声。
 
     Args:
         value: 取值。
@@ -31,10 +31,10 @@ class ExportedContentProvider:
     """解析平台导出的 JSON；适用于小红书及后续新增来源。"""
 
     def __init__(self, source: str):
-        """初始化当前对象实例。
+        """初始化 `ExportedContentProvider` 的依赖和运行配置；构造阶段不执行业务写入，外部客户端仅在后续方法调用时承担对应的访问边界。
 
         Args:
-            source: 调用方传入的 `source` 参数。
+            source: 经过类型边界校验的 `source`；其格式和可选值由参数类型及调用流程约束。
         """
         self.source = source
 
@@ -45,12 +45,12 @@ class ExportedContentProvider:
         max_pages: int,
         exported_items: list[dict[str, Any]],
     ) -> list[ExperienceDocument]:
-        """异步执行 `collect` 相关逻辑。
+        """从配置的面经来源采集文档或题目，受页数、超时和来源访问边界约束。
 
         Args:
-            queries: 调用方传入的 `queries` 参数。
-            max_pages: 调用方传入的 `max_pages` 参数。
-            exported_items: 调用方传入的 `exported_items` 参数。
+            queries: 经过类型边界校验的 `queries`；其格式和可选值由参数类型及调用流程约束。
+            max_pages: 经过类型边界校验的 `max_pages`；其格式和可选值由参数类型及调用流程约束。
+            exported_items: 经过类型边界校验的 `exported_items`；其格式和可选值由参数类型及调用流程约束。
         """
         del max_pages
         default_query = queries[0] if queries else ""
@@ -83,11 +83,11 @@ class NowcoderProvider:
     max_documents_per_run = 50
 
     def __init__(self, client: httpx.AsyncClient | None = None, delay_seconds: float = 0.8):
-        """初始化当前对象实例。
+        """初始化 `NowcoderProvider` 的依赖和运行配置；构造阶段不执行业务写入，外部客户端仅在后续方法调用时承担对应的访问边界。
 
         Args:
             client: 客户端实例。
-            delay_seconds: 调用方传入的 `delay_seconds` 参数。
+            delay_seconds: 经过类型边界校验的 `delay_seconds`；其格式和可选值由参数类型及调用流程约束。
         """
         self._client = client
         self.delay_seconds = max(0.0, delay_seconds)
@@ -99,12 +99,12 @@ class NowcoderProvider:
         max_pages: int,
         exported_items: list[dict[str, Any]],
     ) -> list[ExperienceDocument]:
-        """异步执行 `collect` 相关逻辑。
+        """从配置的面经来源采集文档或题目，受页数、超时和来源访问边界约束。
 
         Args:
-            queries: 调用方传入的 `queries` 参数。
-            max_pages: 调用方传入的 `max_pages` 参数。
-            exported_items: 调用方传入的 `exported_items` 参数。
+            queries: 经过类型边界校验的 `queries`；其格式和可选值由参数类型及调用流程约束。
+            max_pages: 经过类型边界校验的 `max_pages`；其格式和可选值由参数类型及调用流程约束。
+            exported_items: 经过类型边界校验的 `exported_items`；其格式和可选值由参数类型及调用流程约束。
         """
         if exported_items:
             return await ExportedContentProvider(self.source).collect(
@@ -138,12 +138,12 @@ class NowcoderProvider:
         queries: list[str],
         max_pages: int,
     ) -> dict[str, dict[str, Any]]:
-        """检索 当前对象。
+        """在允许的面经来源内检索候选文档；请求经过 URL、页数和超时约束，避免采集能力访问任意站点。
 
         Args:
             client: 客户端实例。
-            queries: 调用方传入的 `queries` 参数。
-            max_pages: 调用方传入的 `max_pages` 参数。
+            queries: 经过类型边界校验的 `queries`；其格式和可选值由参数类型及调用流程约束。
+            max_pages: 经过类型边界校验的 `max_pages`；其格式和可选值由参数类型及调用流程约束。
         """
         records: dict[str, dict[str, Any]] = {}
         for query in queries:
@@ -192,11 +192,11 @@ class NowcoderProvider:
         client: httpx.AsyncClient,
         record: dict[str, Any],
     ) -> ExperienceDocument | None:
-        """获取 `detail`。
+        """读取已筛选来源的面经详情并限制响应大小；失败时返回可忽略的采集错误，不泄露原始响应到日志。
 
         Args:
             client: 客户端实例。
-            record: 调用方传入的 `record` 参数。
+            record: 是否把本次检查计入限流窗口；预览检查可关闭记录，实际动作必须记录。
         """
         source_id = record["source_id"]
         if record["kind"] == 207:

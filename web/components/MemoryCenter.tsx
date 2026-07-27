@@ -34,6 +34,7 @@ import {
 } from '@/lib/api/memory';
 import { toast } from 'sonner';
 
+/** Formats date into the stable display representation used by this view; invalid or empty values use the local fallback. */
 function formatDate(value?: string) {
     if (!value) return '时间未知';
     const date = new Date(value);
@@ -46,6 +47,7 @@ function formatDate(value?: string) {
     });
 }
 
+/** Encapsulates metadata labels; returns typed data or state and keeps side effects within the owning module boundary. */
 function metadataLabels(metadata?: Record<string, unknown>) {
     if (!metadata) return [];
     return Object.entries(metadata)
@@ -54,6 +56,7 @@ function metadataLabels(metadata?: Record<string, unknown>) {
         .map(([key, value]) => `${key}: ${String(value)}`);
 }
 
+/** Renders the memory center UI and coordinates its typed props, local state, and approved backend interactions. */
 export function MemoryCenter() {
     const [memories, setMemories] = useState<MemoryItem[]>([]);
     const [total, setTotal] = useState(0);
@@ -86,6 +89,7 @@ export function MemoryCenter() {
         return () => window.clearTimeout(timer);
     }, [load]);
 
+    /** Handles search; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleSearch = async () => {
         if (!query.trim()) {
             await load();
@@ -104,6 +108,7 @@ export function MemoryCenter() {
         }
     };
 
+    /** Handles delete; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleDelete = async (item: MemoryItem) => {
         if (!window.confirm('确认删除这条长期记忆？后续个性化检索将不再使用它。')) return;
         setActingId(item.id);
@@ -121,6 +126,7 @@ export function MemoryCenter() {
         }
     };
 
+    /** Encapsulates open history; returns typed data or state and keeps side effects within the owning module boundary. */
     const openHistory = async (item: MemoryItem) => {
         setHistoryMemory(item);
         setHistory([]);
@@ -135,6 +141,7 @@ export function MemoryCenter() {
         }
     };
 
+    /** Handles clear all; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleClearAll = async () => {
         setActingId('__all__');
         try {

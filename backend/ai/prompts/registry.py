@@ -10,7 +10,7 @@ PromptBuilder = Callable[..., str]
 
 @dataclass(frozen=True, slots=True)
 class PromptSpec:
-    """表示 `PromptSpec` 相关的数据或行为。"""
+    """可追踪的提示模板声明，绑定名称、版本和渲染器；版本由注册表管理，渲染只生成文本，不执行模型调用或持久化。"""
     name: str
     version: str
     builder: PromptBuilder
@@ -18,26 +18,26 @@ class PromptSpec:
     template: BasePromptTemplate | None = None
 
     def render(self, **values: object) -> str:
-        """渲染 当前对象。
+        """用结构化变量渲染提示模板，保持模板注册表和敏感信息边界；渲染本身不执行模型调用。
 
         Args:
-            **values: 调用方传入的 `values` 参数。
+            **values: 经过类型边界校验的 `values`；其格式和可选值由参数类型及调用流程约束。
         """
         return self.builder(**values)
 
 
 class PromptRegistry:
-    """维护运行时注册表。"""
+    """按名称和版本管理可追踪提示模板的注册表；拒绝重复声明并提供稳定读取，不负责模型调用或用户数据持久化。"""
     def __init__(self) -> None:
-        """初始化当前对象实例。"""
+        """初始化 `PromptRegistry` 的依赖和运行配置；构造阶段不执行业务写入，外部客户端只在后续方法调用时承担访问边界。"""
         self._items: dict[tuple[str, str], PromptSpec] = {}
 
     def register(self, spec: PromptSpec, *, replace: bool = False) -> None:
-        """注册 当前对象。
+        """注册可供运行时发现的声明，拒绝重复或不完整定义，保持模块加载顺序不会改变最终契约。
 
         Args:
-            spec: 调用方传入的 `spec` 参数。
-            replace: 调用方传入的 `replace` 参数。
+            spec: 经过类型边界校验的 `spec`；其格式和可选值由参数类型及调用流程约束。
+            replace: 经过类型边界校验的 `replace`；其格式和可选值由参数类型及调用流程约束。
         """
         key = (spec.name, spec.version)
         if key in self._items and not replace:
@@ -45,20 +45,20 @@ class PromptRegistry:
         self._items[key] = spec
 
     def get(self, name: str, version: str) -> PromptSpec:
-        """获取 当前对象。
+        """读取 get，并保持调用方的错误和生命周期边界；资源不存在或状态不合法时返回稳定的业务结果或异常。
 
         Args:
             name: 名称。
-            version: 调用方传入的 `version` 参数。
+            version: 经过类型边界校验的 `version`；其格式和可选值由参数类型及调用流程约束。
         """
         return self._items[(name, version)]
 
     def names(self) -> tuple[str, ...]:
-        """执行 `names` 相关逻辑。"""
+        """返回注册表中稳定排序的名称列表，供诊断和管理接口使用。"""
         return tuple(sorted({name for name, _version in self._items}))
 
     def versions(self, name: str) -> tuple[str, ...]:
-        """执行 `versions` 相关逻辑。
+        """返回注册表中指定名称的可用版本，保持版本顺序稳定。
 
         Args:
             name: 名称。

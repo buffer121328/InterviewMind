@@ -26,6 +26,7 @@ interface JDAssemblyResultPanelProps {
     onDelete?: (resultId: number) => void;
 }
 
+/** Renders the jdassembly result panel UI and coordinates its typed props, local state, and approved backend interactions. */
 export function JDAssemblyResultPanel({
     assemblyResult,
     materials,
@@ -204,6 +205,7 @@ export function JDAssemblyResultPanel({
 
 
 // 组装结果列表组件
+/** Renders the assembly result list UI and coordinates its typed props, local state, and approved backend interactions. */
 export function AssemblyResultList() {
     const {
         assemblyResults,
@@ -221,6 +223,7 @@ export function AssemblyResultList() {
 
     // 加载所有素材
     useEffect(() => {
+        /** Loads the candidate-material index once for this panel so result rendering can resolve selected IDs locally instead of issuing one request per result. */
         const loadMaterials = async () => {
             const { getMaterials } = await import('@/lib/api/resume');
             const response = await getMaterials();
@@ -234,6 +237,7 @@ export function AssemblyResultList() {
     }, []);
 
     // 处理删除
+    /** Handles delete; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleDelete = async (resultId: number) => {
         if (window.confirm('确定要删除这个组装结果吗？')) {
             await deleteAssemblyResult(resultId);
@@ -241,6 +245,7 @@ export function AssemblyResultList() {
     };
 
     // 获取素材列表
+    /** Resolves the material records selected by an assembly result from the locally loaded material map, omitting IDs that are not available yet. */
     const getMaterialsForResult = (result: AssemblyResult): CandidateMaterial[] => {
         return result.selected_material_ids
             .map(id => materialsMap[id])

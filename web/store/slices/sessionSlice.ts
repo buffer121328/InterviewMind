@@ -53,6 +53,7 @@ type GetState = () => SessionSlice & {
     threadId: string;
 };
 
+/** Creates the session Zustand slice; it owns long-lived shared state and leaves server persistence and authorization to the API layer. */
 export const createSessionSlice = (set: SetState, get: GetState): SessionSlice => ({
     // ===== 初始状态 =====
     sessions: [],

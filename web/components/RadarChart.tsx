@@ -7,6 +7,7 @@ interface Props {
     data: AbilityProfile;
 }
 
+/** Encapsulates ability radar chart; returns typed data or state and keeps side effects within the owning module boundary. */
 export function AbilityRadarChart({ data }: Props) {
     // 转换数据为雷达图格式
     const chartData = [

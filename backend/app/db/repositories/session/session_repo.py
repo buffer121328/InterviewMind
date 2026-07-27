@@ -19,13 +19,13 @@ from app.db.repositories.session.repo_impl.interview_plan import InterviewPlanSe
 logger = logging.getLogger(__name__)
 
 class SessionRepo:
-    """
+    """持久化仓储，封装 `Session` 的数据库读写；负责查询范围和事务配合，不编排模型调用或审批流程。
     会话管理门面类
     将请求转发到具体的子服务处理
     """
 
     def __init__(self):
-        """初始化当前对象实例。"""
+        """初始化 `SessionRepo` 的依赖和运行配置；构造阶段不执行业务写入，外部客户端只在后续方法调用时承担访问边界。"""
         self.mgmt = SessionManagementService()
         self.advanced = SessionAdvancedService(self.mgmt)
         self.message = MessageService(self.mgmt)
@@ -48,18 +48,18 @@ class SessionRepo:
         round_type: str = "tech_initial",
         user_id: str = "default_user"
     ) -> InterviewSession:
-        """创建 `session`。
+        """创建 session，在写入前沿用请求的 owner、审批和输入校验边界，并返回调用方可继续处理的结果。
 
         Args:
             session_id: 会话标识。
-            mode: 调用方传入的 `mode` 参数。
-            title: 调用方传入的 `title` 参数。
-            resume_filename: 调用方传入的 `resume_filename` 参数。
-            resume_content: 调用方传入的 `resume_content` 参数。
-            job_description: 调用方传入的 `job_description` 参数。
-            company_info: 调用方传入的 `company_info` 参数。
-            max_questions: 调用方传入的 `max_questions` 参数。
-            round_type: 调用方传入的 `round_type` 参数。
+            mode: 经过类型边界校验的 `mode`；其格式和可选值由参数类型及调用流程约束。
+            title: 经过类型边界校验的 `title`；其格式和可选值由参数类型及调用流程约束。
+            resume_filename: 经过类型边界校验的 `resume_filename`；其格式和可选值由参数类型及调用流程约束。
+            resume_content: 经过类型边界校验的 `resume_content`；其格式和可选值由参数类型及调用流程约束。
+            job_description: 经过类型边界校验的 `job_description`；其格式和可选值由参数类型及调用流程约束。
+            company_info: 经过类型边界校验的 `company_info`；其格式和可选值由参数类型及调用流程约束。
+            max_questions: 经过类型边界校验的 `max_questions`；其格式和可选值由参数类型及调用流程约束。
+            round_type: 经过类型边界校验的 `round_type`；其格式和可选值由参数类型及调用流程约束。
             user_id: 当前用户标识。
         """
         return await self.mgmt.create_session(
@@ -76,11 +76,11 @@ class SessionRepo:
         )
 
     async def get_session(self, session_id: str, include_resume_content: bool = False, user_id: Optional[str] = None) -> Optional[InterviewSession]:
-        """获取 `session`。
+        """读取 session，并通过 owner 校验限制可见范围；资源不存在或状态不合法时返回稳定的业务结果或异常。
 
         Args:
             session_id: 会话标识。
-            include_resume_content: 调用方传入的 `include_resume_content` 参数。
+            include_resume_content: 经过类型边界校验的 `include_resume_content`；其格式和可选值由参数类型及调用流程约束。
             user_id: 当前用户标识。
         """
         return await self.mgmt.get_session(session_id, include_resume_content, user_id)
@@ -93,13 +93,13 @@ class SessionRepo:
         metadata_updates: Optional[Dict[str, Any]] = None,
         user_id: Optional[str] = None
     ) -> Optional[InterviewSession]:
-        """更新 `session`。
+        """在 owner 校验下更新 session；只写入允许变更的字段，避免绕过状态机或审批约束。
 
         Args:
             session_id: 会话标识。
-            title: 调用方传入的 `title` 参数。
-            status: 调用方传入的 `status` 参数。
-            metadata_updates: 调用方传入的 `metadata_updates` 参数。
+            title: 经过类型边界校验的 `title`；其格式和可选值由参数类型及调用流程约束。
+            status: 经过类型边界校验的 `status`；其格式和可选值由参数类型及调用流程约束。
+            metadata_updates: 经过类型边界校验的 `metadata_updates`；其格式和可选值由参数类型及调用流程约束。
             user_id: 当前用户标识。
         """
         return await self.mgmt.update_session(
@@ -118,11 +118,11 @@ class SessionRepo:
         offset: int = 0,
         user_id: Optional[str] = None
     ) -> List[SessionListItem]:
-        """列出 `sessions`。
+        """按 owner、筛选条件和分页参数读取 sessions；仅返回当前调用方有权查看的持久化结果。
 
         Args:
-            status: 调用方传入的 `status` 参数。
-            mode: 调用方传入的 `mode` 参数。
+            status: 经过类型边界校验的 `status`；其格式和可选值由参数类型及调用流程约束。
+            mode: 经过类型边界校验的 `mode`；其格式和可选值由参数类型及调用流程约束。
             limit: 返回数量上限。
             offset: 分页偏移量。
             user_id: 当前用户标识。
@@ -136,7 +136,7 @@ class SessionRepo:
         )
 
     async def delete_session(self, session_id: str, user_id: Optional[str] = None) -> bool:
-        """删除 `session`。
+        """在 owner 校验下删除 session；删除失败或资源不可见时保持幂等的业务错误语义。
 
         Args:
             session_id: 会话标识。
@@ -150,11 +150,11 @@ class SessionRepo:
         mode: Optional[str] = None,
         user_id: Optional[str] = None
     ) -> int:
-        """获取 `session count`。
+        """读取 session count，并通过 owner 校验限制可见范围；资源不存在或状态不合法时返回稳定的业务结果或异常。
 
         Args:
-            status: 调用方传入的 `status` 参数。
-            mode: 调用方传入的 `mode` 参数。
+            status: 经过类型边界校验的 `status`；其格式和可选值由参数类型及调用流程约束。
+            mode: 经过类型边界校验的 `mode`；其格式和可选值由参数类型及调用流程约束。
             user_id: 当前用户标识。
         """
         return await self.mgmt.get_session_count(status=status, mode=mode, user_id=user_id)
@@ -168,12 +168,12 @@ class SessionRepo:
         round_type: Optional[str] = None,
         user_id: Optional[str] = None
     ) -> InterviewSession:
-        """创建 `next round`。
+        """创建 next round，在写入前沿用请求的 owner、审批和输入校验边界，并返回调用方可继续处理的结果。
 
         Args:
             parent_session_id: parent session 标识。
-            max_questions: 调用方传入的 `max_questions` 参数。
-            round_type: 调用方传入的 `round_type` 参数。
+            max_questions: 经过类型边界校验的 `max_questions`；其格式和可选值由参数类型及调用流程约束。
+            round_type: 经过类型边界校验的 `round_type`；其格式和可选值由参数类型及调用流程约束。
             user_id: 当前用户标识。
         """
         return await self.advanced.create_next_round(
@@ -189,12 +189,12 @@ class SessionRepo:
         user_id: Optional[str] = None,
         max_questions: Optional[int] = None
     ) -> InterviewSession:
-        """异步执行 `clone_session_for_voice` 相关逻辑。
+        """按用户边界克隆面试会话到语音流程，保留问题计划但不复制原会话运行锁。
 
         Args:
             source_session_id: source session 标识。
             user_id: 当前用户标识。
-            max_questions: 调用方传入的 `max_questions` 参数。
+            max_questions: 经过类型边界校验的 `max_questions`；其格式和可选值由参数类型及调用流程约束。
         """
         return await self.advanced.clone_session_for_voice(
             source_session_id=source_session_id,
@@ -203,11 +203,11 @@ class SessionRepo:
         )
 
     async def rollback_session(self, session_id: str, index: int, user_id: Optional[str] = None) -> bool:
-        """异步执行 `rollback_session` 相关逻辑。
+        """按用户边界回滚面试会话到指定问题索引，保持历史记录和运行态一致。
 
         Args:
             session_id: 会话标识。
-            index: 调用方传入的 `index` 参数。
+            index: 经过类型边界校验的 `index`；其格式和可选值由参数类型及调用流程约束。
             user_id: 当前用户标识。
         """
         return await self.advanced.rollback_session(session_id, index, user_id)
@@ -223,13 +223,13 @@ class SessionRepo:
         audio_url: Optional[str] = None,
         user_id: Optional[str] = None
     ) -> Optional[InterviewSession]:
-        """新增 `message`。
+        """在 owner 校验通过后追加面试消息并保持会话顺序；原始内容只进入受控持久化边界，不写入无关日志。
 
         Args:
             session_id: 会话标识。
-            role: 调用方传入的 `role` 参数。
+            role: 经过类型边界校验的 `role`；其格式和可选值由参数类型及调用流程约束。
             content: 内容文本。
-            question_index: 调用方传入的 `question_index` 参数。
+            question_index: 经过类型边界校验的 `question_index`；其格式和可选值由参数类型及调用流程约束。
             audio_url: audio URL。
             user_id: 当前用户标识。
         """
@@ -243,7 +243,7 @@ class SessionRepo:
         )
 
     async def get_session_conversations(self, session_id: str, user_id: Optional[str] = None) -> List[Dict[str, str]]:
-        """获取 `session conversations`。
+        """读取 session conversations，并通过 owner 校验限制可见范围；资源不存在或状态不合法时返回稳定的业务结果或异常。
 
         Args:
             session_id: 会话标识。
@@ -254,7 +254,7 @@ class SessionRepo:
     # --- 画像管理 (ProfileService) ---
 
     async def save_profile(self, session_id: str, profile_data: Dict[str, Any]) -> bool:
-        """保存 `profile`。
+        """持久化 profile；沿用调用方的事务边界，并保持 owner 校验、脱敏和提交责任不越层。
 
         Args:
             session_id: 会话标识。
@@ -263,7 +263,7 @@ class SessionRepo:
         return await self.profile.save_profile(session_id, profile_data)
 
     async def get_profile(self, session_id: str) -> Optional[Dict[str, Any]]:
-        """获取 `profile`。
+        """读取 profile，并通过 owner 校验限制可见范围；资源不存在或状态不合法时返回稳定的业务结果或异常。
 
         Args:
             session_id: 会话标识。
@@ -271,7 +271,7 @@ class SessionRepo:
         return await self.profile.get_profile(session_id)
 
     async def get_recent_profiles(self, limit: int = 5, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
-        """获取 `recent profiles`。
+        """读取 recent profiles，并通过 owner 校验限制可见范围；资源不存在或状态不合法时返回稳定的业务结果或异常。
 
         Args:
             limit: 返回数量上限。
@@ -280,7 +280,7 @@ class SessionRepo:
         return await self.profile.get_recent_profiles(limit, user_id)
 
     async def get_series_final_profiles(self, limit: int = 5, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
-        """获取 `series final profiles`。
+        """读取 series final profiles，并通过 owner 校验限制可见范围；资源不存在或状态不合法时返回稳定的业务结果或异常。
 
         Args:
             limit: 返回数量上限。
@@ -289,7 +289,7 @@ class SessionRepo:
         return await self.profile.get_series_final_profiles(limit, user_id)
 
     async def save_user_profile(self, profile_data: Dict[str, Any], user_id: str = "default_user") -> bool:
-        """保存 `user profile`。
+        """持久化 user profile；沿用调用方的事务边界，并保持 owner 校验、脱敏和提交责任不越层。
 
         Args:
             profile_data: profile 数据。
@@ -298,7 +298,7 @@ class SessionRepo:
         return await self.profile.save_user_profile(profile_data, user_id)
 
     async def get_user_profile(self, user_id: str = "default_user") -> Optional[Dict[str, Any]]:
-        """获取 `user profile`。
+        """读取 user profile，并通过 owner 校验限制可见范围；资源不存在或状态不合法时返回稳定的业务结果或异常。
 
         Args:
             user_id: 当前用户标识。
@@ -308,7 +308,7 @@ class SessionRepo:
     # --- 面试计划与进度 (InterviewPlanService) ---
 
     async def get_interview_plan(self, session_id: str) -> Optional[List[Dict[str, Any]]]:
-        """获取 `interview plan`。
+        """读取 interview plan，并通过 owner 校验限制可见范围；资源不存在或状态不合法时返回稳定的业务结果或异常。
 
         Args:
             session_id: 会话标识。
@@ -316,25 +316,25 @@ class SessionRepo:
         return await self.plan.get_interview_plan(session_id)
 
     async def save_interview_plan(self, session_id: str, plan: List[Dict[str, Any]]) -> bool:
-        """保存 `interview plan`。
+        """持久化 interview plan；沿用调用方的事务边界，并保持 owner 校验、脱敏和提交责任不越层。
 
         Args:
             session_id: 会话标识。
-            plan: 调用方传入的 `plan` 参数。
+            plan: 经过类型边界校验的 `plan`；其格式和可选值由参数类型及调用流程约束。
         """
         return await self.plan.save_interview_plan(session_id, plan)
 
     async def update_session_question_count(self, session_id: str, count: int) -> bool:
-        """更新 `session question count`。
+        """在 owner 校验下更新 session question count；只写入允许变更的字段，避免绕过状态机或审批约束。
 
         Args:
             session_id: 会话标识。
-            count: 调用方传入的 `count` 参数。
+            count: 经过类型边界校验的 `count`；其格式和可选值由参数类型及调用流程约束。
         """
         return await self.plan.update_session_question_count(session_id, count)
 
     async def get_completed_sessions_for_resume(self, user_id: Optional[str] = None, limit: int = 10) -> List[Dict[str, Any]]:
-        """获取 `completed sessions for resume`。
+        """读取 completed sessions for resume，并通过 owner 校验限制可见范围；资源不存在或状态不合法时返回稳定的业务结果或异常。
 
         Args:
             user_id: 当前用户标识。

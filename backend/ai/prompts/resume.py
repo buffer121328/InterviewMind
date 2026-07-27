@@ -163,6 +163,7 @@ ORCHESTRATOR_ASSEMBLE_PROMPT = prompt_template(
 
 
 def _json(value) -> str:
+    """将 Python 值安全编码为 Prompt 片段，避免手写 JSON 时破坏模型输入结构。"""
     return json.dumps(value, ensure_ascii=False, indent=2)
 
 

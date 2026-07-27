@@ -15,11 +15,11 @@ class BossAutomationError(RuntimeError):
     """宿主机自动化服务不可用或返回非法响应。"""
 
     def __init__(self, message: str, *, request_may_have_run: bool = False) -> None:
-        """初始化当前对象实例。
+        """初始化 `BossAutomationError` 的依赖和运行配置；构造阶段不执行业务写入，外部客户端仅在后续方法调用时承担对应的访问边界。
 
         Args:
             message: 消息内容。
-            request_may_have_run: 调用方传入的 `request_may_have_run` 参数。
+            request_may_have_run: 经过类型边界校验的 `request_may_have_run`；其格式和可选值由参数类型及调用流程约束。
         """
         super().__init__(message)
         self.request_may_have_run = request_may_have_run
@@ -33,17 +33,17 @@ class BossAutomationClient:
         *,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
-        """初始化当前对象实例。
+        """初始化 `BossAutomationClient` 的依赖和运行配置；构造阶段不执行业务写入，外部客户端仅在后续方法调用时承担对应的访问边界。
 
         Args:
             settings: 配置项。
-            transport: 调用方传入的 `transport` 参数。
+            transport: 经过类型边界校验的 `transport`；其格式和可选值由参数类型及调用流程约束。
         """
         self._settings = settings or get_settings()
         self._transport = transport
 
     def _connection(self) -> tuple[str, str]:
-        """执行 `_connection` 相关逻辑。"""
+        """返回 BOSS 自动化服务的连接信息，并集中处理配置缺失和安全边界。"""
         base_url = self._settings.boss_automation_service_url.strip().rstrip("/")
         token = self._settings.boss_automation_service_token.get_secret_value().strip()
         parsed = urlparse(base_url)
@@ -54,7 +54,7 @@ class BossAutomationClient:
         return base_url, token
 
     async def _post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
-        """异步执行 `_post` 相关逻辑。
+        """向本地 BOSS 自动化宿主发起受控请求，统一处理超时、错误和响应脱敏。
 
         Args:
             path: 文件路径。
@@ -108,12 +108,12 @@ class BossAutomationClient:
         headless: bool,
         manual_wait_seconds: int,
     ) -> dict[str, Any]:
-        """异步执行 `scrape` 相关逻辑。
+        """执行受控的 BOSS 页面采集请求，返回脱敏结果并保持人工登录和投递确认边界。
 
         Args:
             source_url: source URL。
-            headless: 调用方传入的 `headless` 参数。
-            manual_wait_seconds: 调用方传入的 `manual_wait_seconds` 参数。
+            headless: 是否隐藏浏览器界面；不改变人工登录和投递确认要求。
+            manual_wait_seconds: 等待人工登录或页面稳定的最长时长，超时后必须安全退出。
         """
         return await self._post(
             "/v1/pages/scrape",
@@ -125,7 +125,7 @@ class BossAutomationClient:
         )
 
     async def preview(self, source_url: str, greeting_text: str) -> dict[str, Any]:
-        """预览 当前对象。
+        """生成 BOSS 投递预览并返回一次性审批所需的摘要；不执行实际投递，也不泄露完整职位或候选人敏感内容。
 
         Args:
             source_url: source URL。
@@ -137,7 +137,7 @@ class BossAutomationClient:
         )
 
     async def send(self, source_url: str, greeting_text: str) -> dict[str, Any]:
-        """发送 当前对象。
+        """在审批许可、owner 和限流校验通过后发送 BOSS 投递请求；外部调用结果写入审计边界，失败不得伪装为成功。
 
         Args:
             source_url: source URL。
@@ -154,5 +154,5 @@ class BossAutomationClient:
 
 
 def get_boss_automation_client() -> BossAutomationClient:
-    """获取 `boss automation client`。"""
+    """返回受配置控制的 BOSS 自动化客户端；客户端只允许白名单页面，并要求审批后才执行投递副作用。"""
     return BossAutomationClient()

@@ -20,11 +20,11 @@ class VoiceInterviewUseCaseError(Exception):
     """语音面试应用层错误。"""
 
     def __init__(self, message: str, *, status_code: int = 500) -> None:
-        """初始化当前对象实例。
+        """初始化 `VoiceInterviewUseCaseError` 的依赖和运行配置；构造阶段不执行业务写入，外部客户端仅在后续方法调用时承担对应的访问边界。
 
         Args:
             message: 消息内容。
-            status_code: 调用方传入的 `status_code` 参数。
+            status_code: 经过类型边界校验的 `status_code`；其格式和可选值由参数类型及调用流程约束。
         """
         super().__init__(message)
         self.message = message
@@ -35,11 +35,11 @@ class VoiceInterviewUseCases:
     """语音面试非流式应用层门面。"""
 
     def __init__(self) -> None:
-        """初始化当前对象实例。"""
+        """初始化 `VoiceInterviewUseCases` 的依赖和运行配置；构造阶段不执行业务写入，外部客户端只在后续方法调用时承担访问边界。"""
         self._session_repo = SessionRepo()
 
     async def start(self, *, request: VoiceStartRequest, user_id: str) -> VoiceStartResponse:
-        """启动 当前对象。
+        """启动语音面试流程，校验会话 owner 和请求配置后再创建运行状态；音频与模型调用均受后端权限边界控制。
 
         Args:
             request: 请求对象。
@@ -195,7 +195,7 @@ class VoiceInterviewUseCases:
         )
 
     async def clone(self, *, request: VoiceCloneRequest, user_id: str) -> dict[str, object]:
-        """异步执行 `clone` 相关逻辑。
+        """克隆面试会话的可复用业务数据，并按用户边界过滤不可复制的运行态字段。
 
         Args:
             request: 请求对象。

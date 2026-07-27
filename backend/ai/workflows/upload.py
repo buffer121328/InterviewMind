@@ -26,6 +26,7 @@ class UploadUseCases:
     """Process uploaded files outside API route handlers."""
 
     def __init__(self) -> None:
+        """初始化上传用例使用的文件服务；文件类型、大小和解析边界由 FileService 统一执行。"""
         self._file_service = FileService()
 
     async def upload_resume(self, file: Any) -> FileUploadResponse:

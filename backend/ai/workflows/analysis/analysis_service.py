@@ -20,7 +20,7 @@ class CandidateAnalysisService:
     """候选人画像分析服务（后台异步运行）"""
 
     def __init__(self):
-        """初始化当前对象实例。"""
+        """初始化 `CandidateAnalysisService` 的依赖和运行配置；构造阶段不执行业务写入，外部客户端只在后续方法调用时承担访问边界。"""
         self.session_repo = SessionRepo()
         # 缓存：session_id -> CandidateProfile
         self._profile_cache: Dict[str, CandidateProfile] = {}

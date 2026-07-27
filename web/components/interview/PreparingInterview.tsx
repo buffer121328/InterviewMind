@@ -15,6 +15,7 @@ const stageText: Record<string, string> = {
     generating_question: 'AI 面试官正在生成首题',
 };
 
+/** Renders the preparing interview UI and coordinates its typed props, local state, and approved backend interactions. */
 export function PreparingInterview({ variant = 'light', stage, plan = [] }: PreparingInterviewProps) {
     const isDark = variant === 'dark';
 

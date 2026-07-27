@@ -21,15 +21,15 @@ class InterviewSessionUseCases:
     """面试聊天会话辅助应用服务。"""
 
     def __init__(self) -> None:
-        """初始化当前对象实例。"""
+        """初始化 `InterviewSessionUseCases` 的依赖和运行配置；构造阶段不执行业务写入，外部客户端只在后续方法调用时承担访问边界。"""
         self._session_repo = SessionRepo()
 
     async def get_hint(self, *, session_id: str, question_index: int, user_id: str) -> dict[str, object]:
-        """获取 `hint`。
+        """读取 hint，并通过 owner 校验限制可见范围；资源不存在或状态不合法时返回稳定的业务结果或异常。
 
         Args:
             session_id: 会话标识。
-            question_index: 调用方传入的 `question_index` 参数。
+            question_index: 经过类型边界校验的 `question_index`；其格式和可选值由参数类型及调用流程约束。
             user_id: 当前用户标识。
         """
         session = await self._session_repo.get_session(session_id, user_id=user_id)
@@ -61,7 +61,7 @@ class InterviewSessionUseCases:
         }
 
     async def get_chat_status(self, *, thread_id: str) -> dict[str, object]:
-        """获取 `chat status`。
+        """读取 chat status，并通过 owner 校验限制可见范围；资源不存在或状态不合法时返回稳定的业务结果或异常。
 
         Args:
             thread_id: thread 标识。
@@ -69,7 +69,7 @@ class InterviewSessionUseCases:
         return {"success": True, "thread_id": thread_id, "status": "active"}
 
     async def end_chat_session(self, *, thread_id: str) -> dict[str, object]:
-        """异步执行 `end_chat_session` 相关逻辑。
+        """结束当前聊天会话并记录最终状态，避免未完成的 AgentRun 被误标记为成功。
 
         Args:
             thread_id: thread 标识。
@@ -77,7 +77,7 @@ class InterviewSessionUseCases:
         return {"success": True, "message": f"会话 {thread_id} 已结束", "thread_id": thread_id}
 
     async def rollback_chat(self, *, request: RollbackRequest, user_id: str) -> dict[str, object]:
-        """异步执行 `rollback_chat` 相关逻辑。
+        """将聊天会话回滚到指定消息边界，并按 owner 校验避免跨用户修改。
 
         Args:
             request: 请求对象。

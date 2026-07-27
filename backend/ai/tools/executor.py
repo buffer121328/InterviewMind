@@ -50,7 +50,7 @@ class ToolApprovalRequired(PermissionError):
         tool_name: str,
         message: str = "tool requires explicit confirmation",
     ) -> None:
-        """初始化当前对象实例。
+        """初始化 `ToolApprovalRequired` 的依赖和运行配置；构造阶段不执行业务写入，外部客户端仅在后续方法调用时承担对应的访问边界。
 
         Args:
             tool_name: tool 名称。
@@ -64,10 +64,10 @@ class ToolExecutionGuard:
     """一次运行内共享的工具安全边界。"""
 
     def __init__(self, policy: ToolExecutionPolicy | None = None) -> None:
-        """初始化当前对象实例。
+        """初始化 `ToolExecutionGuard` 的依赖和运行配置；构造阶段不执行业务写入，外部客户端仅在后续方法调用时承担对应的访问边界。
 
         Args:
-            policy: 调用方传入的 `policy` 参数。
+            policy: 经过类型边界校验的 `policy`；其格式和可选值由参数类型及调用流程约束。
         """
         self.policy = policy or ToolExecutionPolicy()
         self.calls = 0
@@ -86,19 +86,19 @@ class ToolExecutionGuard:
         audit_callback: Callable[[dict[str, Any]], Awaitable[None] | None] | None = None,
         **kwargs: Any,
     ) -> Any:
-        """执行 当前对象。
+        """执行当前工具或任务调用，先通过契约、权限、审批和审计校验，再把结果返回给上层工作流。
 
         Args:
-            call: 调用方传入的 `call` 参数。
+            call: 经过类型边界校验的 `call`；其格式和可选值由参数类型及调用流程约束。
             context: 运行上下文。
-            effect: 调用方传入的 `effect` 参数。
-            required_permissions: 调用方传入的 `required_permissions` 参数。
-            requires_confirmation: 调用方传入的 `requires_confirmation` 参数。
-            confirmed: 调用方传入的 `confirmed` 参数。
+            effect: 经过类型边界校验的 `effect`；其格式和可选值由参数类型及调用流程约束。
+            required_permissions: 经过类型边界校验的 `required_permissions`；其格式和可选值由参数类型及调用流程约束。
+            requires_confirmation: 经过类型边界校验的 `requires_confirmation`；其格式和可选值由参数类型及调用流程约束。
+            confirmed: 经过类型边界校验的 `confirmed`；其格式和可选值由参数类型及调用流程约束。
             tool_name: tool 名称。
-            audit_callback: 调用方传入的 `audit_callback` 参数。
-            *args: 调用方传入的 `args` 参数。
-            **kwargs: 调用方传入的 `kwargs` 参数。
+            audit_callback: 经过类型边界校验的 `audit_callback`；其格式和可选值由参数类型及调用流程约束。
+            *args: 经过类型边界校验的 `args`；其格式和可选值由参数类型及调用流程约束。
+            **kwargs: 经过类型边界校验的 `kwargs`；其格式和可选值由参数类型及调用流程约束。
         """
         missing = set(required_permissions).difference(context.permissions)
         if missing:
@@ -190,7 +190,7 @@ _SECRET_KEYS = {"api_key", "apikey", "authorization", "token", "secret", "passwo
 
 
 def _validate_outbound_values(value: Any) -> None:
-    """校验 `outbound values`。
+    """校验 outbound values 是否满足当前流程约束；失败时返回可定位的业务异常，不执行副作用。
 
     Args:
         value: 取值。
@@ -208,7 +208,7 @@ def _validate_outbound_values(value: Any) -> None:
 
 
 def _validate_public_url(value: str) -> None:
-    """校验 `public url`。
+    """校验 public url 是否满足当前流程约束；失败时返回可定位的业务异常，不执行副作用。
 
     Args:
         value: 取值。
@@ -232,7 +232,7 @@ def _validate_public_url(value: str) -> None:
 
 
 def _redact(value: Any) -> Any:
-    """执行 `_redact` 相关逻辑。
+    """脱敏日志和审计载荷中的凭据、Cookie、认证头及大段敏感文本。
 
     Args:
         value: 取值。

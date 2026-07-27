@@ -34,7 +34,7 @@ class MaterialPool:
     """候选人素材池 — 统一管理所有可用素材"""
 
     def __init__(self, user_id: str = "default_user"):
-        """初始化当前对象实例。
+        """初始化 `MaterialPool` 的依赖和运行配置；构造阶段不执行业务写入，外部客户端仅在后续方法调用时承担对应的访问边界。
 
         Args:
             user_id: 当前用户标识。
@@ -53,7 +53,7 @@ class MaterialPool:
 
     @resume.setter
     def resume(self, value: str):
-        """执行 `resume` 相关逻辑。
+        """把持久化简历事实转换为证据映射，供重写阶段引用而不是凭空生成事实。
 
         Args:
             value: 取值。

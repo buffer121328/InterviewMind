@@ -27,6 +27,7 @@ export interface ExperienceCollectResponse {
     message?: string;
 }
 
+/** Calls the backend for collect interview experiences; the shared API client supplies request identity and error normalization, and this helper returns the typed endpoint result. */
 export async function collectInterviewExperiences(input: {
     source: ExperienceSource;
     queries: string[];
@@ -43,6 +44,7 @@ export async function collectInterviewExperiences(input: {
     return data;
 }
 
+/** Calls the backend for import experience questions; the shared API client supplies request identity and error normalization, and this helper returns the typed endpoint result. */
 export async function importExperienceQuestions(questions: ExperienceQuestionCandidate[]): Promise<{
     success: boolean;
     success_count: number;

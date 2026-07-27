@@ -9,7 +9,7 @@ GraphBuilder = Callable[..., Any]
 
 @dataclass(frozen=True, slots=True)
 class GraphSpec:
-    """表示 `GraphSpec` 相关的数据或行为。"""
+    """可发现工作流图的注册声明，描述图名称、版本和构建入口；注册表只管理契约，不在声明阶段执行任务副作用。"""
     name: str
     version: str
     builder: GraphBuilder
@@ -18,16 +18,16 @@ class GraphSpec:
 class GraphRegistry:
     """维护运行时注册表。"""
     def __init__(self) -> None:
-        """初始化当前对象实例。"""
+        """初始化 `GraphRegistry` 的依赖和运行配置；构造阶段不执行业务写入，外部客户端只在后续方法调用时承担访问边界。"""
         self._specs: dict[str, GraphSpec] = {}
         self._lock = RLock()
 
     def register(self, spec: GraphSpec, *, replace: bool = False) -> None:
-        """注册 当前对象。
+        """注册可供运行时发现的声明，拒绝重复或不完整定义，保持模块加载顺序不会改变最终契约。
 
         Args:
-            spec: 调用方传入的 `spec` 参数。
-            replace: 调用方传入的 `replace` 参数。
+            spec: 经过类型边界校验的 `spec`；其格式和可选值由参数类型及调用流程约束。
+            replace: 经过类型边界校验的 `replace`；其格式和可选值由参数类型及调用流程约束。
         """
         key = spec.name.strip().lower()
         with self._lock:
@@ -36,11 +36,11 @@ class GraphRegistry:
             self._specs[key] = spec
 
     def build(self, name: str, **kwargs: Any) -> Any:
-        """构建 当前对象。
+        """根据已注册的工具或配置构建可执行对象；先保留契约和权限信息，实际外部副作用由执行器统一治理。
 
         Args:
             name: 名称。
-            **kwargs: 调用方传入的 `kwargs` 参数。
+            **kwargs: 经过类型边界校验的 `kwargs`；其格式和可选值由参数类型及调用流程约束。
         """
         key = name.strip().lower()
         try:
@@ -50,7 +50,7 @@ class GraphRegistry:
         return spec.builder(**kwargs)
 
     def names(self) -> tuple[str, ...]:
-        """执行 `names` 相关逻辑。"""
+        """返回注册表中稳定排序的名称列表，供诊断和管理接口使用。"""
         return tuple(sorted(self._specs))
 
 
@@ -61,7 +61,7 @@ async def _build_interview(**kwargs: Any) -> Any:
     """构建 `interview`。
 
     Args:
-        **kwargs: 调用方传入的 `kwargs` 参数。
+        **kwargs: 经过类型边界校验的 `kwargs`；其格式和可选值由参数类型及调用流程约束。
     """
     from ai.agents.interview.graph import build_interview_graph
 
@@ -72,7 +72,7 @@ def _build_resume_analyzer(**kwargs: Any) -> Any:
     """构建 `resume analyzer`。
 
     Args:
-        **kwargs: 调用方传入的 `kwargs` 参数。
+        **kwargs: 经过类型边界校验的 `kwargs`；其格式和可选值由参数类型及调用流程约束。
     """
     from ai.agents.resume.resume_analyzer_graph import build_resume_analyzer_graph
 
@@ -83,7 +83,7 @@ def _build_resume_optimizer(**kwargs: Any) -> Any:
     """构建 `resume optimizer`。
 
     Args:
-        **kwargs: 调用方传入的 `kwargs` 参数。
+        **kwargs: 经过类型边界校验的 `kwargs`；其格式和可选值由参数类型及调用流程约束。
     """
     from ai.agents.resume.resume_orchestrator import build_resume_optimizer_graph
 
@@ -94,7 +94,7 @@ def _build_resume_generator(**kwargs: Any) -> Any:
     """构建 `resume generator`。
 
     Args:
-        **kwargs: 调用方传入的 `kwargs` 参数。
+        **kwargs: 经过类型边界校验的 `kwargs`；其格式和可选值由参数类型及调用流程约束。
     """
     from ai.agents.resume.resume_generation_graph import build_resume_generation_graph
 

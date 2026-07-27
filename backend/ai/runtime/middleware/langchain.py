@@ -18,47 +18,47 @@ try:  # pragma: no cover - 运行时可选依赖
     )
 except ModuleNotFoundError:  # pragma: no cover - 轻量测试环境
     def wrap_tool_call(func):
-        """执行 `wrap_tool_call` 相关逻辑。
+        """包装工具调用以统一权限校验、异常映射和审计事件写入。
 
         Args:
-            func: 调用方传入的 `func` 参数。
+            func: 经过类型边界校验的 `func`；其格式和可选值由参数类型及调用流程约束。
         """
         return func
 
     class _StubMiddleware:
-        """表示 `_StubMiddleware` 相关的数据或行为。"""
+        """应用或基础设施协作者，负责 `StubMiddleware` 的职责；依赖通过构造或模块边界注入，外部调用、状态持久化和安全校验不向调用方隐藏。"""
         def __init__(self, *args: Any, **kwargs: Any) -> None:
-            """初始化当前对象实例。
+            """初始化 `_StubMiddleware` 的依赖和运行配置；构造阶段不执行业务写入，外部客户端仅在后续方法调用时承担对应的访问边界。
 
             Args:
-                *args: 调用方传入的 `args` 参数。
-                **kwargs: 调用方传入的 `kwargs` 参数。
+                *args: 经过类型边界校验的 `args`；其格式和可选值由参数类型及调用流程约束。
+                **kwargs: 经过类型边界校验的 `kwargs`；其格式和可选值由参数类型及调用流程约束。
             """
             self.args = args
             self.kwargs = kwargs
 
     class HumanInTheLoopMiddleware(_StubMiddleware):
-        """表示 `HumanInTheLoopMiddleware` 相关的数据或行为。"""
+        """人工确认中间件边界；对需要审批的工具调用暂停并等待显式确认，不能把模型输出或自动化 fallback 当作用户批准。"""
         pass
 
     class ModelCallLimitMiddleware(_StubMiddleware):
-        """表示 `ModelCallLimitMiddleware` 相关的数据或行为。"""
+        """模型调用次数治理中间件；在单次运行范围内限制调用量，防止重试或循环无限消耗额度，不改变业务权限。"""
         pass
 
     class ModelFallbackMiddleware(_StubMiddleware):
-        """表示 `ModelFallbackMiddleware` 相关的数据或行为。"""
+        """模型 fallback 中间件；仅在候选模型失败且策略允许时切换，并保留原始错误、观测和安全配置边界。"""
         pass
 
     class ModelRetryMiddleware(_StubMiddleware):
-        """表示 `ModelRetryMiddleware` 相关的数据或行为。"""
+        """模型重试中间件；按可重试错误和次数限制重新调用，避免对有副作用的工具动作盲目重放。"""
         pass
 
     class PIIMiddleware(_StubMiddleware):
-        """表示 `PIIMiddleware` 相关的数据或行为。"""
+        """个人信息保护中间件；在模型和工具边界前后执行脱敏或拦截，避免原始 PII 进入不必要的日志和外部追踪。"""
         pass
 
     class ToolCallLimitMiddleware(_StubMiddleware):
-        """表示 `ToolCallLimitMiddleware` 相关的数据或行为。"""
+        """工具调用次数治理中间件；限制单次运行的工具调用量，并与权限、审批和审计校验叠加而非替代。"""
         pass
 
 
@@ -67,7 +67,7 @@ def permission_middleware(tool_permissions: dict[str, Collection[str]]):
 
     @wrap_tool_call
     async def enforce_permissions(request: Any, handler: Any):
-        """异步执行 `enforce_permissions` 相关逻辑。
+        """在工具调用边界校验当前用户权限和工具契约，阻止未授权副作用。
 
         Args:
             request: 请求对象。

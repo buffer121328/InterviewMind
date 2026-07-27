@@ -45,6 +45,7 @@ const AlertDialogContent = React.forwardRef<
 ))
 AlertDialogContent.displayName = AlertDialogPrimitive.Content.displayName
 
+/** Wraps the alert dialog header primitive while forwarding its typed props/ref and preserving the underlying accessibility semantics. */
 const AlertDialogHeader = ({
     className,
     ...props
@@ -59,6 +60,7 @@ const AlertDialogHeader = ({
 )
 AlertDialogHeader.displayName = "AlertDialogHeader"
 
+/** Wraps the alert dialog footer primitive while forwarding its typed props/ref and preserving the underlying accessibility semantics. */
 const AlertDialogFooter = ({
     className,
     ...props

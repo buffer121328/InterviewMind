@@ -23,7 +23,7 @@ EXPECTED_KEYS = {
 
 @dataclass(frozen=True, slots=True)
 class LangfuseDatasetItemSpec:
-    """Portable representation of a Langfuse dataset item."""
+    """数据对象，承载 `LangfuseDatasetItemSpec` 的结构化字段和跨模块契约；只表达数据，不在构造或序列化时执行外部调用。"""
 
     id: str
     input: dict[str, Any]
@@ -33,7 +33,7 @@ class LangfuseDatasetItemSpec:
 
 @dataclass(frozen=True, slots=True)
 class DatasetSyncSummary:
-    """Summary of a dataset sync operation."""
+    """数据对象，承载 `DatasetSyncSummary` 的结构化字段和跨模块契约；只表达数据，不在构造或序列化时执行外部调用。"""
 
     dataset_name: str
     source_file: str
@@ -43,21 +43,25 @@ class DatasetSyncSummary:
 
 
 def _is_expected_key(key: str) -> bool:
+    """判断数据项键是否属于评测数据集允许的结构，过滤意外字段。"""
     return key in EXPECTED_KEYS or any(key.startswith(prefix) for prefix in EXPECTED_KEY_PREFIXES)
 
 
 def _split_case(case: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    """将数据集记录拆分为稳定的输入、期望输出和元数据，避免把敏感载荷混入索引字段。"""
     expected = {key: value for key, value in case.items() if _is_expected_key(key)}
     input_payload = {key: value for key, value in case.items() if key not in expected}
     return input_payload, expected or None
 
 
 def _case_id(case: dict[str, Any], *, source_stem: str, index: int) -> str:
+    """为评测样例生成稳定 ID，保证重复同步时可幂等更新而不泄露原文。"""
     raw = case.get("id") or case.get("name") or f"{source_stem}-{index + 1}"
     return str(raw)
 
 
 def _records_from_list(data: list[Any], *, source_file: Path) -> list[LangfuseDatasetItemSpec]:
+    """把列表形式的本地 golden 数据转换为 Langfuse 数据集记录。"""
     records: list[LangfuseDatasetItemSpec] = []
     for index, item in enumerate(data):
         if not isinstance(item, dict):
@@ -75,6 +79,7 @@ def _records_from_list(data: list[Any], *, source_file: Path) -> list[LangfuseDa
 
 
 def _records_from_rag_dataset(data: dict[str, Any], *, source_file: Path) -> list[LangfuseDatasetItemSpec]:
+    """把 RAG 专用数据集格式转换为统一记录，并保留检索评测所需的来源元数据。"""
     corpus = data.get("corpus") if isinstance(data.get("corpus"), list) else []
     raw_cases: list[Any] = []
     if isinstance(data.get("cases"), list):
@@ -208,6 +213,7 @@ def run_langfuse_experiment(
 
 
 def _main(argv: list[str] | None = None) -> int:
+    """执行本地数据集同步 CLI；dry-run 只输出计划，不调用 Langfuse 写入。"""
     parser = argparse.ArgumentParser(description="Sync local golden datasets to Langfuse")
     parser.add_argument("--dataset-dir", default=str(DATASET_DIR), help="Directory containing *.json golden datasets")
     parser.add_argument("--dry-run", action="store_true", help="Only print what would be synced")

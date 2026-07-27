@@ -11,7 +11,7 @@ from .base import Base
 
 
 class JdAnalysisResultModel(Base):
-    """表示数据模型。"""
+    """SQLAlchemy 持久化模型，描述 `JdAnalysisResult` 的数据库字段、关系和约束；仓储层负责 owner 过滤、事务提交和敏感数据边界。"""
     __tablename__ = "jd_analysis_results"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

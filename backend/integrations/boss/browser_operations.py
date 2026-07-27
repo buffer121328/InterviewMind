@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 
 def _require_allowed_url(source_url: str) -> None:
-    """校验 `allowed url`。
+    """校验外部页面 URL 是否属于允许的 BOSS 来源；校验失败时拒绝浏览器访问，防止自动化能力被转用于任意站点。
 
     Args:
         source_url: source URL。

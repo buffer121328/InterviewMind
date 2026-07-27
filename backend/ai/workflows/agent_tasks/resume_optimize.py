@@ -43,6 +43,7 @@ async def execute_resume_optimize(payload: dict, user_id: str, progress: Progres
     await progress("saving_result")
 
     async def persist_result(session: AsyncSession | None = None) -> dict:
+        """持久化简历优化结果并更新关联 AgentRun 状态；调用方提供事务会话时不自行提交。"""
         result_id = await resume_repo.save_result(
             user_id=user_id,
             result_type="optimize",

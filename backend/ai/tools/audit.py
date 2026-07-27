@@ -21,6 +21,7 @@ def agent_run_audit_callback(context: AgentContext) -> ToolAuditCallback:
     """
 
     async def persist(event: dict[str, Any]) -> None:
+        """将工具治理事件写入当前 AgentRun；审计失败只记录脱敏的异常类型，不阻断已经执行的业务动作。"""
         if not context.run_id:
             return
         try:

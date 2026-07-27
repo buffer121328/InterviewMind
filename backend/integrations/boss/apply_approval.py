@@ -17,7 +17,7 @@ class ApprovalError(ValueError):
 
 
 def _digest(value: str) -> str:
-    """执行 `_digest` 相关逻辑。
+    """为审批内容生成不可逆摘要，用于校验确认令牌与原始请求的一致性。
 
     Args:
         value: 取值。
@@ -27,7 +27,7 @@ def _digest(value: str) -> str:
 
 @dataclass(frozen=True)
 class PendingApproval:
-    """表示 `PendingApproval` 相关的数据或行为。"""
+    """一次性 BOSS 投递审批许可，绑定 user、岗位、来源和发送内容摘要及过期时间；消费时必须原子删除，禁止重放或跨 owner 使用。"""
     user_id: str
     job_id: int
     greeting_digest: str
@@ -37,20 +37,20 @@ class PendingApproval:
 
 
 class ApprovalStore(Protocol):
-    """表示 `ApprovalStore` 相关的数据或行为。"""
+    """一次性审批许可的存储协议；实现可使用内存或 Redis，但必须提供 TTL、owner 隔离和消费即删除语义。"""
 
     async def put(self, token: str, item: PendingApproval, ttl_seconds: int) -> None:
-        """异步执行 `put` 相关逻辑。
+        """写入带 TTL 的待处理记录，并以命名空间隔离用户和业务对象。
 
         Args:
             token: 访问令牌。
             item: 单条数据。
-            ttl_seconds: 调用方传入的 `ttl_seconds` 参数。
+            ttl_seconds: 短期审批或缓存状态的生命周期限制，用于控制重放窗口和资源占用。
         """
         ...
 
     async def pop(self, token: str) -> PendingApproval | None:
-        """异步执行 `pop` 相关逻辑。
+        """读取并删除待处理记录，使审批或缓存消费具备一次性语义。
 
         Args:
             token: 访问令牌。
@@ -62,22 +62,22 @@ class MemoryApprovalStore:
     """本地开发降级存储；重启后许可安全失效。"""
 
     def __init__(self, max_pending: int = 1000) -> None:
-        """初始化当前对象实例。
+        """初始化 `MemoryApprovalStore` 的依赖和运行配置；构造阶段不执行业务写入，外部客户端仅在后续方法调用时承担对应的访问边界。
 
         Args:
-            max_pending: 调用方传入的 `max_pending` 参数。
+            max_pending: 短期审批或缓存状态的生命周期限制，用于控制重放窗口和资源占用。
         """
         self._max_pending = max_pending
         self._items: dict[str, PendingApproval] = {}
         self._lock = asyncio.Lock()
 
     async def put(self, token: str, item: PendingApproval, ttl_seconds: int) -> None:
-        """异步执行 `put` 相关逻辑。
+        """写入带 TTL 的待处理记录，并以命名空间隔离用户和业务对象。
 
         Args:
             token: 访问令牌。
             item: 单条数据。
-            ttl_seconds: 调用方传入的 `ttl_seconds` 参数。
+            ttl_seconds: 短期审批或缓存状态的生命周期限制，用于控制重放窗口和资源占用。
         """
         async with self._lock:
             superseded = [
@@ -93,7 +93,7 @@ class MemoryApprovalStore:
             self._items[token] = item
 
     async def pop(self, token: str) -> PendingApproval | None:
-        """异步执行 `pop` 相关逻辑。
+        """读取并删除待处理记录，使审批或缓存消费具备一次性语义。
 
         Args:
             token: 访问令牌。
@@ -121,7 +121,7 @@ class RedisApprovalStore:
     """
 
     def __init__(self, redis_url: str) -> None:
-        """初始化当前对象实例。
+        """初始化 `RedisApprovalStore` 的依赖和运行配置；构造阶段不执行业务写入，外部客户端仅在后续方法调用时承担对应的访问边界。
 
         Args:
             redis_url: redis URL。
@@ -132,7 +132,7 @@ class RedisApprovalStore:
 
     @staticmethod
     def _token_key(token: str) -> tuple[str, str]:
-        """执行 `_token_key` 相关逻辑。
+        """生成审批令牌的存储 key，使用哈希或命名空间隔离避免泄露令牌原文。
 
         Args:
             token: 访问令牌。
@@ -142,7 +142,7 @@ class RedisApprovalStore:
 
     @staticmethod
     def _latest_key(item: PendingApproval) -> str:
-        """执行 `_latest_key` 相关逻辑。
+        """根据审批项生成最新记录 key，保证同一用户和岗位的确认状态可幂等读取。
 
         Args:
             item: 单条数据。
@@ -151,12 +151,12 @@ class RedisApprovalStore:
         return f"agent-interview:approval-latest:{owner}"
 
     async def put(self, token: str, item: PendingApproval, ttl_seconds: int) -> None:
-        """异步执行 `put` 相关逻辑。
+        """写入带 TTL 的待处理记录，并以命名空间隔离用户和业务对象。
 
         Args:
             token: 访问令牌。
             item: 单条数据。
-            ttl_seconds: 调用方传入的 `ttl_seconds` 参数。
+            ttl_seconds: 短期审批或缓存状态的生命周期限制，用于控制重放窗口和资源占用。
         """
         item_key, token_hash = self._token_key(token)
         latest_key = self._latest_key(item)
@@ -172,7 +172,7 @@ class RedisApprovalStore:
         )
 
     async def pop(self, token: str) -> PendingApproval | None:
-        """异步执行 `pop` 相关逻辑。
+        """读取并删除待处理记录，使审批或缓存消费具备一次性语义。
 
         Args:
             token: 访问令牌。
@@ -201,12 +201,12 @@ class ApplyApprovalRegistry:
         max_pending: int = 1000,
         store: ApprovalStore | None = None,
     ) -> None:
-        """初始化当前对象实例。
+        """初始化 `ApplyApprovalRegistry` 的依赖和运行配置；构造阶段不执行业务写入，外部客户端仅在后续方法调用时承担对应的访问边界。
 
         Args:
-            ttl_seconds: 调用方传入的 `ttl_seconds` 参数。
-            max_pending: 调用方传入的 `max_pending` 参数。
-            store: 调用方传入的 `store` 参数。
+            ttl_seconds: 短期审批或缓存状态的生命周期限制，用于控制重放窗口和资源占用。
+            max_pending: 短期审批或缓存状态的生命周期限制，用于控制重放窗口和资源占用。
+            store: 经过类型边界校验的 `store`；其格式和可选值由参数类型及调用流程约束。
         """
         self._ttl_seconds = ttl_seconds
         self._store = store or MemoryApprovalStore(max_pending=max_pending)
@@ -220,7 +220,7 @@ class ApplyApprovalRegistry:
         source_url: str,
         resume_id: Optional[int],
     ) -> tuple[str, int]:
-        """异步执行 `issue` 相关逻辑。
+        """签发带有效期和内容摘要的人工审批令牌，令牌仅绑定指定用户和岗位。
 
         Args:
             user_id: 当前用户标识。
@@ -251,7 +251,7 @@ class ApplyApprovalRegistry:
         source_url: str,
         resume_id: Optional[int],
     ) -> None:
-        """异步执行 `consume` 相关逻辑。
+        """原子消费人工审批令牌，校验 owner、岗位、内容摘要和有效期后才允许继续投递。
 
         Args:
             token: 访问令牌。
@@ -286,7 +286,7 @@ class ApplyApprovalRegistry:
 
 
 def _approval_ttl_seconds() -> int:
-    """执行 `_approval_ttl_seconds` 相关逻辑。"""
+    """读取人工审批令牌的有效期，令牌过期后不得继续执行投递动作。"""
     try:
         value = int(os.getenv("BOSS_APPLY_APPROVAL_TTL_SECONDS", "300"))
     except ValueError:
@@ -295,7 +295,7 @@ def _approval_ttl_seconds() -> int:
 
 
 def _approval_store() -> ApprovalStore:
-    """执行 `_approval_store` 相关逻辑。"""
+    """返回当前配置的审批存储实现，优先使用共享存储并保留本地降级边界。"""
     redis_url = os.getenv("REDIS_URL")
     return RedisApprovalStore(redis_url) if redis_url else MemoryApprovalStore()
 

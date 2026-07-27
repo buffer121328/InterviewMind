@@ -21,7 +21,7 @@ class ApplicationEventRepo:
     """投递事件流水服务类"""
 
     def __init__(self):
-        """初始化当前对象实例。"""
+        """初始化 `ApplicationEventRepo` 的依赖和运行配置；构造阶段不执行业务写入，外部客户端只在后续方法调用时承担访问边界。"""
         logger.info("ApplicationEventRepo 初始化")
 
     async def add_event(
@@ -33,11 +33,11 @@ class ApplicationEventRepo:
         """新增投递事件，并在必要时更新主表状态；可接入外层 UnitOfWork。"""
 
         async def _add(db: AsyncSession, *, owns_session: bool) -> ApplicationEventRow:
-            """新增 当前对象。
+            """向投递记录追加事件并持久化时间线；由调用方提供事务边界，本方法不执行外部投递。
 
             Args:
                 db: 数据库会话。
-                owns_session: 调用方传入的 `owns_session` 参数。
+                owns_session: 是否由当前方法负责 session 的提交和释放，避免嵌套事务重复处理。
             """
             try:
                 now = datetime.now()

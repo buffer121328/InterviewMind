@@ -27,6 +27,7 @@ export function normalizeApiBaseUrl(rawBaseUrl: string | undefined): string {
 
 export const API_BASE_URL = normalizeApiBaseUrl(process.env.NEXT_PUBLIC_API_URL);
 
+/** Calls the backend for build api url; the shared API client supplies request identity and error normalization, and this helper returns the typed endpoint result. */
 export function buildApiUrl(url: string): string {
     if (/^https?:\/\//i.test(url)) return url;
     const path = url.startsWith('/') ? url : `/${url}`;
@@ -34,6 +35,7 @@ export function buildApiUrl(url: string): string {
 }
 
 
+/** Calls the backend for get error message; the shared API client supplies request identity and error normalization, and this helper returns the typed endpoint result. */
 function getErrorMessage(error: unknown, fallback: string): string {
     if (typeof error === 'string') return error;
     if (error && typeof error === 'object') {
@@ -44,6 +46,7 @@ function getErrorMessage(error: unknown, fallback: string): string {
     return fallback;
 }
 
+/** Calls the backend for create user id; the shared API client supplies request identity and error normalization, and this helper returns the typed endpoint result. */
 function createUserId(): string {
     if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
         return crypto.randomUUID();

@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 
 class GreetingItemOutput(BaseModel):
-    """表示 `GreetingItemOutput` 的接口数据模型。"""
+    """数据对象，承载 `GreetingItemOutput` 的结构化字段和跨模块契约；只表达数据，不在构造或序列化时执行外部调用。"""
     tone: str = Field(description="professional | technical | result_oriented")
     message_text: str = Field(description="打招呼文案正文")
     highlights_used: List[str] = Field(description="使用的亮点")
@@ -32,7 +32,7 @@ class GreetingItemOutput(BaseModel):
 
 
 class GreetingListOutput(BaseModel):
-    """表示 `GreetingListOutput` 的接口数据模型。"""
+    """数据对象，承载 `GreetingListOutput` 的结构化字段和跨模块契约；只表达数据，不在构造或序列化时执行外部调用。"""
     greetings: List[GreetingItemOutput] = Field(description="3 条打招呼文案")
 
 

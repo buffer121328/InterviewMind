@@ -20,6 +20,7 @@ interface InterviewExperiencePanelProps {
     onStartInterview?: () => void;
 }
 
+/** Renders the interview experience panel UI and coordinates its typed props, local state, and approved backend interactions. */
 export function InterviewExperiencePanel({ onImported, onStartInterview }: InterviewExperiencePanelProps) {
     const setExperienceQuestions = useInterviewStore((state) => state.setExperienceQuestions);
     const queuedCount = useInterviewStore((state) => state.experienceQuestions.length);
@@ -31,6 +32,7 @@ export function InterviewExperiencePanel({ onImported, onStartInterview }: Inter
     const [loading, setLoading] = useState(false);
     const [importing, setImporting] = useState(false);
 
+    /** Handles collect; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleCollect = async () => {
         if (!query.trim() && source === "nowcoder") {
             toast.warning("请输入搜索关键词");
@@ -65,6 +67,7 @@ export function InterviewExperiencePanel({ onImported, onStartInterview }: Inter
         }
     };
 
+    /** Handles import; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleImport = async () => {
         if (!result) return;
         const questions = result.questions.filter((_, index) => selected.has(index));
@@ -84,6 +87,7 @@ export function InterviewExperiencePanel({ onImported, onStartInterview }: Inter
         }
     };
 
+    /** Handles use in interview; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleUseInInterview = () => {
         if (!result) return;
         const questions = result.questions.filter((_, index) => selected.has(index));

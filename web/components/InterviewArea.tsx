@@ -16,6 +16,7 @@ interface InterviewAreaProps {
     children: ReactNode;
 }
 
+/** Renders the interview area UI and coordinates its typed props, local state, and approved backend interactions. */
 export function InterviewArea({ children }: InterviewAreaProps) {
     const isVoiceMode = useInterviewStore((state) => state.isVoiceMode);
     const setVoiceMode = useInterviewStore((state) => state.setVoiceMode);
@@ -70,6 +71,7 @@ export function InterviewArea({ children }: InterviewAreaProps) {
         const isCompleted = currentSession.metadata.status === 'completed';
         const roundIndex = currentSession.metadata.round_index || 1;
 
+        /** Handles next round; updates local UI state first and delegates server mutations through the approved API boundary. */
         const handleNextRound = async () => {
             if (iscloning) return;
             setIsCloning(true);
@@ -110,6 +112,7 @@ export function InterviewArea({ children }: InterviewAreaProps) {
             }
         };
 
+        /** Handles generate summary; updates local UI state first and delegates server mutations through the approved API boundary. */
         const handleGenerateSummary = async () => {
             if (isGeneratingSummary) return;
             setIsGeneratingSummary(true);

@@ -11,12 +11,14 @@ import {
     type QuestionFileCandidate,
 } from "@/lib/api/questionBank";
 
+/** Renders the question file import panel UI and coordinates its typed props, local state, and approved backend interactions. */
 export function QuestionFileImportPanel({ onImported }: { onImported: () => void }) {
     const [filename, setFilename] = useState("");
     const [questions, setQuestions] = useState<QuestionFileCandidate[]>([]);
     const [selected, setSelected] = useState<Set<number>>(new Set());
     const [loading, setLoading] = useState(false);
 
+    /** Handles file; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleFile = async (file: File) => {
         setLoading(true);
         try {
@@ -32,6 +34,7 @@ export function QuestionFileImportPanel({ onImported }: { onImported: () => void
         }
     };
 
+    /** Encapsulates confirm import; returns typed data or state and keeps side effects within the owning module boundary. */
     const confirmImport = async () => {
         const chosen = questions.filter((_, index) => selected.has(index));
         if (!chosen.length) return toast.warning("请至少选择一道题");

@@ -61,7 +61,7 @@ TTS_SYSTEM_PROMPT = prompt_template(
 
 
 def get_opening_message(first_question: str | None = None, round_index: int = 1) -> str:
-    """获取 `opening message`。"""
+    """生成面试流程的开场提示，保持问题计划和用户上下文边界；只返回文本，不写入会话。"""
     if round_index == 1:
         greeting = "你好，我是你的面试官。"
     elif round_index == 2:

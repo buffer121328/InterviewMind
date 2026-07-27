@@ -26,6 +26,7 @@ interface ResumeGenerationDialogProps {
 
 type Step = "init" | "question" | "generating" | "result";
 
+/** Renders the resume generation dialog UI and coordinates its typed props, local state, and approved backend interactions. */
 export function ResumeGenerationDialog({
     isOpen,
     onClose,
@@ -43,6 +44,7 @@ export function ResumeGenerationDialog({
     const [answers, setAnswers] = useState<Record<string, string>>({});
     const [error, setError] = useState<string | null>(null);
 
+    /** Handles init; updates local UI state first and delegates server mutations through the approved API boundary. */
     async function handleInit() {
         setIsLoading(true);
         setError(null);
@@ -88,6 +90,7 @@ export function ResumeGenerationDialog({
         void Promise.resolve().then(() => initializeOnMount());
     }, []);
 
+    /** Handles submit answers; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleSubmitAnswers = async () => {
         // 检查回答是否完整
         const answeredCount = Object.keys(answers).length;
@@ -120,6 +123,7 @@ export function ResumeGenerationDialog({
         }
     };
 
+    /** Handles answer change; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleAnswerChange = (index: number, value: string) => {
         setAnswers(prev => ({
             ...prev,

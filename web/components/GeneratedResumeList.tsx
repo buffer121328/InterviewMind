@@ -29,6 +29,7 @@ interface GeneratedResumeListProps {
     loading?: boolean;
 }
 
+/** Renders the generated resume list UI and coordinates its typed props, local state, and approved backend interactions. */
 export function GeneratedResumeList({
     results,
     onSelect,
@@ -119,17 +120,20 @@ interface GeneratedResumeItemViewProps {
     onDelete: () => void;
 }
 
+/** Renders the generated resume item view UI and coordinates its typed props, local state, and approved backend interactions. */
 function GeneratedResumeItemView({ result, isActive, onSelect, onDelete }: GeneratedResumeItemViewProps) {
     const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
 
     const title = result.title || '未命名简历';
     const subtitle = new Date(result.created_at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
 
+    /** Handles delete click; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleDeleteClick = (e: React.MouseEvent) => {
         e.stopPropagation();
         setIsDeleteDialogOpen(true);
     };
 
+    /** Handles confirm delete; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleConfirmDelete = () => {
         onDelete();
         setIsDeleteDialogOpen(false);

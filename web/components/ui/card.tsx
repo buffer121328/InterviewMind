@@ -2,6 +2,7 @@ import * as React from "react"
 
 import { cn } from "@/lib/utils"
 
+/** Wraps the card primitive while forwarding its typed props/ref and preserving the underlying accessibility semantics. */
 function Card({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
@@ -15,6 +16,7 @@ function Card({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
+/** Wraps the card header primitive while forwarding its typed props/ref and preserving the underlying accessibility semantics. */
 function CardHeader({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
@@ -28,6 +30,7 @@ function CardHeader({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
+/** Wraps the card title primitive while forwarding its typed props/ref and preserving the underlying accessibility semantics. */
 function CardTitle({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
@@ -38,6 +41,7 @@ function CardTitle({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
+/** Wraps the card description primitive while forwarding its typed props/ref and preserving the underlying accessibility semantics. */
 function CardDescription({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
@@ -48,6 +52,7 @@ function CardDescription({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
+/** Wraps the card action primitive while forwarding its typed props/ref and preserving the underlying accessibility semantics. */
 function CardAction({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
@@ -61,6 +66,7 @@ function CardAction({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
+/** Wraps the card content primitive while forwarding its typed props/ref and preserving the underlying accessibility semantics. */
 function CardContent({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
@@ -71,6 +77,7 @@ function CardContent({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
+/** Wraps the card footer primitive while forwarding its typed props/ref and preserving the underlying accessibility semantics. */
 function CardFooter({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div

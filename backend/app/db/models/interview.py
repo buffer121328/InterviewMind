@@ -11,7 +11,7 @@ from .base import Base
 
 
 class WeaknessReportModel(Base):
-    """表示数据模型。"""
+    """SQLAlchemy 持久化模型，描述 `WeaknessReport` 的数据库字段、关系和约束；仓储层负责 owner 过滤、事务提交和敏感数据边界。"""
     __tablename__ = "interview_weakness_reports"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -31,7 +31,7 @@ class WeaknessReportModel(Base):
 
 
 class QuestionBankItemModel(Base):
-    """表示数据模型。"""
+    """SQLAlchemy 持久化模型，描述 `QuestionBankItem` 的数据库字段、关系和约束；仓储层负责 owner 过滤、事务提交和敏感数据边界。"""
     __tablename__ = "question_bank_items"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -59,7 +59,7 @@ class QuestionBankItemModel(Base):
 
 
 class QuestionBankImportModel(Base):
-    """表示数据模型。"""
+    """SQLAlchemy 持久化模型，描述 `QuestionBankImport` 的数据库字段、关系和约束；仓储层负责 owner 过滤、事务提交和敏感数据边界。"""
     __tablename__ = "question_bank_imports"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

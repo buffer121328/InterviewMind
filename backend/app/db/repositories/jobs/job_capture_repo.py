@@ -161,11 +161,11 @@ class JobCaptureRepo:
         """更新岗位状态；传入 session 时由外层 UnitOfWork 统一提交。"""
 
         async def _update(db: AsyncSession, *, owns_session: bool) -> bool:
-            """更新 当前对象。
+            """在 owner 校验下更新 目标记录；只写入允许变更的字段，避免绕过状态机或审批约束。
 
             Args:
                 db: 数据库会话。
-                owns_session: 调用方传入的 `owns_session` 参数。
+                owns_session: 是否由当前方法负责 session 的提交和释放，避免嵌套事务重复处理。
             """
             result = await db.execute(
                 select(CapturedJobModel).where(
@@ -193,11 +193,11 @@ class JobCaptureRepo:
         """原子占用岗位发送权，防止多请求重复点击；可接入外层 UnitOfWork。"""
 
         async def _claim(db: AsyncSession, *, owns_session: bool) -> bool:
-            """异步执行 `_claim` 相关逻辑。
+            """在事务中原子认领任务，避免多个 worker 同时处理同一条记录。
 
             Args:
                 db: 数据库会话。
-                owns_session: 调用方传入的 `owns_session` 参数。
+                owns_session: 是否由当前方法负责 session 的提交和释放，避免嵌套事务重复处理。
             """
             result = await db.execute(
                 update(CapturedJobModel)

@@ -17,10 +17,10 @@ SKILL_KEYWORDS = {
 
 
 def _normalise_line(line: str) -> str:
-    """执行 `_normalise_line` 相关逻辑。
+    """规范化单行文本的空白和标点，便于后续题目解析保持稳定。
 
     Args:
-        line: 调用方传入的 `line` 参数。
+        line: 经过类型边界校验的 `line`；其格式和可选值由参数类型及调用流程约束。
     """
     line = re.sub(r"^\s*(?:[-*•]|\d+[.)、]|[一二三四五六七八九十]+[、.])\s*", "", line)
     line = re.sub(r"^(?:面试官|问题|题目|问)\s*[:：]\s*", "", line)
@@ -28,10 +28,10 @@ def _normalise_line(line: str) -> str:
 
 
 def _looks_like_question(line: str) -> bool:
-    """执行 `_looks_like_question` 相关逻辑。
+    """判断文本是否足以视为面试问题，过滤标题、说明和无效片段。
 
     Args:
-        line: 调用方传入的 `line` 参数。
+        line: 经过类型边界校验的 `line`；其格式和可选值由参数类型及调用流程约束。
     """
     if not 5 <= len(line) <= 500:
         return False
@@ -40,10 +40,10 @@ def _looks_like_question(line: str) -> bool:
 
 
 def _target_skill(question: str) -> str | None:
-    """执行 `_target_skill` 相关逻辑。
+    """从岗位描述和题目内容提取目标技能，供题库标签和检索过滤使用。
 
     Args:
-        question: 调用方传入的 `question` 参数。
+        question: 经过类型边界校验的 `question`；其格式和可选值由参数类型及调用流程约束。
     """
     lowered = question.lower()
     for skill, keywords in SKILL_KEYWORDS.items():
@@ -53,10 +53,10 @@ def _target_skill(question: str) -> str | None:
 
 
 def _question_type(question: str) -> str:
-    """执行 `_question_type` 相关逻辑。
+    """根据题干和上下文推断题目类型，并回退到安全的默认类型。
 
     Args:
-        question: 调用方传入的 `question` 参数。
+        question: 经过类型边界校验的 `question`；其格式和可选值由参数类型及调用流程约束。
     """
     if any(word in question for word in ("设计", "架构", "高并发", "系统")):
         return "system_design"
@@ -66,10 +66,10 @@ def _question_type(question: str) -> str:
 
 
 def extract_questions(documents: list[ExperienceDocument]) -> list[dict[str, object]]:
-    """执行 `extract_questions` 相关逻辑。
+    """从面经文本提取结构化面试题，过滤无效片段并保留来源和技能元数据。
 
     Args:
-        documents: 调用方传入的 `documents` 参数。
+        documents: 经过类型边界校验的 `documents`；其格式和可选值由参数类型及调用流程约束。
     """
     questions: list[dict[str, object]] = []
     seen: set[str] = set()

@@ -129,9 +129,9 @@ def _resolve_resume(
     """解析 `resume`。
 
     Args:
-        assembled_resume: 调用方传入的 `assembled_resume` 参数。
+        assembled_resume: 经过类型边界校验的 `assembled_resume`；其格式和可选值由参数类型及调用流程约束。
         items: 数据列表。
-        decisions: 调用方传入的 `decisions` 参数。
+        decisions: 经过类型边界校验的 `decisions`；其格式和可选值由参数类型及调用流程约束。
     """
     resolved = assembled_resume
     for item_id, decision in decisions.items():

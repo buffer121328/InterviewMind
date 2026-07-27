@@ -25,6 +25,7 @@ class ModelPoolScheduler:
     """Redis 优先的全局模型池调度器；Redis 不可用时降级到进程内状态。"""
 
     def __init__(self, redis_client: Any = None) -> None:
+        """初始化模型池调度状态；优先使用调用方提供的 Redis 客户端，否则按配置懒加载。"""
         self._lock = RLock()
         self._cursor: dict[str, int] = defaultdict(int)
         self._failures: dict[str, int] = defaultdict(int)
@@ -36,9 +37,11 @@ class ModelPoolScheduler:
 
     @staticmethod
     def _token(value: str) -> str:
+        """将内部池标识哈希为固定长度 token，避免把模型配置原文写入 Redis key。"""
         return sha256(value.encode()).hexdigest()[:24]
 
     def _redis_client(self):
+        """获取可用 Redis 客户端；连接失败时短暂冷却重试并降级到进程内调度。"""
         if self._redis is not None:
             return self._redis
         settings = get_settings()
@@ -68,18 +71,22 @@ class ModelPoolScheduler:
             return None
 
     def _redis_failed(self, exc: Exception) -> None:
+        """记录 Redis 操作失败并设置临时降级窗口，避免每次模型调用都阻塞在不可用的外部依赖上。"""
         logging.getLogger(__name__).warning("[ModelPool] Redis 操作失败，临时降级: %s", exc)
         self._redis = None
         self._redis_retry_after = monotonic() + 30
 
     def _pool_token(self, pool_name: str, configs: list[dict]) -> str:
+        """根据池名称和成员指纹生成跨进程一致的调度游标标识。"""
         signature = ",".join(sorted(_identity(item) for item in configs))
         return self._token(f"{pool_name}:{signature}")
 
     def _member_key(self, kind: str, identity: str) -> str:
+        """生成不含明文模型配置的 Redis 成员状态 key。"""
         return f"agent_interview:model_pool:{kind}:{self._token(identity)}"
 
     def order(self, pool_name: str, configs: list[dict]) -> list[dict]:
+        """按冷却状态、in-flight 数量和轮询游标排列模型配置，确保故障模型被隔离且请求尽量均衡。"""
         if not configs:
             return []
         redis = self._redis_client()
@@ -185,6 +192,7 @@ class ModelPoolScheduler:
         return self.order(pool_name, configs), None
 
     def record_success(self, identity: str) -> None:
+        """记录一次成功调用并清除该模型的失败/冷却状态，同时释放 in-flight 计数。"""
         redis = self._redis_client()
         if redis is not None:
             try:
@@ -197,6 +205,7 @@ class ModelPoolScheduler:
         self.finish(identity)
 
     def record_failure(self, identity: str) -> None:
+        """记录模型调用失败；达到阈值后进入冷却，避免持续把请求发送到不健康成员。"""
         settings = get_settings()
         redis = self._redis_client()
         if redis is not None:
@@ -222,6 +231,7 @@ class ModelPoolScheduler:
         self.finish(identity)
 
     def start(self, identity: str) -> None:
+        """增加模型成员的 in-flight 计数，用于并发调度；Redis 失败时使用进程内计数。"""
         redis = self._redis_client()
         if redis is not None:
             try:
@@ -235,6 +245,7 @@ class ModelPoolScheduler:
             self._inflight[identity] += 1
 
     def finish(self, identity: str) -> None:
+        """释放模型成员的 in-flight 计数，并清理归零的状态键。"""
         redis = self._redis_client()
         if redis is not None:
             try:
@@ -252,6 +263,7 @@ class ModelPoolScheduler:
                 self._inflight[identity] -= 1
 
     def get_inflight(self, identity: str) -> int:
+        """读取模型成员当前并发数；读取失败时返回本地降级计数而不是阻断调用。"""
         redis = self._redis_client()
         if redis is not None:
             try:
@@ -274,6 +286,7 @@ class _ModelPoolCallback(BaseCallbackHandler):
     """覆盖真实 LangChain 调用的全局健康与 in-flight 统计。"""
 
     def __init__(self, scheduler: ModelPoolScheduler, identity: str, *, pre_reserved: bool = False) -> None:
+        """初始化模型池调度状态；优先使用调用方提供的 Redis 客户端，否则按配置懒加载。"""
         self.scheduler = scheduler
         self.identity = identity
         self._lock = RLock()
@@ -282,9 +295,11 @@ class _ModelPoolCallback(BaseCallbackHandler):
 
     @staticmethod
     def _run_token(kwargs: dict[str, Any]) -> str:
+        """从 LangChain 回调参数提取一次运行的稳定标识，防止同一调用被重复计数。"""
         return str(kwargs.get("run_id") or "__anonymous__")
 
     def _start(self, kwargs: dict[str, Any]) -> None:
+        """为尚未登记的 LangChain 模型运行建立 in-flight 记录，兼容调用前已预留的计数。"""
         token = self._run_token(kwargs)
         with self._lock:
             if token in self._active_runs:
@@ -296,6 +311,7 @@ class _ModelPoolCallback(BaseCallbackHandler):
             self.scheduler.start(self.identity)
 
     def _finish(self, kwargs: dict[str, Any], *, success: bool) -> None:
+        """结束一次已登记的模型运行，并依据成功与否更新健康状态和并发计数。"""
         token = self._run_token(kwargs)
         with self._lock:
             if token not in self._active_runs:
@@ -307,13 +323,17 @@ class _ModelPoolCallback(BaseCallbackHandler):
             self.scheduler.record_failure(self.identity)
 
     def on_chat_model_start(self, *args: Any, **kwargs: Any) -> None:
+        """接收聊天模型开始事件并交给统一的运行计数逻辑。"""
         self._start(kwargs)
 
     def on_llm_start(self, *args: Any, **kwargs: Any) -> None:
+        """接收传统 LLM 开始事件并交给统一的运行计数逻辑。"""
         self._start(kwargs)
 
     def on_llm_end(self, *args: Any, **kwargs: Any) -> None:
+        """接收模型成功结束事件，释放并发计数并记录成功。"""
         self._finish(kwargs, success=True)
 
     def on_llm_error(self, *args: Any, **kwargs: Any) -> None:
+        """接收模型失败事件，释放并发计数并记录失败/冷却。"""
         self._finish(kwargs, success=False)

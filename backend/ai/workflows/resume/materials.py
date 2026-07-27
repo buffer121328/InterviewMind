@@ -42,7 +42,7 @@ class ResumeMaterialUseCases:
     """候选人素材库应用服务。"""
 
     async def create_material(self, *, request: dict, user_id: str) -> dict[str, object]:
-        """创建 `material`。
+        """创建 material，在写入前沿用请求的 owner、审批和输入校验边界，并返回调用方可继续处理的结果。
 
         Args:
             request: 请求对象。
@@ -72,7 +72,7 @@ class ResumeMaterialUseCases:
         return {"success": True, "material_id": material_id}
 
     async def import_materials_from_resume(self, *, request: dict, user_id: str) -> dict[str, object]:
-        """异步执行 `import_materials_from_resume` 相关逻辑。
+        """从简历文本导入候选材料，保留事实来源并避免覆盖用户已有材料。
 
         Args:
             request: 请求对象。
@@ -142,12 +142,12 @@ class ResumeMaterialUseCases:
         limit: int,
         offset: int,
     ) -> dict[str, object]:
-        """列出 `materials`。
+        """按 owner、筛选条件和分页参数读取 materials；仅返回当前调用方有权查看的持久化结果。
 
         Args:
             user_id: 当前用户标识。
-            material_type: 调用方传入的 `material_type` 参数。
-            is_verified: 调用方传入的 `is_verified` 参数。
+            material_type: 经过类型边界校验的 `material_type`；其格式和可选值由参数类型及调用流程约束。
+            is_verified: 经过类型边界校验的 `is_verified`；其格式和可选值由参数类型及调用流程约束。
             limit: 返回数量上限。
             offset: 分页偏移量。
         """
@@ -164,7 +164,7 @@ class ResumeMaterialUseCases:
             return {"success": False, "materials": [], "message": str(exc)}
 
     async def get_material(self, *, material_id: int, user_id: str) -> dict[str, object]:
-        """获取 `material`。
+        """读取 material，并通过 owner 校验限制可见范围；资源不存在或状态不合法时返回稳定的业务结果或异常。
 
         Args:
             material_id: material 标识。
@@ -176,7 +176,7 @@ class ResumeMaterialUseCases:
         return {"success": True, "material": material}
 
     async def update_material(self, *, material_id: int, request: dict, user_id: str) -> dict[str, object]:
-        """更新 `material`。
+        """在 owner 校验下更新 material；只写入允许变更的字段，避免绕过状态机或审批约束。
 
         Args:
             material_id: material 标识。
@@ -199,7 +199,7 @@ class ResumeMaterialUseCases:
         return {"success": True, "message": "更新成功"}
 
     async def delete_material(self, *, material_id: int, user_id: str) -> dict[str, object]:
-        """删除 `material`。
+        """在 owner 校验下删除 material；删除失败或资源不可见时保持幂等的业务错误语义。
 
         Args:
             material_id: material 标识。
@@ -212,7 +212,7 @@ class ResumeMaterialUseCases:
 
     @staticmethod
     def _strip_json_markdown(text: str) -> str:
-        """执行 `_strip_json_markdown` 相关逻辑。
+        """移除模型返回 JSON 外层的 Markdown 包裹，保留可解析 JSON 内容。
 
         Args:
             text: 文本内容。

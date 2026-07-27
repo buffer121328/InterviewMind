@@ -368,6 +368,7 @@ export const API_BASE_URL = NORMALIZED_API_BASE_URL;
 // 辅助函数
 // ============================================================================
 
+/** Provides the mask api key store helper; request-scoped configuration and session state stay centralized in Zustand, while backend persistence remains in the API layer. */
 export function maskApiKey(key: string): string {
     if (!key || key.length < 8) return '****';
     return key.slice(0, 4) + '****' + key.slice(-4);

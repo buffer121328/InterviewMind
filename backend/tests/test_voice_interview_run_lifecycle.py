@@ -49,6 +49,16 @@ class _FakeRunService:
         self.failed.append((run_id, message))
 
 
+class _FakeSessionRepo:
+    async def get_session(self, *_args, **_kwargs):
+        return SimpleNamespace()
+
+
+class _MissingSessionRepo:
+    async def get_session(self, *_args, **_kwargs):
+        return None
+
+
 async def _fake_voice_chunks(**_kwargs):
     yield 'data: {"type":"token","content":"你好"}\n\n'
     yield 'data: {"type":"done","content":"[DONE]"}\n\n'
@@ -61,10 +71,33 @@ def test_voice_interview_turn_task_definition_is_registered():
 
 
 @pytest.mark.asyncio
+async def test_voice_chat_rejects_unowned_session_before_creating_run():
+    use_cases = VoiceStreamUseCases()
+    fake_run_service = _FakeRunService()
+    use_cases._run_service = fake_run_service
+    use_cases._session_repo = _MissingSessionRepo()
+
+    request = VoiceChatRequest(
+        session_id="other-user-session",
+        system_prompt="你是面试官",
+        history=[],
+        message="我的回答",
+        api_config={"voice": {"api_key": "x"}},
+    )
+
+    with pytest.raises(voice_stream.VoiceStreamUseCaseError) as exc_info:
+        await use_cases.stream_voice_chat(request=request, user_id="user-1")
+
+    assert exc_info.value.status_code == 404
+    assert fake_run_service.created == []
+
+
+@pytest.mark.asyncio
 async def test_voice_chat_stream_creates_and_completes_agent_run(monkeypatch):
     use_cases = VoiceStreamUseCases()
     fake_run_service = _FakeRunService()
     use_cases._run_service = fake_run_service
+    use_cases._session_repo = _FakeSessionRepo()
     monkeypatch.setattr(voice_stream, "process_voice_chat", _fake_voice_chunks)
 
     request = VoiceChatRequest(
@@ -80,6 +113,7 @@ async def test_voice_chat_stream_creates_and_completes_agent_run(monkeypatch):
     chunks = [chunk async for chunk in generator]
 
     assert fake_run_service.created[0]["task_type"] == TASK_TYPE_VOICE_INTERVIEW_TURN
+    assert fake_run_service.created[0]["session_id"] == "voice-session-1"
     assert fake_run_service.created[0]["payload"]["session_id"] == "voice-session-1"
     assert fake_run_service.stages == [("voice-run-1", "generating_response")]
     assert fake_run_service.succeeded == [("voice-run-1", {"session_id": "voice-session-1"})]
@@ -102,6 +136,7 @@ async def test_voice_chat_disconnect_marks_run_failed_not_cancelled(monkeypatch)
     use_cases = VoiceStreamUseCases()
     fake_run_service = _FakeRunService()
     use_cases._run_service = fake_run_service
+    use_cases._session_repo = _FakeSessionRepo()
     monkeypatch.setattr(voice_stream, "process_voice_chat", _cancelled_voice_chunks)
 
     request = VoiceChatRequest(

@@ -97,6 +97,7 @@ export interface QuestionFilePreviewResponse {
     message?: string;
 }
 
+/** Calls the backend for preview question file; the shared API client supplies request identity and error normalization, and this helper returns the typed endpoint result. */
 export async function previewQuestionFile(file: File): Promise<QuestionFilePreviewResponse> {
     const form = new FormData();
     form.append('file', file);
@@ -159,6 +160,28 @@ export async function createQuestionItem(data: QuestionBankCreateRequest): Promi
     } catch (error) {
         console.error('创建题库条目失败:', error);
         return { success: false, message: '网络错误' };
+    }
+}
+
+/**
+ * 更新题库条目
+ */
+export async function updateQuestionItem(itemId: number, data: QuestionBankCreateRequest): Promise<{ success: boolean; message?: string }> {
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/question-bank/items/${itemId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', 'X-User-ID': getUserId() },
+            body: JSON.stringify(data),
+        });
+
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({}));
+            throw new Error(error.detail ?? `HTTP error! status: ${response.status}`);
+        }
+        return await response.json();
+    } catch (error) {
+        console.error('更新题库条目失败:', error);
+        return { success: false, message: error instanceof Error ? error.message : '网络错误' };
     }
 }
 

@@ -34,6 +34,7 @@ async def execute_job_assets(payload: dict, user_id: str, progress: ProgressCall
     }
 
     async def persist_result(session: AsyncSession | None = None) -> dict:
+        """在事务会话中完成岗位资产任务的状态落库；AgentRun 场景延迟提交，避免业务任务绕过统一生命周期。"""
         from app.db.repositories.jobs.job_capture_repo import get_job_capture_repo
 
         if agent_run_id:

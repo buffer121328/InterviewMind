@@ -82,6 +82,7 @@ const sections: Array<{
   },
 ];
 
+/** Renders the guide page UI and coordinates its typed props, local state, and approved backend interactions. */
 export function GuidePage({ onBack, onNavigate, onOpenSettings }: GuidePageProps) {
   return (
     <div className="min-h-screen bg-[#f7faf9]">

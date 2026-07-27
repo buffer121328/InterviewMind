@@ -37,7 +37,7 @@ class InterviewStartUseCases:
     """面试启动应用服务。"""
 
     def __init__(self) -> None:
-        """初始化当前对象实例。"""
+        """初始化 `InterviewStartUseCases` 的依赖和运行配置；构造阶段不执行业务写入，外部客户端只在后续方法调用时承担访问边界。"""
         self._session_repo = SessionRepo()
 
     async def start_interview(self, *, request: InterviewStartRequest, user_id: str) -> dict[str, object]:
@@ -165,7 +165,7 @@ class InterviewStartUseCases:
         """分类 `start error`。
 
         Args:
-            safe_msg: 调用方传入的 `safe_msg` 参数。
+            safe_msg: 经过类型边界校验的 `safe_msg`；其格式和可选值由参数类型及调用流程约束。
         """
         classified = classify_error_message(safe_msg)
         if classified.code == "InternalServerError":

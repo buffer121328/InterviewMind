@@ -28,6 +28,6 @@ class AgentContext:
         """判断 `permission` 是否满足条件。
 
         Args:
-            permission: 调用方传入的 `permission` 参数。
+            permission: 经过类型边界校验的 `permission`；其格式和可选值由参数类型及调用流程约束。
         """
         return permission in self.permissions

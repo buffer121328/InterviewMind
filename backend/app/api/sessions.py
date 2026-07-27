@@ -35,7 +35,7 @@ class NextRoundRequest(BaseModel):
     round_type: Optional[str] = Field(default=None, description="面试类型：tech_initial/tech_deep/hr_comprehensive")
 
 def _not_found(message: str) -> HTTPException:
-    """执行 `_not_found` 相关逻辑。
+    """构造统一的 404 错误响应，保持 API 客户端可识别的错误格式。
 
     Args:
         message: 消息内容。
@@ -47,7 +47,7 @@ def _not_found(message: str) -> HTTPException:
 
 
 def _internal_error(message: str) -> HTTPException:
-    """执行 `_internal_error` 相关逻辑。
+    """构造统一的 500 错误，不向客户端暴露内部堆栈、凭据或完整异常载荷。
 
     Args:
         message: 消息内容。

@@ -7,7 +7,7 @@ def normalize_candidate(candidate: dict[str, Any]) -> dict[str, Any] | None:
     """规范化 `candidate`。
 
     Args:
-        candidate: 调用方传入的 `candidate` 参数。
+        candidate: 经过类型边界校验的 `candidate`；其格式和可选值由参数类型及调用流程约束。
     """
     content = str(candidate.get("question_text") or candidate.get("content") or "").strip()
     if not content:

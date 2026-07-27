@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 class RetrievalRepo:
-    """
+    """持久化仓储，封装 `Retrieval` 的数据库读写；负责查询范围和事务配合，不编排模型调用或审批流程。
     检索服务 - 从多个来源检索证据
 
     第一版（A版）：直接查询业务表，返回统一格式
@@ -27,7 +27,7 @@ class RetrievalRepo:
     """
 
     def __init__(self):
-        """初始化当前对象实例。"""
+        """初始化 `RetrievalRepo` 的依赖和运行配置；构造阶段不执行业务写入，外部客户端只在后续方法调用时承担访问边界。"""
         logger.info("RetrievalService 初始化")
 
     async def retrieve_for_question_generation(
@@ -88,11 +88,11 @@ class RetrievalRepo:
             return results
 
     async def _retrieve_jd_keywords(self, user_id: str, job_description: str) -> List[Dict[str, Any]]:
-        """检索 `jd keywords`。
+        """在当前 owner 和检索约束下读取 jd keywords，把数据库结果转换为上层检索流程可消费的结构。
 
         Args:
             user_id: 当前用户标识。
-            job_description: 调用方传入的 `job_description` 参数。
+            job_description: 经过类型边界校验的 `job_description`；其格式和可选值由参数类型及调用流程约束。
         """
         async with async_session() as db:
             stmt = (
@@ -109,7 +109,7 @@ class RetrievalRepo:
             return list(dict.fromkeys(keywords))[:20]
 
     async def _retrieve_weakness_categories(self, user_id: str, session_id: str) -> List[Dict[str, Any]]:
-        """检索 `weakness categories`。
+        """在当前 owner 和检索约束下读取 weakness categories，把数据库结果转换为上层检索流程可消费的结构。
 
         Args:
             user_id: 当前用户标识。
@@ -127,7 +127,7 @@ class RetrievalRepo:
             return categories[:10]
 
     async def _retrieve_historical_questions(self, user_id: str, session_id: Optional[str] = None, limit: int = 10) -> List[str]:
-        """检索 `historical questions`。
+        """在当前 owner 和检索约束下读取 historical questions，把数据库结果转换为上层检索流程可消费的结构。
 
         Args:
             user_id: 当前用户标识。
@@ -164,11 +164,11 @@ class RetrievalRepo:
             return questions[:limit]
 
     async def _retrieve_bank_questions(self, user_id: str, target_skills: List[str], limit: int = 5) -> List[Dict[str, Any]]:
-        """检索 `bank questions`。
+        """在当前 owner 和检索约束下读取 bank questions，把数据库结果转换为上层检索流程可消费的结构。
 
         Args:
             user_id: 当前用户标识。
-            target_skills: 调用方传入的 `target_skills` 参数。
+            target_skills: 经过类型边界校验的 `target_skills`；其格式和可选值由参数类型及调用流程约束。
             limit: 返回数量上限。
         """
         if not target_skills:
@@ -193,7 +193,7 @@ class RetrievalRepo:
             ]
 
     async def _retrieve_candidate_materials(self, user_id: str, limit: int = 5) -> List[Dict[str, Any]]:
-        """检索 `candidate materials`。
+        """在当前 owner 和检索约束下读取 candidate materials，把数据库结果转换为上层检索流程可消费的结构。
 
         Args:
             user_id: 当前用户标识。

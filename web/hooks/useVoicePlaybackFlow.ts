@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useRef } from 'react';
 
+/** Provides the use voice playback flow React hook and encapsulates its subscriptions, lifecycle cleanup, and state updates. */
 export function useVoicePlaybackFlow() {
     const waitingForPlaybackRef = useRef(false);
     const isInterviewEndPendingRef = useRef(false);

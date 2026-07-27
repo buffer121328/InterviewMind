@@ -56,7 +56,7 @@ async def capture_from_url(
     from pydantic import BaseModel
 
     class JobExtractionOutput(BaseModel):
-        """表示 `JobExtractionOutput` 的接口数据模型。"""
+        """数据对象，承载 `JobExtractionOutput` 的结构化字段和跨模块契约；只表达数据，不在构造或序列化时执行外部调用。"""
         company_name: str
         job_title: str
         job_description: str
@@ -158,7 +158,7 @@ async def capture_from_text(
     from pydantic import BaseModel
 
     class JobExtractionOutput(BaseModel):
-        """表示 `JobExtractionOutput` 的接口数据模型。"""
+        """数据对象，承载 `JobExtractionOutput` 的结构化字段和跨模块契约；只表达数据，不在构造或序列化时执行外部调用。"""
         company_name: str
         job_title: str
         job_description: str
@@ -293,7 +293,7 @@ Respond in JSON format."""
         result = await invoke_structured(
             prompt=prompt,
             output_model=JobCardList,
-            api_config=None,  # 由调用方传入
+            api_config=None,  # 推荐页抽取使用服务端默认模型配置，避免把浏览器侧凭据继续向下游透传。
             channel="fast",
         )
         return [c.model_dump() for c in result.cards[:top_n]]
@@ -469,12 +469,12 @@ async def capture_from_recommendations(
     _orig_extract = _llm_extract_job_cards
 
     async def _extract_with_api_config(page_text_arg, top_n_arg, query_filter_arg):
-        """异步执行 `_extract_with_api_config` 相关逻辑。
+        """使用请求级模型配置提取岗位信息，并继续经过 URL 校验、超时和脱敏边界。
 
         Args:
-            page_text_arg: 调用方传入的 `page_text_arg` 参数。
-            top_n_arg: 调用方传入的 `top_n_arg` 参数。
-            query_filter_arg: 调用方传入的 `query_filter_arg` 参数。
+            page_text_arg: 经过类型边界校验的 `page_text_arg`；其格式和可选值由参数类型及调用流程约束。
+            top_n_arg: 经过类型边界校验的 `top_n_arg`；其格式和可选值由参数类型及调用流程约束。
+            query_filter_arg: 经过类型边界校验的 `query_filter_arg`；其格式和可选值由参数类型及调用流程约束。
         """
         from ai.llm.llm_utils import invoke_structured
         from app.schemas.llm_outputs import JobCardList

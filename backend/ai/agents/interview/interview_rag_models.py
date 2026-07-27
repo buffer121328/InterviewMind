@@ -19,7 +19,7 @@ class RagEvidence:
     trust_level: str = "user_private"
 
     def to_dict(self) -> dict[str, Any]:
-        """转换 `dict`。"""
+        """将持久化对象转换为稳定的字典表示，供 API 或审计边界使用；不改变对象状态，也不主动暴露未声明的敏感字段。"""
         return asdict(self)
 
 
@@ -35,7 +35,7 @@ class RagResult:
     retrieval_trace: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        """转换 `dict`。"""
+        """将持久化对象转换为稳定的字典表示，供 API 或审计边界使用；不改变对象状态，也不主动暴露未声明的敏感字段。"""
         return {
             "retrieval_mode": self.retrieval_mode,
             "fallback_reason": self.fallback_reason,

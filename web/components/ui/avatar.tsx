@@ -5,6 +5,7 @@ import * as AvatarPrimitive from "@radix-ui/react-avatar"
 
 import { cn } from "@/lib/utils"
 
+/** Wraps the avatar primitive while forwarding its typed props/ref and preserving the underlying accessibility semantics. */
 function Avatar({
   className,
   ...props
@@ -21,6 +22,7 @@ function Avatar({
   )
 }
 
+/** Wraps the avatar image primitive while forwarding its typed props/ref and preserving the underlying accessibility semantics. */
 function AvatarImage({
   className,
   ...props
@@ -34,6 +36,7 @@ function AvatarImage({
   )
 }
 
+/** Wraps the avatar fallback primitive while forwarding its typed props/ref and preserving the underlying accessibility semantics. */
 function AvatarFallback({
   className,
   ...props

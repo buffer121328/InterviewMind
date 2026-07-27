@@ -5,6 +5,7 @@ import * as TabsPrimitive from "@radix-ui/react-tabs"
 
 import { cn } from "@/lib/utils"
 
+/** Wraps the tabs primitive while forwarding its typed props/ref and preserving the underlying accessibility semantics. */
 function Tabs({
   className,
   ...props
@@ -18,6 +19,7 @@ function Tabs({
   )
 }
 
+/** Wraps the tabs list primitive while forwarding its typed props/ref and preserving the underlying accessibility semantics. */
 function TabsList({
   className,
   ...props
@@ -34,6 +36,7 @@ function TabsList({
   )
 }
 
+/** Wraps the tabs trigger primitive while forwarding its typed props/ref and preserving the underlying accessibility semantics. */
 function TabsTrigger({
   className,
   ...props
@@ -50,6 +53,7 @@ function TabsTrigger({
   )
 }
 
+/** Wraps the tabs content primitive while forwarding its typed props/ref and preserving the underlying accessibility semantics. */
 function TabsContent({
   className,
   ...props

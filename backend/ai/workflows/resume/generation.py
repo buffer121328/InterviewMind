@@ -49,7 +49,7 @@ class ResumeGenerationUseCases:
         request: ResumeGenerateInitRequest,
         user_id: str,
     ) -> ResumeGenerateInitResponse:
-        """异步执行 `init_resume_generation` 相关逻辑。
+        """初始化简历生成会话和待回答问题，输入内容只保存在当前用户的会话边界内。
 
         Args:
             request: 请求对象。
@@ -97,7 +97,7 @@ class ResumeGenerationUseCases:
         request: ResumeGenerateSubmitRequest,
         user_id: str,
     ) -> ResumeGenerateSubmitResponse:
-        """异步执行 `submit_generation_answers` 相关逻辑。
+        """提交用户回答并继续简历生成会话，拒绝越权会话或未完成必答项。
 
         Args:
             request: 请求对象。
@@ -122,7 +122,7 @@ class ResumeGenerationUseCases:
         )
 
     async def get_generation_session_status(self, *, session_id: str, user_id: str) -> dict[str, object]:
-        """获取 `generation session status`。
+        """读取 generation session status，并通过 owner 校验限制可见范围；资源不存在或状态不合法时返回稳定的业务结果或异常。
 
         Args:
             session_id: 会话标识。
@@ -134,7 +134,7 @@ class ResumeGenerationUseCases:
         return {"success": True, "data": status}
 
     async def list_generated_resumes(self, *, user_id: str, limit: int) -> GeneratedResumesResponse:
-        """列出 `generated resumes`。
+        """按 owner、筛选条件和分页参数读取 generated resumes；仅返回当前调用方有权查看的持久化结果。
 
         Args:
             user_id: 当前用户标识。
@@ -158,7 +158,7 @@ class ResumeGenerationUseCases:
             return GeneratedResumesResponse(success=False, message=str(exc))
 
     async def get_generated_resume(self, *, resume_id: int, user_id: str) -> dict[str, object]:
-        """获取 `generated resume`。
+        """读取 generated resume，并通过 owner 校验限制可见范围；资源不存在或状态不合法时返回稳定的业务结果或异常。
 
         Args:
             resume_id: 简历标识。
@@ -170,7 +170,7 @@ class ResumeGenerationUseCases:
         return {"success": True, "resume": resume}
 
     async def update_generated_resume(self, *, resume_id: int, request: dict, user_id: str) -> dict[str, object]:
-        """更新 `generated resume`。
+        """在 owner 校验下更新 generated resume；只写入允许变更的字段，避免绕过状态机或审批约束。
 
         Args:
             resume_id: 简历标识。
@@ -192,7 +192,7 @@ class ResumeGenerationUseCases:
         return {"success": True, "message": "更新成功"}
 
     async def delete_generated_resume(self, *, resume_id: int, user_id: str) -> dict[str, object]:
-        """删除 `generated resume`。
+        """在 owner 校验下删除 generated resume；删除失败或资源不可见时保持幂等的业务错误语义。
 
         Args:
             resume_id: 简历标识。

@@ -99,19 +99,19 @@ class ResumeRepo:
         agent_run_id: Optional[str] = None,
         owns_session: bool,
     ) -> int:
-        """保存 `result with session`。
+        """持久化 result with session；沿用调用方的事务边界，并保持 owner 校验、脱敏和提交责任不越层。
 
         Args:
             db: 数据库会话。
             user_id: 当前用户标识。
-            result_type: 调用方传入的 `result_type` 参数。
-            resume_content: 调用方传入的 `resume_content` 参数。
+            result_type: 经过类型边界校验的 `result_type`；其格式和可选值由参数类型及调用流程约束。
+            resume_content: 经过类型边界校验的 `resume_content`；其格式和可选值由参数类型及调用流程约束。
             result_data: result 数据。
-            job_description: 调用方传入的 `job_description` 参数。
+            job_description: 经过类型边界校验的 `job_description`；其格式和可选值由参数类型及调用流程约束。
             session_ids: session 标识列表。
-            include_profile: 调用方传入的 `include_profile` 参数。
+            include_profile: 经过类型边界校验的 `include_profile`；其格式和可选值由参数类型及调用流程约束。
             agent_run_id: Agent 运行标识。
-            owns_session: 调用方传入的 `owns_session` 参数。
+            owns_session: 是否由当前方法负责 session 的提交和释放，避免嵌套事务重复处理。
         """
         if agent_run_id:
             existing = await db.scalar(
@@ -141,7 +141,7 @@ class ResumeRepo:
         return result_id
 
     async def get_result_by_agent_run_id(self, agent_run_id: str, user_id: str) -> Optional[Dict[str, Any]]:
-        """获取 `result by agent run id`。
+        """读取 result by agent run id，并通过 owner 校验限制可见范围；资源不存在或状态不合法时返回稳定的业务结果或异常。
 
         Args:
             agent_run_id: Agent 运行标识。

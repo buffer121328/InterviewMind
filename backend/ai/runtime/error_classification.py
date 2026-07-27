@@ -7,7 +7,7 @@ from enum import StrEnum
 
 
 class ErrorCategory(StrEnum):
-    """表示 `ErrorCategory` 相关的数据或行为。"""
+    """运行时错误分类枚举，供重试、fallback、HTTP 映射和观测使用；分类本身不改变异常或执行补偿动作。"""
     NETWORK = "network_failure"
     AUTHENTICATION = "authentication_failure"
     RATE_LIMIT = "rate_limited"

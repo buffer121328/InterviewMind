@@ -23,12 +23,12 @@ class ArchivedTurn:
 
 
 def _value(item: Any, name: str, default: Any = None) -> Any:
-    """执行 `_value` 相关逻辑。
+    """从对象或字典读取字段，兼容属性不存在和显式默认值。
 
     Args:
         item: 单条数据。
         name: 名称。
-        default: 调用方传入的 `default` 参数。
+        default: 字段缺失或兼容对象不提供该属性时使用的安全默认值。
     """
     if isinstance(item, Mapping):
         return item.get(name, default)

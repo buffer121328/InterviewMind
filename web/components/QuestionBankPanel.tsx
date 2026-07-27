@@ -37,6 +37,7 @@ const TYPE_LABELS: Record<string, string> = {
     system_design: '系统设计',
 };
 
+/** Renders the question bank panel UI and coordinates its typed props, local state, and approved backend interactions. */
 export function QuestionBankPanel() {
     const [items, setItems] = useState<QuestionBankItem[]>([]);
     const [loading, setLoading] = useState(true);
@@ -64,6 +65,7 @@ export function QuestionBankPanel() {
         void Promise.resolve().then(() => loadItems());
     }, [loadItems]);
 
+    /** Handles search; updates local UI state first and delegates server mutations through the approved API boundary. */
     async function handleSearch() {
         if (!searchQuery.trim()) return loadItems();
         setLoading(true);
@@ -72,6 +74,7 @@ export function QuestionBankPanel() {
         setLoading(false);
     }
 
+    /** Handles create; updates local UI state first and delegates server mutations through the approved API boundary. */
     async function handleCreate() {
         if (!newQuestion.question_text.trim()) return toast.error('请输入题目内容');
         const response = await createQuestionItem(newQuestion);
@@ -83,6 +86,7 @@ export function QuestionBankPanel() {
         } else toast.error(response.message || '添加失败');
     }
 
+    /** Handles delete; updates local UI state first and delegates server mutations through the approved API boundary. */
     async function handleDelete(itemId: number) {
         if (!confirm('确定删除此题目？')) return;
         const response = await deleteQuestionItem(itemId);
@@ -92,6 +96,7 @@ export function QuestionBankPanel() {
         } else toast.error(response.message || '删除失败');
     }
 
+    /** Encapsulates toggle expanded; returns typed data or state and keeps side effects within the owning module boundary. */
     function toggleExpanded(itemId: number) {
         setExpandedItems(prev => {
             const next = new Set(prev);

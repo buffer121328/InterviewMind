@@ -81,6 +81,19 @@ test('parseAgentRunEventEnvelope rejects unknown event types', () => {
     assert.equal(event, null);
 });
 
+test('parseAgentRunEventEnvelope accepts governance audit events', () => {
+    for (const type of ['tool.execution', 'guardrail.input', 'guardrail.output'] as const) {
+        const event = parseAgentRunEventEnvelope({
+            run_id: 'run-1',
+            type,
+            payload: { status: 'completed' },
+            schema_version: 1,
+        });
+
+        assert.equal(event?.type, type);
+    }
+});
+
 
 test('buildInteractiveExecutionPlan maps active stages to UI plan state', () => {
     const plan = buildInteractiveExecutionPlan([{

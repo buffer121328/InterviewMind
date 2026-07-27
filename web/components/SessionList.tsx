@@ -37,6 +37,7 @@ interface SessionListProps {
     onLoadMore?: () => void;
 }
 
+/** Renders the session list UI and coordinates its typed props, local state, and approved backend interactions. */
 export function SessionList({
     sessions,
     onSessionSelect,
@@ -50,6 +51,7 @@ export function SessionList({
     onLoadMore,
 }: SessionListProps) {
 
+    /** Handles delete; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleDelete = async (sessionId: string) => {
         await onDeleteSession(sessionId);
     };
@@ -147,6 +149,7 @@ interface SessionItemProps {
     onViewDetails?: (sessionId: string) => void;
 }
 
+/** Encapsulates session item; returns typed data or state and keeps side effects within the owning module boundary. */
 function SessionItem({ session, isActive, onSelect, onDelete, onEdit, onTogglePin, onViewDetails }: SessionItemProps) {
     const [isEditing, setIsEditing] = useState(false);
     const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
@@ -154,12 +157,14 @@ function SessionItem({ session, isActive, onSelect, onDelete, onEdit, onTogglePi
     // 移除可能存在的"职位名称："前缀，保持整洁
     const displayTitle = (session.title || "模拟面试").replace('职位名称：', '').replace('职位名称:', '');
 
+    /** Handles edit; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleEdit = (e: React.MouseEvent) => {
         e.stopPropagation();
         setEditTitle(displayTitle);
         setIsEditing(true);
     };
 
+    /** Handles save edit; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleSaveEdit = () => {
         if (editTitle.trim() && onEdit) {
             onEdit(session.session_id, editTitle.trim());
@@ -167,11 +172,13 @@ function SessionItem({ session, isActive, onSelect, onDelete, onEdit, onTogglePi
         setIsEditing(false);
     };
 
+    /** Handles cancel edit; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleCancelEdit = () => {
         setEditTitle(displayTitle);
         setIsEditing(false);
     };
 
+    /** Handles toggle pin; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleTogglePin = (e: React.MouseEvent) => {
         e.stopPropagation();
         if (onTogglePin) {
@@ -179,16 +186,19 @@ function SessionItem({ session, isActive, onSelect, onDelete, onEdit, onTogglePi
         }
     };
 
+    /** Handles delete click; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleDeleteClick = (e: React.MouseEvent) => {
         e.stopPropagation();
         setIsDeleteDialogOpen(true);
     };
 
+    /** Handles view details; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleViewDetails = (e: React.MouseEvent) => {
         e.stopPropagation();
         onViewDetails?.(session.session_id);
     };
 
+    /** Handles confirm delete; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleConfirmDelete = () => {
         onDelete();
         setIsDeleteDialogOpen(false);

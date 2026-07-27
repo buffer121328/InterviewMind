@@ -47,6 +47,7 @@ interface CandidateMaterialLibraryProps {
     apiConfig?: ApiConfig;
 }
 
+/** Encapsulates candidate material library; returns typed data or state and keeps side effects within the owning module boundary. */
 export function CandidateMaterialLibrary({
     onSelectMaterial,
     selectionMode = false,
@@ -95,6 +96,7 @@ export function CandidateMaterialLibrary({
     });
 
     // 处理删除
+    /** Handles delete; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleDelete = async (materialId: number) => {
         if (window.confirm('确定要删除这个素材吗？')) {
             await deleteMaterial(materialId);
@@ -102,12 +104,14 @@ export function CandidateMaterialLibrary({
     };
 
     // 处理编辑
+    /** Handles edit; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleEdit = (material: CandidateMaterial) => {
         setEditingMaterial(material);
         setShowEditor(true);
     };
 
     // 处理选择
+    /** Handles select; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleSelect = (material: CandidateMaterial) => {
         if (selectionMode && onSelectMaterial) {
             onSelectMaterial(material);
@@ -303,6 +307,7 @@ interface MaterialEditorDialogProps {
     onSave: () => void;
 }
 
+/** Creates material form data with the module's expected defaults and lifecycle semantics. */
 function createMaterialFormData(material: CandidateMaterial | null) {
     if (material) {
         return {
@@ -327,12 +332,14 @@ function createMaterialFormData(material: CandidateMaterial | null) {
     };
 }
 
+/** Renders the material editor dialog UI and coordinates its typed props, local state, and approved backend interactions. */
 function MaterialEditorDialog({ open, onOpenChange, material, onSave }: MaterialEditorDialogProps) {
     const [formData, setFormData] = useState(() => createMaterialFormData(material));
     const [tagInput, setTagInput] = useState('');
     const [saving, setSaving] = useState(false);
 
     // 添加标签
+    /** Handles add tag; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleAddTag = () => {
         if (tagInput.trim() && !formData.tags.includes(tagInput.trim())) {
             setFormData({ ...formData, tags: [...formData.tags, tagInput.trim()] });
@@ -341,11 +348,13 @@ function MaterialEditorDialog({ open, onOpenChange, material, onSave }: Material
     };
 
     // 删除标签
+    /** Handles remove tag; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleRemoveTag = (tag: string) => {
         setFormData({ ...formData, tags: formData.tags.filter(t => t !== tag) });
     };
 
     // 保存素材
+    /** Handles save; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleSave = async () => {
         if (!formData.title || !formData.content) {
             alert('请填写标题和内容');

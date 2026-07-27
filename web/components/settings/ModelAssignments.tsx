@@ -31,6 +31,7 @@ interface ModelAssignmentsProps {
     onSetMem0EmbedderModel: (id: string) => boolean;
 }
 
+/** Encapsulates model select; returns typed data or state and keeps side effects within the owning module boundary. */
 function ModelSelect({
     label,
     description,
@@ -67,6 +68,7 @@ function ModelSelect({
     );
 }
 
+/** Encapsulates pool picker; returns typed data or state and keeps side effects within the owning module boundary. */
 function PoolPicker({
     title,
     description,
@@ -111,6 +113,7 @@ function PoolPicker({
     );
 }
 
+/** Encapsulates section; returns typed data or state and keeps side effects within the owning module boundary. */
 function Section({
     icon: Icon,
     title,
@@ -138,6 +141,7 @@ function Section({
     );
 }
 
+/** Encapsulates model assignments; returns typed data or state and keeps side effects within the owning module boundary. */
 export function ModelAssignments(props: ModelAssignmentsProps) {
     const { config } = props;
     if (config.models.length === 0) return null;

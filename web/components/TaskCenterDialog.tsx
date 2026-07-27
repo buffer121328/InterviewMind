@@ -24,6 +24,7 @@ const STATUS_TEXT: Record<string, string> = {
     cancelled: '已取消',
 };
 
+/** Renders the task center dialog UI and coordinates its typed props, local state, and approved backend interactions. */
 export function TaskCenterDialog({ open, onOpenChange }: TaskCenterDialogProps) {
     const [runs, setRuns] = useState<AgentRun[]>([]);
     const [total, setTotal] = useState(0);
@@ -105,6 +106,7 @@ export function TaskCenterDialog({ open, onOpenChange }: TaskCenterDialogProps) 
         eventControllers.current.clear();
     }, []);
 
+    /** Encapsulates retry; returns typed data or state and keeps side effects within the owning module boundary. */
     const retry = async (runId: string) => {
         setActingId(runId);
         try {
@@ -117,6 +119,7 @@ export function TaskCenterDialog({ open, onOpenChange }: TaskCenterDialogProps) 
         }
     };
 
+    /** Encapsulates cancel; returns typed data or state and keeps side effects within the owning module boundary. */
     const cancel = async (runId: string) => {
         setActingId(runId);
         try {

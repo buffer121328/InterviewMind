@@ -11,6 +11,7 @@ interface UseSpeechToTextProps {
     lang?: string;
 }
 
+/** Provides the use speech to text React hook and encapsulates its subscriptions, lifecycle cleanup, and state updates. */
 export function useSpeechToText({ onTranscript, lang = 'zh-CN' }: UseSpeechToTextProps) {
     const [isListening, setIsListening] = useState(false);
     const [error, setError] = useState<string | null>(null);

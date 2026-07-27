@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 class RateLimitType(str, Enum):
-    """表示 `RateLimitType` 相关的数据或行为。"""
+    """BOSS 自动化限流维度枚举，区分岗位采集和投递发送；由限流器与 Redis/内存实现共同解释，不能作为权限或审批替代。"""
     CAPTURE = "capture"  # 岗位采集
     SEND = "send"        # 投递发送
 
@@ -87,7 +87,7 @@ class RedisRateLimitStore:
     """
 
     def __init__(self, redis_url: str) -> None:
-        """初始化当前对象实例。
+        """初始化 `RedisRateLimitStore` 的依赖和运行配置；构造阶段不执行业务写入，外部客户端仅在后续方法调用时承担对应的访问边界。
 
         Args:
             redis_url: redis URL。
@@ -98,7 +98,7 @@ class RedisRateLimitStore:
 
     @staticmethod
     def _user_key(user_id: str) -> str:
-        """执行 `_user_key` 相关逻辑。
+        """生成按用户隔离的限流 key，不把敏感用户标识直接写入共享存储。
 
         Args:
             user_id: 当前用户标识。
@@ -106,16 +106,16 @@ class RedisRateLimitStore:
         return hashlib.sha256(user_id.encode()).hexdigest()
 
     def _rate_key(self, user_id: str, limit_type: RateLimitType) -> str:
-        """执行 `_rate_key` 相关逻辑。
+        """生成按用户和限流类型隔离的共享存储 key，避免限流状态串扰。
 
         Args:
             user_id: 当前用户标识。
-            limit_type: 调用方传入的 `limit_type` 参数。
+            limit_type: 经过类型边界校验的 `limit_type`；其格式和可选值由参数类型及调用流程约束。
         """
         return f"agent-interview:rate:{self._user_key(user_id)}:{limit_type.value}"
 
     def _failure_key(self, user_id: str) -> str:
-        """执行 `_failure_key` 相关逻辑。
+        """生成按用户隔离的失败计数 key，不把用户标识原文暴露在共享存储键中。
 
         Args:
             user_id: 当前用户标识。
@@ -129,8 +129,8 @@ class RedisRateLimitStore:
 
         Args:
             user_id: 当前用户标识。
-            limit_type: 调用方传入的 `limit_type` 参数。
-            record: 调用方传入的 `record` 参数。
+            limit_type: 经过类型边界校验的 `limit_type`；其格式和可选值由参数类型及调用流程约束。
+            record: 是否把本次检查计入限流窗口；预览检查可关闭记录，实际动作必须记录。
         """
         config = RATE_LIMITS[limit_type]
         now_ms = int(time.time() * 1000)
@@ -180,7 +180,7 @@ class RedisRateLimitStore:
         await self._client.delete(self._failure_key(user_id))
 
     async def get_rate_status(self, user_id: str) -> Dict[str, Any]:
-        """获取 `rate status`。
+        """读取 rate status，并保持调用方的错误和生命周期边界；资源不存在或状态不合法时返回稳定的业务结果或异常。
 
         Args:
             user_id: 当前用户标识。

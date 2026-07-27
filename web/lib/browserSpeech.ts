@@ -37,6 +37,7 @@ interface BrowserAudioWindow extends Window {
     webkitAudioContext?: typeof AudioContext;
 }
 
+/** Reads speech recognition constructor from the browser capability boundary and returns an unsupported-state fallback without accessing unavailable APIs. */
 export function getSpeechRecognitionConstructor(): BrowserSpeechRecognitionConstructor | undefined {
     if (typeof window === 'undefined') return undefined;
 
@@ -44,6 +45,7 @@ export function getSpeechRecognitionConstructor(): BrowserSpeechRecognitionConst
     return browserWindow.SpeechRecognition || browserWindow.webkitSpeechRecognition;
 }
 
+/** Reads audio context constructor from the browser capability boundary and returns an unsupported-state fallback without accessing unavailable APIs. */
 export function getAudioContextConstructor(): typeof AudioContext {
     const browserWindow = window as BrowserAudioWindow;
     const AudioContextConstructor = browserWindow.AudioContext || browserWindow.webkitAudioContext;

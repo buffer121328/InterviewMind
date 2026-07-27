@@ -28,6 +28,7 @@ def _memory_config_cache_key(config: Optional[dict[str, Any]]) -> str:
         return "disabled"
 
     def scrub(value: Any) -> Any:
+        """递归移除记忆配置中的密钥类字段，只用于生成缓存指纹，不得用于实际 mem0 连接。"""
         if isinstance(value, dict):
             result: dict[str, Any] = {}
             for key, item in value.items():
@@ -45,7 +46,7 @@ def _memory_config_cache_key(config: Optional[dict[str, Any]]) -> str:
 
 
 def _retention_metadata() -> dict:
-    """执行 `_retention_metadata` 相关逻辑。"""
+    """生成记忆保留期限和到期策略元数据，供清理任务和审计使用。"""
     retention_days = get_mem0_retention_days()
     expires_at = datetime.now(timezone.utc) + timedelta(days=retention_days)
     return {
@@ -56,7 +57,7 @@ def _retention_metadata() -> dict:
 
 
 class AgentMemoryService:
-    """
+    """应用/基础设施协作者，负责 `AgentMemoryService` 的职责；依赖通过构造或模块边界注入，外部调用、状态持久化和安全校验不向调用方隐藏。
     mem0 长期记忆服务
 
     提供统一的记忆管理接口，支持：
@@ -136,8 +137,8 @@ class AgentMemoryService:
             result = await asyncio.to_thread(
                 self._memory.search,
                 query=query,
-                user_id=user_id,
-                limit=search_limit,
+                top_k=search_limit,
+                filters={"user_id": user_id},
             )
 
             # mem0 返回格式可能是 {"results": [...]} 或直接是列表

@@ -74,6 +74,7 @@ export function DialogueReview({ messages, className }: DialogueReviewProps) {
     }, [playingId]);
 
     // 格式化时间戳
+    /** Formats time into the stable display representation used by this view; invalid or empty values use the local fallback. */
     const formatTime = (timestamp?: string) => {
         if (!timestamp) return '';
         try {

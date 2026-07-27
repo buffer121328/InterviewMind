@@ -21,6 +21,7 @@ interface WorkspaceShellProps {
     contentClassName?: string;
 }
 
+/** Renders the workspace shell UI and coordinates its typed props, local state, and approved backend interactions. */
 export function WorkspaceShell({
     sidebarOpen,
     onSidebarOpenChange,

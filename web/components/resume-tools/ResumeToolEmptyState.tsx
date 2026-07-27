@@ -17,6 +17,7 @@ const COPY: Record<EmptyStateType, { title: string; description: string }> = {
     },
 };
 
+/** Encapsulates resume tool empty state; returns typed data or state and keeps side effects within the owning module boundary. */
 export function ResumeToolEmptyState({ type }: { type: EmptyStateType }) {
     const Icon = type === 'analyze' ? BarChart3 : type === 'optimize' ? FileText : Target;
     const copy = COPY[type];

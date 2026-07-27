@@ -37,7 +37,7 @@ def is_active_status(status: str) -> bool:
     """判断 `active status` 是否满足条件。
 
     Args:
-        status: 调用方传入的 `status` 参数。
+        status: 经过类型边界校验的 `status`；其格式和可选值由参数类型及调用流程约束。
     """
     return status in ACTIVE_STATUSES
 
@@ -46,7 +46,7 @@ def is_terminal_status(status: str) -> bool:
     """判断 `terminal status` 是否满足条件。
 
     Args:
-        status: 调用方传入的 `status` 参数。
+        status: 经过类型边界校验的 `status`；其格式和可选值由参数类型及调用流程约束。
     """
     return status in TERMINAL_STATUSES
 
@@ -55,7 +55,7 @@ def can_request_cancel(status: str) -> bool:
     """判断 `request cancel` 是否满足条件。
 
     Args:
-        status: 调用方传入的 `status` 参数。
+        status: 经过类型边界校验的 `status`；其格式和可选值由参数类型及调用流程约束。
     """
     return status in CANCELLABLE_STATUSES
 
@@ -64,7 +64,7 @@ def can_request_pause(status: str) -> bool:
     """判断 `request pause` 是否满足条件。
 
     Args:
-        status: 调用方传入的 `status` 参数。
+        status: 经过类型边界校验的 `status`；其格式和可选值由参数类型及调用流程约束。
     """
     return status in PAUSABLE_STATUSES
 
@@ -73,7 +73,7 @@ def can_resume(status: str) -> bool:
     """判断 `resume` 是否满足条件。
 
     Args:
-        status: 调用方传入的 `status` 参数。
+        status: 经过类型边界校验的 `status`；其格式和可选值由参数类型及调用流程约束。
     """
     return status in RESUMABLE_STATUSES
 
@@ -93,10 +93,10 @@ def cancel_transition(status: str) -> str | None:
 
 
 def pause_transition(status: str) -> str | None:
-    """执行 `pause_transition` 相关逻辑。
+    """应用暂停状态转换规则，只允许从可暂停状态进入暂停并保持可恢复性。
 
     Args:
-        status: 调用方传入的 `status` 参数。
+        status: 经过类型边界校验的 `status`；其格式和可选值由参数类型及调用流程约束。
     """
     if status in {"queued", "retrying", "awaiting_approval"}:
         return "paused"
@@ -106,10 +106,10 @@ def pause_transition(status: str) -> str | None:
 
 
 def resume_transition(status: str) -> str | None:
-    """执行 `resume_transition` 相关逻辑。
+    """应用恢复状态转换规则，确保只有可恢复任务能重新入队。
 
     Args:
-        status: 调用方传入的 `status` 参数。
+        status: 经过类型边界校验的 `status`；其格式和可选值由参数类型及调用流程约束。
     """
     if status in {"pause_requested", "paused", "awaiting_approval"}:
         return "running"

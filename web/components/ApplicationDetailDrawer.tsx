@@ -71,11 +71,13 @@ const statusColorMap: Record<string, string> = {
     accepted: 'bg-green-100 text-green-700 ring-green-200',
 };
 
+/** Formats time into the stable display representation used by this view; invalid or empty values use the local fallback. */
 function formatTime(value: string) {
     const d = new Date(value);
     return Number.isNaN(d.getTime()) ? value : d.toLocaleString('zh-CN', { hour12: false });
 }
 
+/** Converts application event metadata into the drawer's compact note text, omitting the event type and using a stable empty-state label when no details are present. */
 function getEventNotes(event: ApplicationEvent) {
     const data = event.event_data || {};
     const values = Object.entries(data)
@@ -84,12 +86,14 @@ function getEventNotes(event: ApplicationEvent) {
     return values.length ? values.join(' · ') : '暂无备注';
 }
 
+/** Encapsulates priority label; returns typed data or state and keeps side effects within the owning module boundary. */
 function priorityLabel(priority?: string) {
     if (priority === 'high') return '高';
     if (priority === 'low') return '低';
     return '中';
 }
 
+/** Encapsulates application detail drawer; returns typed data or state and keeps side effects within the owning module boundary. */
 export function ApplicationDetailDrawer({ applicationId, onClose }: Props) {
     const currentApplication = useInterviewStore((s) => s.currentApplication);
     const loading = useInterviewStore((s) => s.applicationDetailLoading);
@@ -137,6 +141,7 @@ export function ApplicationDetailDrawer({ applicationId, onClose }: Props) {
         [hasApplication, currentApplication]
     );
 
+    /** Handles save; updates local UI state first and delegates server mutations through the approved API boundary. */
     async function handleSave() {
         if (!hasApplication || !applicationId) return;
         const changes: UpdateApplicationRequest = {};
@@ -156,6 +161,7 @@ export function ApplicationDetailDrawer({ applicationId, onClose }: Props) {
         setSaving(false);
     }
 
+    /** Handles quick event; updates local UI state first and delegates server mutations through the approved API boundary. */
     async function handleQuickEvent(event_type: string, event_data?: Record<string, unknown>) {
         if (!applicationId) return;
         await addApplicationEvent(applicationId, {
@@ -166,6 +172,7 @@ export function ApplicationDetailDrawer({ applicationId, onClose }: Props) {
         await selectApplication(applicationId);
     }
 
+    /** Handles add note event; updates local UI state first and delegates server mutations through the approved API boundary. */
     async function handleAddNoteEvent() {
         if (!applicationId || !noteText.trim()) return;
         await handleQuickEvent('note', { note: noteText.trim() });
@@ -173,6 +180,7 @@ export function ApplicationDetailDrawer({ applicationId, onClose }: Props) {
         setShowNoteComposer(false);
     }
 
+    /** Handles delete; updates local UI state first and delegates server mutations through the approved API boundary. */
     async function handleDelete() {
         if (!applicationId) return;
         const ok = await deleteApplication(applicationId);

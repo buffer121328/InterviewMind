@@ -23,6 +23,7 @@ const INTERVIEW_TYPE_OPTIONS: Array<{ value: InterviewType; label: string; descr
     { value: "hr_comprehensive", label: "HR面", description: "关注动机、沟通、稳定性与文化匹配", defaultQuestions: 5 },
 ];
 
+/** Looks up the default question count for an interview type and keeps the UI usable if an unknown type reaches the client. */
 const getDefaultQuestionCount = (interviewType: InterviewType): number => (
     INTERVIEW_TYPE_OPTIONS.find((option) => option.value === interviewType)?.defaultQuestions ?? 10
 );
@@ -48,6 +49,7 @@ interface InterviewSetupProps {
     hasVoiceConfig?: boolean;  // 是否配置了语音模型
 }
 
+/** Renders the interview setup UI and coordinates its typed props, local state, and approved backend interactions. */
 export function InterviewSetup({
     resume,
     onUploadResume,
@@ -75,28 +77,33 @@ export function InterviewSetup({
     const [draftInterviewType, setDraftInterviewType] = useState<InterviewType>(interviewType);
     const [draftQuestionCount, setDraftQuestionCount] = useState("");
 
+    /** Handles file upload; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
             await onUploadResume(e.target.files[0]);
         }
     };
 
+    /** Handles open job dialog; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleOpenJobDialog = () => {
         setTempJobDescription(jobDescription);
         setIsJobDialogOpen(true);
     };
 
+    /** Handles save job description; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleSaveJobDescription = () => {
         onJobDescriptionChange(tempJobDescription);
         setIsJobDialogOpen(false);
     };
 
+    /** Handles start interview; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleStartInterview = () => {
         setDraftInterviewType(interviewType);
         setDraftQuestionCount("");
         setIsStartDialogOpen(true);
     };
 
+    /** Handles confirm start interview; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleConfirmStartInterview = async () => {
         const parsedCount = Number.parseInt(draftQuestionCount, 10);
         const finalQuestionCount = Number.isFinite(parsedCount) && parsedCount > 0

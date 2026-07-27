@@ -34,7 +34,7 @@ class JDMatchUseCases:
     """JD 匹配分析应用服务。"""
 
     async def analyze(self, *, request: JDMatchRequest, user_id: str) -> JDMatchResponse:
-        """异步执行 `analyze` 相关逻辑。
+        """分析输入内容并返回结构化结果，使用请求级配置且不绕过统一模型网关。
 
         Args:
             request: 请求对象。
@@ -69,7 +69,7 @@ class JDMatchUseCases:
         return JDMatchResponse(success=True, result=result, analysis_id=analysis_id)
 
     async def list_results(self, *, user_id: str, limit: int) -> JDMatchHistoryResponse:
-        """列出 `results`。
+        """按 owner、筛选条件和分页参数读取 results；仅返回当前调用方有权查看的持久化结果。
 
         Args:
             user_id: 当前用户标识。
@@ -94,7 +94,7 @@ class JDMatchUseCases:
             return JDMatchHistoryResponse(success=False, message=str(exc))
 
     async def get_result(self, *, analysis_id: int, user_id: str) -> JDMatchDetailResponse:
-        """获取 `result`。
+        """读取 result，并通过 owner 校验限制可见范围；资源不存在或状态不合法时返回稳定的业务结果或异常。
 
         Args:
             analysis_id: analysis 标识。
@@ -106,7 +106,7 @@ class JDMatchUseCases:
         return JDMatchDetailResponse(success=True, result=result)
 
     async def delete_result(self, *, analysis_id: int, user_id: str) -> dict[str, object]:
-        """删除 `result`。
+        """在 owner 校验下删除 result；删除失败或资源不可见时保持幂等的业务错误语义。
 
         Args:
             analysis_id: analysis 标识。

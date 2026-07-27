@@ -2,6 +2,7 @@ import { Headphones } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useInterviewStore } from "@/store/useInterviewStore";
 
+/** Renders the voice toggle button UI and coordinates its typed props, local state, and approved backend interactions. */
 export function VoiceToggleButton() {
     const setVoiceMode = useInterviewStore((state) => state.setVoiceMode);
 

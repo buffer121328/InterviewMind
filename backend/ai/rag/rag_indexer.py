@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 def _utcnow() -> datetime:
-    """执行 `_utcnow` 相关逻辑。"""
+    """返回带 UTC 时区的当前时间，保证数据库、队列和观测事件时间可比较。"""
     return datetime.now(timezone.utc)
 
 
@@ -262,13 +262,13 @@ async def extract_session_qa_chunks(
 
 
 class RagIndexer:
-    """
+    """RAG 索引编排器，负责文档切分、嵌入和索引写入的流程边界；调用方仍需提供 owner、配置和外部 URL 校验。
     RAG 索引构建服务
     负责从业务表提取 chunk、生成 embedding、写入 rag_chunks
     """
 
     def __init__(self):
-        """初始化当前对象实例。"""
+        """初始化 `RagIndexer` 的依赖和运行配置；构造阶段不执行业务写入，外部客户端只在后续方法调用时承担访问边界。"""
         self._repo = get_rag_index_repo()
         self._config = get_embedding_config()
 
@@ -441,7 +441,7 @@ _rag_indexer: Optional[RagIndexer] = None
 
 
 def get_rag_indexer() -> RagIndexer:
-    """获取 `rag indexer`。"""
+    """返回共享的 RAG 索引器实例，集中管理嵌入配置和索引生命周期，避免请求间重复初始化。"""
     global _rag_indexer
     if _rag_indexer is None:
         _rag_indexer = RagIndexer()

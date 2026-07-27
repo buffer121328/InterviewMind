@@ -89,7 +89,7 @@ class ResumeAssemblyUseCases:
             raise ResumeAssemblyBadRequest(message=str(exc)) from exc
 
     async def list_assembly_results(self, *, user_id: str, limit: int) -> dict[str, object]:
-        """列出 `assembly results`。
+        """按 owner、筛选条件和分页参数读取 assembly results；仅返回当前调用方有权查看的持久化结果。
 
         Args:
             user_id: 当前用户标识。
@@ -102,7 +102,7 @@ class ResumeAssemblyUseCases:
             return {"success": False, "results": [], "message": str(exc)}
 
     async def get_assembly_result(self, *, result_id: int, user_id: str) -> dict[str, object]:
-        """获取 `assembly result`。
+        """读取 assembly result，并通过 owner 校验限制可见范围；资源不存在或状态不合法时返回稳定的业务结果或异常。
 
         Args:
             result_id: result 标识。
@@ -114,7 +114,7 @@ class ResumeAssemblyUseCases:
         return {"success": True, "result": result}
 
     async def delete_assembly_result(self, *, result_id: int, user_id: str) -> dict[str, object]:
-        """删除 `assembly result`。
+        """在 owner 校验下删除 assembly result；删除失败或资源不可见时保持幂等的业务错误语义。
 
         Args:
             result_id: result 标识。

@@ -7,6 +7,7 @@
 import { useCallback, useState, useSyncExternalStore } from 'react';
 import { getUserId, USER_ID_CHANGED_EVENT, USER_ID_KEY } from '@/lib/api/config';
 
+/** Provides the subscribe to user id frontend hook and owns its browser resource lifecycle. */
 function subscribeToUserId(onStoreChange: () => void) {
     window.addEventListener(USER_ID_CHANGED_EVENT, onStoreChange);
     window.addEventListener('storage', onStoreChange);
@@ -17,10 +18,12 @@ function subscribeToUserId(onStoreChange: () => void) {
     };
 }
 
+/** Provides the get user id snapshot frontend hook and owns its browser resource lifecycle. */
 function getUserIdSnapshot() {
     return typeof window === 'undefined' ? '' : getUserId();
 }
 
+/** Provides the notify user id changed frontend hook and owns its browser resource lifecycle. */
 function notifyUserIdChanged() {
     window.dispatchEvent(new Event(USER_ID_CHANGED_EVENT));
 }

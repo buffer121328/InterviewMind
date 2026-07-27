@@ -11,7 +11,7 @@ ResultRetention = Literal["summary", "reference", "none"]
 
 @dataclass(frozen=True, slots=True)
 class ToolContract:
-    """表示 `ToolContract` 相关的数据或行为。"""
+    """不可变的工具副作用契约，声明读写/外部效果、权限、确认、幂等和结果留存策略；执行器据此治理调用，不包含运行时凭据。"""
     effect: ToolEffect
     permissions: tuple[str, ...]
     requires_confirmation: bool = False
@@ -19,7 +19,7 @@ class ToolContract:
     result_retention: ResultRetention = "summary"
 
     def to_metadata(self) -> dict[str, Any]:
-        """转换 `metadata`。"""
+        """将工具契约转换为稳定的元数据字典，供 API 展示和审计使用；不包含凭据、运行时句柄或完整敏感参数。"""
         data = asdict(self)
         data["permissions"] = list(self.permissions)
         return data
@@ -49,10 +49,10 @@ def attach_tool_contract(
 
 
 def get_tool_contract(tool: Any) -> dict[str, Any] | None:
-    """获取 `tool contract`。
+    """读取 tool contract，并保持调用方的错误和生命周期边界；资源不存在或状态不合法时返回稳定的业务结果或异常。
 
     Args:
-        tool: 调用方传入的 `tool` 参数。
+        tool: 经过类型边界校验的 `tool`；其格式和可选值由参数类型及调用流程约束。
     """
     metadata = getattr(tool, "metadata", None) or {}
     contract = metadata.get("contract")

@@ -19,7 +19,7 @@ class QuestionBankRepo:
     """题库服务类"""
 
     def __init__(self):
-        """初始化当前对象实例。"""
+        """初始化 `QuestionBankRepo` 的依赖和运行配置；构造阶段不执行业务写入，外部客户端只在后续方法调用时承担访问边界。"""
         logger.info("QuestionBankService 初始化")
 
     async def create_item(
@@ -341,10 +341,10 @@ class QuestionBankRepo:
         return data
 
     def _followup_to_dict(self, row) -> Dict[str, Any]:
-        """执行 `_followup_to_dict` 相关逻辑。
+        """将 follow-up 数据库行转换为 API 可序列化字典，统一空值和字段格式。
 
         Args:
-            row: 调用方传入的 `row` 参数。
+            row: 经过类型边界校验的 `row`；其格式和可选值由参数类型及调用流程约束。
         """
         data = {
             "id": row.id,

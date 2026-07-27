@@ -55,7 +55,7 @@ class CapturedJobModel(Base):
     )
 
     def to_dict(self) -> dict:
-        """转换 `dict`。"""
+        """将持久化对象转换为稳定的字典表示，供 API 或审计边界使用；不改变对象状态，也不主动暴露未声明的敏感字段。"""
         return {
             "id": self.id,
             "user_id": self.user_id,

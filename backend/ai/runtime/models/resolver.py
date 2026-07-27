@@ -19,7 +19,7 @@ class ModelResolver:
     """保留现有通道回退语义的统一解析入口。"""
 
     def resolve(self, request: ModelRequest, context: AgentContext) -> list[Any]:
-        """解析 当前对象。
+        """按模型 profile 和请求配置解析可用模型，应用健康检查与 fallback，不把本次选择写入共享配置。
 
         Args:
             request: 请求对象。

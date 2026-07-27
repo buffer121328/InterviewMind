@@ -101,17 +101,17 @@ class ModelGateway:
     """模型网关：Redis 全局调度优先，通道回退与进程内降级。"""
 
     def __init__(self) -> None:
-        """初始化当前对象实例。"""
+        """初始化 `ModelGateway` 的依赖和运行配置；构造阶段不执行业务写入，外部客户端只在后续方法调用时承担访问边界。"""
         self.scheduler = ModelPoolScheduler()
         self._candidate_identities: dict[int, str] = {}
         self._candidate_lock = RLock()
 
     def _bind_identity(self, llm: object, identity: str) -> None:
-        """执行 `_bind_identity` 相关逻辑。
+        """把当前请求的身份配置绑定到模型调用上下文，不把凭据写入共享状态。
 
         Args:
             llm: 语言模型实例。
-            identity: 调用方传入的 `identity` 参数。
+            identity: 经过类型边界校验的 `identity`；其格式和可选值由参数类型及调用流程约束。
         """
         try:
             object.__setattr__(llm, "_model_pool_identity", identity)
@@ -120,7 +120,7 @@ class ModelGateway:
                 self._candidate_identities[id(llm)] = identity
 
     def _take_identity(self, llm: object) -> str | None:
-        """执行 `_take_identity` 相关逻辑。
+        """从当前异步上下文取出模型身份，并在调用结束后由调用方恢复上下文。
 
         Args:
             llm: 语言模型实例。
@@ -137,12 +137,12 @@ class ModelGateway:
 
     @staticmethod
     def _pool(api_config: dict, name: str, fallback_channel: str) -> list[dict]:
-        """执行 `_pool` 相关逻辑。
+        """返回按名称选择的模型池，并集中应用池为空和配置缺失时的 fallback。
 
         Args:
             api_config: api 配置。
             name: 名称。
-            fallback_channel: 调用方传入的 `fallback_channel` 参数。
+            fallback_channel: 经过类型边界校验的 `fallback_channel`；其格式和可选值由参数类型及调用流程约束。
         """
         configured = [dict(item) for item in api_config.get(name, []) if item and item.get("api_key")]
         if configured:
@@ -151,11 +151,11 @@ class ModelGateway:
         return [dict(fallback)] if fallback and fallback.get("api_key") else []
 
     def _candidate_configs(self, api_config: dict, channel: str) -> tuple[list[dict], str | None]:
-        """执行 `_candidate_configs` 相关逻辑。
+        """从请求配置解析可用模型候选，并保留模型网关的 URL、超时和冷却约束。
 
         Args:
             api_config: api 配置。
-            channel: 调用方传入的 `channel` 参数。
+            channel: 经过类型边界校验的 `channel`；其格式和可选值由参数类型及调用流程约束。
         """
         fast_pool = self._pool(api_config, "fast_pool", "fast")
         reasoning_pool = self._pool(api_config, "reasoning_pool", "smart")
@@ -196,11 +196,11 @@ class ModelGateway:
         return ordered, reserved_identity
 
     def get_chat_candidates(self, api_config: Optional[dict], channel: str = "smart") -> list[ChatOpenAI]:
-        """获取 `chat candidates`。
+        """读取 chat candidates，并保持调用方的错误和生命周期边界；资源不存在或状态不合法时返回稳定的业务结果或异常。
 
         Args:
             api_config: api 配置。
-            channel: 调用方传入的 `channel` 参数。
+            channel: 经过类型边界校验的 `channel`；其格式和可选值由参数类型及调用流程约束。
         """
         if not api_config:
             raise ValueError("未检测到 API 配置。请在设置中配置您的大模型 API 后再使用本功能。")
@@ -227,11 +227,11 @@ class ModelGateway:
         return candidates
 
     def get_chat_model(self, api_config: Optional[dict], channel: str = "smart") -> ChatOpenAI:
-        """获取 `chat model`。
+        """读取 chat model，并保持调用方的错误和生命周期边界；资源不存在或状态不合法时返回稳定的业务结果或异常。
 
         Args:
             api_config: api 配置。
-            channel: 调用方传入的 `channel` 参数。
+            channel: 经过类型边界校验的 `channel`；其格式和可选值由参数类型及调用流程约束。
         """
         return self.get_chat_candidates(api_config, channel)[0]
 
@@ -256,7 +256,7 @@ class ModelGateway:
             self.scheduler.record_failure(identity)
 
     def get_voice_client(self, api_config: dict):
-        """获取 `voice client`。
+        """读取 voice client，并保持调用方的错误和生命周期边界；资源不存在或状态不合法时返回稳定的业务结果或异常。
 
         Args:
             api_config: api 配置。
@@ -265,7 +265,7 @@ class ModelGateway:
         return get_async_omni_client(voice_config)
 
     def get_voice_request_options(self, api_config: dict, voice_config: dict | None = None) -> dict:
-        """获取 `voice request options`。
+        """读取 voice request options，并保持调用方的错误和生命周期边界；资源不存在或状态不合法时返回稳定的业务结果或异常。
 
         Args:
             api_config: api 配置。
@@ -280,7 +280,7 @@ class ModelGateway:
         }
 
     def _voice_candidate_configs(self, api_config: dict) -> tuple[list[dict], str | None]:
-        """执行 `_voice_candidate_configs` 相关逻辑。
+        """从请求配置解析语音模型候选，并保持语音调用的 URL、超时和冷却约束。
 
         Args:
             api_config: api 配置。
@@ -327,12 +327,12 @@ class ModelGateway:
         messages: list[dict],
         stream_options: dict | None = None,
     ):
-        """流式处理 `voice chat completions`。
+        """通过统一模型网关流式生成语音面试回复；按请求配置选择模型并保持取消、错误脱敏和外部调用边界。
 
         Args:
             api_config: api 配置。
             messages: 消息列表。
-            stream_options: 调用方传入的 `stream_options` 参数。
+            stream_options: 经过类型边界校验的 `stream_options`；其格式和可选值由参数类型及调用流程约束。
         """
         configs, reserved_identity = self._voice_candidate_configs(api_config)
         last_error: Exception | None = None
@@ -398,15 +398,15 @@ class ModelGateway:
         raise RuntimeError("没有可用的语音模型候选")
 
     def get_voice_input_format(self) -> str:
-        """获取 `voice input format`。"""
+        """返回语音输入所需的格式契约，供浏览器录音和后端解码保持一致；不触发音频上传或模型调用。"""
         return get_settings().voice_input_format
 
     def get_embedding_request_options(self, model: str | None = None, dimensions: int | None = None) -> dict:
-        """获取 `embedding request options`。
+        """读取 embedding request options，并保持调用方的错误和生命周期边界；资源不存在或状态不合法时返回稳定的业务结果或异常。
 
         Args:
             model: 模型对象。
-            dimensions: 调用方传入的 `dimensions` 参数。
+            dimensions: 经过类型边界校验的 `dimensions`；其格式和可选值由参数类型及调用流程约束。
         """
         return {
             "model": model or os.getenv("EMBEDDING_MODEL", "text-embedding-v4"),
@@ -419,11 +419,11 @@ class ModelGateway:
         dimensions: int | None = None,
         api_config: dict | None = None,
     ) -> dict:
-        """获取 `embedding client config`。
+        """读取 embedding client config，并保持调用方的错误和生命周期边界；资源不存在或状态不合法时返回稳定的业务结果或异常。
 
         Args:
             model: 模型对象。
-            dimensions: 调用方传入的 `dimensions` 参数。
+            dimensions: 经过类型边界校验的 `dimensions`；其格式和可选值由参数类型及调用流程约束。
             api_config: 前端请求携带的模型配置。
         """
         config = get_embedding_client_config_from_api_config(api_config)
@@ -439,12 +439,12 @@ class ModelGateway:
         dimensions: int | None = None,
         api_config: dict | None = None,
     ):
-        """创建 `embeddings`。
+        """创建 embeddings，在写入前沿用请求的 owner、审批和输入校验边界，并返回调用方可继续处理的结果。
 
         Args:
-            input_value: 调用方传入的 `input_value` 参数。
+            input_value: 经过类型边界校验的 `input_value`；其格式和可选值由参数类型及调用流程约束。
             model: 模型对象。
-            dimensions: 调用方传入的 `dimensions` 参数。
+            dimensions: 经过类型边界校验的 `dimensions`；其格式和可选值由参数类型及调用流程约束。
         """
         config = self.get_embedding_client_config(model=model, dimensions=dimensions, api_config=api_config)
         identity = _identity(config)
@@ -490,11 +490,11 @@ model_gateway = ModelGateway()
 
 
 def get_llm_for_request(api_config: Optional[dict] = None, channel: str = "smart") -> ChatOpenAI:
-    """获取 `llm for request`。
+    """读取 llm for request，并保持调用方的错误和生命周期边界；资源不存在或状态不合法时返回稳定的业务结果或异常。
 
     Args:
         api_config: api 配置。
-        channel: 调用方传入的 `channel` 参数。
+        channel: 经过类型边界校验的 `channel`；其格式和可选值由参数类型及调用流程约束。
     """
     import logging
 

@@ -44,10 +44,10 @@ def _build_prompt(
     """构建 `prompt`。
 
     Args:
-        project_content: 调用方传入的 `project_content` 参数。
-        project_title: 调用方传入的 `project_title` 参数。
-        rewrite_mode: 调用方传入的 `rewrite_mode` 参数。
-        job_description: 调用方传入的 `job_description` 参数。
+        project_content: 经过类型边界校验的 `project_content`；其格式和可选值由参数类型及调用流程约束。
+        project_title: 经过类型边界校验的 `project_title`；其格式和可选值由参数类型及调用流程约束。
+        rewrite_mode: 经过类型边界校验的 `rewrite_mode`；其格式和可选值由参数类型及调用流程约束。
+        job_description: 经过类型边界校验的 `job_description`；其格式和可选值由参数类型及调用流程约束。
     """
     base_instructions = """请严格返回 JSON 对象，且必须包含以下字段：
 - rewritten_content: string
@@ -117,13 +117,13 @@ async def rewrite_project(
     job_description: Optional[str] = None,
     api_config: Optional[dict] = None,
 ) -> dict:
-    """异步执行 `rewrite_project` 相关逻辑。
+    """重写单个项目经历并返回可审阅草稿，不直接覆盖用户原始材料。
 
     Args:
-        project_content: 调用方传入的 `project_content` 参数。
-        project_title: 调用方传入的 `project_title` 参数。
-        rewrite_mode: 调用方传入的 `rewrite_mode` 参数。
-        job_description: 调用方传入的 `job_description` 参数。
+        project_content: 经过类型边界校验的 `project_content`；其格式和可选值由参数类型及调用流程约束。
+        project_title: 经过类型边界校验的 `project_title`；其格式和可选值由参数类型及调用流程约束。
+        rewrite_mode: 经过类型边界校验的 `rewrite_mode`；其格式和可选值由参数类型及调用流程约束。
+        job_description: 经过类型边界校验的 `job_description`；其格式和可选值由参数类型及调用流程约束。
         api_config: api 配置。
     """
     prompt = _build_prompt(project_content, project_title, rewrite_mode, job_description)

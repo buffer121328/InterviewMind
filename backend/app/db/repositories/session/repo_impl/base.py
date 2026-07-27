@@ -6,7 +6,7 @@ from app.db.models import async_session, SessionModel
 logger = logging.getLogger(__name__)
 
 class BaseService:
-    """基础服务类，提供通用数据库操作"""
+    """应用或基础设施协作者，负责 `BaseService` 的职责；依赖通过构造或模块边界注入，外部调用、状态持久化和安全校验不向调用方隐藏。"""
 
     async def _check_session_access(
         self,

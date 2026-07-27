@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import {
     Loader2, Plus, Search, Trash2, BookOpen,
     ChevronDown, ChevronUp, MessageCircle, ArrowLeft,
-    AlertTriangle, Calendar, Filter, RefreshCw
+    AlertTriangle, Calendar, Filter, Pencil, RefreshCw
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,7 +13,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import {
-    listQuestionBank, createQuestionItem, deleteQuestionItem, searchQuestionBank,
+    listQuestionBank, createQuestionItem, deleteQuestionItem, searchQuestionBank, updateQuestionItem,
     type QuestionBankItem, type QuestionBankCreateRequest
 } from "@/lib/api/questionBank";
 import { fetchSessionList, getSessionDetail, type SessionListItem, type SessionDetail } from "@/lib/api/sessions";
@@ -68,6 +68,7 @@ const typeBadge: Record<string, { bg: string; text: string; label: string }> = {
     system_design:  { bg: "bg-indigo-100", text: "text-indigo-700", label: "设计" },
 };
 
+/** Formats date into the stable display representation used by this view; invalid or empty values use the local fallback. */
 function formatDate(iso: string) {
     try {
         const d = new Date(iso);
@@ -85,9 +86,11 @@ function formatDate(iso: string) {
 function QuestionCard({
     item,
     onDelete,
+    onEdit,
 }: {
     item: QuestionBankItem;
     onDelete: (id: number) => void;
+    onEdit: (item: QuestionBankItem) => void;
 }) {
     const [expanded, setExpanded] = useState(false);
     const [confirmDelete, setConfirmDelete] = useState(false);
@@ -118,6 +121,15 @@ function QuestionCard({
 
                 {/* Action buttons */}
                 <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-stone-400 hover:text-teal-600"
+                        aria-label="编辑题目"
+                        onClick={() => onEdit(item)}
+                    >
+                        <Pencil className="h-4 w-4" />
+                    </Button>
                     <Button
                         variant="ghost"
                         size="icon"
@@ -196,6 +208,7 @@ function SessionCard({ session }: { session: SessionListItem }) {
     const [detail, setDetail] = useState<SessionDetail | null>(null);
     const [loading, setLoading] = useState(false);
 
+    /** Encapsulates toggle; returns typed data or state and keeps side effects within the owning module boundary. */
     const toggle = async () => {
         if (!expanded && !detail) {
             setLoading(true);
@@ -277,6 +290,7 @@ function SessionCard({ session }: { session: SessionListItem }) {
 // Main Component
 // =====================================================================
 
+/** Renders the question bank page UI and coordinates its typed props, local state, and approved backend interactions. */
 export default function QuestionBankPage({ onBack, onStartInterview, embedded = false }: QuestionBankPageProps) {
     // ---- state ----
     const [tab, setTab] = useState<TabKey>("bank");
@@ -295,6 +309,7 @@ export default function QuestionBankPage({ onBack, onStartInterview, embedded = 
 
     // add‑form toggle
     const [showForm, setShowForm] = useState(false);
+    const [editingItemId, setEditingItemId] = useState<number | null>(null);
     const [form, setForm] = useState<QuestionBankCreateRequest>({
         question_text: "",
         reference_answer: "",
@@ -361,6 +376,7 @@ export default function QuestionBankPage({ onBack, onStartInterview, embedded = 
 
     // ---- handlers ----
 
+    /** Handles delete; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleDelete = async (id: number) => {
         const res = await deleteQuestionItem(id);
         if (res.success) {
@@ -371,6 +387,34 @@ export default function QuestionBankPage({ onBack, onStartInterview, embedded = 
         }
     };
 
+    /** Encapsulates reset form; returns typed data or state and keeps side effects within the owning module boundary. */
+    const resetForm = () => {
+        setForm({ question_text: "", reference_answer: "", difficulty: "medium", question_type: "tech" });
+        setEditingItemId(null);
+    };
+
+    /** Encapsulates open create form; returns typed data or state and keeps side effects within the owning module boundary. */
+    const openCreateForm = () => {
+        resetForm();
+        setShowForm(true);
+    };
+
+    /** Encapsulates open edit form; returns typed data or state and keeps side effects within the owning module boundary. */
+    const openEditForm = (item: QuestionBankItem) => {
+        setEditingItemId(item.id);
+        setForm({
+            question_text: item.question_text,
+            reference_answer: item.reference_answer ?? "",
+            tags: item.tags,
+            difficulty: item.difficulty,
+            target_skill: item.target_skill,
+            question_type: item.question_type,
+            source_type: item.source_type,
+        });
+        setShowForm(true);
+    };
+
+    /** Handles submit; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleSubmit = async () => {
         if (!form.question_text.trim()) {
             toast.warning("请输入题目内容");
@@ -378,14 +422,16 @@ export default function QuestionBankPage({ onBack, onStartInterview, embedded = 
         }
         setSubmitting(true);
         try {
-            const res = await createQuestionItem(form);
+            const res = editingItemId === null
+                ? await createQuestionItem(form)
+                : await updateQuestionItem(editingItemId, form);
             if (res.success) {
-                toast.success("添加成功");
+                toast.success(editingItemId === null ? "添加成功" : "更新成功");
                 setShowForm(false);
-                setForm({ question_text: "", reference_answer: "", difficulty: "medium", question_type: "tech" });
-                loadQuestions();
+                resetForm();
+                await loadQuestions();
             } else {
-                toast.error(res.message ?? "添加失败");
+                toast.error(res.message ?? (editingItemId === null ? "添加失败" : "更新失败"));
             }
         } catch {
             toast.error("网络错误");
@@ -486,7 +532,7 @@ export default function QuestionBankPage({ onBack, onStartInterview, embedded = 
                                 <Button
                                     size="sm"
                                     className="rounded-xl bg-teal-500 hover:bg-teal-600 text-white gap-1"
-                                    onClick={() => setShowForm(!showForm)}
+                                    onClick={openCreateForm}
                                 >
                                     <Plus className="h-4 w-4" />
                                     添加题目
@@ -499,6 +545,9 @@ export default function QuestionBankPage({ onBack, onStartInterview, embedded = 
                         {/* Add‑question form */}
                         {showForm && (
                             <div className="mx-4 mb-3 animate-in space-y-3 rounded-2xl border border-teal-200 bg-teal-50/50 p-4 fade-in slide-in-from-top-2">
+                                <div className="text-xs font-semibold text-teal-900">
+                                    {editingItemId === null ? "添加题目" : "编辑题目"}
+                                </div>
                                 <Textarea
                                     placeholder="题目内容 *"
                                     value={form.question_text}
@@ -537,7 +586,10 @@ export default function QuestionBankPage({ onBack, onStartInterview, embedded = 
                                         variant="ghost"
                                         size="sm"
                                         className="rounded-xl text-stone-500"
-                                        onClick={() => setShowForm(false)}
+                                        onClick={() => {
+                                            setShowForm(false);
+                                            resetForm();
+                                        }}
                                     >
                                         取消
                                     </Button>
@@ -548,7 +600,7 @@ export default function QuestionBankPage({ onBack, onStartInterview, embedded = 
                                         disabled={submitting}
                                     >
                                         {submitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                                        保存
+                                        {editingItemId === null ? "保存" : "保存修改"}
                                     </Button>
                                 </div>
                             </div>
@@ -584,7 +636,7 @@ export default function QuestionBankPage({ onBack, onStartInterview, embedded = 
                             ) : (
                                 <div className="space-y-3">
                                     {questions.map((q) => (
-                                        <QuestionCard key={q.id} item={q} onDelete={handleDelete} />
+                                        <QuestionCard key={q.id} item={q} onDelete={handleDelete} onEdit={openEditForm} />
                                     ))}
                                 </div>
                             )}

@@ -97,7 +97,7 @@ class BossBrowserSessionHandle:
     _closed: bool = False
 
     async def close(self) -> None:
-        """关闭 当前对象。"""
+        """关闭当前浏览器或外部资源句柄，保证重复调用安全且不影响已完成的业务审计记录。"""
         if self._closed:
             return
         try:

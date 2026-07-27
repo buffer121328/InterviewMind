@@ -18,7 +18,7 @@ from .base import Base
 
 
 class JobApplicationModel(Base):
-    """表示数据模型。"""
+    """SQLAlchemy 持久化模型，描述 `JobApplication` 的数据库字段、关系和约束；仓储层负责 owner 过滤、事务提交和敏感数据边界。"""
     __tablename__ = "job_applications"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -60,7 +60,7 @@ class JobApplicationModel(Base):
 
 
 class ApplicationEventModel(Base):
-    """表示数据模型。"""
+    """SQLAlchemy 持久化模型，描述 `ApplicationEvent` 的数据库字段、关系和约束；仓储层负责 owner 过滤、事务提交和敏感数据边界。"""
     __tablename__ = "application_events"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

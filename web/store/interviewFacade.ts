@@ -5,22 +5,27 @@ type InterviewStoreSnapshot = ReturnType<typeof useInterviewStore.getState>;
 export type VoiceRequestApiConfig = ReturnType<InterviewStoreSnapshot['getApiConfigForRequest']>;
 
 
+/** Provides the get request api config store helper; request-scoped configuration and session state stay centralized in Zustand, while backend persistence remains in the API layer. */
 export function getRequestApiConfig(): VoiceRequestApiConfig {
     return useInterviewStore.getState().getApiConfigForRequest();
 }
 
+/** Provides the refresh generated resumes store helper; request-scoped configuration and session state stay centralized in Zustand, while backend persistence remains in the API layer. */
 export async function refreshGeneratedResumes(): Promise<void> {
     await useInterviewStore.getState().fetchGeneratedResumes?.();
 }
 
+/** Provides the get voice request api config store helper; request-scoped configuration and session state stay centralized in Zustand, while backend persistence remains in the API layer. */
 export function getVoiceRequestApiConfig(): VoiceRequestApiConfig {
     return useInterviewStore.getState().getApiConfigForRequest();
 }
 
+/** Provides the get voice greeting history snapshot store helper; request-scoped configuration and session state stay centralized in Zustand, while backend persistence remains in the API layer. */
 export function getVoiceGreetingHistorySnapshot(): Message[] {
     return useInterviewStore.getState().voiceHistory;
 }
 
+/** Provides the get voice turn context store helper; request-scoped configuration and session state stay centralized in Zustand, while backend persistence remains in the API layer. */
 export function getVoiceTurnContext(): {
     apiConfig: VoiceRequestApiConfig;
     history: Message[];
@@ -34,6 +39,7 @@ export function getVoiceTurnContext(): {
     };
 }
 
+/** Provides the build voice start request payload store helper; request-scoped configuration and session state stay centralized in Zustand, while backend persistence remains in the API layer. */
 export function buildVoiceStartRequestPayload(sessionId: string, apiConfig: NonNullable<VoiceRequestApiConfig>) {
     const state = useInterviewStore.getState();
     return {
@@ -51,10 +57,12 @@ export function buildVoiceStartRequestPayload(sessionId: string, apiConfig: NonN
     };
 }
 
+/** Provides the select interview session store helper; request-scoped configuration and session state stay centralized in Zustand, while backend persistence remains in the API layer. */
 export async function selectInterviewSession(sessionId: string): Promise<void> {
     await useInterviewStore.getState().selectSession(sessionId);
 }
 
+/** Provides the set voice interview progress store helper; request-scoped configuration and session state stay centralized in Zustand, while backend persistence remains in the API layer. */
 export function setVoiceInterviewProgress(current: number, total?: number): void {
     const state = useInterviewStore.getState();
     state.setInterviewProgress({
@@ -63,6 +71,7 @@ export function setVoiceInterviewProgress(current: number, total?: number): void
     });
 }
 
+/** Provides the clear pending experience questions store helper; request-scoped configuration and session state stay centralized in Zustand, while backend persistence remains in the API layer. */
 export function clearPendingExperienceQuestions(): void {
     useInterviewStore.getState().setExperienceQuestions([]);
 }

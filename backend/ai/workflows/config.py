@@ -54,6 +54,7 @@ class ApiConfigUseCases:
 
     @staticmethod
     def _friendly_error_message(error_msg: str) -> str:
+        """把内部异常映射为不泄露密钥、Prompt 或完整输入的用户可读错误信息。"""
         if "401" in error_msg or "Unauthorized" in error_msg:
             return "API Key 无效，请检查是否正确"
         if "404" in error_msg or "Not Found" in error_msg:

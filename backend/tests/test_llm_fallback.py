@@ -25,17 +25,21 @@ class _Runnable:
 
 
 class _LLM:
-    def __init__(self, values):
+    def __init__(self, values, calls):
         self.values = values
+        self.calls = calls
 
-    def with_structured_output(self, _output_model):
+    def with_structured_output(self, _output_model, **kwargs):
+        self.calls.append(kwargs)
         return _Runnable(self.values)
 
 
 @pytest.mark.asyncio
 async def test_structured_call_falls_back_after_primary_timeout(monkeypatch):
-    primary = _LLM([asyncio.TimeoutError()])
-    fallback = _LLM([_Output(answer="备用通道结果")])
+    primary_calls = []
+    fallback_calls = []
+    primary = _LLM([asyncio.TimeoutError()], primary_calls)
+    fallback = _LLM([_Output(answer="备用通道结果")], fallback_calls)
     monkeypatch.setattr(
         llms.model_gateway,
         "get_chat_candidates",
@@ -45,3 +49,5 @@ async def test_structured_call_falls_back_after_primary_timeout(monkeypatch):
     result = await invoke_structured("return json", _Output, api_config={"smart": {}}, max_retries=0)
 
     assert result.answer == "备用通道结果"
+    assert primary_calls == [{"method": "json_mode"}]
+    assert fallback_calls == [{"method": "json_mode"}]

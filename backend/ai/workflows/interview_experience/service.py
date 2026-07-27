@@ -10,10 +10,10 @@ from .providers import ExportedContentProvider, NowcoderProvider
 class InterviewExperienceService:
     """封装业务服务能力。"""
     def __init__(self, providers: dict[str, ExperienceProvider] | None = None):
-        """初始化当前对象实例。
+        """初始化 `InterviewExperienceService` 的依赖和运行配置；构造阶段不执行业务写入，外部客户端仅在后续方法调用时承担对应的访问边界。
 
         Args:
-            providers: 调用方传入的 `providers` 参数。
+            providers: 经过类型边界校验的 `providers`；其格式和可选值由参数类型及调用流程约束。
         """
         self.providers = providers or {
             "nowcoder": NowcoderProvider(),
@@ -28,13 +28,13 @@ class InterviewExperienceService:
         max_pages: int,
         exported_items: list[dict[str, Any]],
     ) -> tuple[list[ExperienceDocument], list[dict[str, object]]]:
-        """异步执行 `collect` 相关逻辑。
+        """从配置的面经来源采集文档或题目，受页数、超时和来源访问边界约束。
 
         Args:
-            source: 调用方传入的 `source` 参数。
-            queries: 调用方传入的 `queries` 参数。
-            max_pages: 调用方传入的 `max_pages` 参数。
-            exported_items: 调用方传入的 `exported_items` 参数。
+            source: 经过类型边界校验的 `source`；其格式和可选值由参数类型及调用流程约束。
+            queries: 经过类型边界校验的 `queries`；其格式和可选值由参数类型及调用流程约束。
+            max_pages: 经过类型边界校验的 `max_pages`；其格式和可选值由参数类型及调用流程约束。
+            exported_items: 经过类型边界校验的 `exported_items`；其格式和可选值由参数类型及调用流程约束。
         """
         provider = self.providers.get(source)
         if provider is None:

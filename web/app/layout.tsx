@@ -8,6 +8,7 @@ export const metadata: Metadata = {
   description: PRODUCT_DESCRIPTION,
 };
 
+/** Encapsulates root layout; returns typed data or state and keeps side effects within the owning module boundary. */
 export default function RootLayout({
   children,
 }: Readonly<{

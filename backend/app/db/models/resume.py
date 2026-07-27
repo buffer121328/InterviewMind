@@ -12,7 +12,7 @@ from .base import Base
 
 
 class ResumeResultModel(Base):
-    """表示数据模型。"""
+    """SQLAlchemy 持久化模型，描述 `ResumeResult` 的数据库字段、关系和约束；仓储层负责 owner 过滤、事务提交和敏感数据边界。"""
     __tablename__ = "resume_results"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -34,7 +34,7 @@ class ResumeResultModel(Base):
 
 
 class GeneratedResumeModel(Base):
-    """表示数据模型。"""
+    """SQLAlchemy 持久化模型，描述 `GeneratedResume` 的数据库字段、关系和约束；仓储层负责 owner 过滤、事务提交和敏感数据边界。"""
     __tablename__ = "generated_resumes"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -55,7 +55,7 @@ class GeneratedResumeModel(Base):
 
 
 class ResumeGenerationSessionModel(Base):
-    """表示数据模型。"""
+    """SQLAlchemy 持久化模型，描述 `ResumeGenerationSession` 的数据库字段、关系和约束；仓储层负责 owner 过滤、事务提交和敏感数据边界。"""
     __tablename__ = "resume_generation_sessions"
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
@@ -83,7 +83,7 @@ class ResumeGenerationSessionModel(Base):
 
 
 class CandidateMaterialModel(Base):
-    """表示数据模型。"""
+    """SQLAlchemy 持久化模型，描述 `CandidateMaterial` 的数据库字段、关系和约束；仓储层负责 owner 过滤、事务提交和敏感数据边界。"""
     __tablename__ = "candidate_materials"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -109,7 +109,7 @@ class CandidateMaterialModel(Base):
 
 
 class ResumeAssemblyResultModel(Base):
-    """表示数据模型。"""
+    """SQLAlchemy 持久化模型，描述 `ResumeAssemblyResult` 的数据库字段、关系和约束；仓储层负责 owner 过滤、事务提交和敏感数据边界。"""
     __tablename__ = "resume_assembly_results"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -128,7 +128,7 @@ class ResumeAssemblyResultModel(Base):
 
 
 class ProjectRewriteRecordModel(Base):
-    """表示数据模型。"""
+    """SQLAlchemy 持久化模型，描述 `ProjectRewriteRecord` 的数据库字段、关系和约束；仓储层负责 owner 过滤、事务提交和敏感数据边界。"""
     __tablename__ = "project_rewrite_records"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

@@ -37,6 +37,7 @@ interface ModelFormDialogProps {
 
 type ModelKind = NonNullable<ModelConfig['kind']>;
 
+/** Infers the form category from an explicit model kind or stable model-name markers, defaulting to chat when no marker is present. */
 function inferKind(model?: Partial<ModelConfig>): ModelKind {
     if (model?.kind) return model.kind;
     const modelName = model?.model?.toLowerCase() || '';
@@ -45,6 +46,7 @@ function inferKind(model?: Partial<ModelConfig>): ModelKind {
     return 'chat';
 }
 
+/** Merges an existing model or caller-provided draft with safe defaults used to initialize the form; it does not persist or validate credentials. */
 function getInitialValues(editingModel?: ModelConfig, initialValues?: Partial<ModelConfig>) {
     const source = editingModel || initialValues;
     if (source) {
@@ -68,6 +70,7 @@ function getInitialValues(editingModel?: ModelConfig, initialValues?: Partial<Mo
     };
 }
 
+/** Renders the model form dialog UI and coordinates its typed props, local state, and approved backend interactions. */
 export function ModelFormDialog({ open, onClose, onSave, editingModel, initialValues }: ModelFormDialogProps) {
     const [initial] = useState(() => getInitialValues(editingModel, initialValues));
     const [provider, setProvider] = useState(initial.provider);
@@ -87,6 +90,7 @@ export function ModelFormDialog({ open, onClose, onSave, editingModel, initialVa
     const canSave = Boolean(apiKey.trim() && baseUrl.trim() && model.trim());
     const suggestedModels = useMemo(() => providerConfig?.models || [], [providerConfig]);
 
+    /** Handles provider change; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleProviderChange = (providerId: string) => {
         const next = API_PROVIDERS.find(item => item.id === providerId);
         setProvider(providerId);
@@ -94,6 +98,7 @@ export function ModelFormDialog({ open, onClose, onSave, editingModel, initialVa
         setModel('');
     };
 
+    /** Handles test connection; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleTestConnection = async () => {
         if (!canSave) {
             setTestResult({ success: false, message: '请先填写 API Key、Base URL 和模型名称。' });
@@ -137,6 +142,7 @@ export function ModelFormDialog({ open, onClose, onSave, editingModel, initialVa
         }
     };
 
+    /** Handles save; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleSave = () => {
         if (!canSave) return;
         const displayName = name.trim() || `${providerConfig?.name || '自定义'} · ${model.trim()}`;

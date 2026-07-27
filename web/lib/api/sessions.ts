@@ -70,6 +70,7 @@ export async function fetchSessionList(
     return page.sessions;
 }
 
+/** Calls the backend for fetch session page; the shared API client supplies request identity and error normalization, and this helper returns the typed endpoint result. */
 export async function fetchSessionPage(
     status?: 'active' | 'completed' | 'archived',
     mode?: 'mock' | 'voice',

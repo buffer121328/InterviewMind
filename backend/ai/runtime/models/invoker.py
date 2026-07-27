@@ -11,7 +11,7 @@ T = TypeVar("T", bound=BaseModel)
 
 
 class ModelInvoker:
-    """表示 `ModelInvoker` 相关的数据或行为。"""
+    """统一结构化模型调用入口，负责注入 AgentContext、校验输出 schema 并沿用重试和观测约束；不持有跨请求凭据。"""
     async def structured(
         self,
         input_value: Any,
@@ -21,14 +21,14 @@ class ModelInvoker:
         *,
         max_retries: int = 2,
     ) -> T:
-        """异步执行 `structured` 相关逻辑。
+        """执行结构化模型调用并验证返回 schema，保留超时、失败冷却和观测约束。
 
         Args:
-            input_value: 调用方传入的 `input_value` 参数。
-            output_model: 调用方传入的 `output_model` 参数。
+            input_value: 经过类型边界校验的 `input_value`；其格式和可选值由参数类型及调用流程约束。
+            output_model: 经过类型边界校验的 `output_model`；其格式和可选值由参数类型及调用流程约束。
             context: 运行上下文。
             request: 请求对象。
-            max_retries: 调用方传入的 `max_retries` 参数。
+            max_retries: 经过类型边界校验的 `max_retries`；其格式和可选值由参数类型及调用流程约束。
         """
         from ai.llm.llm_utils import invoke_structured, invoke_structured_with_messages
 

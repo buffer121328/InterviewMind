@@ -34,6 +34,7 @@ interface ResumeHistoryListProps {
     onLoadMore?: () => void;
 }
 
+/** Renders the resume history list UI and coordinates its typed props, local state, and approved backend interactions. */
 export function ResumeHistoryList({
     results,
     onSelect,
@@ -131,6 +132,7 @@ interface ResumeHistoryItemProps {
     onDelete: () => void;
 }
 
+/** Encapsulates resume history item; returns typed data or state and keeps side effects within the owning module boundary. */
 function ResumeHistoryItem({ result, isActive, onSelect, onDelete }: ResumeHistoryItemProps) {
     const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
 
@@ -142,16 +144,19 @@ function ResumeHistoryItem({ result, isActive, onSelect, onDelete }: ResumeHisto
 
     const Icon = result.result_type === 'analyze' ? BarChart3 : FileText;
 
+    /** Handles delete click; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleDeleteClick = (e: React.MouseEvent) => {
         e.stopPropagation();
         setIsDeleteDialogOpen(true);
     };
 
+    /** Handles confirm delete; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleConfirmDelete = () => {
         onDelete();
         setIsDeleteDialogOpen(false);
     };
 
+    /** Handles view details; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleViewDetails = (e: React.MouseEvent) => {
         e.stopPropagation();
         onSelect();

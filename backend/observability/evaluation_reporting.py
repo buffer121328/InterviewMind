@@ -41,6 +41,7 @@ def evaluation_reporting_enabled() -> bool:
 
 
 def _metric_attr(metric: Any, name: str, default: Any = None) -> Any:
+    """兼容字典和对象两种评测指标形状，读取不存在的字段时返回给定默认值。"""
     if isinstance(metric, dict):
         return metric.get(name, default)
     return getattr(metric, name, default)

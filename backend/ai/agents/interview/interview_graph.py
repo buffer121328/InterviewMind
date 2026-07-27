@@ -103,7 +103,7 @@ class PlanOutput(BaseModel):
 
 
 class InterviewState(TypedDict):
-    """
+    """数据对象，承载 `InterviewState` 的结构化字段和跨模块契约；只表达数据，不在构造或序列化时执行外部调用。
     面试状态定义 - 统一的状态结构
 
     用户隔离: user_id 字段从 API 层传入，贯穿整个流程，确保数据隔离。
@@ -338,11 +338,11 @@ async def node_responder(state: InterviewState):
 
     # 构建 LLM 调用器：封装 invoke_structured，自动注入 api_config
     async def llm_invoker(prompt: str, output_model):
-        """异步执行 `llm_invoker` 相关逻辑。
+        """调用统一模型网关生成面试回复，并将调用结果映射为图状态。
 
         Args:
-            prompt: 调用方传入的 `prompt` 参数。
-            output_model: 调用方传入的 `output_model` 参数。
+            prompt: 经过类型边界校验的 `prompt`；其格式和可选值由参数类型及调用流程约束。
+            output_model: 经过类型边界校验的 `output_model`；其格式和可选值由参数类型及调用流程约束。
         """
         return await invoke_structured(
             prompt=prompt,

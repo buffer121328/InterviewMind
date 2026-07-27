@@ -31,12 +31,12 @@ class QuestionBankUseCases:
     """题库条目 CRUD、检索、导入应用服务。"""
 
     def __init__(self) -> None:
-        """初始化当前对象实例。"""
+        """初始化 `QuestionBankUseCases` 的依赖和运行配置；构造阶段不执行业务写入，外部客户端只在后续方法调用时承担访问边界。"""
         self._question_bank_repo = QuestionBankRepo()
         self._session_repo = SessionRepo()
 
     async def create_item(self, *, request: QuestionBankCreateRequest, user_id: str) -> int:
-        """创建 `item`。
+        """创建 item，在写入前沿用请求的 owner、审批和输入校验边界，并返回调用方可继续处理的结果。
 
         Args:
             request: 请求对象。
@@ -108,13 +108,13 @@ class QuestionBankUseCases:
         limit: int,
         offset: int,
     ):
-        """列出 `items`。
+        """按 owner、筛选条件和分页参数读取 items；仅返回当前调用方有权查看的持久化结果。
 
         Args:
             user_id: 当前用户标识。
-            question_type: 调用方传入的 `question_type` 参数。
-            difficulty: 调用方传入的 `difficulty` 参数。
-            is_verified: 调用方传入的 `is_verified` 参数。
+            question_type: 经过类型边界校验的 `question_type`；其格式和可选值由参数类型及调用流程约束。
+            difficulty: 经过类型边界校验的 `difficulty`；其格式和可选值由参数类型及调用流程约束。
+            is_verified: 经过类型边界校验的 `is_verified`；其格式和可选值由参数类型及调用流程约束。
             limit: 返回数量上限。
             offset: 分页偏移量。
         """
@@ -129,7 +129,7 @@ class QuestionBankUseCases:
         return items, len(items)
 
     async def get_item(self, *, item_id: int, user_id: str):
-        """获取 `item`。
+        """读取 item，并通过 owner 校验限制可见范围；资源不存在或状态不合法时返回稳定的业务结果或异常。
 
         Args:
             item_id: item 标识。
@@ -141,7 +141,7 @@ class QuestionBankUseCases:
         return item
 
     async def update_item(self, *, item_id: int, request: QuestionBankCreateRequest, user_id: str) -> bool:
-        """更新 `item`。
+        """在 owner 校验下更新 item；只写入允许变更的字段，避免绕过状态机或审批约束。
 
         Args:
             item_id: item 标识。
@@ -164,7 +164,7 @@ class QuestionBankUseCases:
         return updated
 
     async def delete_item(self, *, item_id: int, user_id: str) -> None:
-        """删除 `item`。
+        """在 owner 校验下删除 item；删除失败或资源不可见时保持幂等的业务错误语义。
 
         Args:
             item_id: item 标识。
@@ -175,7 +175,7 @@ class QuestionBankUseCases:
             raise QuestionBankNotFound(message="条目不存在或无权删除")
 
     async def search_items(self, *, user_id: str, query: str, limit: int):
-        """检索 `items`。
+        """在当前用户范围内检索 items，并把查询结果限制在调用方声明的数量和过滤条件内。
 
         Args:
             user_id: 当前用户标识。
@@ -185,7 +185,7 @@ class QuestionBankUseCases:
         return await self._question_bank_repo.search_items(user_id=user_id, query=query, limit=limit)
 
     async def import_questions(self, *, request: QuestionBankImportRequest, user_id: str):
-        """异步执行 `import_questions` 相关逻辑。
+        """导入用户确认的题目并写入导入记录，单条失败不会泄露原文或阻断其余条目。
 
         Args:
             request: 请求对象。
@@ -221,11 +221,11 @@ class QuestionBankUseCases:
         return success_count, total_count, import_id
 
     async def save_question_from_session(self, *, session_id: str, question_index: int, user_id: str) -> int:
-        """保存 `question from session`。
+        """持久化 question from session；沿用调用方的事务边界，并保持 owner 校验、脱敏和提交责任不越层。
 
         Args:
             session_id: 会话标识。
-            question_index: 调用方传入的 `question_index` 参数。
+            question_index: 经过类型边界校验的 `question_index`；其格式和可选值由参数类型及调用流程约束。
             user_id: 当前用户标识。
         """
         session = await self._session_repo.get_session(session_id, user_id=user_id)

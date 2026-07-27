@@ -53,6 +53,7 @@ type ApplyDraft = {
     greetingText: string;
 };
 
+/** Formats date into the stable display representation used by this view; invalid or empty values use the local fallback. */
 function formatDate(value?: string) {
     if (!value) return "时间未知";
     const date = new Date(value);
@@ -60,6 +61,7 @@ function formatDate(value?: string) {
     return date.toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
 
+/** Renders the boss center UI and coordinates its typed props, local state, and approved backend interactions. */
 export function BossCenter() {
     const resume = useInterviewStore(state => state.resume);
     const getApiConfigForRequest = useInterviewStore(state => state.getApiConfigForRequest);
@@ -118,6 +120,7 @@ export function BossCenter() {
         return () => window.clearTimeout(timer);
     }, [refreshJobs]);
 
+    /** Encapsulates require api config; returns typed data or state and keeps side effects within the owning module boundary. */
     const requireApiConfig = () => {
         const apiConfig = getApiConfigForRequest();
         if (!apiConfig) {
@@ -127,6 +130,7 @@ export function BossCenter() {
         return apiConfig;
     };
 
+    /** Handles recommendations; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleRecommendations = async () => {
         if (!query.trim()) {
             toast.error("请填写搜索关键词");
@@ -164,6 +168,7 @@ export function BossCenter() {
         }
     };
 
+    /** Handles manual capture; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleManualCapture = async () => {
         const source = captureMode === "url" ? manualForm.source_url.trim() : manualForm.job_description.trim();
         if (!source) {
@@ -199,6 +204,7 @@ export function BossCenter() {
         }
     };
 
+    /** Handles delete; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleDelete = async (job: JobListItem) => {
         if (!window.confirm(`确认从岗位库删除「${job.company_name} · ${job.job_title}」？`)) return;
         try {
@@ -210,6 +216,7 @@ export function BossCenter() {
         }
     };
 
+    /** Renders the open apply preview UI and coordinates its typed props, local state, and approved backend interactions. */
     const openApplyPreview = async (draft: ApplyDraft) => {
         setApplyDraft(draft);
         setApplyPreview(null);
@@ -230,6 +237,7 @@ export function BossCenter() {
         }
     };
 
+    /** Encapsulates confirm apply; returns typed data or state and keeps side effects within the owning module boundary. */
     const confirmApply = async () => {
         if (!applyDraft || !applyPreview?.approval_token || !applyPreview.send_ready) return;
         setApplyLoading(true);
@@ -256,6 +264,7 @@ export function BossCenter() {
         }
     };
 
+    /** Renders result from the current state without introducing an additional side effect. */
     const renderResult = (job: CapturedJobSummary) => (
         <Card key={job.job_id} className="border-slate-200 shadow-sm">
             <CardHeader className="pb-3">

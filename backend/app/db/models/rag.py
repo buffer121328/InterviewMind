@@ -16,7 +16,7 @@ _EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "1536"))
 
 
 class RagChunkModel(Base):
-    """表示数据模型。"""
+    """SQLAlchemy 持久化模型，描述 `RagChunk` 的数据库字段、关系和约束；仓储层负责 owner 过滤、事务提交和敏感数据边界。"""
     __tablename__ = "rag_chunks"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

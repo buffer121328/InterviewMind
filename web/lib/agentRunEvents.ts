@@ -13,23 +13,30 @@ const KNOWN_AGENT_RUN_EVENT_TYPES = new Set<AgentRunEventType>([
     'run.retry.requested',
     'run.recovered',
     'run.requeued',
+    'tool.execution',
+    'guardrail.input',
+    'guardrail.output',
 ]);
 
+/** Encapsulates string payload; returns typed data or state and keeps side effects within the owning module boundary. */
 function stringPayload(payload: Record<string, unknown>, key: string): string | undefined {
     const value = payload[key];
     return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
+/** Encapsulates number payload; returns typed data or state and keeps side effects within the owning module boundary. */
 function numberPayload(payload: Record<string, unknown>, key: string): number | undefined {
     const value = payload[key];
     return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
 
+/** Determines whether is record so callers can apply the same UI or safety boundary consistently. */
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+/** Parses agent run event envelope at the frontend boundary and returns a typed safe fallback when the payload is malformed or missing. */
 export function parseAgentRunEventEnvelope(content: unknown): AgentRunEvent | null {
     try {
         const value = typeof content === 'string' ? JSON.parse(content) : content;
@@ -54,6 +61,7 @@ export function parseAgentRunEventEnvelope(content: unknown): AgentRunEvent | nu
     }
 }
 
+/** Encapsulates update plan by stage; returns typed data or state and keeps side effects within the owning module boundary. */
 function updatePlanByStage(
     plan: AgentRunPlanStep[],
     stage: string | null | undefined,
@@ -84,6 +92,7 @@ function updatePlanByStage(
     });
 }
 
+/** Encapsulates with common fields; returns typed data or state and keeps side effects within the owning module boundary. */
 function withCommonFields(run: AgentRun, event: AgentRunEvent, updates: Partial<AgentRun>): AgentRun {
     return {
         ...run,
@@ -92,10 +101,12 @@ function withCommonFields(run: AgentRun, event: AgentRunEvent, updates: Partial<
     };
 }
 
+/** Determines whether is terminal agent run event so callers can apply the same UI or safety boundary consistently. */
 export function isTerminalAgentRunEvent(event: AgentRunEvent): boolean {
     return event.type === 'run.completed' || event.type === 'run.failed' || event.type === 'run.cancelled';
 }
 
+/** Encapsulates apply agent run event; returns typed data or state and keeps side effects within the owning module boundary. */
 export function applyAgentRunEvent(run: AgentRun, event: AgentRunEvent): AgentRun {
     if (run.run_id !== event.run_id) return run;
 
@@ -181,6 +192,7 @@ export function applyAgentRunEvent(run: AgentRun, event: AgentRunEvent): AgentRu
     }
 }
 
+/** Renders the apply agent run event list UI and coordinates its typed props, local state, and approved backend interactions. */
 export function applyAgentRunEventList(runs: AgentRun[], event: AgentRunEvent): AgentRun[] {
     return runs.map(run => (run.run_id === event.run_id ? applyAgentRunEvent(run, event) : run));
 }
@@ -200,6 +212,7 @@ const INTERACTIVE_PLAN_STEPS: InteractiveExecutionPlanStep[] = [
     { id: 'update_progress', title: '更新面试进度', status: 'pending' },
 ];
 
+/** Builds interactive execution plan from typed frontend state without bypassing backend validation. */
 export function buildInteractiveExecutionPlan(events: AgentRunEvent[]): InteractiveExecutionPlanStep[] {
     const latest = events[events.length - 1];
     if (!latest) return INTERACTIVE_PLAN_STEPS.map(step => ({ ...step }));
