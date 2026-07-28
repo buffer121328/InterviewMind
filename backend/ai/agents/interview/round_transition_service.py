@@ -74,7 +74,7 @@ async def build_round_context(
     # 4. 上一轮画像
     previous_profile = None
     if include_profile:
-        previous_profile = await session_repo.get_profile(session_id)
+        previous_profile = await session_repo.get_profile(session_id, user_id=user_id)
 
     # 5. 短板报告
     weakness_report = None
@@ -142,7 +142,7 @@ async def _build_cumulative_profile(
         }
 
         for s in sessions:
-            profile = await session_repo.get_profile(s.session_id)
+            profile = await session_repo.get_profile(s.session_id, user_id=user_id)
             if profile:
                 cumulative["round_profiles"].append({
                     "session_id": s.session_id,

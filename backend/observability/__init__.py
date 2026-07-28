@@ -174,7 +174,6 @@ async def _persist_agent_observation(observation: "AgentObservation") -> None:
         await service.record_observation(
             observation.run_id,
             trace_id=observation.trace_id,
-            model_events=list(observation.model_events or []),
         )
     except Exception as error:
         logger.warning("AgentRun 观测持久化失败: %s", type(error).__name__)

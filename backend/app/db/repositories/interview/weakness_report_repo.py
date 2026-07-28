@@ -4,10 +4,10 @@
 """
 
 import logging
-from typing import List, Optional, Dict, Any
+from typing import Optional, Dict, Any
 from datetime import datetime
 
-from sqlalchemy import select, delete
+from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 
 from app.db.models import async_session
@@ -72,80 +72,27 @@ class WeaknessReportRepo:
     async def get_report_by_session(
         self,
         session_id: str,
-        user_id: Optional[str] = None
+        user_id: str,
     ) -> Optional[Dict[str, Any]]:
         """
         获取指定会话的短板报告
 
         Args:
             session_id: 会话 ID
-            user_id: 用户 ID（可选，用于权限校验）
+            user_id: 当前用户 ID，用于权限校验
 
         Returns:
             报告数据字典，不存在返回 None
         """
         async with async_session() as db:
-            stmt = select(WeaknessReportModel).where(WeaknessReportModel.session_id == session_id)
-            if user_id:
-                stmt = stmt.where(WeaknessReportModel.user_id == user_id)
+            stmt = select(WeaknessReportModel).where(
+                WeaknessReportModel.session_id == session_id,
+                WeaknessReportModel.user_id == user_id,
+            )
             obj = (await db.execute(stmt)).scalar_one_or_none()
             if not obj:
                 return None
             return self._row_to_dict(obj)
-
-    async def list_reports(
-        self,
-        user_id: str,
-        limit: int = 20
-    ) -> List[Dict[str, Any]]:
-        """
-        获取用户的短板报告历史列表
-
-        Args:
-            user_id: 用户 ID
-            limit: 最大返回数量
-
-        Returns:
-            报告列表
-        """
-        async with async_session() as db:
-            stmt = (
-                select(WeaknessReportModel)
-                .where(WeaknessReportModel.user_id == user_id)
-                .order_by(WeaknessReportModel.created_at.desc())
-                .limit(limit)
-            )
-            rows = (await db.execute(stmt)).scalars().all()
-            return [self._row_to_dict(row) for row in rows]
-
-    async def delete_report(self, report_id: int, user_id: str) -> bool:
-        """
-        删除短板报告
-
-        Args:
-            report_id: 报告 ID
-            user_id: 用户 ID（用于权限校验）
-
-        Returns:
-            是否删除成功
-        """
-        async with async_session() as db:
-            try:
-                result = await db.execute(
-                    delete(WeaknessReportModel).where(
-                        WeaknessReportModel.id == report_id,
-                        WeaknessReportModel.user_id == user_id,
-                    )
-                )
-                await db.commit()
-                deleted = result.rowcount > 0
-                if deleted:
-                    logger.info(f"删除短板报告: ID={report_id}")
-                return deleted
-            except Exception as e:
-                await db.rollback()
-                logger.error(f"删除短板报告失败: {e}")
-                return False
 
     def _row_to_dict(self, row) -> Dict[str, Any]:
         """将数据库行转换为字典"""

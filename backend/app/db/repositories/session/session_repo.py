@@ -253,33 +253,35 @@ class SessionRepo:
 
     # --- 画像管理 (ProfileService) ---
 
-    async def save_profile(self, session_id: str, profile_data: Dict[str, Any]) -> bool:
+    async def save_profile(
+        self,
+        session_id: str,
+        profile_data: Dict[str, Any],
+        user_id: str,
+    ) -> bool:
         """持久化 profile；沿用调用方的事务边界，并保持 owner 校验、脱敏和提交责任不越层。
 
         Args:
             session_id: 会话标识。
             profile_data: profile 数据。
+            user_id: 当前用户标识；始终用于拒绝跨用户写入。
         """
-        return await self.profile.save_profile(session_id, profile_data)
+        return await self.profile.save_profile(session_id, profile_data, user_id)
 
-    async def get_profile(self, session_id: str) -> Optional[Dict[str, Any]]:
+    async def get_profile(
+        self,
+        session_id: str,
+        user_id: str,
+    ) -> Optional[Dict[str, Any]]:
         """读取 profile，并通过 owner 校验限制可见范围；资源不存在或状态不合法时返回稳定的业务结果或异常。
 
         Args:
             session_id: 会话标识。
+            user_id: 当前用户标识；始终用于拒绝跨用户读取。
         """
-        return await self.profile.get_profile(session_id)
+        return await self.profile.get_profile(session_id, user_id)
 
-    async def get_recent_profiles(self, limit: int = 5, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
-        """读取 recent profiles，并通过 owner 校验限制可见范围；资源不存在或状态不合法时返回稳定的业务结果或异常。
-
-        Args:
-            limit: 返回数量上限。
-            user_id: 当前用户标识。
-        """
-        return await self.profile.get_recent_profiles(limit, user_id)
-
-    async def get_series_final_profiles(self, limit: int = 5, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    async def get_series_final_profiles(self, limit: int, user_id: str) -> List[Dict[str, Any]]:
         """读取 series final profiles，并通过 owner 校验限制可见范围；资源不存在或状态不合法时返回稳定的业务结果或异常。
 
         Args:
@@ -288,7 +290,7 @@ class SessionRepo:
         """
         return await self.profile.get_series_final_profiles(limit, user_id)
 
-    async def save_user_profile(self, profile_data: Dict[str, Any], user_id: str = "default_user") -> bool:
+    async def save_user_profile(self, profile_data: Dict[str, Any], user_id: str) -> bool:
         """持久化 user profile；沿用调用方的事务边界，并保持 owner 校验、脱敏和提交责任不越层。
 
         Args:
@@ -297,7 +299,7 @@ class SessionRepo:
         """
         return await self.profile.save_user_profile(profile_data, user_id)
 
-    async def get_user_profile(self, user_id: str = "default_user") -> Optional[Dict[str, Any]]:
+    async def get_user_profile(self, user_id: str) -> Optional[Dict[str, Any]]:
         """读取 user profile，并通过 owner 校验限制可见范围；资源不存在或状态不合法时返回稳定的业务结果或异常。
 
         Args:

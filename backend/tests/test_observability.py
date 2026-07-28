@@ -141,8 +141,8 @@ async def test_agent_observation_links_langfuse_trace_to_agent_run(monkeypatch):
         yield
 
     class FakeRunService:
-        async def record_observation(self, run_id, *, trace_id, model_events):
-            persisted.append((run_id, trace_id, model_events))
+        async def record_observation(self, run_id, *, trace_id):
+            persisted.append((run_id, trace_id))
 
     monkeypatch.setattr(observability, "_create_langfuse_client", lambda config: client)
     monkeypatch.setattr(observability, "_get_propagate_attributes", lambda: fake_propagate_attributes)
@@ -185,15 +185,6 @@ async def test_agent_observation_links_langfuse_trace_to_agent_run(monkeypatch):
         (
             "run-1",
             observation.trace_id,
-            [
-                {
-                    "event_type": "voice.request.completed",
-                    "channel": "voice",
-                    "model_name": "gpt-voice",
-                    "model_member": "member-1",
-                    "duration_ms": 42,
-                }
-            ],
         )
     ]
 
@@ -237,8 +228,8 @@ async def test_agent_observation_does_not_persist_fake_trace_without_langfuse(mo
     persisted = []
 
     class FakeRunService:
-        async def record_observation(self, run_id, *, trace_id, model_events):
-            persisted.append((run_id, trace_id, model_events))
+        async def record_observation(self, run_id, *, trace_id):
+            persisted.append((run_id, trace_id))
 
     monkeypatch.setattr(observability, "_get_agent_run_service", lambda: FakeRunService())
 

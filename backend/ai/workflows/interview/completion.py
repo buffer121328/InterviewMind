@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -101,21 +102,33 @@ async def generate_session_reports(
     *,
     raise_on_error: bool = False,
 ) -> None:
-    """顺序生成本轮画像和短板，保证短板分析可以复用画像。"""
+    """Generate the independent session profile and weakness map concurrently.
+
+    The weakness prompt is evidence-complete without a candidate-profile hint, so
+    waiting for that optional hint only doubled report latency. Both tasks still
+    persist through their owner-scoped repositories before this function returns.
+    """
     from ai.agents.interview.interview_analysis import trigger_background_analysis, trigger_weakness_analysis
 
-    await trigger_background_analysis(
-        session_id,
-        api_config,
-        user_id=user_id,
-        raise_on_error=raise_on_error,
+    results = await asyncio.gather(
+        trigger_background_analysis(
+            session_id,
+            api_config,
+            user_id=user_id,
+            raise_on_error=raise_on_error,
+        ),
+        trigger_weakness_analysis(
+            session_id,
+            api_config,
+            user_id=user_id,
+            raise_on_error=raise_on_error,
+        ),
+        return_exceptions=True,
     )
-    await trigger_weakness_analysis(
-        session_id,
-        api_config,
-        user_id=user_id,
-        raise_on_error=raise_on_error,
-    )
+    if raise_on_error:
+        failures = [result for result in results if isinstance(result, BaseException)]
+        if failures:
+            raise failures[0]
 
 
 async def process_interview_summary(

@@ -2,6 +2,7 @@
 
 import pytest
 
+from ai.memory import service as memory_service_module
 from ai.workflows.memory import MemoryUseCases
 
 
@@ -36,3 +37,41 @@ async def test_memory_list_passes_frontend_api_config_to_mem0_service(monkeypatc
 
     assert response.success is True
     assert captured == [api_config]
+
+
+@pytest.mark.asyncio
+async def test_failed_request_scoped_mem0_initialization_is_retried(monkeypatch):
+    """A transient mem0 failure must not leave a disabled client cached forever."""
+    await memory_service_module.close_agent_memory_service()
+    attempts = 0
+
+    async def fake_initialize(self):
+        nonlocal attempts
+        attempts += 1
+        self._enabled = attempts > 1
+        self._memory = object() if self._enabled else None
+        return self._enabled
+
+    monkeypatch.setattr(
+        memory_service_module,
+        "get_mem0_config",
+        lambda _api_config=None: {"version": "test"},
+    )
+    monkeypatch.setattr(
+        memory_service_module.AgentMemoryService,
+        "initialize",
+        fake_initialize,
+    )
+
+    first = await memory_service_module.get_agent_memory_service({"mem0_llm": {}})
+    second = await memory_service_module.get_agent_memory_service({"mem0_llm": {}})
+
+    assert first.is_enabled is False
+    assert second.is_enabled is True
+    assert attempts == 2
+    assert memory_service_module.get_agent_memory_runtime_status() == {
+        "mode": "request_scoped",
+        "server_ready": False,
+        "request_scoped_ready": 1,
+    }
+    await memory_service_module.close_agent_memory_service()

@@ -24,7 +24,7 @@ class AbilityAnalysisService:
         self._last_generate_time = {}  # user_id -> timestamp
         self._cooldown_seconds = 60    # 60秒冷却时间
 
-    async def get_overall_profile(self, user_id: str = "default_user") -> Optional[Dict[str, Any]]:
+    async def get_overall_profile(self, user_id: str) -> Optional[Dict[str, Any]]:
         """
         获取用户综合能力画像（从数据库读取）
 
@@ -38,7 +38,7 @@ class AbilityAnalysisService:
             logger.error(f"获取综合能力画像失败: {str(e)}", exc_info=True)
             return None
 
-    async def generate_overall_profile(self, user_id: str = "default_user", api_config: Optional[Dict] = None) -> Dict[str, Any]:
+    async def generate_overall_profile(self, user_id: str, api_config: Optional[Dict] = None) -> Dict[str, Any]:
         """
         生成用户综合能力画像（基于最近5次面试，带时间权重）
         生成后存入数据库

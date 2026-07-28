@@ -22,7 +22,6 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
-    backfillAgentRunSessionLinks,
     cancelAgentRun,
     getAgentRunTraceLink,
     getAgentRunSummary,
@@ -186,7 +185,6 @@ export function RunCenter({ onOpenResumeWorkspace, onOpenSession }: RunCenterPro
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [actingId, setActingId] = useState<string | null>(null);
-    const [backfillingSessionLinks, setBackfillingSessionLinks] = useState(false);
     const [statusFilter, setStatusFilter] = useState<'all' | 'active' | AgentRunStatus>('all');
     const [taskFilter, setTaskFilter] = useState<'all' | AgentRunCategory>('all');
     const [expandedRunId, setExpandedRunId] = useState<string | null>(null);
@@ -319,24 +317,6 @@ export function RunCenter({ onOpenResumeWorkspace, onOpenSession }: RunCenterPro
         }
     };
 
-    /** Explicitly repairs this user's legacy interview grouping, then reloads groups without exposing task payloads. */
-    const handleBackfillSessionLinks = async () => {
-        setBackfillingSessionLinks(true);
-        try {
-            const { updated } = await backfillAgentRunSessionLinks();
-            if (updated > 0) {
-                toast.success(`已整理 ${updated} 个历史面试任务`);
-            } else {
-                toast.info('没有可整理的历史面试任务');
-            }
-            await load();
-        } catch (backfillError) {
-            toast.error(backfillError instanceof Error ? backfillError.message : '整理历史任务失败');
-        } finally {
-            setBackfillingSessionLinks(false);
-        }
-    };
-
     /** Encapsulates toggle details; returns typed data or state and keeps side effects within the owning module boundary. */
     const toggleDetails = async (run: AgentRun) => {
         if (expandedRunId === run.run_id) {
@@ -427,9 +407,6 @@ export function RunCenter({ onOpenResumeWorkspace, onOpenSession }: RunCenterPro
                         {AGENT_RUN_CATEGORIES.map(({ value, label }) => <option key={value} value={value}>{label}</option>)}
                     </select>
                     <Button variant="outline" size="sm" onClick={() => void load()} disabled={loading}><RefreshCw className={loading ? 'animate-spin' : ''} />刷新</Button>
-                    <Button variant="outline" size="sm" onClick={() => void handleBackfillSessionLinks()} disabled={backfillingSessionLinks}>
-                        <Wrench className={backfillingSessionLinks ? 'animate-pulse' : ''} />整理历史任务
-                    </Button>
                 </div>
             </section>
 

@@ -142,15 +142,17 @@ async def list_agent_runs(
     user_id: str = Depends(get_current_user_id),
     status_filter: Optional[str] = Query(default=None, alias="status"),
     task_type: Optional[str] = Query(default=None),
+    session_id: Optional[str] = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ):
-    """查询当前用户的 Agent 任务列表，支持按状态/类型过滤和分页。"""
+    """查询当前用户的 Agent 任务列表，支持按状态、类型、会话过滤和分页。"""
     try:
         return await agent_run_use_cases.list_runs(
             user_id=user_id,
             status=status_filter,
             task_type=task_type,
+            session_id=session_id,
             limit=limit,
             offset=offset,
         )
@@ -186,22 +188,6 @@ async def list_grouped_agent_runs(
             limit=limit,
             offset=offset,
         )
-    except AgentRunUseCaseError as exc:
-        _raise_use_case_error(exc)
-
-
-@router.post("/backfill-session-links")
-async def backfill_agent_run_session_links(
-    user_id: str = Depends(get_current_user_id),
-):
-    """Repair legacy interview grouping only for the authenticated user's runs.
-
-    The endpoint deliberately has no request body or administrator override. The
-    use case decrypts historical references only within its owner-scoped service
-    boundary and returns the number of links updated, not task payload data.
-    """
-    try:
-        return await agent_run_use_cases.backfill_session_links(user_id=user_id)
     except AgentRunUseCaseError as exc:
         _raise_use_case_error(exc)
 

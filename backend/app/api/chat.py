@@ -8,7 +8,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Header, Body, Depends
 from fastapi.responses import StreamingResponse
 
-from app.schemas.schemas import ChatRequest, ChatStreamResponse, InterviewStartRequest, ErrorResponse, RollbackRequest, ProfileGenerateRequest, WeaknessGenerateRequest
+from app.schemas.schemas import ChatRequest, ChatStreamResponse, InterviewStartRequest, ErrorResponse, RollbackRequest, ProfileGenerateRequest
 from app.api.deps import get_current_user_id
 from ai.workflows.interview.session_actions import InterviewSessionNotFound, interview_session_use_cases
 from ai.workflows.interview.stream import (
@@ -23,7 +23,6 @@ from ai.workflows.interview.start import (
     interview_start_use_cases,
 )
 from ai.workflows.interview.reports import (
-    InterviewReportBadRequest,
     InterviewReportNotFound,
     interview_report_use_cases,
 )
@@ -105,32 +104,6 @@ async def stream_chat(
         },
     )
 
-@router.get("/status/{thread_id}")
-async def get_chat_status(thread_id: str):
-    """获取聊天会话状态。"""
-    try:
-        return await interview_session_use_cases.get_chat_status(thread_id=thread_id)
-    except Exception as exc:
-        logger.error("获取聊天状态失败: %s", exc)
-        raise HTTPException(
-            status_code=500,
-            detail={"error": "InternalServerError", "message": "获取聊天状态失败"},
-        ) from exc
-
-
-@router.delete("/session/{thread_id}")
-async def end_chat_session(thread_id: str):
-    """结束聊天会话。"""
-    try:
-        return await interview_session_use_cases.end_chat_session(thread_id=thread_id)
-    except Exception as exc:
-        logger.error("结束聊天会话失败: %s", exc)
-        raise HTTPException(
-            status_code=500,
-            detail={"error": "InternalServerError", "message": "结束聊天会话失败"},
-        ) from exc
-
-
 @router.post("/rollback")
 async def rollback_chat(
     request: RollbackRequest,
@@ -197,25 +170,6 @@ async def get_session_profile(
 # 短板地图接口
 # ============================================================================
 
-@router.post("/weakness/generate")
-async def generate_weakness_report(
-    request: WeaknessGenerateRequest = Body(...),
-    user_id: str = Depends(get_current_user_id)):
-    """为指定会话生成短板地图报告。"""
-    try:
-        return await interview_report_use_cases.generate_weakness_report(request=request, user_id=user_id)
-    except InterviewReportBadRequest as exc:
-        raise HTTPException(status_code=400, detail=exc.message) from exc
-    except InterviewReportNotFound as exc:
-        raise HTTPException(status_code=404, detail=exc.message) from exc
-    except Exception as exc:
-        logger.error("生成短板地图失败: %s", exc, exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail={"error": "InternalServerError", "message": f"生成短板地图失败: {exc}"},
-        ) from exc
-
-
 @router.get("/weakness/session/{session_id}")
 async def get_weakness_by_session(
     session_id: str,
@@ -228,18 +182,4 @@ async def get_weakness_by_session(
         raise HTTPException(
             status_code=500,
             detail={"error": "InternalServerError", "message": "获取短板地图失败"},
-        ) from exc
-
-
-@router.get("/weakness/history")
-async def get_weakness_history(
-    user_id: str = Depends(get_current_user_id)):
-    """获取用户的短板地图历史列表。"""
-    try:
-        return await interview_report_use_cases.get_weakness_history(user_id=user_id)
-    except Exception as exc:
-        logger.error("获取短板地图历史失败: %s", exc)
-        raise HTTPException(
-            status_code=500,
-            detail={"error": "InternalServerError", "message": "获取短板地图历史失败"},
         ) from exc

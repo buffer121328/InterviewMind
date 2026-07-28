@@ -259,11 +259,16 @@ async def root():
 @app.get("/health")
 async def health_check():
     """
-    健康检查端点
+    Return service health plus a credential-free mem0 readiness snapshot.
     """
+    from ai.memory.service import get_agent_memory_runtime_status
+
     return {
         "status": "healthy",
-        "message": "服务运行正常"
+        "message": "服务运行正常",
+        "services": {
+            "mem0": get_agent_memory_runtime_status(),
+        },
     }
 
 

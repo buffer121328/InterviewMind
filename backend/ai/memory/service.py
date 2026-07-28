@@ -69,7 +69,7 @@ class AgentMemoryService:
     - delete: 删除记忆
     """
 
-    def __init__(self, config: dict):
+    def __init__(self, config: dict | None):
         """
         初始化 mem0 客户端
 
@@ -79,12 +79,13 @@ class AgentMemoryService:
         self._config = config
         self._memory = None
         self._enabled = config is not None
+        self._initialization_error: str | None = None
 
-    async def initialize(self):
-        """异步初始化 mem0 客户端"""
+    async def initialize(self) -> bool:
+        """Initialize the mem0 client and return whether it is ready for requests."""
         if not self._enabled:
             logger.info("AgentMemoryService 已禁用")
-            return
+            return False
 
         try:
             from mem0 import Memory
@@ -95,17 +96,26 @@ class AgentMemoryService:
                 Memory.from_config,
                 self._config
             )
+            self._initialization_error = None
             logger.info("✓ AgentMemoryService 初始化成功")
+            return True
         except Exception as exc:
             logger.error("✗ AgentMemoryService 初始化失败: %s", type(exc).__name__)
             self._enabled = False
             self._memory = None
+            self._initialization_error = type(exc).__name__
+            return False
 
     @property
     # property将一个方法转换成属性，让你可以像访问属性一样调用方法
     def is_enabled(self) -> bool:
         """检查服务是否启用"""
         return self._enabled and self._memory is not None
+
+    @property
+    def initialization_error(self) -> str | None:
+        """Return only the safe exception type from the latest initialization attempt."""
+        return self._initialization_error
 
     async def search_memories(
         self,
@@ -434,22 +444,45 @@ async def get_agent_memory_service(api_config: Optional[dict[str, Any]] = None) 
 
     config = get_mem0_config(api_config)
     if api_config is None:
-        if _agent_memory_service is None:
-            _agent_memory_service = AgentMemoryService(config)
-            await _agent_memory_service.initialize()
-        return _agent_memory_service
+        if _agent_memory_service is not None and _agent_memory_service.is_enabled:
+            return _agent_memory_service
+        candidate = AgentMemoryService(config)
+        await candidate.initialize()
+        # Failed initialization must not poison the process singleton forever.
+        # A later request may arrive after PostgreSQL or model configuration recovers.
+        if candidate.is_enabled:
+            _agent_memory_service = candidate
+        else:
+            _agent_memory_service = None
+        return candidate
 
     cache_key = _memory_config_cache_key(config)
     service = _agent_memory_services.get(cache_key)
-    if service is None:
-        service = AgentMemoryService(config)
-        await service.initialize()
+    if service is None or not service.is_enabled:
+        candidate = AgentMemoryService(config)
+        await candidate.initialize()
+        service = candidate
+    if service.is_enabled:
         _agent_memory_services[cache_key] = service
+    else:
+        _agent_memory_services.pop(cache_key, None)
     return service
 
 
-async def close_agent_memory_service():
-    """关闭全局 AgentMemoryService"""
+def get_agent_memory_runtime_status() -> dict[str, Any]:
+    """Return a credential-free snapshot of mem0 readiness in this process."""
+    server_ready = bool(_agent_memory_service and _agent_memory_service.is_enabled)
+    return {
+        "mode": "server" if server_ready else "request_scoped",
+        "server_ready": server_ready,
+        "request_scoped_ready": sum(
+            1 for service in _agent_memory_services.values() if service.is_enabled
+        ),
+    }
+
+
+async def close_agent_memory_service() -> None:
+    """Clear all process-local mem0 clients without exposing request credentials."""
     global _agent_memory_service
     _agent_memory_service = None
     _agent_memory_services.clear()

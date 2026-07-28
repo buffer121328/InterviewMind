@@ -10,6 +10,7 @@ import pytest
 from cryptography.fernet import Fernet
 
 from app.db.models.agent_run import AgentRunModel
+from app.domain.agent_runs import TASK_TYPE_INTERVIEW_REPORT, TASK_TYPE_RESUME_OPTIMIZE
 from app.schemas.schemas import InterviewStartRequest
 from ai.runtime.agent_runs.crypto import (
     TaskPayloadConfigurationError,
@@ -17,9 +18,6 @@ from ai.runtime.agent_runs.crypto import (
     encrypt_payload,
 )
 from ai.runtime.agent_runs.service import (
-    TASK_TYPE_INTERVIEW_REPORT,
-    TASK_TYPE_RESUME_OPTIMIZE,
-    build_interview_start_plan,
     build_task_plan,
     serialize_run,
 )
@@ -167,146 +165,6 @@ async def test_session_title_resolver_attaches_only_titles_returned_by_owned_que
 
 
 @pytest.mark.asyncio
-async def test_interview_session_backfill_updates_owned_string_references_in_one_batch(monkeypatch):
-    from ai.runtime.agent_runs import service as service_module
-    from ai.runtime.agent_runs.service import AgentRunService
-
-    now = datetime.now()
-
-    def run(run_id, task_type, payload_encrypted, *, user_id="user-1", session_id=None):
-        return AgentRunModel(
-            id=run_id, user_id=user_id, task_type=task_type, status="succeeded", stage="succeeded",
-            session_id=session_id, idempotency_key=run_id, payload_encrypted=payload_encrypted,
-            result=None, error_message=None, attempts=1, created_at=now, updated_at=now,
-            started_at=now, finished_at=now,
-        )
-
-    thread_run = run("thread-run", "interview_start", "thread-payload")
-    session_run = run("session-run", "interview_report", "session-payload")
-    unowned_run = run("unowned-run", "interview_turn", "unowned-payload")
-    failed_run = run("failed-run", "voice_interview_turn", "failed-payload")
-    malformed_run = run("malformed-run", "interview_turn", "malformed-payload")
-    non_interview_run = run("non-interview", "resume_optimize", "ignored-payload")
-    decryptions = {
-        "thread-payload": {"thread_id": "owned-thread", "sensitive": "never persisted"},
-        "session-payload": {"session_id": "owned-session"},
-        "unowned-payload": {"thread_id": "other-users-session"},
-        "malformed-payload": {"thread_id": 42},
-        "ignored-payload": {"thread_id": "must-not-be-decrypted"},
-    }
-    commits = 0
-
-    class FakeSession:
-        async def scalars(self, statement):
-            compiled = str(statement)
-            if "agent_runs" in compiled:
-                assert "agent_runs.session_id IS NULL" in compiled
-                return [thread_run, session_run, unowned_run, failed_run, malformed_run, non_interview_run]
-            assert "sessions.user_id" in compiled
-            return ["owned-thread", "owned-session"]
-
-        async def commit(self):
-            nonlocal commits
-            commits += 1
-
-        async def rollback(self):
-            raise AssertionError("successful backfill must not roll back")
-
-        async def close(self):
-            return None
-
-    class FakeUnitOfWork:
-        def __init__(self, _factory):
-            self.db = FakeSession()
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, exc_type, exc, tb):
-            assert exc_type is None
-            await self.db.commit()
-            await self.db.close()
-            return False
-
-    def decrypt(payload_encrypted):
-        if payload_encrypted == "failed-payload":
-            raise TaskPayloadConfigurationError("payload unavailable")
-        return decryptions[payload_encrypted]
-
-    monkeypatch.setattr(service_module, "UnitOfWork", FakeUnitOfWork)
-    monkeypatch.setattr(service_module, "decrypt_payload", decrypt)
-
-    updated = await AgentRunService().backfill_interview_session_ids("user-1")
-
-    assert updated == 2
-    assert thread_run.session_id == "owned-thread"
-    assert session_run.session_id == "owned-session"
-    assert unowned_run.session_id is None
-    assert failed_run.session_id is None
-    assert malformed_run.session_id is None
-    assert non_interview_run.session_id is None
-    assert commits == 1
-
-
-@pytest.mark.asyncio
-async def test_interview_session_backfill_is_idempotent_and_bounded(monkeypatch):
-    from ai.runtime.agent_runs import service as service_module
-    from ai.runtime.agent_runs.service import AgentRunService
-
-    now = datetime.now()
-    run = AgentRunModel(
-        id="run-1", user_id="user-1", task_type="interview_start", status="succeeded", stage="succeeded",
-        session_id=None, idempotency_key="run-1", payload_encrypted="encrypted", result=None,
-        error_message=None, attempts=1, created_at=now, updated_at=now, started_at=now, finished_at=now,
-    )
-    decrypt_calls = 0
-    limits: list[dict] = []
-
-    class FakeSession:
-        async def scalars(self, statement):
-            compiled = str(statement)
-            if "agent_runs" in compiled:
-                limits.append(statement.compile().params)
-                return [run] if run.session_id is None else []
-            return ["owned-session"]
-
-        async def commit(self):
-            return None
-
-        async def rollback(self):
-            return None
-
-        async def close(self):
-            return None
-
-    class FakeUnitOfWork:
-        def __init__(self, _factory):
-            self.db = FakeSession()
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, exc_type, exc, tb):
-            await self.db.commit()
-            await self.db.close()
-            return False
-
-    def decrypt(_payload_encrypted):
-        nonlocal decrypt_calls
-        decrypt_calls += 1
-        return {"thread_id": "owned-session"}
-
-    monkeypatch.setattr(service_module, "UnitOfWork", FakeUnitOfWork)
-    monkeypatch.setattr(service_module, "decrypt_payload", decrypt)
-
-    service = AgentRunService()
-    assert await service.backfill_interview_session_ids("user-1", limit=10_000) == 1
-    assert await service.backfill_interview_session_ids("user-1", limit=10_000) == 0
-    assert decrypt_calls == 1
-    assert any(value == 200 for params in limits for value in params.values())
-
-
-@pytest.mark.asyncio
 async def test_automatic_interview_report_run_uses_session_id_for_grouping(monkeypatch):
     from ai.workflows.interview import completion
 
@@ -433,38 +291,36 @@ async def test_grouped_runs_api_forwards_child_filters_and_group_pagination(monk
 
 
 @pytest.mark.asyncio
-async def test_backfill_session_links_api_uses_authenticated_owner_and_returns_count(monkeypatch):
+async def test_run_list_api_forwards_session_filter(monkeypatch):
+    """The report dialog can recover exactly the run linked to its session."""
     from app.api import agent_runs
 
-    received: dict[str, str] = {}
+    received = {}
 
-    async def backfill_session_links(*, user_id: str):
-        received["user_id"] = user_id
-        return {"updated": 2}
+    async def list_runs(**kwargs):
+        received.update(kwargs)
+        return {"success": True, "runs": [], "total": 0, "limit": 1, "offset": 0}
 
-    monkeypatch.setattr(agent_runs.agent_run_use_cases, "backfill_session_links", backfill_session_links)
+    monkeypatch.setattr(agent_runs.agent_run_use_cases, "list_runs", list_runs)
 
-    response = await agent_runs.backfill_agent_run_session_links(user_id="user-1")
+    response = await agent_runs.list_agent_runs(
+        user_id="user-1",
+        status_filter=None,
+        task_type="interview_report",
+        session_id="session-1",
+        limit=1,
+        offset=0,
+    )
 
-    assert response == {"updated": 2}
-    assert received == {"user_id": "user-1"}
-
-
-@pytest.mark.asyncio
-async def test_backfill_session_links_use_case_delegates_without_payload(monkeypatch):
-    from ai.workflows.agent_runs import AgentRunUseCases
-
-    use_cases = AgentRunUseCases()
-    received: dict[str, str] = {}
-
-    async def backfill_interview_session_ids(user_id: str) -> int:
-        received["user_id"] = user_id
-        return 1
-
-    monkeypatch.setattr(use_cases._service, "backfill_interview_session_ids", backfill_interview_session_ids)
-
-    assert await use_cases.backfill_session_links(user_id="user-1") == {"updated": 1}
-    assert received == {"user_id": "user-1"}
+    assert response["success"] is True
+    assert received == {
+        "user_id": "user-1",
+        "status": None,
+        "task_type": "interview_report",
+        "session_id": "session-1",
+        "limit": 1,
+        "offset": 0,
+    }
 
 
 def test_agent_run_session_grouping_index_is_owner_scoped():
@@ -475,6 +331,19 @@ def test_agent_run_session_grouping_index_is_owner_scoped():
     )
 
     assert [column.name for column in index.columns] == ["user_id", "session_id", "created_at"]
+
+
+def test_legacy_agent_run_backfill_interface_is_removed():
+    backend_root = Path(__file__).resolve().parents[1]
+    sources = [
+        (backend_root / "app" / "api" / "agent_runs.py").read_text(),
+        (backend_root / "ai" / "workflows" / "agent_runs.py").read_text(),
+        (backend_root / "ai" / "runtime" / "agent_runs" / "service.py").read_text(),
+    ]
+    combined = "\n".join(sources)
+    assert "backfill-session-links" not in combined
+    assert "backfill_session_links" not in combined
+    assert "backfill_interview_session_ids" not in combined
 
 
 def test_session_id_migration_uses_the_model_owner_scoped_index(monkeypatch):
@@ -503,18 +372,24 @@ def test_session_id_migration_uses_the_model_owner_scoped_index(monkeypatch):
 
 
 def test_failed_run_plan_marks_last_business_stage():
-    plan = build_interview_start_plan("loading_context", "failed")
+    plan = build_task_plan("interview_start", "loading_context", "failed")
 
     assert [step["status"] for step in plan] == ["completed", "failed", "pending"]
 
 
 def test_generic_task_plans_are_task_specific():
     resume_plan = build_task_plan(TASK_TYPE_RESUME_OPTIMIZE, "optimizing", "running")
-    report_plan = build_task_plan(TASK_TYPE_INTERVIEW_REPORT, "generating_weakness", "running")
+    report_plan = build_task_plan(TASK_TYPE_INTERVIEW_REPORT, "generating_reports", "running")
 
     assert [step["id"] for step in resume_plan] == ["queued", "preparing", "optimizing", "saving_result"]
     assert resume_plan[2]["status"] == "running"
-    assert report_plan[3]["status"] == "running"
+    assert [step["id"] for step in report_plan] == [
+        "queued",
+        "loading_session",
+        "generating_reports",
+        "saving_report",
+    ]
+    assert report_plan[2]["status"] == "running"
 
 
 @pytest.mark.asyncio
@@ -1034,17 +909,6 @@ async def test_record_observation_persists_trace_only(monkeypatch):
     await service_module.AgentRunService().record_observation(
         "run-obs",
         trace_id="trace-obs",
-        model_events=[
-            {
-                "event_type": "voice.request.completed",
-                "channel": "voice",
-                "model_name": "gpt-voice-b",
-                "model_member": "member-b",
-                "duration_ms": 19,
-                "input_tokens": 10,
-                "output_tokens": 5,
-            },
-        ],
     )
 
     assert commits == ["commit"]

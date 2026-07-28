@@ -268,8 +268,9 @@ class AgentRunUseCases:
         task_type: str | None,
         limit: int,
         offset: int,
+        session_id: str | None = None,
     ) -> dict[str, Any]:
-        """List AgentRuns for one user."""
+        """List AgentRuns for one user, optionally narrowed to one owned session."""
         if task_type:
             try:
                 get_agent_definition(task_type)
@@ -288,6 +289,7 @@ class AgentRunUseCases:
             user_id,
             status=status,
             task_type=task_type,
+            session_id=session_id,
             limit=limit,
             offset=offset,
         )
@@ -367,16 +369,6 @@ class AgentRunUseCases:
             "limit": limit,
             "offset": offset,
         }
-
-    async def backfill_session_links(self, *, user_id: str) -> dict[str, int]:
-        """Repair a bounded batch of the requesting user's legacy interview links.
-
-        This user-triggered maintenance use case delegates ownership validation and
-        encrypted-reference handling to ``AgentRunService``. It accepts no client
-        payload and returns only the update count, never decrypted task contents.
-        """
-        updated = await self._service.backfill_interview_session_ids(user_id)
-        return {"updated": updated}
 
     async def get_run(self, *, run_id: str, user_id: str) -> dict[str, Any]:
         """Get one AgentRun."""

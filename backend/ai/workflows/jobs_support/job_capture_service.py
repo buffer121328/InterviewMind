@@ -506,9 +506,9 @@ async def capture_from_recommendations(
         asset_status = None
 
         try:
+            from app.domain.agent_runs import TASK_TYPE_JOB_ASSETS
             from ai.runtime.agent_runs.service import (
                 AgentRunService,
-                TASK_TYPE_JOB_ASSETS,
                 task_queue_enabled,
             )
 

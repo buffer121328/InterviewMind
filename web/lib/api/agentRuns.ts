@@ -1,4 +1,4 @@
-import { apiRequest, getUserId, API_BASE_URL } from './config';
+import { apiRequest } from './config';
 import type { AgentRun, AgentRunStatus, AgentRunTaskType } from './agentRunTypes';
 
 /** A server-defined collection of matching runs. Session groups contain every matching child run; the other group is the legacy unassociated-task bucket. */
@@ -34,6 +34,7 @@ export { listAgentRunEvents, streamAgentRunEvents } from './agentRunEvents';
 export async function listAgentRuns(params: {
     status?: AgentRunStatus;
     taskType?: AgentRunTaskType;
+    sessionId?: string;
     limit?: number;
     offset?: number;
 } = {}): Promise<{ runs: AgentRun[]; total: number; limit: number; offset: number }> {
@@ -43,6 +44,7 @@ export async function listAgentRuns(params: {
     });
     if (params.status) query.set('status', params.status);
     if (params.taskType) query.set('task_type', params.taskType);
+    if (params.sessionId) query.set('session_id', params.sessionId);
     const response = await apiRequest<{ success: boolean; runs: AgentRun[]; total: number; limit: number; offset: number }>(
         `/api/agent-runs?${query}`,
     );
@@ -81,16 +83,6 @@ export async function listGroupedAgentRuns(params: {
 /** Reads exact unfiltered task-history totals for the Run Center summary cards. */
 export async function getAgentRunSummary(): Promise<{ active: number; history: number; succeeded: number; failed: number }> {
     return apiRequest('/api/agent-runs/summary');
-}
-
-/**
- * Requests an explicit, owner-scoped repair of legacy interview session links.
- *
- * The backend obtains the user identity through the shared API client, accepts
- * no payload, and returns only an update count rather than decrypted task data.
- */
-export async function backfillAgentRunSessionLinks(): Promise<{ updated: number }> {
-    return apiRequest<{ updated: number }>('/api/agent-runs/backfill-session-links', { method: 'POST' });
 }
 
 /** Calls the backend for get agent run; the shared API client supplies request identity and error normalization, and this helper returns the typed endpoint result. */

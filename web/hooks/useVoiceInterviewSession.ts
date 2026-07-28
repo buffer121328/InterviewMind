@@ -93,11 +93,14 @@ export function useVoiceInterviewSession({
             const data = await response.json() as VoiceStartResponse;
             if (signal.aborted) return;
 
+            const effectiveSessionId = data.session_id || sessionId;
             if (data.session_id && data.session_id !== sessionId) {
                 console.info(`[VoiceInterview] 检测到 Session 变更 (文字->语音切换): ${sessionId} -> ${data.session_id}`);
                 useInterviewStore.setState({ threadId: data.session_id });
-                await selectInterviewSession(data.session_id);
             }
+            // Always reload the persisted session after voice initialization so the
+            // placeholder title cannot survive when the session ID stays unchanged.
+            await selectInterviewSession(effectiveSessionId);
             if (signal.aborted) return;
 
             if (typeof data.question_count === 'number') {

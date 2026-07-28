@@ -297,11 +297,20 @@ export const createInterviewSlice = (set: SetState, get: GetState): InterviewFlo
             }
 
             if (!result?.first_question) throw new Error('面试初始化未生成首题');
-            set({
+            const initializedSession = get().currentSession;
+            (set as (partial: Record<string, unknown>) => void)({
                 messages: [{ role: 'assistant', content: result.first_question, timestamp: new Date().toISOString() }],
                 isStreaming: false,
                 isLoading: false,
                 experienceQuestions: [],
+                currentSession: initializedSession
+                    ? {
+                        ...initializedSession,
+                        title: typeof result.session_title === 'string' && result.session_title.trim()
+                            ? result.session_title
+                            : initializedSession.title,
+                    }
+                    : initializedSession,
             });
             await get().fetchSessions(undefined);
 
@@ -586,4 +595,3 @@ export const createInterviewSlice = (set: SetState, get: GetState): InterviewFlo
         });
     },
 });
-

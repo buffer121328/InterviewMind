@@ -4,9 +4,8 @@ from dataclasses import dataclass
 
 from app.db.repositories.interview.weakness_report_repo import get_weakness_report_repo
 from app.db.repositories.session.session_repo import SessionRepo
-from app.schemas.schemas import ProfileGenerateRequest, WeaknessGenerateRequest
+from app.schemas.schemas import ProfileGenerateRequest
 from ai.workflows.analysis.ability_service import get_ability_service
-from ai.agents.interview.interview_analysis import trigger_weakness_analysis
 
 
 @dataclass(slots=True)
@@ -14,10 +13,6 @@ class InterviewReportUseCaseError(Exception):
     """面试报告用例异常。"""
 
     message: str
-
-
-class InterviewReportBadRequest(InterviewReportUseCaseError):
-    """面试报告请求不合法。"""
 
 
 class InterviewReportNotFound(InterviewReportUseCaseError):
@@ -75,31 +70,10 @@ class InterviewReportUseCases:
         session = await self._session_repo.get_session(session_id, user_id=user_id)
         if not session:
             raise InterviewReportNotFound(message="会话不存在或无权访问")
-        profile = await self._session_repo.get_profile(session_id)
+        profile = await self._session_repo.get_profile(session_id, user_id=user_id)
         if profile is None:
             return {"success": False, "message": "画像生成中，请稍后刷新"}
         return {"success": True, "profile": profile}
-
-    async def generate_weakness_report(self, *, request: WeaknessGenerateRequest, user_id: str) -> dict[str, object]:
-        """基于面试证据生成短板报告，保留来源和置信边界；结果持久化由用例层负责，不把原始隐私材料写入日志。
-
-        Args:
-            request: 请求对象。
-            user_id: 当前用户标识。
-        """
-        session_id = request.session_id
-        if not session_id:
-            raise InterviewReportBadRequest(message="session_id 不能为空")
-        session = await self._session_repo.get_session(session_id, user_id=user_id)
-        if not session:
-            raise InterviewReportNotFound(message="会话不存在")
-
-        api_config_dict = request.api_config.model_dump() if request.api_config else None
-        await trigger_weakness_analysis(session_id, api_config_dict, user_id=user_id)
-        report = await get_weakness_report_repo().get_report_by_session(session_id, user_id=user_id)
-        if not report:
-            return {"success": False, "message": "短板地图生成失败，请稍后重试"}
-        return {"success": True, "message": "短板地图已生成", "report": report}
 
     async def get_weakness_by_session(self, *, session_id: str, user_id: str) -> dict[str, object]:
         """读取 weakness by session，并通过 owner 校验限制可见范围；资源不存在或状态不合法时返回稳定的业务结果或异常。
@@ -112,15 +86,5 @@ class InterviewReportUseCases:
         if not report:
             return {"success": False, "message": "该会话暂无短板地图，请先生成"}
         return {"success": True, "report": report}
-
-    async def get_weakness_history(self, *, user_id: str) -> dict[str, object]:
-        """读取 weakness history，并通过 owner 校验限制可见范围；资源不存在或状态不合法时返回稳定的业务结果或异常。
-
-        Args:
-            user_id: 当前用户标识。
-        """
-        reports = await get_weakness_report_repo().list_reports(user_id=user_id, limit=20)
-        return {"success": True, "reports": reports}
-
 
 interview_report_use_cases = InterviewReportUseCases()

@@ -60,22 +60,6 @@ class InterviewSessionUseCases:
             "question": question.get("content", ""),
         }
 
-    async def get_chat_status(self, *, thread_id: str) -> dict[str, object]:
-        """读取 chat status，并通过 owner 校验限制可见范围；资源不存在或状态不合法时返回稳定的业务结果或异常。
-
-        Args:
-            thread_id: thread 标识。
-        """
-        return {"success": True, "thread_id": thread_id, "status": "active"}
-
-    async def end_chat_session(self, *, thread_id: str) -> dict[str, object]:
-        """结束当前聊天会话并记录最终状态，避免未完成的 AgentRun 被误标记为成功。
-
-        Args:
-            thread_id: thread 标识。
-        """
-        return {"success": True, "message": f"会话 {thread_id} 已结束", "thread_id": thread_id}
-
     async def rollback_chat(self, *, request: RollbackRequest, user_id: str) -> dict[str, object]:
         """将聊天会话回滚到指定消息边界，并按 owner 校验避免跨用户修改。
 

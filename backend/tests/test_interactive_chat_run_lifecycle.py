@@ -9,8 +9,9 @@ import pytest
 from ai.workflows.interview import stream as chat_stream
 from ai.workflows.interview.checkpoints import interview_turn_checkpoint_thread_id
 from ai.workflows.interview.stream import ChatStreamUseCases
+from app.domain.agent_runs import TASK_TYPE_INTERVIEW_TURN
 from app.schemas.schemas import ChatRequest
-from ai.runtime.agent_runs.service import TASK_TYPE_INTERVIEW_TURN, get_task_definition
+from ai.runtime.agent_runs.service import get_task_definition
 
 
 def _agent_run_events(chunks):

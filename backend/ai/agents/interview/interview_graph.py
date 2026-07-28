@@ -51,7 +51,7 @@ except ModuleNotFoundError:  # pragma: no cover - 测试环境可无 langgraph
     StateGraph = None  # type: ignore[assignment]
     END = "__end__"
 
-from ai.memory.memory import get_async_sqlite_saver
+from ai.memory.memory import get_checkpointer
 from ai.tools.interview_tools import (
     search_question_bank,
     get_candidate_profile,
@@ -222,7 +222,10 @@ async def node_planner(state: InterviewState):
 
                 # 获取上一轮画像和问题（如果是第二轮及以后）
                 if round_index > 1 and session.metadata.parent_session_id:
-                    previous_profile = await service.get_profile(session.metadata.parent_session_id)
+                    previous_profile = await service.get_profile(
+                        session.metadata.parent_session_id,
+                        user_id=user_id,
+                    )
                     parent_plan = await service.get_interview_plan(session.metadata.parent_session_id)
                     if parent_plan:
                         previous_questions = [q.get("content", q.get("topic", "")) for q in parent_plan]
@@ -499,7 +502,7 @@ async def build_interview_graph(mode: str = "mock"):
     workflow.add_edge("summary", END)
 
     # 注册图实例
-    checkpointer = await get_async_sqlite_saver()
+    checkpointer = await get_checkpointer()
     graph = workflow.compile(checkpointer=checkpointer)
     register_graph_instance(graph)
 

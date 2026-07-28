@@ -1,10 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import {
     Loader2,
     RefreshCw,
-    AlertCircle,
     Target,
     ChevronDown,
     ChevronUp,
@@ -13,19 +12,15 @@ import {
     ArrowRight,
     Zap
 } from 'lucide-react';
-import {
-    getSessionWeaknessReport,
-    type WeaknessReport
-} from '@/lib/api/weakness';
-import { createInterviewReportRun, pollAgentRun } from '@/lib/api/agentRuns';
-import { getRequestApiConfig } from '@/store/interviewFacade';
+import type { WeaknessReport } from '@/lib/api/weakness';
 import { Button } from './ui/button';
 import { cn } from '@/lib/utils';
 
 interface WeaknessMapProps {
-    sessionId: string;
-    /** 是否自动加载报告 */
-    autoLoad?: boolean;
+    report: WeaknessReport | null;
+    loading: boolean;
+    generating: boolean;
+    onGenerate: () => void | Promise<void>;
 }
 
 // 严重程度颜色映射
@@ -44,67 +39,14 @@ const PRIORITY_STYLES: Record<number, string> = {
     5: 'bg-gray-100 text-gray-700',
 };
 
-/** Renders the weakness map UI and coordinates its typed props, local state, and approved backend interactions. */
-export function WeaknessMap({ sessionId, autoLoad = true }: WeaknessMapProps) {
-    const [report, setReport] = useState<WeaknessReport | null>(null);
-    const [loading, setLoading] = useState(true);
-    const [generating, setGenerating] = useState(false);
-    const [error, setError] = useState<string | null>(null);
+/** Render the parent-owned weakness report so tab switches cannot discard task state. */
+export function WeaknessMap({
+    report,
+    loading,
+    generating,
+    onGenerate,
+}: WeaknessMapProps) {
     const [expandedFailures, setExpandedFailures] = useState<Set<number>>(new Set());
-
-    useEffect(() => {
-        if (!autoLoad || !sessionId) return;
-
-        let active = true;
-        void getSessionWeaknessReport(sessionId).then((response) => {
-            if (!active) return;
-
-            if (response.success && response.report) {
-                setReport(response.report);
-            } else {
-                setReport(null);
-            }
-            setLoading(false);
-        });
-
-        return () => {
-            active = false;
-        };
-    }, [sessionId, autoLoad]);
-
-    /** Handles generate; updates local UI state first and delegates server mutations through the approved API boundary. */
-    async function handleGenerate() {
-        setGenerating(true);
-        setError(null);
-
-        const apiConfig = getRequestApiConfig();
-        if (!apiConfig) {
-            setError('请先在设置中配置 API Key');
-            setGenerating(false);
-            return;
-        }
-
-        try {
-            const created = await createInterviewReportRun({ session_id: sessionId, api_config: apiConfig });
-            if ('run_id' in created) {
-                const completed = await pollAgentRun(created.run_id);
-                if (completed.status !== 'succeeded') {
-                    setError(completed.error_message || '报告任务执行失败');
-                    return;
-                }
-            }
-            const response = await getSessionWeaknessReport(sessionId);
-            if (response.success && response.report) {
-                setReport(response.report);
-            } else {
-                setError(response.message || '生成失败，请稍后重试');
-            }
-        } catch (cause) {
-            setError(cause instanceof Error ? cause.message : '生成失败，请稍后重试');
-        } finally {
-            setGenerating(false);
-        }
-    }
 
     /** Encapsulates toggle failure; returns typed data or state and keeps side effects within the owning module boundary. */
     function toggleFailure(index: number) {
@@ -141,7 +83,7 @@ export function WeaknessMap({ sessionId, autoLoad = true }: WeaknessMapProps) {
                     生成短板地图，了解面试中的薄弱环节和改进方向
                 </p>
                 <Button
-                    onClick={handleGenerate}
+                    onClick={() => void onGenerate()}
                     disabled={generating}
                     className="bg-teal-600 hover:bg-teal-700 text-white px-6 py-2 rounded-lg flex items-center gap-2"
                 >
@@ -157,12 +99,6 @@ export function WeaknessMap({ sessionId, autoLoad = true }: WeaknessMapProps) {
                         </>
                     )}
                 </Button>
-                {error && (
-                    <div className="mt-4 flex items-center gap-2 text-sm text-red-600">
-                        <AlertCircle className="w-4 h-4" />
-                        {error}
-                    </div>
-                )}
             </div>
         );
     }
@@ -188,7 +124,7 @@ export function WeaknessMap({ sessionId, autoLoad = true }: WeaknessMapProps) {
                     </div>
                 </div>
                 <Button
-                    onClick={handleGenerate}
+                    onClick={() => void onGenerate()}
                     disabled={generating}
                     variant="outline"
                     size="sm"
@@ -207,13 +143,6 @@ export function WeaknessMap({ sessionId, autoLoad = true }: WeaknessMapProps) {
                     )}
                 </Button>
             </div>
-
-            {error && (
-                <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
-                    <AlertCircle className="w-4 h-4 flex-shrink-0" />
-                    {error}
-                </div>
-            )}
 
             {!hasData && (
                 <div className="text-center py-8 text-gray-500 text-sm">

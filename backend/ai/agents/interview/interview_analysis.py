@@ -19,7 +19,8 @@ logger = logging.getLogger(__name__)
 async def trigger_background_analysis(
     session_id: str,
     api_config: Optional[Dict[str, Any]] = None,
-    user_id: str = "default_user",
+    *,
+    user_id: str,
     raise_on_error: bool = False,
 ):
     """
@@ -234,7 +235,8 @@ async def generate_interview_summary(
 async def trigger_weakness_analysis(
     session_id: str,
     api_config: Optional[Dict[str, Any]] = None,
-    user_id: str = "default_user",
+    *,
+    user_id: str,
     raise_on_error: bool = False,
 ):
     """
@@ -281,7 +283,7 @@ async def trigger_weakness_analysis(
             return
 
         candidate_profile = None
-        profile_data = await session_repo.get_profile(session_id)
+        profile_data = await session_repo.get_profile(session_id, user_id=user_id)
         if profile_data:
             candidate_profile = profile_data
 

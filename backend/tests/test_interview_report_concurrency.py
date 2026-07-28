@@ -4,46 +4,47 @@ import asyncio
 
 import pytest
 
-from ai.workflows.agent_tasks import interview_report
+from ai.workflows.interview import completion
 
 
 @pytest.mark.asyncio
-async def test_weakness_and_overall_profile_start_concurrently(monkeypatch):
-    """Both independent post-profile model calls should overlap instead of adding their latencies."""
+async def test_session_profile_and_weakness_start_concurrently(monkeypatch):
+    """The two session report model calls overlap instead of adding their latencies."""
     started: set[str] = set()
     both_started = asyncio.Event()
     release = asyncio.Event()
 
-    async def fake_weakness(*_args, **_kwargs):
-        started.add("weakness")
+    async def fake_report(name, *_args, **_kwargs):
+        started.add(name)
         if len(started) == 2:
             both_started.set()
         await release.wait()
 
-    async def fake_overall(*, user_id: str, api_config: dict | None):
-        assert user_id == "user-1"
-        assert api_config == {"smart": {"model": "demo"}}
-        started.add("overall")
-        if len(started) == 2:
-            both_started.set()
-        await release.wait()
-        return {"score": 8}, None
+    async def fake_weakness(*_args, **_kwargs):
+        await fake_report("weakness")
+
+    async def fake_profile(*_args, **_kwargs):
+        await fake_report("profile")
 
     monkeypatch.setattr(
         "ai.agents.interview.interview_analysis.trigger_weakness_analysis",
         fake_weakness,
     )
-    monkeypatch.setattr(interview_report, "_generate_overall_profile", fake_overall)
+    monkeypatch.setattr(
+        "ai.agents.interview.interview_analysis.trigger_background_analysis",
+        fake_profile,
+    )
 
     task = asyncio.create_task(
-        interview_report._generate_weakness_and_overall(
+        completion.generate_session_reports(
             session_id="session-1",
             user_id="user-1",
             api_config={"smart": {"model": "demo"}},
+            raise_on_error=True,
         )
     )
     await asyncio.wait_for(both_started.wait(), timeout=1)
     release.set()
 
-    assert await task == ({"score": 8}, None)
-    assert started == {"weakness", "overall"}
+    assert await task is None
+    assert started == {"weakness", "profile"}

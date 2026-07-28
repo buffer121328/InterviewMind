@@ -122,7 +122,7 @@ async def generate_final_summary(
 
     for sid in session_series:
         # 获取每轮画像
-        profile = await session_repo.get_profile(sid)
+        profile = await session_repo.get_profile(sid, user_id=user_id)
         if profile:
             round_profiles.append(profile)
             tags = profile.get("skill_tags", [])

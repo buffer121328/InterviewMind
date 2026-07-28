@@ -174,12 +174,6 @@ class ProfileGenerateRequest(BaseModel):
     api_config: Optional[ApiConfig] = Field(default=None, description="用户自定义 API 配置")
 
 
-class WeaknessGenerateRequest(BaseModel):
-    """短板地图生成请求"""
-    session_id: str = Field(..., description="会话 ID")
-    api_config: Optional[ApiConfig] = Field(default=None, description="用户自定义 API 配置")
-
-
 class InterviewReportRunRequest(BaseModel):
     """面试报告生成请求"""
     session_id: str

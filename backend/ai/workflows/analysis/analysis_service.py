@@ -32,7 +32,9 @@ class CandidateAnalysisService:
         job_description: str,
         company_info: str,
         qa_history: List[Dict[str, str]],
-        api_config: Optional[Dict] = None
+        api_config: Optional[Dict] = None,
+        *,
+        user_id: str,
     ) -> CandidateProfile:
         """
         异步分析候选人能力画像
@@ -44,40 +46,38 @@ class CandidateAnalysisService:
             company_info: 公司信息
             qa_history: 问答历史 [{"question": "...", "answer": "..."}]
             api_config: 用户的 API 配置
+            user_id: 当前会话 owner；画像读写必须保持同一用户边界。
 
         Returns:
             CandidateProfile: 更新后的能力画像
         """
-        try:
-            # 获取之前的画像（优先从缓存，其次从数据库）
-            previous_profile = await self.get_cached_profile(session_id)
+        # 获取之前的画像（优先从缓存，其次从数据库）
+        previous_profile = await self.get_cached_profile(session_id, user_id=user_id)
 
-            # 构建分析上下文
-            context = AnalysisContext(
-                resume=resume,
-                job_description=job_description,
-                company_info=company_info,
-                qa_history=qa_history,
-                previous_profile=previous_profile
-            )
+        context = AnalysisContext(
+            resume=resume,
+            job_description=job_description,
+            company_info=company_info,
+            qa_history=qa_history,
+            previous_profile=previous_profile,
+        )
+        profile = await self._perform_analysis(context, api_config)
 
-            # 调用 Smart LLM 进行分析（使用用户配置的 API）
-            profile = await self._perform_analysis(context, api_config)
+        saved = await self.session_repo.save_profile(
+            session_id,
+            profile.model_dump(),
+            user_id=user_id,
+        )
+        if not saved:
+            raise ValueError("会话不存在或无权保存能力画像")
 
-            # 更新缓存
-            self._profile_cache[session_id] = profile
-
-            # 持久化到数据库
-            await self.session_repo.save_profile(session_id, profile.model_dump())
-
-            logger.info(f"[AnalysisService] 完成会话 {session_id} 的画像分析，共分析 {len(qa_history)} 轮对话")
-
-            return profile
-
-        except Exception as e:
-            logger.error(f"[AnalysisService] 分析失败: {str(e)}")
-            # 返回默认画像
-            return self._get_default_profile()
+        self._profile_cache[self._cache_key(session_id, user_id)] = profile
+        logger.info(
+            "[AnalysisService] 完成会话 %s 的画像分析，共分析 %s 轮对话",
+            session_id,
+            len(qa_history),
+        )
+        return profile
 
     async def _perform_analysis(self, context: AnalysisContext, api_config: Optional[Dict] = None) -> CandidateProfile:
         """执行实际的 LLM 分析"""
@@ -131,7 +131,7 @@ class CandidateAnalysisService:
                     improvement_tip=result.collaboration.improvement_tip,
                 ),
                 skill_tags=result.skill_tags,
-                total_questions_analyzed=0,
+                total_questions_analyzed=len(context.qa_history),
                 last_updated=datetime.now().isoformat(),
                 overall_assessment=result.overall_assessment,
                 key_strengths=result.key_strengths,
@@ -143,8 +143,12 @@ class CandidateAnalysisService:
             logger.info(f"[AnalysisService] 成功解析画像数据")
             return profile
         except Exception as e:
-            logger.error(f"[AnalysisService] 分析执行失败: {e}", exc_info=True)
-            return self._get_default_profile()
+            logger.error(
+                "[AnalysisService] 分析执行失败: error=%s",
+                type(e).__name__,
+                exc_info=True,
+            )
+            raise
 
     def _build_analysis_prompt(self, context: AnalysisContext) -> str:
         """Build the single-session profile prompt from trusted context fields."""
@@ -171,44 +175,35 @@ class CandidateAnalysisService:
             previous_hint=previous_hint,
         )
 
-    def _get_default_profile(self) -> CandidateProfile:
-        """返回默认画像（分析失败时使用）"""
-        return CandidateProfile(
-            professional_competence=DimensionScore(score=5.0, evidence="分析中..."),
-            execution_results=DimensionScore(score=5.0, evidence="分析中..."),
-            logic_problem_solving=DimensionScore(score=5.0, evidence="分析中..."),
-            communication=DimensionScore(score=5.0, evidence="分析中..."),
-            growth_potential=DimensionScore(score=5.0, evidence="分析中..."),
-            collaboration=DimensionScore(score=5.0, evidence="分析中..."),
-            skill_tags=[],
-            total_questions_analyzed=0,
-            last_updated=datetime.now().isoformat()
-        )
+    @staticmethod
+    def _cache_key(session_id: str, user_id: str) -> str:
+        """Build an owner-scoped cache key without retaining any model credentials."""
+        return f"{user_id}:{session_id}"
 
-    async def get_cached_profile(self, session_id: str) -> Optional[CandidateProfile]:
-        """获取画像（缓存 -> 数据库）"""
+    async def get_cached_profile(
+        self,
+        session_id: str,
+        *,
+        user_id: str,
+    ) -> Optional[CandidateProfile]:
+        """Get an owner-scoped profile from the process cache or database."""
+        cache_key = self._cache_key(session_id, user_id)
         # 1. 查缓存
-        if session_id in self._profile_cache:
-            return self._profile_cache[session_id]
+        if cache_key in self._profile_cache:
+            return self._profile_cache[cache_key]
 
         # 2. 查数据库
-        profile_data = await self.session_repo.get_profile(session_id)
+        profile_data = await self.session_repo.get_profile(session_id, user_id=user_id)
         if profile_data:
             try:
                 profile = CandidateProfile(**profile_data)
-                self._profile_cache[session_id] = profile
+                self._profile_cache[cache_key] = profile
                 return profile
             except Exception as e:
                 logger.error(f"反序列化画像失败: {e}")
                 return None
 
         return None
-
-    def clear_cache(self, session_id: str):
-        """清除缓存"""
-        if session_id in self._profile_cache:
-            del self._profile_cache[session_id]
-
 
 # 全局单例
 _analysis_service = None
@@ -253,20 +248,27 @@ class WeaknessAnalysisService:
         Returns:
             短板地图报告数据字典
         """
+        prompt = self._build_weakness_prompt(
+            resume, job_description, company_info, qa_history, candidate_profile
+        )
         try:
-            prompt = self._build_weakness_prompt(
-                resume, job_description, company_info, qa_history, candidate_profile
+            result = await invoke_structured(
+                prompt,
+                WeaknessReportOutput,
+                api_config,
+                channel="smart",
             )
-
-            result = await invoke_structured(prompt, WeaknessReportOutput, api_config, channel="smart")
-            report_data = result.model_dump()
-
-            logger.info(f"[WeaknessAnalysis] 成功生成短板地图，session={session_id}")
-            return report_data
-
         except Exception as e:
-            logger.error(f"[WeaknessAnalysis] 生成短板地图失败: {e}", exc_info=True)
-            return self._get_default_report()
+            logger.error(
+                "[WeaknessAnalysis] 生成短板地图失败: error=%s",
+                type(e).__name__,
+                exc_info=True,
+            )
+            raise
+
+        report_data = result.model_dump()
+        logger.info("[WeaknessAnalysis] 成功生成短板地图，session=%s", session_id)
+        return report_data
 
     def _build_weakness_prompt(
         self,
@@ -297,17 +299,6 @@ class WeaknessAnalysisService:
             qa_count=len(qa_history),
             profile_hint=profile_hint,
         )
-
-    def _get_default_report(self) -> Dict[str, Any]:
-        """返回默认报告（分析失败时使用）"""
-        return {
-            "weakness_categories": [],
-            "question_failures": [],
-            "improvement_actions": [],
-            "recommended_questions": [],
-            "priority_order": []
-        }
-
 
 # 全局单例
 _weakness_analysis_service = None

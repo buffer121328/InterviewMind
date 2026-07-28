@@ -88,12 +88,6 @@ def get_checkpointer_type() -> Optional[str]:
     return _checkpointer_type
 
 
-async def get_async_sqlite_saver(db_path: str = None):
-    """旧调用兼容入口。"""
-    del db_path
-    return await get_checkpointer()
-
-
 async def close_checkpointer() -> None:
     """关闭 PostgreSQL checkpointer 持有的异步上下文。"""
     global _global_checkpointer, _checkpointer_context, _checkpointer_type

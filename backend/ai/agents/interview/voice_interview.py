@@ -124,7 +124,7 @@ async def node_planner(
     if session_id:
         try:
             service = SessionRepo()
-            session = await service.get_session(session_id)
+            session = await service.get_session(session_id, user_id=user_id)
             if session and session.metadata:
                 # 获取轮次信息
                 round_index = getattr(session.metadata, 'round_index', 1) or 1
@@ -142,7 +142,10 @@ async def node_planner(
                 # 获取上一轮画像和问题（如果是第二轮及以后）
                 parent_session_id = getattr(session.metadata, 'parent_session_id', None)
                 if round_index > 1 and parent_session_id:
-                    previous_profile = await service.get_profile(parent_session_id)
+                    previous_profile = await service.get_profile(
+                        parent_session_id,
+                        user_id=user_id,
+                    )
                     parent_plan = await service.get_interview_plan(parent_session_id)
                     if parent_plan:
                         previous_questions = [q.get("content", q.get("topic", "")) for q in parent_plan]

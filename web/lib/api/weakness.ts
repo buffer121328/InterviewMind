@@ -53,47 +53,6 @@ export interface WeaknessResponse {
     message?: string;
 }
 
-export interface WeaknessHistoryResponse {
-    success: boolean;
-    reports?: WeaknessReport[];
-    message?: string;
-}
-
-/**
- * 生成短板地图报告
- */
-export async function generateWeaknessReport(
-    sessionId: string,
-    apiConfig?: unknown
-): Promise<WeaknessResponse> {
-    try {
-        const response = await fetch(`${API_BASE_URL}/api/chat/weakness/generate`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-User-ID': getUserId()
-            },
-            body: JSON.stringify({
-                session_id: sessionId,
-                api_config: apiConfig
-            })
-        });
-
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-
-        const data = await response.json();
-        return data;
-    } catch (error) {
-        console.error('生成短板地图失败:', error);
-        return {
-            success: false,
-            message: '网络错误，请稍后重试'
-        };
-    }
-}
-
 /**
  * 获取指定会话的短板地图
  */
@@ -113,30 +72,6 @@ export async function getSessionWeaknessReport(
         return data;
     } catch (error) {
         console.error('获取短板地图失败:', error);
-        return {
-            success: false,
-            message: '网络错误，请稍后重试'
-        };
-    }
-}
-
-/**
- * 获取短板地图历史列表
- */
-export async function getWeaknessHistory(): Promise<WeaknessHistoryResponse> {
-    try {
-        const response = await fetch(`${API_BASE_URL}/api/chat/weakness/history`, {
-            headers: { 'X-User-ID': getUserId() }
-        });
-
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-
-        const data = await response.json();
-        return data;
-    } catch (error) {
-        console.error('获取短板地图历史失败:', error);
         return {
             success: false,
             message: '网络错误，请稍后重试'

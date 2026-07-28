@@ -7,8 +7,9 @@ import pytest
 
 from ai.workflows.interview import voice_stream
 from ai.workflows.interview.voice_stream import VoiceStreamUseCases
+from app.domain.agent_runs import TASK_TYPE_VOICE_INTERVIEW_TURN
 from app.schemas.voice import VoiceChatRequest
-from ai.runtime.agent_runs.service import TASK_TYPE_VOICE_INTERVIEW_TURN, get_task_definition
+from ai.runtime.agent_runs.service import get_task_definition
 
 
 def _agent_run_events(chunks):

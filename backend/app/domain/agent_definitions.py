@@ -164,7 +164,12 @@ _DEFINITIONS = (
         version="1",
         task_type=TASK_TYPE_INTERVIEW_REPORT,
         title="生成面试报告",
-        steps=(("queued", "等待执行资源"), ("loading_session", "读取面试问答"), ("generating_profile", "生成本轮能力画像"), ("generating_weakness", "生成短板地图"), ("saving_report", "保存报告")),
+        steps=(
+            ("queued", "等待执行资源"),
+            ("loading_session", "读取面试问答"),
+            ("generating_reports", "并行生成能力画像与短板地图"),
+            ("saving_report", "保存报告"),
+        ),
         graph_name="interview",
         prompt_name="analysis.weakness_report",
         prompt_version="1",
