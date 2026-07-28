@@ -7,6 +7,7 @@ from langchain_core.messages import HumanMessage
 
 from app.db.repositories.resume.candidate_material_repo import get_candidate_material_repo
 from ai.llm import llms
+from ai.prompts.resume import build_material_extraction_prompt
 
 VALID_MATERIAL_TYPES = [
     "tech_stack",
@@ -85,31 +86,12 @@ class ResumeMaterialUseCases:
         if not api_config:
             raise ResumeMaterialBadRequest(message="请先配置 API Key")
 
-        prompt = f"""请从以下简历中提取候选人的素材，按照以下类型分类：
-
-1. tech_stack - 技术栈
-2. project - 项目经历
-3. internship - 实习经历
-4. work_experience - 工作经验
-5. education - 教育背景
-6. certificate - 证书
-7. highlight - 亮点/成就
-
-## 简历内容
-{resume_content}
-
-## 输出要求
-请以 JSON 数组格式输出每个素材，每个素材包含：
-- material_type: 素材类型
-- title: 简洁标题
-- content: 详细内容
-- tags: 相关标签列表
-
-请严格以 JSON 格式输出，不要包含其他文本。"""
+        prompt = build_material_extraction_prompt(resume_content)
         response = await llms.invoke_text([HumanMessage(content=prompt)], api_config, channel="smart")
         result_text = self._strip_json_markdown(response.content.strip())
         try:
-            materials_data = json.loads(result_text)
+            parsed = json.loads(result_text)
+            materials_data = parsed.get("materials", []) if isinstance(parsed, dict) else parsed
         except json.JSONDecodeError as exc:
             raise ResumeMaterialImportFormatError(message="AI 提取结果格式异常，请重试") from exc
 

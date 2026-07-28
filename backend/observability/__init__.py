@@ -165,7 +165,9 @@ async def _persist_agent_observation(observation: "AgentObservation") -> None:
     Args:
         observation: 当前观测对象；更新前会应用脱敏和失败不阻断业务的约束。
     """
-    if not observation.run_id:
+    # A locally generated UUID is only an execution correlation fallback.  It is
+    # not a Langfuse trace and must never make Run Center render a broken link.
+    if not observation.enabled or not observation.run_id:
         return
     try:
         service = _get_agent_run_service()

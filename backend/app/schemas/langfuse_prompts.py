@@ -101,7 +101,7 @@ class PromptPreviewRequest(BaseModel):
     """Request to compile a fetched prompt locally without executing a model."""
 
     name: Annotated[str, Field(min_length=1, max_length=128)]
-    version: Annotated[int | None, Field(ge=1)] = None
+    version: Annotated[int | None, Field(ge=0)] = None
     label: Annotated[str | None, Field(min_length=1, max_length=64)] = None
     values: dict[str, Annotated[str, Field(max_length=5_000)]] = Field(
         default_factory=dict,

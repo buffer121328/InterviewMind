@@ -83,7 +83,7 @@ class TestInterviewRuntimeStateMachine:
 
     @pytest.mark.asyncio
     async def test_opening_to_asking(self):
-        """opening → asking 状态转换"""
+        """opening → asking 使用计划首题且不再额外调用模型。"""
         mock_llm = AsyncMock()
         mock_llm.return_value = OpeningOutput(
             greeting="你好！欢迎参加面试。请做自我介绍。",
@@ -99,6 +99,8 @@ class TestInterviewRuntimeStateMachine:
         assert runtime.phase == InterviewPhase.ASKING
         assert result["turn_phase"] == "feedback"
         assert result["current_question_index"] == 0
+        assert result["messages"][0]["content"] == "欢迎参加本次面试。我们先从第一题开始：请做一个简短的自我介绍。"
+        mock_llm.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_run_creates_interview_root_observation_with_summary_only(self, monkeypatch):
@@ -186,6 +188,25 @@ class TestInterviewRuntimeStateMachine:
 
         assert result["current_question_index"] == 1  # 进入下一题
         assert result["follow_up_count"] == 0  # 追问计数重置
+        assert result["messages"][0]["content"] == "好的，感谢你的回答。接下来，请介绍你最有成就感的项目。"
+
+    @pytest.mark.asyncio
+    async def test_max_follow_ups_forces_next_question_without_llm(self):
+        """达到追问上限后直接推进，避免模型继续把会话卡在当前题。"""
+        state = {
+            **MOCK_STATE,
+            "turn_phase": "feedback",
+            "follow_up_count": 2,
+            "messages": [MagicMock(content="这是第二次补充回答。")],
+        }
+        mock_llm = AsyncMock()
+
+        result = await InterviewRuntime(state=state, llm_invoker=mock_llm).run()
+
+        assert result["current_question_index"] == 1
+        assert result["follow_up_count"] == 0
+        assert result["messages"][0]["content"].endswith("请介绍你最有成就感的项目。")
+        mock_llm.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_evaluating_end_round(self):
@@ -397,6 +418,31 @@ class TestInterviewerOutputSchema:
         # 反序列化
         restored = InterviewerOutput.model_validate(data)
         assert restored.action == InterviewerAction.ADVANCE
+
+    def test_evaluating_output_accepts_common_assessment_alias(self):
+        """模型使用 assessment 字段时仍收敛为标准评估协议。"""
+        output = EvaluatingOutput.model_validate({
+            "assessment": "回答充分",
+            "action": "advance",
+            "content": "进入下一题",
+            "need_tool": False,
+        })
+
+        assert output.evaluation_notes == "回答充分"
+        assert output.action == InterviewerAction.ADVANCE
+
+    def test_evaluating_output_normalizes_legacy_action_fields(self):
+        """旧式 follow_up/advance 字段只选择一个非空动作。"""
+        output = EvaluatingOutput.model_validate({
+            "evaluation": "可以推进",
+            "follow_up": "",
+            "advance": "请介绍一个项目。",
+            "end_round": "",
+            "need_tool": False,
+        })
+
+        assert output.action == InterviewerAction.ADVANCE
+        assert output.content == "请介绍一个项目。"
 
 
 # ============================================================================

@@ -46,6 +46,7 @@ class AgentRunModel(Base):
 
     # ── 执行结果 ────────────────────────────────────────────────────
     result: Mapped[dict | None] = mapped_column(JSONB, nullable=True)          # 任务最终输出（JSON 格式），成功时填充
+    step_results: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)  # 步骤级状态、时间及安全摘要，供详情页与恢复诊断使用
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)     # 任务失败时的错误信息
     trace_id: Mapped[str | None] = mapped_column(String, nullable=True)        # 分布式追踪 ID，用于关联上下游日志
 

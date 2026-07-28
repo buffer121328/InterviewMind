@@ -100,11 +100,17 @@ class _FakeGraph:
         yield {
             "event": "on_chat_model_stream",
             "metadata": {"langgraph_node": "responder"},
-            "data": {"chunk": SimpleNamespace(content="新问题")},
+            "data": {"chunk": SimpleNamespace(content='{"action":"follow_up"}')},
         }
         yield {
             "event": "on_chain_end",
-            "data": {"output": {"current_question_index": 1, "question_count": 1, "max_questions": 5}},
+            "metadata": {"langgraph_node": "responder"},
+            "data": {"output": {
+                "messages": [SimpleNamespace(type="ai", content="好的，进入第二题。")],
+                "current_question_index": 1,
+                "question_count": 1,
+                "max_questions": 5,
+            }},
         }
 
 
@@ -172,6 +178,8 @@ async def test_chat_stream_creates_and_completes_agent_run(monkeypatch):
     ]
     assert fake_run_service.succeeded == [("run-1", {"thread_id": "thread-1", "question_index": 1})]
     assert fake_run_service.failed == []
+    assert use_cases._session_repo.added[-1]["content"] == "好的，进入第二题。"
+    assert '{"action"' not in use_cases._session_repo.added[-1]["content"]
     assert lease.released is True
     run_events = _agent_run_events(chunks)
     assert {event["type"] for event in run_events} >= {"run.started", "run.completed"}

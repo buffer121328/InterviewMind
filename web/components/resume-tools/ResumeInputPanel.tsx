@@ -2,7 +2,6 @@ import type { ReactNode, RefObject } from 'react';
 import { BarChart3, FileText, Loader2, Target, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -56,7 +55,7 @@ export function ResumeInputPanel({
     const requiresJD = mode !== 'analyze';
 
     return (
-        <div className="lg:col-span-5 h-full overflow-hidden flex flex-col bg-white rounded-xl border border-gray-100 shadow-sm min-h-0">
+        <div className="flex min-w-0 flex-col self-start rounded-xl border border-gray-100 bg-white shadow-sm">
             <div className="p-4 border-b border-gray-100 flex items-center justify-between shrink-0 bg-gray-50/50">
                 <Label className="text-base font-medium text-gray-900">输入信息</Label>
                 <Button
@@ -80,9 +79,27 @@ export function ResumeInputPanel({
                 </Button>
             </div>
 
-            <div className="flex-1 overflow-hidden relative min-h-0">
-                <ScrollArea className="h-full">
-                    <div className="p-4 space-y-5 pb-xxl">
+            <div className="border-b border-teal-100 bg-teal-50/40 p-3">
+                <Button
+                    onClick={onSubmit}
+                    disabled={submitDisabled}
+                    className="h-11 w-full bg-teal-600 text-[15px] font-medium shadow-md shadow-teal-100 transition-all hover:bg-teal-700"
+                >
+                    {isSubmitting ? (
+                        <>
+                            <Loader2 className="mr-2 animate-spin" size={18} />
+                            {optimizeProgress || submittingLabel}
+                        </>
+                    ) : (
+                        <>
+                            <SubmitIcon className="mr-2" size={18} />
+                            {submitLabel}
+                        </>
+                    )}
+                </Button>
+            </div>
+
+            <div className="space-y-5 p-4">
                         <div className="space-y-2 flex flex-col">
                             <div className="flex items-center justify-between">
                                 <Label className="text-xs font-normal text-gray-500">简历纯文本内容</Label>
@@ -91,7 +108,7 @@ export function ResumeInputPanel({
                                 placeholder="粘贴简历内容，或点击上方导入文件..."
                                 value={resume}
                                 onChange={(e) => onResumeChange(e.target.value)}
-                                className="h-[250px] focus:h-[550px] transition-all duration-300 resize-none border-gray-200 focus:border-teal-500 font-mono text-sm leading-relaxed p-4"
+                                className="h-[300px] min-h-[300px] max-h-[300px] resize-none overflow-y-auto border-gray-200 p-4 font-mono text-sm leading-relaxed [scrollbar-color:#cbd5e1_transparent] [scrollbar-width:thin] focus:border-teal-500 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-track]:bg-transparent"
                             />
                         </div>
 
@@ -103,7 +120,7 @@ export function ResumeInputPanel({
                                 placeholder={requiresJD ? '输入目标职位的 JD/岗位名...' : '输入目标职位的 JD/岗位名，分析匹配度更准确...'}
                                 value={jobDescription}
                                 onChange={(e) => onJobDescriptionChange(e.target.value)}
-                                className="h-[150px] focus:h-[280px] transition-all duration-300 resize-none border-gray-200 focus:border-teal-500 text-sm"
+                                className="h-[180px] min-h-[180px] max-h-[180px] resize-none overflow-y-auto border-gray-200 text-sm [scrollbar-color:#cbd5e1_transparent] [scrollbar-width:thin] focus:border-teal-500 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-track]:bg-transparent"
                             />
                         </div>
 
@@ -148,29 +165,6 @@ export function ResumeInputPanel({
                             </div>
                         )}
 
-                        <div className="h-16"></div>
-                    </div>
-                </ScrollArea>
-
-                <div className="absolute bottom-0 left-0 right-0 p-4 bg-white/95 backdrop-blur border-t border-gray-100 z-10">
-                    <Button
-                        onClick={onSubmit}
-                        disabled={submitDisabled}
-                        className="w-full bg-teal-600 hover:bg-teal-700 h-11 text-[15px] font-medium shadow-md shadow-teal-100 transition-all"
-                    >
-                        {isSubmitting ? (
-                            <>
-                                <Loader2 className="animate-spin mr-2" size={18} />
-                                {optimizeProgress || submittingLabel}
-                            </>
-                        ) : (
-                            <>
-                                <SubmitIcon size={18} className="mr-2" />
-                                {submitLabel}
-                            </>
-                        )}
-                    </Button>
-                </div>
             </div>
         </div>
     );

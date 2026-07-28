@@ -21,7 +21,12 @@ class _Graph:
         yield {
             "event": "on_chain_end",
             "metadata": {"langgraph_node": "responder"},
-            "data": {"output": {"question_count": 2, "max_questions": 5, "current_question_index": 2}},
+            "data": {"output": {
+                "messages": [{"role": "assistant", "content": "下一题"}],
+                "question_count": 2,
+                "max_questions": 5,
+                "current_question_index": 2,
+            }},
         }
 
 
@@ -69,6 +74,8 @@ async def test_event_generator_emits_execution_plan(monkeypatch):
     assert types[0] == "plan"
     assert "step_update" in types
     assert "token" in types
+    token_contents = [event["content"] for event in events if event["type"] == "token"]
+    assert token_contents == ["下一题"]
     assert types[-1] == "done"
     plan = json.loads(events[0]["content"])
     assert [step["id"] for step in plan["steps"]] == [

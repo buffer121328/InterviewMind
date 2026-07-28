@@ -42,6 +42,7 @@ from ai.agents.resume.resume_pipeline_state import (
 )
 from ai.agents.resume.resume_rewrite_agent import normalize_rewrite_mode, run_resume_rewrite_agent
 from ai.llm.llm_utils import invoke_structured
+from ai.prompts.resume import build_content_writer_prompt, build_orchestrator_assemble_prompt
 from observability import agent_observation, langgraph_langfuse_scope, with_langgraph_langfuse_config
 
 logger = logging.getLogger(__name__)
@@ -63,6 +64,7 @@ async def run_pipeline(
     include_profile: bool = False,
     run_id: Optional[str] = None,
     mode: str = "balanced",
+    precomputed_jd_analysis: Optional[dict] = None,
 ) -> Dict[str, Any]:
     """
     执行 6 阶段简历优化流水线。
@@ -74,6 +76,7 @@ async def run_pipeline(
         api_config: API 配置
         session_ids: 关联的面试 session
         include_profile: 是否包含综合能力画像
+        precomputed_jd_analysis: 可选的上游 JD 分析；统一工作区传入时不再重复降级计算
 
     Returns:
         完整的流水线产出，包含所有阶段的产物
@@ -102,6 +105,7 @@ async def run_pipeline(
             include_profile=include_profile,
             run_id=run_id,
             mode=mode,
+            precomputed_jd_analysis=precomputed_jd_analysis,
         )
         observation.set_output({
             "changes": len(result["change_items"]),
@@ -121,8 +125,9 @@ async def _run_pipeline(
     include_profile: bool,
     run_id: Optional[str],
     mode: str,
+    precomputed_jd_analysis: Optional[dict],
 ) -> Dict[str, Any]:
-    """执行不含观测上下文的流水线主体。"""
+    """执行不含观测上下文的流水线主体，并复用可信的上游 JD 分析。"""
     from ai.memory.memory import get_checkpointer
 
     from ai.runtime.guardrails import (
@@ -131,7 +136,12 @@ async def _run_pipeline(
         screen_untrusted_text,
     )
 
-    initial = PipelineState(resume_content=resume_content, job_description=job_description, user_id=user_id)
+    initial = PipelineState(
+        resume_content=resume_content,
+        job_description=job_description,
+        user_id=user_id,
+        jd_analysis=dict(precomputed_jd_analysis) if precomputed_jd_analysis else None,
+    )
     jd_decision = screen_untrusted_text(job_description, source="resume_job_description")
     initial.guardrail_results.append(jd_decision.to_audit_payload())
     if not jd_decision.allowed:
@@ -255,6 +265,18 @@ async def stage1_jd_analysis(state: PipelineState) -> PipelineState:
         status="started",
         input_summary=f"jd_len={len(state.job_description or '')}",
     )
+    if state.jd_analysis and isinstance(state.jd_analysis.get("match_score"), (int, float)):
+        match_score = state.jd_analysis["match_score"]
+        logger.info(f"[Stage1] 复用上游 JD 分析: 匹配度 {match_score}%")
+        _append_trace(
+            state,
+            step="stage1_jd_analysis",
+            phase="jd_analysis",
+            status="completed",
+            output_summary=f"precomputed_match_score={match_score}",
+        )
+        return state
+
     if not state.job_description:
         state.jd_analysis = {"match_score": 0, "note": "无 JD 提供"}
         _append_trace(
@@ -424,53 +446,15 @@ async def stage3_custom_rewrite(state: PipelineState) -> PipelineState:
             a = qa.get('answer', '') if isinstance(qa, dict) else getattr(qa, 'answer', '')
             qa_texts.append(f"Q: {q}\nA: {str(a)[:150]}...")
         interview_section = "\n\n【面试对话参考】：\n" + "\n".join(qa_texts)
-    retry_guidance_section = f"\n\n【本轮返工要求】：\n{state.retry_guidance}" if state.retry_guidance else ""
-
-    prompt = f"""你是一位「简历内容优化师」。请为以下简历提供具体的优化建议。
-
-【目标职位】：
-{state.job_description}
-
-【当前简历】：
-{state.resume_content[:2000]}
-
-【JD分析结果】：
-匹配度: {jd_analysis.get('match_score', 'N/A')}%
-缺失关键词: {json.dumps(jd_analysis.get('missing_keywords', [])[:10], ensure_ascii=False)}
-{interview_section}{retry_guidance_section}
-
-请按模块输出具体的 ChangeItem 列表。每条改写必须包含完整的追踪信息。
-
-【change_type 说明】：
-- polish: 文字润色，不改变事实
-- restructure: 重组内容结构
-- suggest_addition: 建议新增内容（需用户确认是否有相关经历）
-- fact_inference: 模型推断的事实（必须标记 requires_user_confirmation=true）
-
-【evidence_source 填写规范】：
-- JD关键词: 改写来自JD匹配分析
-- 简历原文: 改写基于原简历内容
-- 面试记录: 改写基于面试对话中展现的能力
-- 画像: 改写基于候选人综合画像
-- 用户补充: 基于用户手工补充的材料
-
-请输出 JSON（change_items 数组）：
-{{
-    "change_items": [
-        {{
-            "section_name": "个人简介",
-            "original_text": "原文（polish/restructure 时填写）",
-            "optimized_text": "优化后内容",
-            "change_type": "polish",
-            "reason": "突出JD匹配的关键词",
-            "evidence_source": "JD关键词",
-            "requires_user_confirmation": false,
-            "confidence": 0.95
-        }},
-        ...
-    ]
-}}
-"""
+    context_section = (
+        f"{interview_section}\n【JD 分析】\n{json.dumps(jd_analysis, ensure_ascii=False)}"
+        f"\n【返工要求】\n{state.retry_guidance or '无'}"
+    )
+    prompt = build_content_writer_prompt(
+        resume_content=state.resume_content[:5000],
+        job_description=state.job_description,
+        interview_section=context_section,
+    )
 
     try:
         result = await invoke_structured(prompt, ContentSuggestionsOutput, state.api_config, channel="content_writer", max_retries=2)
@@ -591,21 +575,11 @@ async def stage4_assemble(state: PipelineState) -> PipelineState:
         for item in state.change_items[:10]
     ])
 
-    prompt = f"""你是一位「简历组装专家」。请根据原始简历和改写建议，组装一份完整的优化后简历。
-
-【原始简历】：
-{state.resume_content}
-
-【改写建议】（共 {len(state.change_items)} 条）：
-{change_summary}
-
-【要求】：
-1. 在原始简历基础上应用改写建议
-2. 保持简历整体结构：个人简介 → 工作经历 → 项目经历 → 专业技能 → 教育背景
-3. 不在这一步新增原始简历中没有的事实
-4. 输出完整 Markdown 格式简历
-
-请直接输出 Markdown 简历，不要用代码块包裹，禁止使用emoji表情。"""
+    prompt = build_orchestrator_assemble_prompt(
+        resume_content=state.resume_content,
+        change_summary=change_summary,
+        num_change_items=len(state.change_items),
+    )
 
     try:
         from ai.llm import llms

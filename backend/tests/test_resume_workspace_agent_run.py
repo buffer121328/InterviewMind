@@ -99,6 +99,31 @@ def test_resume_workspace_schema_accepts_one_resume_and_jd_contract():
     assert result.jd_matching.overall_match_score == 81
 
 
+def test_workspace_maps_richer_jd_result_into_pipeline_contract():
+    """The optimizer must reuse the same non-zero JD score shown by the workspace."""
+    from ai.workflows.agent_tasks.resume_workspace import _pipeline_jd_analysis
+
+    mapped = _pipeline_jd_analysis(_jd_match())
+
+    assert mapped["match_score"] == 81
+    assert mapped["hr_pass_rate"] == 69
+    assert mapped["keywords_required"] == ["Python", "Kubernetes"]
+
+
+def test_public_workspace_result_repairs_legacy_zero_score():
+    """Old persisted workspace records should expose the richer JD score to clients."""
+    from ai.workflows.agent_tasks.resume_workspace import _public_workspace_result
+
+    result_data = _pipeline_result()
+    result_data["jd_analysis"] = {"match_score": 0, "hr_pass_rate": 0}
+    result_data["workspace"] = {"jd_matching": _jd_match(), "competition_analysis": _competition_analysis()}
+
+    public = _public_workspace_result(9, result_data)
+
+    assert public["content_optimization"]["match_score"] == 81
+    assert public["content_optimization"]["hr_pass_rate"] == 69
+
+
 def test_resume_workspace_task_definition_exposes_recoverable_stages():
     """The registered task plan reports each business stage for polling and recovery UI."""
     from app.domain.agent_definitions import get_agent_definition

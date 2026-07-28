@@ -14,6 +14,7 @@ from sqlalchemy import delete, select
 from app.db.models import async_session
 from app.db.models.resume import ResumeAssemblyResultModel
 from ai.llm import llms
+from ai.prompts.resume import build_assembler_assemble_prompt, build_assembler_system_prompt, build_assembler_user_prompt
 from app.db.repositories.resume.candidate_material_repo import get_candidate_material_repo
 
 logger = logging.getLogger(__name__)
@@ -45,62 +46,32 @@ class MaterialSelectionResult:
 
 
 # ============================================================================
-# Prompt 模板
+# Prompt compatibility wrappers
 # ============================================================================
 
-SYSTEM_PROMPT = """你是一位资深的简历策划师。你的任务是根据目标岗位 JD，从候选人的素材库中筛选最相关的素材，并规划简历结构。
-
-工作流程：
-1. 分析 JD 的核心需求（技能、经验、项目类型）
-2. 从素材库中筛选与 JD 高度相关的素材
-3. 规划简历结构，确定每个部分使用哪些素材
-4. 输出筛选理由和简历大纲
-
-筛选原则：
-- 优先选择与 JD 关键词匹配度高的素材
-- 优先选择已验证（is_verified=true）的素材
-- 考虑素材的重要性评分（importance_score）和可信度评分（confidence_score）
-- 保持多样性，覆盖 JD 的不同维度
-- 如果素材库中没有合适的内容，明确指出
-
-输出要求：
-- selected_material_ids: 选中的素材 ID 列表
-- selection_reason: 详细说明为什么选择这些素材，每个素材被选中的原因
-- assembled_outline: 简历大纲，包含各部分标题和对应的素材 ID
-
-请严格以 JSON 格式输出，不要包含任何其他文本。"""
+SYSTEM_PROMPT = build_assembler_system_prompt()
 
 
-def build_user_prompt(
-    job_description: str,
-    materials: List[Dict[str, Any]]
-) -> str:
-    """构建用户 prompt"""
-
-    # 格式化素材列表
+def build_user_prompt(job_description: str, materials: List[Dict[str, Any]]) -> str:
+    """Build the material-selection payload through the central prompt policy."""
     materials_text = []
-    for m in materials:
-        material_info = f"""素材 ID: {m['id']}
-类型: {m['material_type']}
-标题: {m['title']}
-内容: {m['content'][:500]}{'...' if len(m['content']) > 500 else ''}
-标签: {', '.join(m['tags']) if m['tags'] else '无'}
-重要性: {m['importance_score']}
-可信度: {m['confidence_score']}
-已验证: {'是' if m['is_verified'] else '否'}"""
-        materials_text.append(material_info)
-
-    materials_str = "\n---\n".join(materials_text)
-
-    return f"""请根据以下 JD 从素材库中筛选最相关的素材，并规划简历结构。
-
-## 目标岗位 JD
-{job_description}
-
-## 候选人素材库
-{materials_str}
-
-请按照要求的 JSON 格式输出筛选结果。"""
+    for material in materials:
+        materials_text.append(
+            "\n".join([
+                f"素材 ID: {material['id']}",
+                f"类型: {material['material_type']}",
+                f"标题: {material['title']}",
+                f"内容: {material['content'][:500]}",
+                f"标签: {', '.join(material['tags']) if material['tags'] else '无'}",
+                f"重要性: {material['importance_score']}",
+                f"可信度: {material['confidence_score']}",
+                f"已验证: {'是' if material['is_verified'] else '否'}",
+            ])
+        )
+    return f"{SYSTEM_PROMPT}\n\n" + build_assembler_user_prompt(
+        job_description=job_description,
+        materials_str="\n---\n".join(materials_text),
+    )
 
 
 # ============================================================================
@@ -233,28 +204,10 @@ async def assemble_resume_from_materials(
 
     materials_str = "\n\n".join(materials_text)
 
-    prompt = f"""请根据以下素材和目标岗位 JD，生成一份专业的简历内容。
-
-## 目标岗位 JD
-{job_description}
-
-## 候选人素材
-{materials_str}
-
-## 要求
-1. 使用 Markdown 格式
-2. 突出与 JD 相关的经验和技能
-3. 保持真实性，不要编造不存在的经历
-4. 语言简洁专业
-5. 包含以下部分（根据素材情况调整）：
-   - 个人信息
-   - 教育背景
-   - 工作/实习经历
-   - 项目经历
-   - 技能特长
-   - 其他亮点
-
-请直接输出简历内容，不要包含其他说明。"""
+    prompt = build_assembler_assemble_prompt(
+        job_description=job_description,
+        materials_str=materials_str,
+    )
 
     # 调用 LLM
     logger.info(f"开始组装简历: user={user_id}, materials_count={len(materials)}")

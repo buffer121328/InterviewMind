@@ -67,6 +67,9 @@ services:
         condition: service_healthy
     environment:
       <<: *backend_overrides
+      ARTIFACT_STORAGE_DIR: /app/data/artifacts
+    volumes:
+      - artifact_data:/app/data/artifacts
     command: ["python", "-m", "app.entrypoints.deployment", "migrate"]
     networks:
       - agent_interview_network
@@ -90,6 +93,9 @@ services:
         condition: service_completed_successfully
     environment:
       <<: *backend_overrides
+      ARTIFACT_STORAGE_DIR: /app/data/artifacts
+    volumes:
+      - artifact_data:/app/data/artifacts
     networks:
       - agent_interview_network
     extra_hosts:
@@ -117,6 +123,9 @@ services:
         condition: service_completed_successfully
     environment:
       <<: *backend_overrides
+      ARTIFACT_STORAGE_DIR: /app/data/artifacts
+    volumes:
+      - artifact_data:/app/data/artifacts
     networks:
       - agent_interview_network
     extra_hosts:
@@ -165,6 +174,7 @@ services:
 
 volumes:
   postgres_data:
+  artifact_data:
 
 networks:
   agent_interview_network:

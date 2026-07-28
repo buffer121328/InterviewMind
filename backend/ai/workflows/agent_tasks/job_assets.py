@@ -3,10 +3,32 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai.workflows.agent_tasks.types import DeferredExecutionResult, ExecutionResult, ProgressCallback
+from observability import agent_observation
 
 
 async def execute_job_assets(payload: dict, user_id: str, progress: ProgressCallback) -> ExecutionResult:
-    """执行求职材料生成任务：分析 JD、生成简历/自荐信等资产。"""
+    """Generate job assets inside a root observation linked to the owning AgentRun."""
+    async with agent_observation(
+        name="job-assets",
+        agent_type="job_assets",
+        user_id=user_id,
+        session_id=None,
+        run_id=payload.get("_agent_run_id"),
+        input_payload={
+            "job_id": int(payload["job_id"]),
+            "include_project_rewrite": bool(payload.get("include_project_rewrite", False)),
+            "template_style": str(payload.get("template_style", "professional"))[:40],
+        },
+    ) as observation:
+        result = await _execute_job_assets(payload, user_id, progress)
+        observation.set_output({
+            "deferred_persistence": isinstance(result, DeferredExecutionResult),
+        })
+        return result
+
+
+async def _execute_job_assets(payload: dict, user_id: str, progress: ProgressCallback) -> ExecutionResult:
+    """Run the job-asset workflow body while the public executor owns observability."""
     from ai.workflows.jobs_support.job_asset_orchestrator import generate_assets
 
     await progress("loading_job")

@@ -9,6 +9,7 @@ from app.db.models import async_session, SessionModel, MessageModel
 from .base import BaseService
 from .session_mgmt import SessionManagementService
 from app.domain.interview_rounds import resolve_max_questions, resolve_round_type
+from app.domain.interview_session_titles import build_interview_session_title
 
 logger = logging.getLogger(__name__)
 
@@ -54,9 +55,13 @@ class SessionAdvancedService(BaseService):
                 await db.commit()
 
         new_session_id = str(uuid.uuid4())
-        jd = parent.metadata.job_description or ""
-        jd_summary = jd[:15] + "..." if len(jd) > 15 else jd
-        title = f"{jd_summary} - 第{new_round_index}轮"
+        now = datetime.now()
+        title = build_interview_session_title(
+            started_at=now,
+            round_type=new_round_type,
+            max_questions=resolved_max_questions,
+            round_index=new_round_index,
+        )
 
         # 获取父会话的 user_id，确保子会话归属同一用户
         parent_user_id = None
@@ -68,7 +73,6 @@ class SessionAdvancedService(BaseService):
 
         effective_user_id = user_id or parent_user_id or "default_user"
 
-        now = datetime.now()
         async with async_session() as db:
             db.add(SessionModel(
                 session_id=new_session_id, user_id=effective_user_id, title=title, created_at=now, updated_at=now,
@@ -100,8 +104,13 @@ class SessionAdvancedService(BaseService):
             plan = (await db.execute(select(SessionModel.interview_plan).where(SessionModel.session_id == source_session_id))).scalar_one_or_none()
 
         new_session_id = str(uuid.uuid4())
-        title = f"{source.title} (语音版)"
         now = datetime.now()
+        title = build_interview_session_title(
+            started_at=now,
+            round_type=source.metadata.round_type,
+            max_questions=max_questions or source.metadata.max_questions,
+            round_index=source.metadata.round_index,
+        )
 
         # 获取源会话的 user_id，确保克隆会话归属同一用户
         source_user_id = None

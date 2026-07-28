@@ -6,6 +6,7 @@ import { ResumeResultSummary } from '@/store/types';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
+import { formatResumeWorkspaceTitle } from '@/lib/resumeHistoryTitle';
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -136,7 +137,7 @@ interface ResumeHistoryItemProps {
 function ResumeHistoryItem({ result, isActive, onSelect, onDelete }: ResumeHistoryItemProps) {
     const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
 
-    const title = result.result_type === 'analyze' ? '简历竞争力分析' : '简历内容优化';
+    const title = formatResumeWorkspaceTitle(result.created_at);
     // 优先显示 JD 的摘要，如果没有则显示具体的创建时间
     const subtitle = result.job_description
         ? result.job_description.slice(0, 15) + (result.job_description.length > 15 ? '...' : '')

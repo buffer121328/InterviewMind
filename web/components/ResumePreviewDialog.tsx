@@ -10,12 +10,15 @@ import { Copy, FileDown, Check, X, FileText, Edit3, Eye, ImagePlus, Trash2, Save
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Textarea } from "@/components/ui/textarea";
+import { buildStandaloneResumeHtml, RESUME_SHEET_STYLES } from "@/lib/resumeExport";
 
 interface ResumePreviewDialogProps {
     isOpen: boolean;
     onClose: () => void;
     title: string;
     content: string;
+    /** Existing persisted resume identifier retained for caller compatibility and future source actions. */
+    resumeId?: number;
     onContentChange?: (newContent: string) => Promise<void>;
 }
 
@@ -23,89 +26,12 @@ const A4_HEIGHT_CSS_PIXELS = 1122.52;
 // Account for CSS-pixel rounding and the preview border around an exact A4 minimum height.
 const A4_MEASUREMENT_TOLERANCE_CSS_PIXELS = 4;
 
-/** Keeps exported resumes self-contained, predictable on A4 paper, and free of editor chrome. */
-const RESUME_EXPORT_STYLES = `
-  * { box-sizing: border-box; }
-  html, body { margin: 0; padding: 0; background: #e9edf2; color: #17202b; }
-  body { font-family: "Avenir Next", "Segoe UI", "Microsoft YaHei", sans-serif; font-size: 11pt; line-height: 1.45; }
-  .resume-sheet { width: 210mm; min-height: 297mm; margin: 12mm auto; padding: 16mm 17mm; background: #fff; }
-  .resume-header { min-height: 34mm; padding-right: 31mm; position: relative; }
-  .resume-photo { position: absolute; top: 0; right: 0; width: 25mm; height: 31mm; border: 1px solid #cbd5e1; border-radius: 2mm; object-fit: cover; }
-  .resume-placeholder { display: grid; place-items: center; color: #64748b; background: #f8fafc; font-size: 8pt; text-align: center; }
-  .resume-content h1 { margin: 0 0 5mm; font-size: 22pt; line-height: 1.1; letter-spacing: -.02em; }
-  .resume-content h2 { margin: 6mm 0 2mm; padding-bottom: 1mm; border-bottom: 1px solid #17202b; font-size: 11pt; text-transform: uppercase; letter-spacing: .08em; break-after: avoid; }
-  .resume-content h3 { margin: 3mm 0 1mm; font-size: 10.5pt; break-after: avoid; }
-  .resume-content p { margin: 0 0 1.5mm; }
-  .resume-content blockquote { margin: 0 0 5mm; color: #526173; text-align: center; border: 0; }
-  .resume-content ul, .resume-content ol { margin: 1mm 0 2mm; padding-left: 5mm; }
-  .resume-content li { margin-bottom: 1mm; }
-  .resume-content a { color: inherit; text-decoration: none; }
-  .resume-content img { max-width: 100%; }
-  h1, h2, h3, p, li, blockquote { orphans: 3; widows: 3; }
-  @page { size: A4; margin: 0; }
-  @media print {
-    html, body { background: #fff; }
-    .resume-sheet { margin: 0; box-shadow: none; }
-    .resume-content h2, .resume-content h3 { break-before: auto; }
-    .resume-content ul, .resume-content ol, .resume-content blockquote { break-inside: avoid; }
-  }
-`;
-
-/** Mirrors export geometry so page feedback reflects the actual A4 layout rather than a fixed guess. */
-const RESUME_PREVIEW_STYLES = `
-  .resume-preview-sheet { box-sizing: border-box; width: 210mm; min-height: 297mm; margin: 0 auto 8mm; padding: 16mm 17mm; background: #fff; color: #17202b; font-family: "Avenir Next", "Segoe UI", "Microsoft YaHei", sans-serif; font-size: 11pt; line-height: 1.45; }
-  .resume-preview-header { min-height: 36mm; position: relative; }
-  .resume-preview-photo { position: absolute; top: 0; right: 0; width: 27mm; height: 33mm; border: 1px solid #cbd5e1; border-radius: 2mm; object-fit: cover; }
-  .resume-preview-placeholder { display: grid; place-items: center; color: #64748b; background: #f8fafc; font-size: 8pt; text-align: center; }
-  .resume-preview-content h1 { margin: 0 0 5mm; padding-right: 39mm; font-size: 22pt; line-height: 1.1; letter-spacing: -.02em; text-align: center; }
-  .resume-preview-content > h1 + p, .resume-preview-content > h1 + blockquote { padding-right: 39mm; }
-  .resume-preview-content h2 { margin: 6mm 0 2mm; padding-bottom: 1mm; border-bottom: 1px solid #17202b; font-size: 11pt; text-transform: uppercase; letter-spacing: .08em; }
-  .resume-preview-content h3 { margin: 3mm 0 1mm; font-size: 10.5pt; }
-  .resume-preview-content p { margin: 0 0 1.5mm; color: #526173; }
-  .resume-preview-content blockquote { margin: 0 0 5mm; color: #526173; text-align: center; border: 0; }
-  .resume-preview-content ul, .resume-preview-content ol { margin: 1mm 0 2mm; padding-left: 5mm; }
-  .resume-preview-content li { margin-bottom: 1mm; color: #526173; }
-  .resume-preview-content a { color: inherit; text-decoration: none; }
-  .resume-preview-content img { max-width: 100%; }
-`;
-
-/** Creates an export document with text nodes for metadata, preventing title injection. */
-function createResumeExportDocument(title: string, contentElement: HTMLElement, photo: string | null): Document {
-    const exportDocument = document.implementation.createHTMLDocument(title || "简历");
-    const style = exportDocument.createElement("style");
-    style.textContent = `${RESUME_EXPORT_STYLES}
-      .resume-header { min-height: 36mm; padding-right: 0; }
-      .resume-photo { width: 27mm; height: 33mm; }
-      .resume-content > h1, .resume-content > h1 + p, .resume-content > h1 + blockquote { padding-right: 39mm; }
-    `;
-    exportDocument.head.appendChild(style);
-    const sheet = exportDocument.createElement("main");
-    sheet.className = "resume-sheet";
-    const header = exportDocument.createElement("header");
-    header.className = "resume-header";
-    const photoElement = exportDocument.createElement("div");
-    photoElement.className = "resume-photo resume-placeholder";
-    photoElement.setAttribute("aria-label", photo ? "简历照片" : "照片位置");
-    if (photo) {
-        const image = exportDocument.createElement("img");
-        image.src = photo;
-        image.alt = "简历照片";
-        image.className = "resume-photo";
-        header.appendChild(image);
-    } else {
-        photoElement.textContent = "PHOTO";
-        header.appendChild(photoElement);
-    }
-    const previewContent = contentElement.querySelector(".resume-preview-content");
-    const clonedContent = (previewContent || contentElement).cloneNode(true) as HTMLElement;
-    clonedContent.removeAttribute("id");
-    clonedContent.querySelectorAll("[data-resume-control]").forEach((control) => control.remove());
-    clonedContent.querySelectorAll(".resume-photo-display").forEach((photoNode) => photoNode.remove());
-    clonedContent.classList.add("resume-content");
-    header.appendChild(clonedContent);
-    sheet.appendChild(header);
-    exportDocument.body.appendChild(sheet);
-    return exportDocument;
+/** Clones the visible A4 sheet and removes editor-only controls before standalone export. */
+function cloneResumePreviewSheet(contentElement: HTMLElement): string {
+    const clonedSheet = contentElement.cloneNode(true) as HTMLElement;
+    clonedSheet.removeAttribute("id");
+    clonedSheet.querySelectorAll("[data-resume-control]").forEach((control) => control.remove());
+    return clonedSheet.outerHTML;
 }
 
 /** Renders the resume preview dialog UI and coordinates its typed props, local state, and approved backend interactions. */
@@ -182,27 +108,27 @@ export function ResumePreviewDialog({
         }
     };
 
-    /** Downloads a standalone, safely constructed HTML file that can be opened or printed later. */
+    /** Downloads the exact visible preview as a self-contained HTML document, including its current photo. */
     const handleExportHtml = useCallback(() => {
-        const element = document.getElementById('resume-preview-content');
+        const element = previewSheetRef.current;
         if (!element) {
             toast.error("无法找到简历内容");
             return;
         }
-        const exportDocument = createResumeExportDocument(title, element, photo);
-        const blob = new Blob([`<!doctype html>\n${exportDocument.documentElement.outerHTML}`], { type: "text/html;charset=utf-8" });
+        const html = buildStandaloneResumeHtml(title, cloneResumePreviewSheet(element));
+        const blob = new Blob([html], { type: "text/html;charset=utf-8" });
         const url = URL.createObjectURL(blob);
         const anchor = document.createElement("a");
         anchor.href = url;
         anchor.download = `${(title || "resume").replace(/[^\w\u4e00-\u9fff-]+/g, "-")}.html`;
         anchor.click();
         URL.revokeObjectURL(url);
-        toast.success("HTML 简历已导出");
-    }, [photo, title]);
+        toast.success("HTML 已按当前预览样式导出");
+    }, [title]);
 
-    /** Opens a sanitized export document and waits for fonts and images before invoking the browser PDF flow. */
+    /** Prints the exact cloned preview so browser PDF output keeps colors, spacing, photo, and pagination. */
     const handlePrint = useCallback(async () => {
-        const element = document.getElementById('resume-preview-content');
+        const element = previewSheetRef.current;
         if (!element) return toast.error("无法找到简历内容");
         const printWindow = window.open("", "_blank");
         if (!printWindow) return toast.error("无法打开打印窗口，请检查浏览器是否阻止了弹窗");
@@ -210,14 +136,16 @@ export function ResumePreviewDialog({
         if (element.scrollHeight > A4_HEIGHT_CSS_PIXELS * 2 + A4_MEASUREMENT_TOLERANCE_CSS_PIXELS) {
             toast.warning("内容超过两页 A4；将完整保留，请在打印预览中确认分页", { duration: 5000 });
         }
-        const exportDocument = createResumeExportDocument(title, element, photo);
-        printWindow.document.replaceChild(printWindow.document.importNode(exportDocument.documentElement, true), printWindow.document.documentElement);
+        const html = buildStandaloneResumeHtml(title, cloneResumePreviewSheet(element));
+        printWindow.document.open();
+        printWindow.document.write(html);
+        printWindow.document.close();
         await Promise.all(Array.from(printWindow.document.images).map((image) => image.complete ? Promise.resolve() : new Promise<void>((resolve) => { image.addEventListener("load", () => resolve(), { once: true }); image.addEventListener("error", () => resolve(), { once: true }); })));
         await printWindow.document.fonts?.ready;
         printWindow.focus();
         printWindow.print();
-        toast.success("打印对话框已打开，请选择“另存为 PDF”保存", { duration: 5000 });
-    }, [photo, title]);
+        toast.success("已按预览样式打开打印，请确认纸张为 A4 并选择“另存为 PDF”", { duration: 6000 });
+    }, [title]);
 
     const handlePhotoUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -341,11 +269,11 @@ export function ResumePreviewDialog({
                             {isCopied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
                             {isCopied ? "已复制" : "复制"}
                         </Button>
-                        <Button variant="outline" size="sm" onClick={handleExportHtml} className="gap-2" aria-label="导出简历 HTML">
+                        <Button variant="outline" size="sm" onClick={handleExportHtml} disabled={isEditMode} className="gap-2" aria-label="导出简历 HTML">
                             <FileDown className="w-4 h-4" />
                             导出 HTML
                         </Button>
-                        <Button variant="default" size="sm" onClick={handlePrint} className="gap-2 bg-slate-900 hover:bg-slate-800" aria-label="打印简历或保存为 PDF">
+                        <Button variant="default" size="sm" onClick={() => void handlePrint()} disabled={isEditMode} className="gap-2 bg-slate-900 hover:bg-slate-800" aria-label="打印简历或保存为 PDF">
                             <Printer className="w-4 h-4" />
                             打印 / 保存 PDF
                         </Button>
@@ -357,8 +285,8 @@ export function ResumePreviewDialog({
 
                 {/* Content Area */}
                 <div className="flex-1 overflow-auto bg-gray-100/50 p-6">
-                    <style>{RESUME_PREVIEW_STYLES}</style>
-                    <div ref={previewSheetRef} id="resume-preview-content" className="resume-preview-sheet shadow-md border border-gray-200 relative">
+                    <style>{RESUME_SHEET_STYLES}</style>
+                    <div ref={previewSheetRef} id="resume-preview-content" className="resume-preview-sheet">
                         {/* 照片显示区域 */}
                         <div className="resume-preview-photo z-10">
                             {photo ? (

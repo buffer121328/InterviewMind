@@ -199,106 +199,42 @@ def _build_extraction_prompt(
     company_name_hint: str = "",
     job_title_hint: str = "",
 ) -> str:
-    """构建 LLM 提取 prompt"""
-    hint_section = ""
-    if company_name_hint or job_title_hint:
-        hint_section = f"""
-【用户提示】：
-- 可能的公司名: {company_name_hint or '无'}
-- 可能的岗位名: {job_title_hint or '无'}
-"""
+    """Build a safe single-job extraction prompt from visible page text."""
+    from ai.prompts.jobs import build_job_extraction_prompt
 
-    return f"""你是一位「招聘信息提取专家」。请从以下页面文本中提取岗位关键信息。
+    return build_job_extraction_prompt(
+        page_text=page_text,
+        company_name_hint=company_name_hint,
+        job_title_hint=job_title_hint,
+    )
 
-【页面文本】：
-{page_text[:3000]}
-
-{hint_section}
-
-请提取并输出 JSON：
-{{
-    "company_name": "标准化公司名",
-    "job_title": "岗位名称",
-    "job_description": "完整的 JD 正文",
-    "salary_text": "薪资范围原文",
-    "city": "工作城市"
-}}
-
-要求：
-1. company_name 只输出核心公司名，去掉"有限公司"等后缀
-2. job_title 只输出岗位名，不要包含经验年限或薪资
-3. job_description 保留 JD 的核心内容（职责+要求）
-4. 如果某个字段无法从文本中提取，输出空字符串"""
-
-
-# ============================================================================
-# BOSS 推荐页批量抓取（半自动化）
-# ============================================================================
 
 async def _llm_extract_job_cards(
     page_text: str,
-    top_n: int = 5,
+    top_n: int,
     query_filter: str = "",
-) -> list:
-    """
-    用 LLM 从 BOSS 推荐页文本中提取前 N 个岗位卡片。
-
-    Args:
-        page_text: 推荐页 body innerText
-        top_n: 提取前 N 个岗位
-        query_filter: 用户搜索关键词（用于过滤/排序，可空)
-
-    Returns:
-        List[dict]，每项包含 company_name / job_title / salary_text / city /
-        title_summary / job_description
-    """
+) -> list[dict[str, Any]]:
+    """Extract visible BOSS job cards with the central injection-safe prompt."""
     from ai.llm.llm_utils import invoke_structured
+    from ai.prompts.jobs import build_job_card_extraction_prompt
     from app.schemas.llm_outputs import JobCardList
 
-    # 截断页面文本，从岗位列表区域开始（搜索页通常有「综合排序」「最新」分隔栏）
-    # 找到第一个明显的岗位列表起始位置
     for marker in ["综合排序", "最新优先", "BOSS直聘", "面试", "招聘"]:
         if marker in page_text:
-            pos = page_text.find(marker)
-            if pos > 0:
-                page_text = page_text[pos:]
+            position = page_text.find(marker)
+            if position > 0:
+                page_text = page_text[position:]
                 break
-    snippet = page_text[:6000]
-
-    filter_hint = ""
-    if query_filter:
-        filter_hint = (
-            f"\n【搜索关键词】用户搜索的是「{query_filter}」相关岗位。\n"
-            f"请优先返回与该方向最相关的前 {top_n} 个岗位；\n"
-            f"如果搜索结果中没有理想匹配，就返回最靠前的 {top_n} 个，不要硬凑。"
-        )
-
-    prompt = f"""你是一位招聘数据提取专家。以下文本来自 BOSS直聘搜索结果页。
-请提取前 {top_n} 个岗位卡片的结构化信息。
-
-【页面文本】：
-{snippet}
-{filter_hint}
-
-注意：
-1. 推荐页卡片信息有限，job_description 可能只有岗位一句话简介 + 经验/学历要求，写出来即可
-2. company_name 去掉"有限公司"等后缀
-3. salary_text 保留原文（如 "15-30K" 或 "50-55元/时"）
-4. city 提取可见的城市/区域（如 "广州·天河区"，输出 "广州" 即可）
-5. title_summary 填卡片上额外可见的经验/学历要求（如 "本科 3-5年"），没有就空
-
-Respond in JSON format."""
-
+    prompt = build_job_card_extraction_prompt(
+        page_text=page_text,
+        top_n=top_n,
+        keyword=query_filter,
+    )
     try:
-        result = await invoke_structured(
-            prompt=prompt,
-            output_model=JobCardList,
-            api_config=None,  # 推荐页抽取使用服务端默认模型配置，避免把浏览器侧凭据继续向下游透传。
-            channel="fast",
-        )
-        return [c.model_dump() for c in result.cards[:top_n]]
-    except Exception as e:
-        logger.error(f"[JobCapture] 推荐页岗位提取失败: {e}")
+        result = await invoke_structured(prompt=prompt, output_model=JobCardList, api_config=None, channel="fast")
+        return [item.model_dump() for item in result.cards[:top_n]]
+    except Exception as exc:
+        logger.error("[JobCapture] 推荐页岗位提取失败: %s", exc)
         return []
 
 
@@ -341,29 +277,13 @@ async def _score_job_cards_by_match(
             "jd_short": (c.get("job_description") or c.get("title_summary") or "")[:120],
         })
 
-    prompt = f"""你是岗位匹配评估专家。下面是 {len(cards_brief)} 个岗位的简短信息，以及候选人简历摘要。
-请基于简历与「查询岗位方向」，对每张卡片输出一个 0-100 的匹配分数。
-越高表示越匹配。评分维度包括技能匹配、经验级别匹配、领域相关性、薪资相称性。
+    from ai.prompts.jobs import build_job_card_scoring_prompt
 
-【查询岗位关键词】{query}
-
-【候选人简历摘要】
-{resume_content[:800]}
-
-【候选岗位列表】
-{_json.dumps(cards_brief, ensure_ascii=False)}
-
-【输出 JSON 格式】必须是一个 JSON 对象：
-{{
-  "scores": [
-    {{"id": 0, "score": 75, "reason": "匹配度评价一句话"}},
-    {{"id": 1, "score": 80, "reason": "..."}}
-  ]
-}}
-
-只输出 JSON 对象，不要其它解释。
-
-Respond in JSON format."""
+    prompt = build_job_card_scoring_prompt(
+        cards_brief=cards_brief,
+        resume_context=resume_content,
+        jd_summary=f"查询岗位关键词：{query}",
+    )
 
     try:
         response = await llms.invoke_text(prompt, api_config, channel="fast")
@@ -496,31 +416,13 @@ async def capture_from_recommendations(
                 f"如果搜索结果中没有理想匹配，就返回最靠前的 {top_n_arg} 个，不要硬凑。"
             )
 
-        prompt = f"""你是一位招聘数据提取专家。以下文本来自 BOSS直聘搜索结果页。
-请提取前 {top_n_arg} 个岗位卡片的结构化信息。
+        from ai.prompts.jobs import build_job_card_extraction_prompt
 
-【页面文本】：
-{snippet}
-{filter_hint}
-
-要求：
-1. 推荐页卡片信息有限，job_description 可能只有岗位一句话简介 + 经验/学历要求，写出来即可
-2. company_name 去掉"有限公司"等后缀
-3. salary_text 保留原文（如 "15-30K" 或 "50-55元/时"）
-4. city 提取可见的城市/区域（如 "广州·天河区"，输出 "广州" 即可）
-5. title_summary 填卡片上额外可见的经验/学历要求（如 "本科 3-5年"），没有就空
-
-【输出格式】必须是一个 JSON 对象，包含 cards 数组字段，形如：
-{{
-  "cards": [
-    {{"company_name": "示例公司", "job_title": "Java工程师", "salary_text": "15-30K", "city": "广州", "title_summary": "本科 3-5年", "job_description": "...")
-    }}
-  ]
-}}
-
-请严格按上述 JSON 对象结构输出，顶层必须是 {{"cards": [...]}}，不要直接输出顶层数组。
-
-Respond in JSON format."""
+        prompt = build_job_card_extraction_prompt(
+            page_text=snippet,
+            top_n=top_n_arg,
+            keyword=query_filter_arg,
+        )
 
         try:
             result = await invoke_structured(

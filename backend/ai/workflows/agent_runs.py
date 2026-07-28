@@ -22,11 +22,13 @@ from ai.runtime.agent_runs.crypto import TaskPayloadConfigurationError
 from ai.runtime.agent_runs.dispatcher import enqueue_agent_run
 from ai.runtime.agent_runs.event_stream import replay_cursor
 from ai.workflows.agent_tasks.registry import execute_registered_task
+from ai.workflows.agent_tasks.types import DeferredExecutionResult
 from ai.workflows.agent_tasks.interview_start import execute_interview_start
 from ai.runtime.agent_runs.outbox import dispatch_pending_outbox
 from app.db.repositories.session.session_repo import SessionRepo
 from ai.runtime.agent_runs.service import (
     AgentRunService,
+    first_running_stage,
     serialize_event,
     serialize_run,
     task_queue_enabled,
@@ -196,22 +198,41 @@ class AgentRunUseCases:
             lease = await get_run_gate().acquire()
             if lease is None:
                 raise AgentRunConflict("当前仍有任务在执行，请稍后重试", status_code=409)
-            stages: list[str] = []
-
-            async def progress(stage: str) -> None:
-                """更新当前用户任务的进度并写入可恢复事件流，拒绝跨用户或不存在任务的更新。"""
-                stages.append(stage)
-
             try:
-                result = await execute_registered_task(task_type, payload, user_id, progress)
-                return AgentRunResponse(
-                    payload={
-                        "task_type": task_type,
-                        "status": "succeeded",
-                        "stage": stages[-1] if stages else "succeeded",
-                        "result": result,
-                    }
-                )
+                try:
+                    run, created = await self._service.create_inline_or_get(
+                        user_id=user_id,
+                        payload=payload,
+                        idempotency_key=idempotency_key,
+                        task_type=task_type,
+                        initial_stage=first_running_stage(task_type),
+                        session_id=session_id,
+                    )
+                except TaskPayloadConfigurationError as exc:
+                    raise AgentRunUnavailable(str(exc), status_code=503) from exc
+
+                if not created:
+                    if run.status in TERMINAL_STATUSES:
+                        return AgentRunResponse(payload=serialize_run(run))
+                    raise AgentRunConflict("同一任务正在执行，请稍后查看任务中心", status_code=409)
+
+                async def progress(stage: str) -> None:
+                    """Persist inline progress exactly like the queue worker path."""
+                    await self._service.mark_stage(run.id, stage)
+
+                execution_payload = {**payload, "_agent_run_id": run.id}
+                try:
+                    result = await execute_registered_task(task_type, execution_payload, user_id, progress)
+                    if isinstance(result, DeferredExecutionResult):
+                        await self._service.succeed_with_result_writer(run.id, result.persist)
+                    else:
+                        await self._service.succeed(run.id, result)
+                except Exception as exc:
+                    await self._service.fail(run.id, str(exc))
+                    raise
+
+                completed = await self._service.get(run.id, user_id)
+                return AgentRunResponse(payload=serialize_run(completed or run))
             finally:
                 await lease.release()
 
@@ -277,6 +298,10 @@ class AgentRunUseCases:
             "limit": limit,
             "offset": offset,
         }
+
+    async def summarize_runs(self, *, user_id: str) -> dict[str, int]:
+        """Return unfiltered lifecycle totals for the authenticated user's task history."""
+        return await self._service.summarize_runs(user_id)
 
     async def list_grouped_runs(
         self,

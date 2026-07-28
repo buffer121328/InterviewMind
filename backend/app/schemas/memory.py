@@ -7,6 +7,31 @@
 from typing import Optional
 from pydantic import BaseModel, Field
 
+from app.schemas.schemas import ApiConfig
+
+
+class MemoryAccessRequest(BaseModel):
+    """Request-scoped mem0 model channels; credentials are used in memory only and are never persisted."""
+
+    api_config: Optional[ApiConfig] = Field(
+        default=None,
+        description="前端模型设置中的 mem0 LLM/Embedding 通道",
+    )
+
+
+class MemoryListRequest(MemoryAccessRequest):
+    """Request for an owner-scoped memory list."""
+
+    page_size: int = Field(default=100, ge=1, le=1000)
+
+
+class MemorySearchRequest(MemoryAccessRequest):
+    """Request for an owner-scoped semantic memory search."""
+
+    query: str = Field(min_length=1, max_length=500)
+    limit: int = Field(default=5, ge=1, le=20)
+    memory_type: Optional[str] = Field(default=None, max_length=100)
+
 
 class MemoryItem(BaseModel):
     """单条记忆"""
@@ -24,6 +49,7 @@ class MemorySearchResponse(BaseModel):
     memories: list[MemoryItem] = Field(default_factory=list, description="记忆列表")
     query: str = Field(description="搜索查询")
     total: int = Field(default=0, description="结果总数")
+    message: Optional[str] = Field(default=None, description="服务不可用时的安全提示")
 
 
 class MemoryListResponse(BaseModel):
@@ -32,6 +58,7 @@ class MemoryListResponse(BaseModel):
     memories: list[MemoryItem] = Field(default_factory=list, description="记忆列表")
     total: int = Field(default=0, description="结果总数")
     user_id: str = Field(description="用户 ID")
+    message: Optional[str] = Field(default=None, description="服务不可用时的安全提示")
 
 
 class MemoryHistoryItem(BaseModel):
@@ -49,6 +76,7 @@ class MemoryHistoryResponse(BaseModel):
     success: bool = Field(description="是否成功")
     history: list[MemoryHistoryItem] = Field(default_factory=list, description="历史记录")
     memory_id: str = Field(description="记忆 ID")
+    message: Optional[str] = Field(default=None, description="服务不可用时的安全提示")
 
 
 class MemoryDeleteResponse(BaseModel):
@@ -58,7 +86,7 @@ class MemoryDeleteResponse(BaseModel):
     memory_id: Optional[str] = Field(default=None, description="删除的记忆 ID")
 
 
-class MemoryDeleteAllRequest(BaseModel):
+class MemoryDeleteAllRequest(MemoryAccessRequest):
     """清空全部记忆请求"""
     confirm: bool = Field(description="必须为 true 才执行删除")
 

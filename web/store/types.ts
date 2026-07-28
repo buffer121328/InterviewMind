@@ -4,7 +4,7 @@
  * 所有 store 相关的类型定义和常量配置
  */
 
-import { JsonObject, ResumeAnalyzeResult, ResumeOptimizeResult } from '@/lib/api/resume';
+import { JsonObject, ResumeResultData } from '@/lib/api/resume';
 import { API_BASE_URL as NORMALIZED_API_BASE_URL } from '@/lib/api/config';
 
 // ============================================================================
@@ -111,7 +111,7 @@ export interface ResumeResultItem {
     job_description: string | null;
     session_ids: string[];
     include_profile: boolean;
-    result_data: ResumeAnalyzeResult | ResumeOptimizeResult;
+    result_data: ResumeResultData;
     created_at: string;
 }
 

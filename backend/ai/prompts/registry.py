@@ -81,39 +81,66 @@ def _register_builtin_prompts() -> None:
     )
     from ai.prompts.interview import (
         EVALUATING_PROMPT,
+        FEEDBACK_PROMPT,
+        HINTS_PROMPT,
         OPENING_PROMPT,
         PLANNER_PROMPT,
         build_evaluating_prompt,
+        build_feedback_prompt,
+        build_hints_prompt,
         build_opening_prompt,
         build_planner_prompt,
     )
-    from ai.prompts.jobs import JOB_CARD_SCORING_PROMPT, build_job_card_scoring_prompt
+    from ai.prompts.jobs import (
+        GREETING_PROMPT, JOB_CARD_EXTRACTION_PROMPT, JOB_CARD_SCORING_PROMPT, JOB_EXTRACTION_PROMPT,
+        build_greeting_prompt, build_job_card_extraction_prompt, build_job_card_scoring_prompt,
+        build_job_extraction_prompt,
+    )
     from ai.prompts.resume import (
+        ASSEMBLER_ASSEMBLE_PROMPT, ASSEMBLER_SYSTEM_PROMPT, ASSEMBLER_USER_PROMPT,
         CONTENT_WRITER_PROMPT,
+        DRAFT_GENERATION_PROMPT, DRAFT_OPTIMIZATION_PROMPT, FACT_CHECK_PROMPT, FINALIZE_REVIEW_PROMPT,
         HR_REVIEWER_PROMPT,
         JD_MATCH_CHAT_PROMPT,
         JD_MATCH_SYSTEM_PROMPT,
         MATCH_ANALYST_PROMPT,
         MODERATOR_PROMPT,
+        MATERIAL_EXTRACTION_PROMPT, NEEDS_ANALYSIS_PROMPT, ORCHESTRATOR_ASSEMBLE_PROMPT,
+        PROJECT_REWRITER_PROMPT, RESUME_ANALYSIS_PROMPT, REWRITE_EXECUTOR_PROMPT,
+        REWRITE_PLANNER_PROMPT,
         REFINE_PROMPT,
         REFLECT_PROMPT,
         build_content_writer_prompt,
+        build_draft_generation_prompt, build_draft_optimization_prompt, build_fact_check_prompt,
+        build_finalize_review_prompt,
         build_hr_reviewer_prompt,
         build_jd_match_system_prompt,
         build_jd_match_user_prompt,
         build_match_analyst_prompt,
         build_moderator_prompt,
+        build_material_extraction_prompt, build_needs_analysis_prompt, build_orchestrator_assemble_prompt,
+        build_project_rewriter_prompt,
         build_refine_prompt,
         build_reflect_prompt,
+        build_resume_analysis_prompt, build_rewrite_executor_prompt, build_rewrite_planner_prompt,
+        build_assembler_assemble_prompt, build_assembler_system_prompt,
+        build_assembler_user_prompt,
     )
 
-    from ai.prompts.voice import VOICE_SYSTEM_PROMPT, build_voice_system_prompt
+    from ai.prompts.voice import (
+        INTERVIEW_VOICE_SYSTEM_PROMPT, TTS_SYSTEM_PROMPT, VOICE_SYSTEM_PROMPT,
+        build_interview_voice_system_prompt, build_tts_system_prompt, build_voice_system_prompt,
+    )
 
     for spec in (
         PromptSpec("interview.planner", "1", build_planner_prompt, "面试题目规划", PLANNER_PROMPT),
         PromptSpec("interview.opening", "1", build_opening_prompt, "面试开场", OPENING_PROMPT),
         PromptSpec("interview.evaluating", "1", build_evaluating_prompt, "面试回答评估与推进", EVALUATING_PROMPT),
+        PromptSpec("interview.hints", "1", build_hints_prompt, "面试回答提示", HINTS_PROMPT),
+        PromptSpec("interview.feedback", "1", build_feedback_prompt, "面试总结反馈", FEEDBACK_PROMPT),
         PromptSpec("voice.system", "1", build_voice_system_prompt, "语音面试回复", VOICE_SYSTEM_PROMPT),
+        PromptSpec("voice.interview_system", "1", build_interview_voice_system_prompt, "完整语音面试系统提示", INTERVIEW_VOICE_SYSTEM_PROMPT),
+        PromptSpec("voice.tts", "1", build_tts_system_prompt, "语音合成系统提示", TTS_SYSTEM_PROMPT),
         PromptSpec("analysis.candidate_profile", "1", build_candidate_analysis_prompt, "单场能力画像", CANDIDATE_ANALYSIS_PROMPT),
         PromptSpec("analysis.weakness_report", "1", build_weakness_analysis_prompt, "短板报告", WEAKNESS_ANALYSIS_PROMPT),
         PromptSpec("analysis.aggregate_profile", "1", build_aggregate_profile_prompt, "跨场综合画像", AGGREGATE_PROFILE_PROMPT),
@@ -125,6 +152,23 @@ def _register_builtin_prompts() -> None:
         PromptSpec("resume.refine", "1", build_refine_prompt, "简历优化：最终改写", REFINE_PROMPT),
         PromptSpec("resume.jd_match.system", "1", build_jd_match_system_prompt, "岗位匹配：系统提示", JD_MATCH_SYSTEM_PROMPT),
         PromptSpec("resume.jd_match.user", "1", build_jd_match_user_prompt, "岗位匹配：用户提示", JD_MATCH_CHAT_PROMPT),
+        PromptSpec("resume.needs_analysis", "1", build_needs_analysis_prompt, "简历生成：信息缺口分析", NEEDS_ANALYSIS_PROMPT),
+        PromptSpec("resume.draft_generation", "1", build_draft_generation_prompt, "简历生成：初稿", DRAFT_GENERATION_PROMPT),
+        PromptSpec("resume.draft_optimization", "1", build_draft_optimization_prompt, "简历生成：初稿优化", DRAFT_OPTIMIZATION_PROMPT),
+        PromptSpec("resume.fact_check", "1", build_fact_check_prompt, "简历生成：事实核查", FACT_CHECK_PROMPT),
+        PromptSpec("resume.finalize_review", "1", build_finalize_review_prompt, "简历生成：最终审查", FINALIZE_REVIEW_PROMPT),
+        PromptSpec("resume.analysis", "1", build_resume_analysis_prompt, "简历竞争力分析", RESUME_ANALYSIS_PROMPT),
+        PromptSpec("resume.assembler.system", "1", build_assembler_system_prompt, "简历素材筛选系统提示", ASSEMBLER_SYSTEM_PROMPT),
+        PromptSpec("resume.assembler.user", "1", build_assembler_user_prompt, "简历素材筛选用户提示", ASSEMBLER_USER_PROMPT),
+        PromptSpec("resume.assembler.assemble", "1", build_assembler_assemble_prompt, "简历素材组装", ASSEMBLER_ASSEMBLE_PROMPT),
+        PromptSpec("resume.project_rewriter", "1", build_project_rewriter_prompt, "项目经历改写", PROJECT_REWRITER_PROMPT),
+        PromptSpec("resume.orchestrator_assemble", "1", build_orchestrator_assemble_prompt, "简历优化最终组装", ORCHESTRATOR_ASSEMBLE_PROMPT),
+        PromptSpec("resume.rewrite_planner", "1", build_rewrite_planner_prompt, "简历改写 Agent 规划", REWRITE_PLANNER_PROMPT),
+        PromptSpec("resume.rewrite_executor", "1", build_rewrite_executor_prompt, "简历改写 Agent 执行", REWRITE_EXECUTOR_PROMPT),
+        PromptSpec("resume.material_extraction", "1", build_material_extraction_prompt, "简历素材抽取", MATERIAL_EXTRACTION_PROMPT),
+        PromptSpec("jobs.greeting", "1", build_greeting_prompt, "岗位打招呼文案", GREETING_PROMPT),
+        PromptSpec("jobs.extraction", "1", build_job_extraction_prompt, "岗位详情抽取", JOB_EXTRACTION_PROMPT),
+        PromptSpec("jobs.card_extraction", "1", build_job_card_extraction_prompt, "岗位卡片抽取", JOB_CARD_EXTRACTION_PROMPT),
         PromptSpec("jobs.card_scoring", "1", build_job_card_scoring_prompt, "岗位卡片批量匹配评分", JOB_CARD_SCORING_PROMPT),
     ):
         prompt_registry.register(spec)

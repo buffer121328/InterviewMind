@@ -258,6 +258,8 @@ def test_production_agent_definitions_are_registered():
         "interview_turn",
         "voice_interview_turn",
         "resume_optimize",
+        "resume_workspace",
+        "resume_generation",
         "interview_report",
         "job_assets",
     }
@@ -266,7 +268,9 @@ def test_production_agent_definitions_are_registered():
     assert definitions["voice_interview_turn"].checkpoint_policy == "durable"
     assert all(item.cancellation_policy == "cooperative" for item in definitions.values())
     for definition in definitions.values():
-        assert definition.graph_name in graph_registry.names()
+        # Workspace is a durable orchestrator made of existing agents, not a LangGraph registration.
+        if definition.task_type != "resume_workspace":
+            assert definition.graph_name in graph_registry.names()
         assert definition.prompt_name is not None
         assert definition.prompt_version is not None
         assert definition.prompt_version in prompt_registry.versions(definition.prompt_name)

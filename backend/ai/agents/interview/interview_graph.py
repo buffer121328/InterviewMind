@@ -331,7 +331,6 @@ async def node_responder(state: InterviewState):
     action 字段决定状态转移 —— 不再靠自然语言猜测。
     """
     from .interview_runtime import InterviewRuntime
-    from app.schemas.interview import OpeningOutput, EvaluatingOutput
     from ai.llm.llm_utils import invoke_structured
 
     api_config = state.get("api_config")

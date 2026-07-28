@@ -173,19 +173,13 @@ async def generate_interview_summary(
     """
     try:
         from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
-        from .mode_strategy import ModeStrategyFactory
+        from ai.prompts.interview import build_feedback_prompt, memo_hint
 
-        # 使用策略模式获取对应模式的反馈提示词
-        strategy = ModeStrategyFactory.get_strategy(mode)
-        system_prompt = strategy.get_feedback_prompt()
-
-        # 构建消息列表
+        # 模式仍由上游校验；反馈规则统一由中央 Prompt 管理。
+        _ = mode
+        system_prompt = build_feedback_prompt()
         if memory_context:
-            system_prompt = f"""{memory_context}
-
-{system_prompt}
-
-具有长期记忆时，请把它作为候选人背景参考，但不要在总结中泄露记忆系统来源。"""
+            system_prompt = f"{system_prompt}\n{memo_hint(memory_context)}"
 
         llm_messages = [SystemMessage(content=system_prompt)]
 

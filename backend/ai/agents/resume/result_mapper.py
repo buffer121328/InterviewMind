@@ -10,14 +10,25 @@ def pipeline_to_optimize_result(pipeline_output: dict) -> ResumeOptimizeResult:
         pipeline_output: 经过类型边界校验的 `pipeline_output`；其格式和可选值由参数类型及调用流程约束。
     """
     jd = pipeline_output.get("jd_analysis") or {}
+    workspace = pipeline_output.get("workspace") or {}
+    workspace_jd = workspace.get("jd_matching") or {}
     change_items_raw = pipeline_output.get("change_items") or []
-    match_score = float(jd.get("match_score", 0))
-    hr_pass_rate = float(jd.get("hr_pass_rate", round(match_score * 0.85)))
+    # Unified workspace results already contain the richer JD Agent score. Prefer it
+    # so old persisted keyword-only pipeline scores cannot reappear as 0 downstream.
+    match_score = float(workspace_jd.get("overall_match_score", jd.get("match_score", 0)))
+    raw_hr_pass_rate = jd.get("hr_pass_rate")
+    hr_pass_rate = (
+        float(raw_hr_pass_rate)
+        if isinstance(raw_hr_pass_rate, (int, float)) and raw_hr_pass_rate > 0
+        else float(round(match_score * 0.85))
+    )
+    workspace_matched = workspace_jd.get("matched_keywords") or []
+    workspace_missing = workspace_jd.get("missing_keywords") or []
     keyword_analysis = {
-        "required": jd.get("keywords_required", jd.get("jd_keywords", [])),
+        "required": jd.get("keywords_required") or jd.get("jd_keywords") or [*workspace_matched, *workspace_missing],
         "preferred": jd.get("keywords_preferred", []),
-        "matched": jd.get("matched_keywords", []),
-        "missing": jd.get("missing_keywords", []),
+        "matched": jd.get("matched_keywords") or workspace_matched,
+        "missing": jd.get("missing_keywords") or workspace_missing,
     }
 
     sections_map: dict = {}

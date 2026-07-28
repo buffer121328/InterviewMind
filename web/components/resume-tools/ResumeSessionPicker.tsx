@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronUp, Loader2 } from 'lucide-react';
+import { ChevronDown, ChevronUp, Eye, Loader2 } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 interface ResumeSessionPickerProps {
@@ -8,9 +8,11 @@ interface ResumeSessionPickerProps {
     isLoading: boolean;
     onToggleOpen: () => void;
     onToggleSession: (sessionId: string) => void;
+    /** Opens the selected interview session in its owner-scoped detail view; absent when the host has no detail entry point. */
+    onOpenSession?: (sessionId: string) => void;
 }
 
-/** Encapsulates resume session picker; returns typed data or state and keeps side effects within the owning module boundary. */
+/** Renders optional interview-session selection while keeping selection and session-detail navigation under the host's control. */
 export function ResumeSessionPicker({
     sessions,
     selectedSessions,
@@ -18,7 +20,13 @@ export function ResumeSessionPicker({
     isLoading,
     onToggleOpen,
     onToggleSession,
+    onOpenSession,
 }: ResumeSessionPickerProps) {
+    /** Stops a nested control from toggling the row in addition to its own explicit action. */
+    function stopRowToggle(event: React.MouseEvent<HTMLElement>) {
+        event.stopPropagation();
+    }
+
     return (
         <div className="space-y-3">
             <div
@@ -55,6 +63,7 @@ export function ResumeSessionPicker({
                             >
                                 <Checkbox
                                     checked={selectedSessions.includes(session.session_id)}
+                                    onClick={stopRowToggle}
                                     onCheckedChange={() => onToggleSession(session.session_id)}
                                 />
                                 <div className="flex-1 min-w-0">
@@ -63,6 +72,15 @@ export function ResumeSessionPicker({
                                         第{session.round_index}轮 · {session.message_count} 条消息
                                     </p>
                                 </div>
+                                {onOpenSession && (
+                                    <button
+                                        type="button"
+                                        className="inline-flex shrink-0 items-center gap-1 rounded px-2 py-1 text-xs text-teal-700 hover:bg-teal-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-600"
+                                        onClick={event => { stopRowToggle(event); onOpenSession(session.session_id); }}
+                                    >
+                                        <Eye className="h-3.5 w-3.5" aria-hidden="true" />查看
+                                    </button>
+                                )}
                             </div>
                         ))
                     )}

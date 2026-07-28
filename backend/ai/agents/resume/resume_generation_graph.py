@@ -5,6 +5,7 @@
 
 import json
 import logging
+from collections.abc import Awaitable, Callable
 from typing import List, Optional, Dict, Any, TypedDict
 from langchain_core.messages import HumanMessage
 from langgraph.graph import StateGraph, END
@@ -14,6 +15,13 @@ from app.schemas.llm_outputs import (
 )
 from ai.llm.llm_utils import invoke_structured, clean_markdown_response
 from ai.llm import llms
+from ai.prompts.resume import (
+    build_draft_generation_prompt,
+    build_draft_optimization_prompt,
+    build_fact_check_prompt,
+    build_finalize_review_prompt,
+    build_needs_analysis_prompt,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +40,7 @@ class ResumeGenerationState(TypedDict):
     api_config: Optional[dict]
     user_id: str
     agent_run_id: Optional[str]
+    manage_agent_run: bool
 
     # 中间状态
     missing_info_analysis: Optional[dict]
@@ -53,6 +62,18 @@ class ResumeGenerationState(TypedDict):
 # 节点实现
 # ============================================================================
 
+
+def _keyword_analysis(optimization_result: dict[str, Any]) -> dict[str, Any]:
+    """Return a mapping for optional keyword analysis from legacy or workspace results.
+
+    Persisted optimization records may explicitly contain ``keyword_analysis: null``.
+    Treating that value as an empty mapping keeps generation available without
+    inventing keywords or weakening the existing human-review gate.
+    """
+    value = optimization_result.get("keyword_analysis")
+    return value if isinstance(value, dict) else {}
+
+
 async def node_analyze_needs(state: ResumeGenerationState) -> dict:
     """
     需求分析节点：分析优化结果，识别需要用户确认的信息
@@ -62,50 +83,11 @@ async def node_analyze_needs(state: ResumeGenerationState) -> dict:
     optimization_result = state.get("optimization_result") or {}
     api_config = state.get("api_config")
 
-    prompt = f"""你是一位「简历信息核查专家」。请分析以下信息，找出生成完整简历前需要用户确认或补充的关键信息。
-
-【原始简历】：
-{resume_content}
-
-【目标职位】：
-{job_description}
-
-【优化建议要点】：
-{json.dumps(optimization_result.get('key_improvements', [])[:5], ensure_ascii=False)}
-
-请检查以下方面是否有缺失或需要确认：
-1. 量化数据（如业绩数字、用户规模、提升比例）- 仅在原文提到但未给出具体数字时询问
-2. 具体技术栈或工具 - 仅在JD要求但简历未明确提及且可能具备时询问
-3. 项目中的个人贡献和角色 - 仅在描述模糊时询问
-4. 与目标岗位高度相关的项目经历 - 仅在项目经历描述模糊时询问
-
-请输出 JSON 格式（不要使用 markdown 代码块，注意 JSON 结构涉及的标点必须是英文）：
-{{
-    "has_gaps": true/false,
-    "questions": [
-        "您在项目A中带来的用户增长大约是多少？（如：增长50%）",
-        ...
-    ]
-}}
-
-**重要提示**：
-
-**什么时候应该提问（has_gaps: true）**：
-- 原简历中明确提到了某项成果但缺少具体数字（如"用户增长明显"但没说多少）
-- JD 中有明确的硬性要求，但简历中完全没提及（需确认是否具备）
-- 关键项目的个人角色/贡献描述非常模糊，无法判断
-
-**什么时候不应该提问（has_gaps: false）**：
-- 信息已经足够生成一份完整的简历
-- 缺失的信息可以通过合理推断或适度包装来弥补
-- 问题太琐碎或对简历质量影响不大
-
-**提问原则**：
-- 最多只问 1-3 个最关键的问题
-- 问题必须具体、容易回答（给出示例格式）
-- 优先问能带来量化数据的问题
-- 对于项目经历缺失，请引导用户采用 STAR 法则补充（如：背景、任务、行动、结果）
-"""
+    prompt = build_needs_analysis_prompt(
+        resume_content=resume_content,
+        job_description=job_description,
+        optimization_result=optimization_result,
+    )
 
     try:
         result = await invoke_structured(prompt, NeedsAnalysisOutput, api_config, channel="general")
@@ -169,7 +151,7 @@ async def node_generate_draft(state: ResumeGenerationState) -> dict:
     }
 
     # 提取关键词分析
-    keyword_analysis = optimization_result.get('keyword_analysis', {})
+    keyword_analysis = _keyword_analysis(optimization_result)
     jd_keywords = keyword_analysis.get('jd_keywords', [])
     missing_keywords = keyword_analysis.get('missing', [])
     keyword_recommendations = keyword_analysis.get('recommendations', [])
@@ -187,97 +169,15 @@ async def node_generate_draft(state: ResumeGenerationState) -> dict:
 请务必在简历中自然地融入上述关键词，特别是缺失的关键词！
 """
 
-    prompt = f"""你是一位「资深简历包装专家」。请根据以下信息，为候选人打造一份**精炼有力、具有竞争力**的简历。
-
-**核心原则**：
-1. **精炼为王**：删减冗余表达，每个要点都要有信息量，避免空洞的描述。
-2. **强化岗位匹配**：优先突出与目标职位最相关的经历、技能和成果，弱化或省略不相关内容。
-3. **适度包装**：在真实基础上，对经历进行专业化润色和合理延伸（详见下方包装范畴）。
-4. **严禁恶意造假**：不能编造不存在的公司、职位或完全不具备的硬技能。
-
-【适度包装的范畴 - 允许执行】：
-✅ **语言升维**：将口语化描述升级为专业表达
-   - "修了bug" → "修复核心模块内存泄漏问题，提升系统稳定性"
-   - "做了个网站" → "独立开发企业官网，提升品牌线上曝光度"
-
-✅ **合理推导**：基于已有经历进行逻辑延伸
-   - 开发了后台系统 → "设计并实现企业级后台管理系统，支撑N个业务部门高效运营"
-   - 参与用户增长 → "参与用户增长策略制定，助力产品用户规模提升"
-
-✅ **量化成果**：用合理估算的数据增强说服力
-   - 使用"约"、"超"、"近"等修饰词，如"用户增长约30%"、"响应时间优化超50%"
-   - 基于行业标准估算合理数据，如"服务日活用户10万+"
-
-✅ **岗位匹配强化**：主动对标JD关键词和要求
-   - 将JD中的核心关键词自然融入经历描述
-   - 突出展示JD要求的技能和项目经验
-   - 调整描述角度，让经历更贴合目标岗位
-
-✅ **成果放大**：突出个人贡献和影响力
-   - 强调"主导"、"独立完成"、"核心负责"等角色
-   - 突出对团队/业务的实际贡献
-
----
-
-【原始简历】：
-{resume_content}
-
-{user_info_section}
-
-【目标职位】：
-{job_description}
-
-【关键改进点 - 重点执行】：
-{json.dumps(optimization_result.get('key_improvements', [])[:5], ensure_ascii=False, indent=2)}
-
-上述改进点是专家分析后给出的建议，请务必在简历中体现！
-{keyword_section}
-{review_guidance}
-
----
-
-【风格要求】：{style_guide.get(template_style, style_guide['professional'])}
-【语言要求】：必须使用中文（简体）撰写。
-
-## 输出结构（请严格按照以下格式，内容精炼有力）：
-
-# [姓名]
-> [性别] | [年龄] | [联系方式]
-[求职意向] | [期望薪资] | [期望城市]
-
-## 个人简介
-（2-3句话，精炼概括核心竞争力，抓住以下重点：①核心技术/专业优势 ②最突出的成果或亮点 ③与目标岗位的匹配度。切忌冗长堆砌，每句话都要有信息量！）
-- 优先把核心技术/专业优势写在前面
-
-## 工作经历
-### [公司名称] | [职位] | [时间段]
-- 用精炼的语言描述核心职责和成果
-- 优先展示量化成果（数据、规模、提升比例）
-- 突出与目标职位相关的经历
-（每段经历2-4个最有价值的要点即可，避免堆砌）
-
-## 项目经历
-### [项目名称] | [角色] | [时间段]
-- 一句话说明项目背景和你的角色
-- 重点描述个人贡献和量化成果
-（每个项目2-3个核心要点，突出亮点）
-
-## 专业技能
-- **核心技能**：与JD最匹配的技术栈（精通/熟练）
-- **辅助技能**：其他相关技能简要列出
-（技能模块精简为一级列表，突出与JD匹配的核心能力）
-
-## 教育背景
-### [学校名称] | [专业] | [学历] | [时间段]
-- 仅保留与职位相关的亮点（高GPA、相关课程、荣誉）
-
----
-
-**输出规范**：
-1. 直接输出 Markdown 内容，不要用代码块包裹，禁止使用emoji表情
-2. **精炼优先**：每个要点都要有信息量，删除空洞描述
-3. **突出重点**：优先展示与目标职位最相关的内容
-"""
+    prompt = build_draft_generation_prompt(
+        resume_content=resume_content,
+        job_description=job_description,
+        optimization_result=optimization_result,
+        user_info_section=user_info_section,
+        keyword_section=keyword_section,
+        review_guidance=review_guidance,
+        template_style=template_style,
+    )
 
     try:
         response = await llms.invoke_text(
@@ -310,100 +210,19 @@ async def node_optimize_draft(state: ResumeGenerationState) -> dict:
     # 获取优化建议
     optimization_result = state.get("optimization_result") or {}
     key_improvements = optimization_result.get('key_improvements', [])
-    keyword_analysis = optimization_result.get('keyword_analysis', {})
+    keyword_analysis = _keyword_analysis(optimization_result)
     jd_keywords = keyword_analysis.get('jd_keywords', [])
     missing_keywords = keyword_analysis.get('missing', [])
 
-    prompt = f"""你是一位「简历质量优化专家」。请对比【原始资料】和【初稿】，进行深度优化。
-
-## 输入信息
-
-【原始简历】：
-{resume_content}
-
-【用户补充信息】：
-{user_inputs}
-
-【目标职位】：
-{job_description}
-
-【当前初稿】：
-{draft_content}
-
----
-
-## 必须执行的优化建议
-
-【关键改进点】（来自专家分析，必须落实）：
-{json.dumps(key_improvements[:5], ensure_ascii=False, indent=2)}
-
-【关键词要求】：
-- JD核心关键词：{json.dumps(jd_keywords[:10], ensure_ascii=False)}
-- 缺失的关键词（必须补充）：{json.dumps(missing_keywords[:8], ensure_ascii=False)}
-
----
-
-## 优化任务
-
-### 1. 信息完整性检查
-对比【原始简历】和【当前初稿】：
-- 关键工作经历是否被遗漏？→ 必须保留核心经历
-- 重要项目是否被遗漏？→ 必须保留有价值的项目
-- 项目日期是否准确？→ 必须与原简历一致
-
-### 2. 精炼度优化（重点！）
-**简历要精炼有力，每个要点都要有信息量**：
-- 个人简介：控制在2-3句话，抓住核心竞争力和与岗位匹配度
-- 工作/项目经历：每段2-4个最有价值的要点，删除空洞描述
-- 专业技能：精简为与JD最相关的核心技能，避免罗列过多
-
-### 3. 自我介绍优化（关键！）
-个人简介必须做到：
-- **精炼**：控制在2-3句话，不超过100字
-- **聚焦**：只突出①核心技术优势 ②最突出成果 ③与岗位匹配度
-- **有信息量**：每句话都有实质内容，删除"努力"、"热爱"等空洞描述
-
-### 4. 关键词融入
-检查【缺失的关键词】是否已自然地融入简历中：
-- 在工作职责、项目描述、技能列表中体现
-- 确保关键词覆盖率达到80%以上
-
-### 5. 量化与成果
-- 保留有说服力的量化成果
-- 删除模糊的、没有信息量的描述
-
-### 6. 关键改进点落实检查
-逐条检查【关键改进点】是否已在简历中体现，未体现的必须补充。
-
----
-
-## 输出要求
-
-请输出 JSON 格式（不要使用 markdown 代码块，注意 JSON 结构涉及的标点必须是英文）：
-{{
-    "optimized_content": "优化后的完整 Markdown 简历（精炼有力）...",
-    "optimization_summary": {{
-        "missing_info_fixed": ["补充了XX项目经历", "保留了关键信息..."],
-        "content_refined": ["精简了冗余描述", "优化了个人简介..."],
-        "skills_focused": ["聚焦核心技能", "突出JD匹配技能..."],
-        "keywords_added": ["融入了关键词XX", "补充了技能关键词XX..."],
-        "improvements_applied": ["落实了改进点1", "落实了改进点2..."]
-    }},
-    "quality_scores": {{
-        "completeness": 85,
-        "conciseness": 85,
-        "focus": 90,
-        "keyword_coverage": 90,
-        "jd_match": 82
-    }}
-}}
-
-重要提醒：
-- optimized_content 必须是完整的 Markdown 简历，禁止使用emoji表情
-- **精炼优先**：删除空洞描述，每个要点都要有信息量
-- **个人简介必须精炼**：2-3句话抓住重点，切忌冗长
-- **关键词和改进点必须落实**
-"""
+    prompt = build_draft_optimization_prompt(
+        resume_content=resume_content,
+        draft_content=draft_content,
+        job_description=job_description,
+        user_inputs=user_inputs,
+        key_improvements=key_improvements,
+        jd_keywords=jd_keywords,
+        missing_keywords=missing_keywords,
+    )
 
     try:
         result = await invoke_structured(prompt, DraftOptimizationOutput, api_config, channel="content_writer")
@@ -441,42 +260,11 @@ async def node_fact_check(state: ResumeGenerationState) -> dict:
 
     user_inputs = json.dumps(user_answers, ensure_ascii=False) if user_answers else "无"
 
-    prompt = f"""你是一位「简历风控专家」。请对比【原始资料】和【生成简历】，检查是否存在**过度包装或恶意造假**。
-
-【判定标准】：
-- 🟢 **安全（适度包装）**：语言润色、合理的推断、基于行业标准估算的数据、突显亮点。 -> **无需报告**
-- 🔴 **危险（恶意造假）**：
-    1. 编造不存在的公司或已确认不存在的职位。
-    2. 编造候选人显然不具备的核心硬技能（如文员编造会写操作系统内核）。
-    3. 数据极度夸张、违反常理（如实习生独立带来上亿营收）。
-
-【原始资料】：
-{resume_content}
-用户补充: {user_inputs}
-
-【生成简历】：
-{draft_content}
-
----
-
-请只报告🔴**危险**级别的造假。如果只是🟢适度包装（包括基于经验的合理推断、语言上的专业化润色），请务必**放行**（is_excessive=false）。
-
-**只有在确实出现"无中生有"的核心硬技能或经历时，才标记为过度造假。**
-
-请输出 JSON 格式（不要使用 markdown 代码块、注意 JSON 结构涉及的标点必须是英文）：
-{{
-    "is_excessive": true/false,  // 是否过度造假
-    "risk_details": [
-        {{
-            "type": "excessive_fabrication",
-            "location": "具体位置（如：工作经历-XX公司、项目经历-XX项目、专业技能等）",
-            "original": "原始简历中的相关内容（如无则填'无相关描述'）",
-            "fabricated": "生成简历中被造假/过度夸大的具体内容",
-            "reason": "判定为造假的理由（如：原简历无此技能、数据违反常理等）"
-        }}
-    ]
-}}
-"""
+    prompt = build_fact_check_prompt(
+        resume_content=resume_content,
+        draft_content=draft_content,
+        user_inputs=user_inputs,
+    )
 
     try:
         result = await invoke_structured(prompt, FactCheckOutput, api_config, channel="general")
@@ -500,7 +288,7 @@ async def node_finalize_and_review(state: ResumeGenerationState) -> dict:
     api_config = state.get("api_config")
 
     # 获取 JD 关键词
-    jd_keywords = optimization_result.get("keyword_analysis", {}).get("jd_keywords", [])[:10]
+    jd_keywords = _keyword_analysis(optimization_result).get("jd_keywords", [])[:10]
 
     # 构建警告
     warning = ""
@@ -532,37 +320,11 @@ async def node_finalize_and_review(state: ResumeGenerationState) -> dict:
 - **不要删除整段经历，也不要大幅缩减简历篇幅**
 """
 
-    prompt = f"""你是一位「简历终审专家」。请对以下简历进行最终润色。
-
-【简历草稿】：
-{draft_content}
-
-【目标职位关键词】：
-{json.dumps(jd_keywords, ensure_ascii=False)}
-
-{warning}
-
-请执行以下任务：
-1. **修正过度造假**：如果有风控警告，必须修正。
-2. **润色语言**：让措辞更加专业、自信（允许适度包装）。
-3. **格式检查**：确保 Markdown 格式标准、美观。
-4. **长度保持**：**严禁大幅删减内容！** 修正后的简历长度应与草稿基本保持一致（允许+/- 10%波动）。如果不涉及造假的部分，请原样保留或仅做润色。
-5. **最终打磨**：确保简历读起来流畅、专业。
-
-请输出 JSON 格式（不要使用 markdown 代码块，注意 JSON 结构涉及的标点必须是英文）：
-{{
-    "final_content": "最终修订后的完整 Markdown 简历...",
-    "review_passed": true/false,
-    "modification_notes": ["修正了严重夸大的数据", "优化了项目描述..."],
-    "title": "姓名-目标职位"
-}}
-注意：
-- optimized_content 必须是完整的 Markdown 简历，禁止使用emoji表情
-- 内容要丰富，不要写得太简洁！每个模块都要有实质内容
-- 专业技能要详细，体现深度和与岗位的匹配
-- 禁止使用emoji表情
-- 禁止修改项目日期
-"""
+    prompt = build_finalize_review_prompt(
+        draft_content=draft_content,
+        jd_keywords_json=json.dumps(jd_keywords, ensure_ascii=False),
+        warning_text=warning,
+    )
 
     try:
         result = await invoke_structured(prompt, FinalReviewOutput, api_config, channel="hr_reviewer")
@@ -611,15 +373,33 @@ async def node_increment_iteration(state: ResumeGenerationState) -> dict:
     return {"iteration_count": state.get("iteration_count", 0) + 1}
 
 
-def build_resume_generation_graph():
-    """构建简历生成 StateGraph"""
+GenerationProgressCallback = Callable[[str, str, dict[str, Any]], Awaitable[None]]
+
+
+def build_resume_generation_graph(
+    progress_callback: Optional[GenerationProgressCallback] = None,
+):
+    """构建简历生成 StateGraph，并可把节点级真实进度回写到会话与 AgentRun。"""
     workflow = StateGraph(ResumeGenerationState)
 
+    def tracked_node(stage: str, node):
+        """Wrap one graph node with non-sensitive started/completed progress events."""
+        if progress_callback is None:
+            return node
+
+        async def run(state: ResumeGenerationState) -> dict:
+            await progress_callback(stage, "started", {})
+            result = await node(state)
+            await progress_callback(stage, "completed", result)
+            return result
+
+        return run
+
     # 添加节点
-    workflow.add_node("generate_draft", node_generate_draft)
-    workflow.add_node("optimize_draft", node_optimize_draft)
-    workflow.add_node("fact_check", node_fact_check)
-    workflow.add_node("finalize_review", node_finalize_and_review)
+    workflow.add_node("generate_draft", tracked_node("draft_generation", node_generate_draft))
+    workflow.add_node("optimize_draft", tracked_node("draft_optimization", node_optimize_draft))
+    workflow.add_node("fact_check", tracked_node("fact_check", node_fact_check))
+    workflow.add_node("finalize_review", tracked_node("final_review", node_finalize_and_review))
     workflow.add_node("increment_iteration", node_increment_iteration)
 
     # 设置入口

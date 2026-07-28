@@ -36,7 +36,7 @@ def get_mem0_config(api_config: Optional[dict[str, Any]] = None) -> Optional[dic
     返回 mem0 Memory.from_config() 所需的 config。
 
     Returns:
-        dict: mem0 配置字典，如果 MEM0_ENABLED=false 则返回 None
+        dict: mem0 配置字典；未启用或 OpenAI-compatible 通道凭据不完整时返回 None。
     """
     request_llm = _request_channel(api_config, "mem0_llm")
     request_embedder = _request_channel(api_config, "mem0_embedder") or _request_channel(api_config, "rag_embedding")
@@ -74,10 +74,27 @@ def get_mem0_config(api_config: Optional[dict[str, Any]] = None) -> Optional[dic
         or "https://dashscope.aliyuncs.com/compatible-mode/v1"
     )
     mem0_embedder_model = (request_embedder or {}).get("model") or _env("MEM0_EMBEDDER_MODEL", "text-embedding-v4")
+    llm_provider = _env("MEM0_LLM_PROVIDER", "openai")
+    embedder_provider = _env("MEM0_EMBEDDER_PROVIDER", "openai")
+
+    # 默认使用 OpenAI-compatible provider；缺少凭据时直接禁用，避免 mem0 在应用启动阶段抛出认证异常。
+    missing_channels = []
+    if llm_provider != "ollama" and not mem0_llm_api_key:
+        missing_channels.append("LLM")
+    if embedder_provider != "ollama" and not mem0_embedder_api_key:
+        missing_channels.append("Embedding")
+    if missing_channels:
+        log = logger.info if api_config is None else logger.warning
+        log(
+            "mem0 尚未初始化：%s 通道缺少 API Key%s",
+            "、".join(missing_channels),
+            "，等待前端请求携带模型设置" if api_config is None else "",
+        )
+        return None
 
     # LLM 配置（用于记忆提取和冲突判断）
     llm_config = {
-        "provider": _env("MEM0_LLM_PROVIDER", "openai"),
+        "provider": llm_provider,
         "config": {
             "model": mem0_llm_model,
             "api_key": mem0_llm_api_key,
@@ -88,7 +105,7 @@ def get_mem0_config(api_config: Optional[dict[str, Any]] = None) -> Optional[dic
 
     # Embedding 配置（用于语义检索）
     embedder_config = {
-        "provider": _env("MEM0_EMBEDDER_PROVIDER", "openai"),
+        "provider": embedder_provider,
         "config": {
             "model": mem0_embedder_model,
             "api_key": mem0_embedder_api_key,

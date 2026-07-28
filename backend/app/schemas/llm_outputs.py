@@ -3,7 +3,7 @@ LLM 结构化输出模型集中定义
 所有 LLM 调用的 Pydantic 输出模型统一管理，配合 with_structured_output 使用
 """
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import List, Optional, Dict, Any
 
 
@@ -21,6 +21,24 @@ class InterviewQuestionItem(BaseModel):
     sources: List[Dict[str, Any]] = Field(default_factory=list, description="证据来源")
     reason: Optional[str] = Field(default=None, description="为什么问这道题")
     fallback_reason: Optional[str] = Field(default=None, description="回退原因")
+
+    @field_validator("sources", mode="before")
+    @classmethod
+    def normalize_source_labels(cls, value):
+        """兼容模型把来源简写成字符串，避免有效计划因轻微格式偏差反复重试。"""
+        if not isinstance(value, list):
+            return []
+        return [
+            {
+                "source_type": "model_label",
+                "source_id": "",
+                "evidence": item,
+            }
+            if isinstance(item, str)
+            else item
+            for item in value
+            if isinstance(item, (str, dict))
+        ]
 
 
 class PlanOutput(BaseModel):

@@ -19,6 +19,7 @@ from typing import Any, Literal, Optional
 from pydantic import BaseModel, Field
 
 from ai.llm.llm_utils import invoke_structured
+from ai.prompts.resume import build_rewrite_executor_prompt, build_rewrite_planner_prompt
 from app.schemas.llm_outputs import ContentSuggestionsOutput
 
 logger = logging.getLogger(__name__)
@@ -146,28 +147,13 @@ async def _plan_rewrite(
         retry_guidance: 经过类型边界校验的 `retry_guidance`；其格式和可选值由参数类型及调用流程约束。
         api_config: api 配置。
     """
-    prompt = f"""你是简历改写 Agent 的规划器。请先规划本轮改写策略，不要输出最终简历。
-
-【目标】
-- 只基于已有证据优化表达，不捏造经历、技能、指标和职级。
-- 优先提升 JD 匹配度，同时保持事实安全。
-
-【JD】
-{job_description[:1800]}
-
-【简历摘要】
-{resume_content[:2200]}
-
-【JD 分析 JSON】
-{_json_dumps(jd_analysis)}
-
-【素材池摘要 JSON】
-{_material_summary(material_pool)}
-
-【返工要求】
-{retry_guidance or "无"}
-
-请输出 JSON，字段包含 focus_sections、evidence_to_use、avoid_risks、rewrite_strategy。"""
+    prompt = build_rewrite_planner_prompt(
+        resume_content=resume_content[:3500],
+        job_description=job_description[:2400],
+        jd_analysis=jd_analysis,
+        material_pool={"summary": _material_summary(material_pool)},
+        retry_guidance=retry_guidance,
+    )
     return await invoke_structured(
         prompt,
         ResumeRewritePlanOutput,
@@ -202,36 +188,16 @@ async def _rewrite(
     """
     plan_section = plan.model_dump() if plan else {}
     max_items = 4 if mode == "fast" else 8
-    prompt = f"""你是一位受控简历改写 Agent。请输出结构化 JSON，不要输出整份 Markdown 简历。
-
-【硬性规则】
-1. 只能输出 ContentSuggestionsOutput 结构，重点填写 change_items。
-2. 每条 change_item 必须包含 section_name、original_text、optimized_text、change_type、reason、evidence_source、requires_user_confirmation、confidence。
-3. change_type 只能是 polish / restructure / suggest_addition / fact_inference。
-4. polish/restructure 必须基于原简历或明确素材；不能新增事实。
-5. 新技能、新职责、新量化指标、未证实的强角色表述，必须使用 suggest_addition 或 fact_inference，并设置 requires_user_confirmation=true。
-6. 不要硬塞 JD 关键词；没有证据时写成“建议补充/如有经验可补充”。
-7. 最多输出 {max_items} 条 change_items，优先输出高价值改写。
-
-【JD】
-{job_description[:2400]}
-
-【原始简历】
-{resume_content[:3500]}
-
-【JD 分析 JSON】
-{_json_dumps(jd_analysis)}
-
-【素材池摘要 JSON】
-{_material_summary(material_pool)}
-
-【Agent 规划 JSON】
-{_json_dumps(plan_section)}
-
-【返工要求】
-{retry_guidance or "无"}
-
-请输出 JSON。"""
+    prompt = build_rewrite_executor_prompt(
+        resume_content=resume_content[:5000],
+        job_description=job_description[:3000],
+        jd_analysis=jd_analysis,
+        material_pool={"summary": _material_summary(material_pool)},
+        plan=plan_section,
+        retry_guidance=retry_guidance,
+        mode=mode,
+        max_items=max_items,
+    )
     channel = "fast" if mode == "fast" else "content_writer"
     max_retries = 1 if mode == "fast" else 2
     return await invoke_structured(

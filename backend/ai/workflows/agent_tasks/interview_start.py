@@ -3,13 +3,16 @@
 import logging
 import uuid
 from collections.abc import Awaitable, Callable
+from datetime import datetime
 
 from fastapi import HTTPException
 
 from app.db.repositories.session.session_repo import SessionRepo
 from ai.agents.interview.interview_context import build_interview_context
 from ai.agents.interview.interview_graph import build_interview_graph
+from ai.workflows.interview.response_content import extract_latest_assistant_content
 from app.domain.interview_rounds import resolve_max_questions, resolve_round_type
+from app.domain.interview_session_titles import build_interview_session_title
 from observability import langgraph_langfuse_scope, with_langgraph_langfuse_config
 
 logger = logging.getLogger(__name__)
@@ -51,17 +54,21 @@ async def execute_interview_start(payload: dict, user_id: str, progress: _Progre
             question_bank_count=request.get("question_bank_count", 0),
             experience_questions=request.get("experience_questions", []),
             session_metadata=session.metadata if session else None,
+            api_config=request.get("api_config"),
         )
         inputs = {
             "messages": [], **context.graph_fields(),
             "mode": request["mode"], "session_id": thread_id, "user_id": user_id,
-            "run_id": str(uuid.uuid4()), "interview_plan": [], "current_question_index": 0,
+            "run_id": request.get("_agent_run_id") or str(uuid.uuid4()), "interview_plan": [], "current_question_index": 0,
             "question_count": 0, "api_config": request.get("api_config"),
         }
 
-        summary_source = inputs["job_description"] or ""
-        summary = f"{summary_source[:15]}..." if len(summary_source) > 15 else summary_source
-        title = f"{summary} - 第{inputs['round_index']}轮"
+        title = build_interview_session_title(
+            started_at=datetime.now(),
+            round_type=inputs["round_type"],
+            max_questions=inputs["max_questions"],
+            round_index=inputs["round_index"],
+        )
         await session_repo.update_session(thread_id, title=title, user_id=user_id)
         if progress:
             await progress("generating_question")
@@ -77,11 +84,14 @@ async def execute_interview_start(payload: dict, user_id: str, progress: _Progre
             },
         )
         with langgraph_langfuse_scope("callbacks" in config):
-            async for event in graph.astream_events(inputs, config=config, version="v1"):
-                if event["event"] == "on_chat_model_stream" and event.get("metadata", {}).get("langgraph_node") == "responder":
-                    content = event["data"]["chunk"].content
+            async for event in graph.astream_events(inputs, config=config, version="v2"):
+                if (
+                    event["event"] == "on_chain_end"
+                    and event.get("metadata", {}).get("langgraph_node") == "responder"
+                ):
+                    content = extract_latest_assistant_content(event.get("data", {}).get("output"))
                     if content:
-                        first_question += content
+                        first_question = content
         if first_question:
             await session_repo.add_message(thread_id, "assistant", first_question, question_index=0, user_id=user_id)
         return {

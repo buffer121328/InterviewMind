@@ -8,6 +8,7 @@ from typing import Optional
 from langchain_core.messages import HumanMessage
 
 from ai.llm import llms
+from ai.prompts.resume import build_project_rewriter_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -49,65 +50,12 @@ def _build_prompt(
         rewrite_mode: 经过类型边界校验的 `rewrite_mode`；其格式和可选值由参数类型及调用流程约束。
         job_description: 经过类型边界校验的 `job_description`；其格式和可选值由参数类型及调用流程约束。
     """
-    base_instructions = """请严格返回 JSON 对象，且必须包含以下字段：
-- rewritten_content: string
-- rewrite_reason: string
-- suggested_data_points: array[string]
-- possible_followup_questions: array[string]
-- should_update_material: boolean
-- inferred_content: array[string] | null
-
-要求：
-1. 只输出纯 JSON，不要输出 markdown、解释、前后缀文本。
-2. 不要编造不存在的事实、指标或成果。
-3. 如果存在推断内容，必须写入 inferred_content。
-4. 数组字段必须返回数组，不得返回字符串。"""
-
-    if rewrite_mode == "star_rewrite":
-        mode_instructions = """你要将项目经历按照 STAR 方法重写：
-- Situation：项目背景/场景
-- Task：你的职责/目标
-- Action：你采取的关键动作
-- Result：产生的结果/影响
-
-目标是让项目描述更结构化、更有冲击力。"""
-    elif rewrite_mode == "quantify_results":
-        mode_instructions = """你要重点补强量化结果和指标表达：
-- 优先提炼可量化成果
-- 如果原文没有明确指标，只能基于语义做“可能推断”，且必须放入 inferred_content
-- 不得把推断结果写成已确认事实"""
-    elif rewrite_mode == "jd_customize":
-        if not job_description:
-            raise ValueError("jd_customize 模式必须提供 job_description")
-        mode_instructions = """你要根据岗位描述定制该项目经历：
-- 突出与 JD 相关的能力、技术、业务场景
-- 保留真实事实，不得虚构经历
-- 若需要补充关联点，只能作为 inferred_content"""
-    elif rewrite_mode == "followup_prediction":
-        mode_instructions = """你不需要改写内容本身：
-- rewritten_content 必须保持与原始内容一致
-- 重点预测面试官可能追问的问题
-- rewrite_reason 说明面试官可能关注哪些细节和风险点"""
-    else:
-        mode_instructions = """你要基于项目内容进行通用优化重写，提升清晰度、专业度和表达效果。"""
-
-    job_description_section = f"岗位描述：\n{job_description}\n" if job_description else ""
-
-    prompt = f"""你是一位资深面试辅导专家，负责“项目经历重写助手”。
-
-项目名称：{project_title}
-rewrite_mode：{rewrite_mode}
-
-项目原文：
-{project_content}
-
-{job_description_section}
-
-{mode_instructions}
-
-{base_instructions}
-"""
-    return prompt
+    return build_project_rewriter_prompt(
+        project_content=project_content,
+        project_title=project_title,
+        rewrite_mode=rewrite_mode,
+        job_description=job_description,
+    )
 
 
 async def rewrite_project(

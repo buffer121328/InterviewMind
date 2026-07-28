@@ -1,5 +1,5 @@
 export type AgentRunStatus = 'queued' | 'retrying' | 'running' | 'cancel_requested' | 'succeeded' | 'failed' | 'cancelled';
-export type AgentRunTaskType = 'interview_start' | 'interview_turn' | 'voice_interview_turn' | 'resume_optimize' | 'resume_workspace' | 'interview_report' | 'job_assets';
+export type AgentRunTaskType = 'interview_start' | 'interview_turn' | 'voice_interview_turn' | 'resume_optimize' | 'resume_workspace' | 'resume_generation' | 'interview_report' | 'job_assets';
 
 export const AGENT_RUN_EVENT_TYPES = [
     'run.created',
@@ -31,6 +31,12 @@ export interface AgentRun {
     session_id?: string | null;
     /** Optional, ownership-scoped human-readable title for the linked interview session. */
     session_title?: string | null;
+    /** Lifecycle of the linked interview session; unlike `status`, this represents the whole interview. */
+    session_status?: string | null;
+    /** Number of completed main questions / zero-based next-question index persisted by the interview session. */
+    session_question_count?: number | null;
+    /** Planned number of main questions for the linked interview session. */
+    session_max_questions?: number | null;
     agent_name: string;
     agent_version: string;
     task_type: AgentRunTaskType;

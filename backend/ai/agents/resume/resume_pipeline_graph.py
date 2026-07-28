@@ -105,7 +105,7 @@ def build_resume_graph(
                 "stage1",
                 stage1_jd_analysis,
                 values,
-                ("resume_content", "job_description"),
+                ("resume_content", "job_description", "jd_analysis"),
             ),
             ttl=900,
         ),

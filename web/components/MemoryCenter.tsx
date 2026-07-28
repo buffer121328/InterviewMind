@@ -32,6 +32,7 @@ import {
     type MemoryHistoryItem,
     type MemoryItem,
 } from '@/lib/api/memory';
+import { useInterviewStore } from '@/store/useInterviewStore';
 import { toast } from 'sonner';
 
 /** Formats date into the stable display representation used by this view; invalid or empty values use the local fallback. */
@@ -58,6 +59,7 @@ function metadataLabels(metadata?: Record<string, unknown>) {
 
 /** Renders the memory center UI and coordinates its typed props, local state, and approved backend interactions. */
 export function MemoryCenter() {
+    const getApiConfigForRequest = useInterviewStore(state => state.getApiConfigForRequest);
     const [memories, setMemories] = useState<MemoryItem[]>([]);
     const [total, setTotal] = useState(0);
     const [query, setQuery] = useState('');
@@ -69,10 +71,25 @@ export function MemoryCenter() {
     const [historyLoading, setHistoryLoading] = useState(false);
     const [clearOpen, setClearOpen] = useState(false);
 
+    /** Resolves the in-memory model settings used by mem0 without logging or persisting credentials. */
+    const memoryApiConfig = useCallback(() => {
+        const config = getApiConfigForRequest();
+        if (!config?.mem0_llm || (!config.mem0_embedder && !config.rag_embedding)) {
+            setError('请先在“模型设置 → RAG 与长期记忆”中分配 mem0 LLM 和 Embedding 模型。');
+            return null;
+        }
+        return config;
+    }, [getApiConfigForRequest]);
+
     const load = useCallback(async () => {
+        const apiConfig = memoryApiConfig();
+        if (!apiConfig) {
+            setLoading(false);
+            return;
+        }
         setLoading(true);
         try {
-            const response = await getAllMemories(200);
+            const response = await getAllMemories(apiConfig, 200);
             setMemories(response.memories || []);
             setTotal(response.total || 0);
             setError(response.message || null);
@@ -82,7 +99,7 @@ export function MemoryCenter() {
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [memoryApiConfig]);
 
     useEffect(() => {
         const timer = window.setTimeout(() => void load(), 0);
@@ -95,9 +112,11 @@ export function MemoryCenter() {
             await load();
             return;
         }
+        const apiConfig = memoryApiConfig();
+        if (!apiConfig) return;
         setLoading(true);
         try {
-            const response = await searchMemories({ q: query.trim(), limit: 20 });
+            const response = await searchMemories({ q: query.trim(), limit: 20, api_config: apiConfig });
             setMemories(response.memories || []);
             setTotal(response.total || 0);
             setError(response.message || null);
@@ -111,9 +130,11 @@ export function MemoryCenter() {
     /** Handles delete; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleDelete = async (item: MemoryItem) => {
         if (!window.confirm('确认删除这条长期记忆？后续个性化检索将不再使用它。')) return;
+        const apiConfig = memoryApiConfig();
+        if (!apiConfig) return;
         setActingId(item.id);
         try {
-            const response = await deleteMemory(item.id);
+            const response = await deleteMemory(item.id, apiConfig);
             if (!response.success) throw new Error(response.message);
             setMemories(current => current.filter(memory => memory.id !== item.id));
             setTotal(current => Math.max(0, current - 1));
@@ -128,11 +149,13 @@ export function MemoryCenter() {
 
     /** Encapsulates open history; returns typed data or state and keeps side effects within the owning module boundary. */
     const openHistory = async (item: MemoryItem) => {
+        const apiConfig = memoryApiConfig();
+        if (!apiConfig) return;
         setHistoryMemory(item);
         setHistory([]);
         setHistoryLoading(true);
         try {
-            const response = await getMemoryHistory(item.id);
+            const response = await getMemoryHistory(item.id, apiConfig);
             setHistory(response.history || []);
         } catch (historyError) {
             toast.error(historyError instanceof Error ? historyError.message : '读取记忆历史失败');
@@ -143,9 +166,11 @@ export function MemoryCenter() {
 
     /** Handles clear all; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleClearAll = async () => {
+        const apiConfig = memoryApiConfig();
+        if (!apiConfig) return;
         setActingId('__all__');
         try {
-            const response = await deleteAllMemories(true);
+            const response = await deleteAllMemories(apiConfig, true);
             if (!response.success) throw new Error(response.message);
             setMemories([]);
             setTotal(0);

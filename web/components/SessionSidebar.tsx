@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import Image from 'next/image';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
@@ -12,44 +12,23 @@ import {
     FileText,
     Home,
     MessageCircle,
-    MoreHorizontal,
     PanelLeftClose,
     Plus,
     Settings,
     ShieldCheck,
     Sparkles,
     Target,
-    Trash2,
     UserRound,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { SessionList } from './SessionList';
 import { ResumeHistoryList } from './ResumeHistoryList';
-import { GeneratedResumeList } from './GeneratedResumeList';
-import { ResumePreviewDialog } from './ResumePreviewDialog';
 import { cn } from '@/lib/utils';
 import { Avatar } from '@/components/ui/avatar';
 import { useInterviewStore } from '@/store/useInterviewStore';
-import { updateGeneratedResume } from '@/lib/api/resume';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import type { WorkspaceView } from '@/lib/navigation';
 import { PRODUCT_NAME } from '@/lib/product';
-import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import {
-    AlertDialog,
-    AlertDialogAction,
-    AlertDialogCancel,
-    AlertDialogContent,
-    AlertDialogDescription,
-    AlertDialogFooter,
-    AlertDialogHeader,
-    AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
+import { toast } from 'sonner';
 
 interface SessionSidebarProps {
     isOpen: boolean;
@@ -130,40 +109,14 @@ export function SessionSidebar({
         selectResumeResult,
         deleteResumeResult,
         clearResumeResult,
-        generatedResumes,
-        generatedResumesLoading,
-        fetchGeneratedResumes,
-        selectGeneratedResume,
-        deleteGeneratedResume,
-        currentGeneratedResume,
-        jdMatchResults,
-        jdMatchResultsLoading,
-        fetchJDMatchResults,
-        selectJDMatchResult,
-        deleteJDMatchResult: deleteJDMatchResultAction,
-        clearJDMatchResult,
         setShowAbilityProfile,
         apiConfig,
     } = useInterviewStore();
 
-    const [resumeSubTab, setResumeSubTab] = useState<'analysis' | 'generated' | 'jd-match'>('analysis');
-    const [showPreview, setShowPreview] = useState(false);
-    const [jdMatchDeleteId, setJDMatchDeleteId] = useState<number | null>(null);
-
     useEffect(() => {
         if (currentView !== 'resume') return;
         if (resumeResults.length === 0) void fetchResumeResults();
-        if (generatedResumes.length === 0) void fetchGeneratedResumes();
-        if (jdMatchResults.length === 0) void fetchJDMatchResults();
-    }, [
-        currentView,
-        fetchResumeResults,
-        fetchGeneratedResumes,
-        fetchJDMatchResults,
-        resumeResults.length,
-        generatedResumes.length,
-        jdMatchResults.length,
-    ]);
+    }, [currentView, fetchResumeResults, resumeResults.length]);
 
     /** Encapsulates close on mobile; returns typed data or state and keeps side effects within the owning module boundary. */
     const closeOnMobile = () => {
@@ -184,22 +137,8 @@ export function SessionSidebar({
 
     /** Handles resume select; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleResumeSelect = async (resultId: number) => {
-        await selectResumeResult(resultId);
-        closeOnMobile();
-    };
-
-    /** Handles generated resume select; updates local UI state first and delegates server mutations through the approved API boundary. */
-    const handleGeneratedResumeSelect = async (id: number) => {
-        await selectGeneratedResume(id);
-        setShowPreview(true);
-        closeOnMobile();
-    };
-
-    /** Handles jdmatch select; updates local UI state first and delegates server mutations through the approved API boundary. */
-    const handleJDMatchSelect = async (analysisId: number) => {
-        await selectJDMatchResult(analysisId);
-        onViewChange('resume');
-        closeOnMobile();
+        if (await selectResumeResult(resultId)) closeOnMobile();
+        else toast.error('加载简历记录失败，请重试');
     };
 
     /** Handles new; updates local UI state first and delegates server mutations through the approved API boundary. */
@@ -207,7 +146,6 @@ export function SessionSidebar({
         if (currentView === 'interview') createNewSession();
         if (currentView === 'resume') {
             clearResumeResult();
-            clearJDMatchResult();
         }
         closeOnMobile();
     };
@@ -325,28 +263,6 @@ export function SessionSidebar({
                                         </div>
                                     </div>
 
-                                    {currentView === 'resume' && (
-                                        <div className="mx-4 mb-2 grid grid-cols-3 gap-1 rounded-lg bg-slate-200/60 p-1">
-                                            {([
-                                                ['analysis', '分析'],
-                                                ['jd-match', 'JD'],
-                                                ['generated', '成品'],
-                                            ] as const).map(([value, label]) => (
-                                                <button
-                                                    type="button"
-                                                    key={value}
-                                                    onClick={() => setResumeSubTab(value)}
-                                                    className={cn(
-                                                        'rounded-md px-2 py-1.5 text-[10px] font-medium',
-                                                        resumeSubTab === value ? 'bg-white text-teal-800 shadow-sm' : 'text-slate-500',
-                                                    )}
-                                                >
-                                                    {label}
-                                                </button>
-                                            ))}
-                                        </div>
-                                    )}
-
                                     <div className="min-h-0 flex-1 overflow-hidden px-3 pb-3">
                                         {currentView === 'interview' ? (
                                             <SessionList
@@ -361,7 +277,7 @@ export function SessionSidebar({
                                                 hasMore={sessions.length < sessionsTotal}
                                                 onLoadMore={() => void fetchSessions(undefined, undefined, true)}
                                             />
-                                        ) : resumeSubTab === 'analysis' ? (
+                                        ) : (
                                             <ResumeHistoryList
                                                 results={resumeResults}
                                                 onSelect={handleResumeSelect}
@@ -370,21 +286,6 @@ export function SessionSidebar({
                                                 loading={resumeResultLoading}
                                                 hasMore={resumeResults.length < resumeResultsTotal}
                                                 onLoadMore={() => void fetchResumeResults(undefined, true)}
-                                            />
-                                        ) : resumeSubTab === 'jd-match' ? (
-                                            <JDMatchHistoryList
-                                                results={jdMatchResults}
-                                                onSelect={handleJDMatchSelect}
-                                                onDelete={setJDMatchDeleteId}
-                                                loading={jdMatchResultsLoading}
-                                            />
-                                        ) : (
-                                            <GeneratedResumeList
-                                                results={generatedResumes}
-                                                onSelect={handleGeneratedResumeSelect}
-                                                onDelete={deleteGeneratedResume}
-                                                currentResultId={currentGeneratedResume?.id}
-                                                loading={generatedResumesLoading}
                                             />
                                         )}
                                     </div>
@@ -431,99 +332,6 @@ export function SessionSidebar({
                     </>
                 )}
             </AnimatePresence>
-
-            <ResumePreviewDialog
-                isOpen={showPreview}
-                onClose={() => setShowPreview(false)}
-                title={currentGeneratedResume?.title || '简历预览'}
-                content={currentGeneratedResume?.content || ''}
-                onContentChange={async newContent => {
-                    if (!currentGeneratedResume?.id) throw new Error('未找到要保存的简历');
-                    const saved = await updateGeneratedResume(currentGeneratedResume.id, newContent);
-                    if (!saved) throw new Error('保存简历失败，请重试');
-                    void fetchGeneratedResumes();
-                }}
-            />
-
-            <AlertDialog open={jdMatchDeleteId !== null} onOpenChange={() => setJDMatchDeleteId(null)}>
-                <AlertDialogContent className="max-w-md">
-                    <AlertDialogHeader>
-                        <AlertDialogTitle>删除此 JD 匹配记录？</AlertDialogTitle>
-                        <AlertDialogDescription>记录删除后不可恢复，但不会删除关联简历。</AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                        <AlertDialogCancel>取消</AlertDialogCancel>
-                        <AlertDialogAction
-                            className="bg-red-600 hover:bg-red-700"
-                            onClick={() => {
-                                if (jdMatchDeleteId !== null) void deleteJDMatchResultAction(jdMatchDeleteId);
-                                setJDMatchDeleteId(null);
-                            }}
-                        >
-                            删除
-                        </AlertDialogAction>
-                    </AlertDialogFooter>
-                </AlertDialogContent>
-            </AlertDialog>
         </>
-    );
-}
-
-interface JDMatchHistoryListProps {
-    results: Array<{ id: number; resume_source_type: string; job_description: string; created_at: string }>;
-    onSelect: (id: number) => void;
-    onDelete: (id: number) => void;
-    loading?: boolean;
-}
-
-/** Renders the jdmatch history list UI and coordinates its typed props, local state, and approved backend interactions. */
-function JDMatchHistoryList({ results, onSelect, onDelete, loading }: JDMatchHistoryListProps) {
-    if (loading && results.length === 0) {
-        return (
-            <div className="flex h-40 flex-col items-center justify-center gap-2 text-xs text-slate-400">
-                <div className="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-transparent" />
-                加载中...
-            </div>
-        );
-    }
-    if (results.length === 0) {
-        return (
-            <div className="flex h-40 flex-col items-center justify-center px-4 text-center">
-                <Target className="mb-2 h-7 w-7 text-slate-300" />
-                <p className="text-xs text-slate-400">暂无 JD 匹配记录</p>
-            </div>
-        );
-    }
-    return (
-        <ScrollArea className="h-full">
-            <div className="space-y-1">
-                {results.map(item => (
-                    <button
-                        type="button"
-                        key={item.id}
-                        onClick={() => onSelect(item.id)}
-                        className="group flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm text-slate-600 transition hover:bg-white hover:text-slate-950"
-                    >
-                        <Target className="h-4 w-4 shrink-0 text-teal-700" />
-                        <div className="min-w-0 flex-1">
-                            <div className="truncate text-xs font-medium">JD 匹配分析</div>
-                            <div className="mt-1 truncate text-[10px] text-slate-400">{item.job_description}</div>
-                        </div>
-                        <DropdownMenu>
-                            <DropdownMenuTrigger asChild onClick={event => event.stopPropagation()}>
-                                <Button variant="ghost" size="icon" className="h-7 w-7 opacity-0 group-hover:opacity-100">
-                                    <MoreHorizontal className="h-3.5 w-3.5" />
-                                </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                                <DropdownMenuItem className="text-red-600" onClick={event => { event.stopPropagation(); onDelete(item.id); }}>
-                                    <Trash2 className="mr-2 h-3.5 w-3.5" />删除记录
-                                </DropdownMenuItem>
-                            </DropdownMenuContent>
-                        </DropdownMenu>
-                    </button>
-                ))}
-            </div>
-        </ScrollArea>
     );
 }

@@ -5,6 +5,7 @@ import uuid
 from typing import Any, Optional
 
 from observability import langgraph_langfuse_scope, with_langgraph_langfuse_config
+from app.domain.agent_runs import TASK_TYPE_RESUME_GENERATION
 from app.db.repositories.resume.resume_generation_repo import (
     get_generation_repo,
     session_store,
@@ -24,6 +25,7 @@ def _new_generation_state(
     agent_run_id: Optional[str],
     questions: Optional[list[str]] = None,
     user_answers: Optional[dict[str, str]] = None,
+    manage_agent_run: bool = False,
 ) -> dict[str, Any]:
     """构建简历生成图的初始状态。"""
     return {
@@ -34,6 +36,7 @@ def _new_generation_state(
         "api_config": api_config,
         "user_id": user_id,
         "agent_run_id": agent_run_id,
+        "manage_agent_run": manage_agent_run,
         "missing_info_analysis": None,
         "questions": questions or [],
         "user_answers": user_answers or {},
@@ -119,11 +122,24 @@ async def init_generation_session(
             "questions": questions,
         }
 
-    result = await _complete_generation(session_id, state, api_config)
+    if agent_run_id:
+        result = await _complete_generation(session_id, state, api_config)
+        return {
+            "session_id": session_id,
+            "needs_input": False,
+            "result": result,
+        }
+
+    await session_store.update(
+        session_id,
+        user_id=user_id,
+        status="ready_to_generate",
+        questions=[],
+    )
     return {
         "session_id": session_id,
         "needs_input": False,
-        "result": result,
+        "result": None,
     }
 
 
@@ -146,11 +162,23 @@ async def submit_user_answers(
                 "content": existing["content"],
             }
 
+    from ai.runtime.agent_runs.service import AgentRunService
+
+    run_service = AgentRunService()
+    run, _created = await run_service.create_inline_or_get(
+        user_id=user_id,
+        payload={"generation_session_id": session_id},
+        idempotency_key=session_id,
+        task_type=TASK_TYPE_RESUME_GENERATION,
+        initial_stage="draft_generation",
+    )
+
     await session_store.update(
         session_id,
         user_id=user_id,
         user_answers=answers,
-        status="generating",
+        agent_run_id=run.id,
+        status="draft_generation",
     )
 
     state = _new_generation_state(
@@ -160,12 +188,18 @@ async def submit_user_answers(
         template_style=session.template_style,
         api_config=api_config,
         user_id=session.user_id,
-        agent_run_id=session.agent_run_id,
+        agent_run_id=run.id,
         questions=session.questions,
         user_answers=answers,
+        manage_agent_run=True,
     )
 
-    return await _complete_generation(session_id, state, api_config)
+    try:
+        return await _complete_generation(session_id, state, api_config)
+    except Exception as exc:
+        await session_store.update(session_id, user_id=user_id, status="failed")
+        await run_service.fail(run.id, str(exc))
+        raise
 
 
 async def _complete_generation(
@@ -176,8 +210,23 @@ async def _complete_generation(
     """完成初稿生成、优化、风控、终审并保存结果。"""
     from ai.agents.resume import resume_generation_graph
 
-    await session_store.update(session_id, user_id=state["user_id"], status="generating")
-    graph = resume_generation_graph.build_resume_generation_graph()
+    from ai.runtime.agent_runs.service import AgentRunService
+
+    run_service = AgentRunService()
+    run_id = state.get("agent_run_id")
+    managed_run_id = run_id if state.get("manage_agent_run") else None
+
+    async def report_progress(stage: str, phase: str, result: dict[str, Any]) -> None:
+        """Persist the current real graph stage without storing model output in AgentRun events."""
+        updates: dict[str, Any] = {"status": stage}
+        if phase == "completed" and stage == "draft_generation":
+            updates["draft_content"] = result.get("draft_content", "")
+        await session_store.update(session_id, user_id=state["user_id"], **updates)
+        if managed_run_id and phase == "started":
+            await run_service.mark_stage(managed_run_id, stage)
+
+    await session_store.update(session_id, user_id=state["user_id"], status="draft_generation")
+    graph = resume_generation_graph.build_resume_generation_graph(report_progress)
     graph_config = with_langgraph_langfuse_config(
         {"configurable": {"thread_id": f"resume_generation_{session_id}"}},
         run_name="resume-generation",
@@ -220,6 +269,10 @@ async def _complete_generation(
         )
         raise GuardrailViolation(output_decision)
 
+    await session_store.update(session_id, user_id=state["user_id"], status="saving_result")
+    if managed_run_id:
+        await run_service.mark_stage(managed_run_id, "saving_result")
+
     service = get_generation_repo()
     session = await session_store.get(session_id, user_id=state["user_id"])
 
@@ -240,6 +293,16 @@ async def _complete_generation(
         generated_resume_id=resume_id,
     )
 
+    if managed_run_id:
+        await run_service.succeed(
+            managed_run_id,
+            {
+                "generated_resume_id": resume_id,
+                "generated_resume_title": final_state["title"],
+                "generation_session_id": session_id,
+            },
+        )
+
     logger.info("生成流程全部完成: resume_id=%s, title=%s", resume_id, final_state["title"])
 
     return {
@@ -257,11 +320,43 @@ async def get_session_status(session_id: str, user_id: str) -> Optional[dict[str
     if not session:
         return None
 
+    stage_order = [
+        "requirements_analysis",
+        "draft_generation",
+        "draft_optimization",
+        "fact_check",
+        "final_review",
+        "saving_result",
+    ]
+    status_to_stage = {
+        "pending": "requirements_analysis",
+        "awaiting_input": "requirements_analysis",
+        "ready_to_generate": "draft_generation",
+        "generating": "draft_generation",
+        "completed": "saving_result",
+        "failed": session.status,
+    }
+    current_stage = status_to_stage.get(session.status, session.status)
+    current_index = stage_order.index(current_stage) if current_stage in stage_order else -1
+    progress_steps = []
+    for index, stage in enumerate(stage_order):
+        if session.status == "completed" or index < current_index:
+            step_status = "completed"
+        elif index == current_index:
+            step_status = "failed" if session.status == "failed" else "running"
+        else:
+            step_status = "pending"
+        progress_steps.append({"id": stage, "status": step_status})
+
     return {
         "session_id": session_id,
         "status": session.status,
+        "current_stage": current_stage,
+        "progress_steps": progress_steps,
         "questions": session.questions if session.status == "awaiting_input" else [],
         "user_answers": session.user_answers,
         "final_markdown": session.final_markdown if session.status == "completed" else None,
         "generated_resume_id": session.generated_resume_id,
+        "agent_run_id": session.agent_run_id,
+        "draft_length": len(session.draft_content),
     }

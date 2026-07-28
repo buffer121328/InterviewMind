@@ -81,6 +81,9 @@ def test_serialized_run_excludes_encrypted_payload_and_model_telemetry():
     assert public["run_id"] == "run-1"
     assert public["session_id"] == "session-1"
     assert public["session_title"] is None
+    assert public["session_status"] is None
+    assert public["session_question_count"] is None
+    assert public["session_max_questions"] is None
     assert "payload_encrypted" not in public
     assert public["plan"][0] == {
         "id": "queued",
@@ -90,6 +93,7 @@ def test_serialized_run_excludes_encrypted_payload_and_model_telemetry():
     assert public["max_attempts"] == 3
     assert public["trace_id"] == "trace-1"
     assert public["can_retry"] is False
+    assert public["step_results"] == {}
     for key in {
         "model_provider",
         "model_name",
@@ -113,10 +117,16 @@ def test_serialized_run_includes_owned_session_title_without_payload():
         error_message=None, attempts=0, created_at=now, updated_at=now, started_at=None, finished_at=None,
     )
     setattr(run, "session_title", "后端工程师模拟面试")
+    setattr(run, "session_status", "active")
+    setattr(run, "session_question_count", 0)
+    setattr(run, "session_max_questions", 5)
 
     public = serialize_run(run)
 
     assert public["session_title"] == "后端工程师模拟面试"
+    assert public["session_status"] == "active"
+    assert public["session_question_count"] == 0
+    assert public["session_max_questions"] == 5
     assert "payload_encrypted" not in public
 
 
@@ -131,7 +141,13 @@ async def test_session_title_resolver_attaches_only_titles_returned_by_owned_que
             compiled = str(statement)
             assert "sessions.user_id" in compiled
             assert "sessions.session_id IN" in compiled
-            return [SimpleNamespace(session_id="owned-session", title="Python 模拟面试")]
+            return [SimpleNamespace(
+                session_id="owned-session",
+                title="Python 模拟面试",
+                status="active",
+                question_count=0,
+                max_questions=5,
+            )]
 
     owned_run = SimpleNamespace(session_id="owned-session")
     unowned_run = SimpleNamespace(session_id="other-user-session")
@@ -141,7 +157,13 @@ async def test_session_title_resolver_attaches_only_titles_returned_by_owned_que
     )
 
     assert owned_run.session_title == "Python 模拟面试"
+    assert owned_run.session_status == "active"
+    assert owned_run.session_question_count == 0
+    assert owned_run.session_max_questions == 5
     assert unowned_run.session_title is None
+    assert unowned_run.session_status is None
+    assert unowned_run.session_question_count is None
+    assert unowned_run.session_max_questions is None
 
 
 @pytest.mark.asyncio
@@ -337,7 +359,13 @@ async def test_grouped_runs_paginate_sessions_and_include_all_matching_children(
             self.execute_calls += 1
             if self.execute_calls == 1:
                 return SimpleNamespace(all=lambda: [SimpleNamespace(session_id="session-1")])
-            return [SimpleNamespace(session_id="session-1", title="Python 模拟面试")]
+            return [SimpleNamespace(
+                session_id="session-1",
+                title="Python 模拟面试",
+                status="active",
+                question_count=0,
+                max_questions=5,
+            )]
 
         async def scalar(self, statement):
             statements.append(str(statement))
@@ -365,6 +393,9 @@ async def test_grouped_runs_paginate_sessions_and_include_all_matching_children(
     ]
     assert [run.id for run in returned_other_runs] == ["run-other"]
     assert all(run.session_title == "Python 模拟面试" for run in session_runs)
+    assert all(run.session_status == "active" for run in session_runs)
+    assert all(run.session_question_count == 0 for run in session_runs)
+    assert all(run.session_max_questions == 5 for run in session_runs)
     assert returned_other_runs[0].session_title is None
     assert all("agent_runs.user_id" in statement for statement in statements[:-1])
     assert any("agent_runs.status" in statement for statement in statements)
@@ -1238,3 +1269,84 @@ async def test_record_governance_event_persists_sanitized_tool_audit(monkeypatch
     assert appended[0][0] == "tool.execution"
     assert appended[0][1]["api_key"] == "***REDACTED***"
     assert len(appended[0][1]["output_summary"]) == 300
+
+
+@pytest.mark.asyncio
+async def test_inline_mode_persists_agent_run_and_deferred_result(monkeypatch):
+    """Queue-disabled development mode still writes the AgentRun shown by Run Center."""
+    from ai.workflows import agent_runs as workflow
+    from ai.workflows.agent_tasks.types import DeferredExecutionResult
+
+    run = SimpleNamespace(id="inline-run-1", status="running", stage="preparing", result=None)
+    calls: list[tuple[str, object]] = []
+
+    class FakeLease:
+        async def release(self):
+            calls.append(("release", None))
+
+    class FakeGate:
+        async def acquire(self):
+            return FakeLease()
+
+    class FakeService:
+        async def create_inline_or_get(self, **kwargs):
+            calls.append(("create", kwargs))
+            return run, True
+
+        async def mark_stage(self, run_id, stage):
+            calls.append(("stage", (run_id, stage)))
+            run.stage = stage
+
+        async def succeed_with_result_writer(self, run_id, writer):
+            calls.append(("succeed_deferred", run_id))
+            run.result = await writer(SimpleNamespace())
+            run.status = "succeeded"
+            run.stage = "succeeded"
+
+        async def succeed(self, *_args):
+            raise AssertionError("deferred result must use the transactional writer")
+
+        async def fail(self, *_args):
+            raise AssertionError("successful inline task must not fail")
+
+        async def get(self, run_id, user_id):
+            assert (run_id, user_id) == ("inline-run-1", "owner-1")
+            return run
+
+    async def execute(task_type, payload, user_id, progress):
+        assert task_type == "resume_workspace"
+        assert payload["_agent_run_id"] == "inline-run-1"
+        assert user_id == "owner-1"
+        await progress("content_optimization")
+
+        async def persist(_session):
+            return {"result_id": 9, "result": {"review": {"status": "pending"}}}
+
+        return DeferredExecutionResult(persist=persist)
+
+    monkeypatch.setenv("TASK_QUEUE_ENABLED", "false")
+    monkeypatch.setattr(workflow, "get_run_gate", lambda: FakeGate())
+    monkeypatch.setattr(workflow, "execute_registered_task", execute)
+    monkeypatch.setattr(workflow, "serialize_run", lambda value: {
+        "run_id": value.id,
+        "status": value.status,
+        "stage": value.stage,
+        "result": value.result,
+    })
+    use_cases = workflow.AgentRunUseCases()
+    use_cases._service = FakeService()
+
+    response = await use_cases.create_queued_run(
+        task_type="resume_workspace",
+        payload={"resume_content": "private"},
+        user_id="owner-1",
+        idempotency_key="inline-key",
+    )
+
+    assert response.payload["run_id"] == "inline-run-1"
+    assert response.payload["status"] == "succeeded"
+    assert response.payload["result"]["result_id"] == 9
+    create_kwargs = next(value for name, value in calls if name == "create")
+    assert create_kwargs["idempotency_key"] == "inline-key"
+    assert ("stage", ("inline-run-1", "content_optimization")) in calls
+    assert ("succeed_deferred", "inline-run-1") in calls

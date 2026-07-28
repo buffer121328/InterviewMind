@@ -96,8 +96,8 @@ class AgentMemoryService:
                 self._config
             )
             logger.info("✓ AgentMemoryService 初始化成功")
-        except Exception as e:
-            logger.error(f"✗ AgentMemoryService 初始化失败: {e}")
+        except Exception as exc:
+            logger.error("✗ AgentMemoryService 初始化失败: %s", type(exc).__name__)
             self._enabled = False
             self._memory = None
 

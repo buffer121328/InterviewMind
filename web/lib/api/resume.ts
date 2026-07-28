@@ -4,16 +4,17 @@
 
 import { apiRequest } from './config';
 import { createResumeOptimizeRun, createResumeWorkspaceRun, pollAgentRun, type AgentRun } from './agentRuns';
-import type { ApiConfig, CompletedSession, GeneratedResumeItem, JDMatchResult, ResumeAnalyzeResult, ResumeGenerateInitResponse, ResumeGenerateSubmitResponse, ResumeOptimizeMode, ResumeOptimizeResult, ResumeReviewDecision, ResumeReviewState, ResumeWorkspaceResult } from './resumeTypes';
+import type { ApiConfig, CompletedSession, GeneratedResumeItem, GenerationSessionStatus, JDMatchResult, ResumeAnalyzeResult, ResumeGenerateInitResponse, ResumeGenerateSubmitResponse, ResumeOptimizeMode, ResumeOptimizeResult, ResumeResultData, ResumeReviewDecision, ResumeReviewState, ResumeWorkspaceResult } from './resumeTypes';
 import { buildResumeOptimizePayload } from './resumePayloads';
 import { isResumeWorkspaceResult, safeWorkspaceErrorMessage } from '../resumeWorkspaceResult';
+import { unwrapGenerationSessionStatus } from '../resumeGenerationStatus';
 export { getResumeWorkspaceStage } from '../resumeWorkspaceHelpers';
 
 // ============================================================================
 // 类型定义
 // ============================================================================
 
-export type { JsonObject, DimensionScore, ResumeAnalyzeResult, OptimizedSection, KeyImprovement, ResumeChangeItem, ResumeOptimizeMode, ResumeOptimizeResult, ResumeReviewDecision, ResumeReviewItem, ResumeReviewState, JDMatchResult, ResumeWorkspaceWarning, ResumeWorkspaceResult, CompletedSession, ApiConfig, GeneratedResumeItem, ResumeGenerateInitResponse, ResumeGenerateSubmitResponse, GenerationSessionStatus } from './resumeTypes';
+export type { JsonObject, DimensionScore, ResumeAnalyzeResult, OptimizedSection, KeyImprovement, ResumeChangeItem, ResumeOptimizeMode, ResumeOptimizeResult, ResumeResultData, ResumeReviewDecision, ResumeReviewItem, ResumeReviewState, ResumeWorkspaceWarning, ResumeWorkspaceResult, ResumeWorkspaceStoredResultData, CompletedSession, ApiConfig, GeneratedResumeItem, ResumeGenerateInitResponse, ResumeGenerateSubmitResponse, GenerationSessionStatus, ResumeGenerationProgressStep, ResumeGenerationProgressStatus } from './resumeTypes';
 
 /** Starts and polls the resumable unified workflow, preserving warnings and the terminal result shape. */
 export async function runResumeWorkspace(params: {
@@ -223,7 +224,7 @@ export async function getResumeResultDetail(resultId: number): Promise<{
     result_type: 'analyze' | 'optimize';
     resume_content: string;
     created_at: string;
-    result_data: ResumeAnalyzeResult | ResumeOptimizeResult;
+    result_data: ResumeResultData;
     job_description: string | null;
     session_ids: string[];
     include_profile: boolean;
@@ -237,7 +238,7 @@ export async function getResumeResultDetail(resultId: number): Promise<{
                 result_type: 'analyze' | 'optimize';
                 resume_content: string;
                 created_at: string;
-                result_data: ResumeAnalyzeResult | ResumeOptimizeResult;
+                result_data: ResumeResultData;
                 job_description: string | null;
                 session_ids: string[];
                 include_profile: boolean;
@@ -413,6 +414,17 @@ export async function submitGenerationAnswers(params: {
             success: false,
             message: error instanceof Error ? error.message : '提交失败',
         };
+    }
+}
+
+/** Reads real persisted graph progress while the submit request is still running. */
+export async function getGenerationSessionStatus(sessionId: string): Promise<GenerationSessionStatus | null> {
+    try {
+        const response = await apiRequest<unknown>(`/api/resume/generation/session/${sessionId}`);
+        return unwrapGenerationSessionStatus(response);
+    } catch (error) {
+        console.error('获取简历生成进度失败:', error);
+        return null;
     }
 }
 

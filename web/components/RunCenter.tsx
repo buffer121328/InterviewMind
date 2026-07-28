@@ -3,12 +3,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     Activity,
+    ArrowLeft,
     CheckCircle2,
     ChevronDown,
     ChevronUp,
     Circle,
     Clock3,
     ExternalLink,
+    Eye,
+    FileText,
     Loader2,
     RefreshCw,
     RotateCcw,
@@ -22,6 +25,7 @@ import {
     backfillAgentRunSessionLinks,
     cancelAgentRun,
     getAgentRunTraceLink,
+    getAgentRunSummary,
     listAgentRunEvents,
     listGroupedAgentRuns,
     retryAgentRun,
@@ -30,31 +34,23 @@ import {
     type AgentRunEvent,
     type GroupedAgentRun,
     type AgentRunStatus,
-    type AgentRunTaskType,
 } from '@/lib/api/agentRuns';
 import { isTerminalAgentRunEvent } from '@/lib/agentRunEvents';
 import { applyAgentRunEventGroups } from '@/lib/agentRunGroups';
+import {
+    AGENT_RUN_CATEGORIES,
+    getAgentRunCategory,
+    getAgentRunCategoryLabel,
+    getAgentRunGroupStatusLabel,
+    getAgentRunStatusLabel,
+    getInterviewSessionProgressLabel,
+    groupAgentRunsForDisplay,
+    summarizeResumeRunResult,
+    type AgentRunCategory,
+} from '@/lib/agentRunDisplayGroups';
+import { getGeneratedResume } from '@/lib/api/resume';
+import { ResumePreviewDialog } from '@/components/ResumePreviewDialog';
 import { toast } from 'sonner';
-
-const STATUS_LABELS: Record<AgentRunStatus, string> = {
-    queued: '排队中',
-    retrying: '等待重试',
-    running: '运行中',
-    cancel_requested: '取消中',
-    succeeded: '已完成',
-    failed: '失败',
-    cancelled: '已取消',
-};
-
-const TASK_LABELS: Record<AgentRunTaskType, string> = {
-    interview_start: '面试启动',
-    interview_turn: '面试回合',
-    voice_interview_turn: '语音面试',
-    resume_optimize: '简历优化',
-    resume_workspace: '简历工作区',
-    interview_report: '面试报告',
-    job_assets: '投递资产',
-};
 
 const ACTIVE_STATUSES = new Set<AgentRunStatus>(['queued', 'retrying', 'running', 'cancel_requested']);
 
@@ -85,6 +81,20 @@ function statusClass(status: AgentRunStatus) {
     if (status === 'failed') return 'bg-red-50 text-red-700';
     if (status === 'cancelled') return 'bg-slate-100 text-slate-600';
     return 'bg-teal-50 text-teal-700';
+}
+
+/** Returns whether a run belongs to a resume workflow that can reopen the resume workspace. */
+function isResumeRun(run: AgentRun): boolean {
+    return run.task_type === 'resume_optimize' || run.task_type === 'resume_workspace' || run.task_type === 'resume_generation';
+}
+
+/** Reads a safe numeric generated-resume id from a professional-generation result. */
+function generatedResumeId(run: AgentRun): number | null {
+    if (run.task_type !== 'resume_generation') return null;
+    const id = summarizeResumeRunResult(run.result, run.task_type).artifact?.id;
+    if (!id) return null;
+    const parsed = Number(id);
+    return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
 /** Returns the highest-priority status represented by a group for its concise summary badge. */
@@ -162,39 +172,47 @@ function eventPresentation(event: AgentRunEvent): {
     };
 }
 
+interface RunCenterProps {
+    /** Returns to the unified resume workspace without bypassing any review or generation gate. */
+    onOpenResumeWorkspace?: () => void;
+    /** Opens an ownership-scoped linked interview session when the run exposes one. */
+    onOpenSession?: (sessionId: string) => void;
+}
+
 /** Renders the run center UI and coordinates its typed props, local state, and approved backend interactions. */
-export function RunCenter() {
+export function RunCenter({ onOpenResumeWorkspace, onOpenSession }: RunCenterProps) {
     const [groups, setGroups] = useState<GroupedAgentRun[]>([]);
-    const [sessionTotal, setSessionTotal] = useState(0);
-    const [otherTotal, setOtherTotal] = useState(0);
+    const [summary, setSummary] = useState({ active: 0, history: 0, succeeded: 0, failed: 0 });
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [actingId, setActingId] = useState<string | null>(null);
     const [backfillingSessionLinks, setBackfillingSessionLinks] = useState(false);
     const [statusFilter, setStatusFilter] = useState<'all' | 'active' | AgentRunStatus>('all');
-    const [taskFilter, setTaskFilter] = useState<'all' | AgentRunTaskType>('all');
+    const [taskFilter, setTaskFilter] = useState<'all' | AgentRunCategory>('all');
     const [expandedRunId, setExpandedRunId] = useState<string | null>(null);
     const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
     const [eventsByRun, setEventsByRun] = useState<Record<string, AgentRunEvent[]>>({});
     const [eventsLoadingId, setEventsLoadingId] = useState<string | null>(null);
+    const [previewResume, setPreviewResume] = useState<{ id: number; title: string; content: string } | null>(null);
+    const [previewLoadingId, setPreviewLoadingId] = useState<number | null>(null);
     const controllers = useRef(new Map<string, AbortController>());
     const eventSequences = useRef(new Map<string, number>());
 
     const load = useCallback(async () => {
         setLoading(true);
         try {
-            const response = await listGroupedAgentRuns({
+            const [response, runSummary] = await Promise.all([listGroupedAgentRuns({
                 status: statusFilter !== 'all' && statusFilter !== 'active' ? statusFilter : undefined,
-                taskType: taskFilter !== 'all' ? taskFilter : undefined,
                 limit: 100,
-            });
-            setGroups(statusFilter === 'active'
-                ? response.groups
-                    .map(group => ({ ...group, runs: group.runs.filter(run => ACTIVE_STATUSES.has(run.status)) }))
-                    .filter(group => group.runs.length > 0)
-                : response.groups);
-            setSessionTotal(response.session_total);
-            setOtherTotal(response.other_total);
+            }), getAgentRunSummary()]);
+            setGroups(response.groups
+                .map(group => ({
+                    ...group,
+                    runs: group.runs.filter(run => (statusFilter !== 'active' || ACTIVE_STATUSES.has(run.status))
+                        && (taskFilter === 'all' || getAgentRunCategory(run.task_type) === taskFilter)),
+                }))
+                .filter(group => group.runs.length > 0));
+            setSummary(runSummary);
             setError(null);
         } catch (loadError) {
             const message = loadError instanceof Error ? loadError.message : '';
@@ -260,26 +278,14 @@ export function RunCenter() {
         controllers.current.clear();
     }, []);
 
-    const stats = useMemo(() => groups.reduce((counts, group) => {
-        for (const run of group.runs) {
-            if (ACTIVE_STATUSES.has(run.status)) counts.active += 1;
-            if (run.status === 'succeeded') counts.succeeded += 1;
-            if (run.status === 'failed') counts.failed += 1;
-        }
+    // The API owns persistence and SSE updates; the browser only maps internal run types to stable product categories.
+    const displayGroups = useMemo(() => groupAgentRunsForDisplay(groups), [groups]);
+    const categoryTotals = useMemo(() => displayGroups.reduce((counts, group) => {
+        counts[group.category] += group.runs.length;
         return counts;
-    }, { active: 0, succeeded: 0, failed: 0 }), [groups]);
-    const displayedRunCount = useMemo(
-        () => groups.reduce((count, group) => count + group.runs.length, 0),
-        [groups],
-    );
-    const visibleSessionTotal = statusFilter === 'active'
-        ? groups.filter(group => group.group_type === 'session').length
-        : sessionTotal;
-    const visibleOtherTotal = statusFilter === 'active'
-        ? groups.find(group => group.group_type === 'other')?.runs.length || 0
-        : otherTotal;
+    }, { 'text-interview': 0, 'voice-interview': 0, 'resume-optimization': 0, 'job-delivery': 0 } as Record<AgentRunCategory, number>), [displayGroups]);
 
-    /** Toggles only the session parent; child run detail disclosure remains independent. */
+    /** Toggles one local business-and-date section; child run detail disclosure remains independent. */
     const toggleGroup = (groupKey: string) => {
         setExpandedGroups(current => ({ ...current, [groupKey]: !(current[groupKey] ?? false) }));
     };
@@ -368,14 +374,31 @@ export function RunCenter() {
         }
     };
 
+    /** Loads only the persisted generated resume selected by its public artifact id, then opens the shared preview/export dialog. */
+    const handleOpenGeneratedResume = async (resumeId: number) => {
+        setPreviewLoadingId(resumeId);
+        try {
+            const resume = await getGeneratedResume(resumeId);
+            if (!resume?.content) {
+                toast.error('未找到生成的简历内容，可能已被删除');
+                return;
+            }
+            setPreviewResume({ id: resume.id, title: resume.title, content: resume.content });
+        } catch (resumeError) {
+            toast.error(resumeError instanceof Error ? resumeError.message : '读取生成简历失败');
+        } finally {
+            setPreviewLoadingId(null);
+        }
+    };
+
     return (
         <div className="mx-auto h-full w-full max-w-7xl overflow-y-auto p-5 sm:p-6">
             <section className="grid gap-3 sm:grid-cols-4">
                 {[
-                    ['当前子任务', displayedRunCount, 'text-slate-950'],
-                    ['活跃任务', stats.active, 'text-teal-700'],
-                    ['已完成', stats.succeeded, 'text-emerald-700'],
-                    ['失败', stats.failed, 'text-red-700'],
+                    ['活跃任务', summary.active, 'text-teal-700'],
+                    ['历史总任务', summary.history, 'text-slate-950'],
+                    ['已完成任务', summary.succeeded, 'text-emerald-700'],
+                    ['失败', summary.failed, 'text-red-700'],
                 ].map(([label, value, color]) => (
                     <div key={String(label)} className="surface-panel p-4">
                         <div className="text-xs text-slate-500">{label}</div>
@@ -387,20 +410,21 @@ export function RunCenter() {
             <section className="surface-panel mt-5 flex flex-col justify-between gap-4 p-4 sm:flex-row sm:items-center">
                 <div>
                     <div className="flex items-center gap-2 text-sm font-semibold text-slate-950"><Activity className="h-4 w-4 text-teal-700" />可恢复 Agent 任务</div>
-                    <p className="mt-1 text-xs text-slate-500">列表通过 SSE 接收实时事件，低频刷新用于断线兜底。{statusFilter === 'active' ? '当前页显示' : '筛选结果共'} {visibleSessionTotal} 个面试分组，{visibleOtherTotal} 个未关联独立任务。</p>
+                    <p className="mt-1 text-xs text-slate-500">列表通过 SSE 接收实时事件，低频刷新用于断线兜底。当前筛选：文本面试 {categoryTotals['text-interview']} 项、语音面试 {categoryTotals['voice-interview']} 项、简历优化 {categoryTotals['resume-optimization']} 项、岗位投递 {categoryTotals['job-delivery']} 项。</p>
+                    <p className="mt-1 text-xs font-medium text-teal-700">任务状态表示单次 Agent 执行；整场面试是否结束以面试会话进度为准。</p>
                     <p className="mt-1 text-xs text-slate-500">仅整理可确认加密会话引用归属当前用户的历史面试任务，不会暴露任务载荷。</p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                     <select aria-label="状态筛选" value={statusFilter} onChange={event => setStatusFilter(event.target.value as typeof statusFilter)} className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs">
                         <option value="all">全部状态</option>
                         <option value="active">活跃任务</option>
-                        <option value="succeeded">已完成</option>
+                        <option value="succeeded">任务已完成</option>
                         <option value="failed">失败</option>
                         <option value="cancelled">已取消</option>
                     </select>
                     <select aria-label="任务类型筛选" value={taskFilter} onChange={event => setTaskFilter(event.target.value as typeof taskFilter)} className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs">
                         <option value="all">全部类型</option>
-                        {Object.entries(TASK_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                        {AGENT_RUN_CATEGORIES.map(({ value, label }) => <option key={value} value={value}>{label}</option>)}
                     </select>
                     <Button variant="outline" size="sm" onClick={() => void load()} disabled={loading}><RefreshCw className={loading ? 'animate-spin' : ''} />刷新</Button>
                     <Button variant="outline" size="sm" onClick={() => void handleBackfillSessionLinks()} disabled={backfillingSessionLinks}>
@@ -416,14 +440,14 @@ export function RunCenter() {
             <section className="mt-4 space-y-3">
                 {loading && groups.length === 0 ? (
                     <div role="status" aria-live="polite" className="surface-panel flex min-h-64 items-center justify-center text-sm text-slate-500"><Loader2 className="mr-2 h-4 w-4 animate-spin text-teal-700" aria-hidden="true" />读取运行记录...</div>
-                ) : groups.length === 0 ? (
+                ) : displayGroups.length === 0 ? (
                     <div className="surface-panel flex min-h-64 flex-col items-center justify-center text-center">
                         <Activity className="h-9 w-9 text-slate-300" />
                         <div className="mt-3 text-sm font-medium text-slate-900">当前筛选下没有任务</div>
                         <p className="mt-1 text-xs text-slate-500">启动面试、简历优化、报告或投递资产任务后会显示在这里。</p>
                     </div>
-                ) : groups.map(group => {
-                    const groupKey = group.group_type === 'session' ? `session:${group.session_id}` : 'other';
+                ) : displayGroups.map(group => {
+                    const groupKey = group.key;
                     const groupId = `agent-run-group-${groupKey.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
                     const activeCount = group.runs.filter(run => ACTIVE_STATUSES.has(run.status)).length;
                     // New groups are compact unless work is active; explicit user choices survive polling.
@@ -440,18 +464,19 @@ export function RunCenter() {
                             onClick={() => toggleGroup(groupKey)}
                         >
                             <span className="flex min-w-0 items-center gap-3">
-                                <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${group.group_type === 'session' ? 'bg-teal-100 text-teal-700' : 'bg-slate-100 text-slate-500'}`}>
+                                <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${group.category === 'resume-optimization' ? 'bg-violet-100 text-violet-700' : group.category === 'job-delivery' ? 'bg-amber-100 text-amber-700' : 'bg-teal-100 text-teal-700'}`}>
                                     <Activity className="h-4 w-4" aria-hidden="true" />
                                 </span>
                                 <span className="min-w-0">
                                     <span className="flex flex-wrap items-center gap-2">
-                                        <span className="text-sm font-semibold text-slate-950">{group.group_type === 'session' ? group.session_title || '面试会话' : '其他 Agent 任务'}</span>
+                                        <span className="text-sm font-semibold text-slate-950">{group.categoryLabel}</span>
+                                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600">{group.dateLabel}</span>
                                         <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600">{group.runs.length} 项</span>
-                                        {aggregateStatus && <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${statusClass(aggregateStatus)}`}>{STATUS_LABELS[aggregateStatus]}</span>}
+                                        {aggregateStatus && <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${statusClass(aggregateStatus)}`}>{getAgentRunGroupStatusLabel(group.category, aggregateStatus)}</span>}
                                         {activeCount > 0 && <span className="rounded-full bg-teal-50 px-2 py-0.5 text-[10px] font-medium text-teal-700">{activeCount} 活跃</span>}
                                     </span>
                                     <span className="mt-1 block truncate text-[10px] text-slate-400">
-                                        {group.group_type === 'session' ? '面试任务分组' : '兼容未关联会话的历史任务'}{latestRun ? ` · 最近更新 ${formatDate(latestRun.updated_at)}` : ''}
+                                        按单次 Agent 任务与更新时间整理{group.category === 'text-interview' || group.category === 'voice-interview' ? '，不代表整场面试完成' : ''}{latestRun ? ` · 最近更新 ${formatDate(latestRun.updated_at)}` : ''}
                                     </span>
                                 </span>
                             </span>
@@ -466,10 +491,15 @@ export function RunCenter() {
                         <div className="flex flex-col justify-between gap-4 md:flex-row md:items-start">
                             <div className="min-w-0">
                                 <div className="flex flex-wrap items-center gap-2">
-                                    <h3 className="text-sm font-semibold text-slate-950">{run.title || TASK_LABELS[run.task_type]}</h3>
-                                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${statusClass(run.status)}`}>{STATUS_LABELS[run.status]}</span>
-                                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-600">{TASK_LABELS[run.task_type]}</span>
+                                    <h3 className="text-sm font-semibold text-slate-950">{run.title || getAgentRunCategoryLabel(getAgentRunCategory(run.task_type))}</h3>
+                                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${statusClass(run.status)}`}>{getAgentRunStatusLabel(run)}</span>
+                                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-600">{getAgentRunCategoryLabel(getAgentRunCategory(run.task_type))}</span>
                                 </div>
+                                {getInterviewSessionProgressLabel(run) && (
+                                    <div className="mt-2 inline-flex rounded-lg border border-teal-100 bg-teal-50 px-2.5 py-1 text-[11px] font-medium text-teal-800">
+                                        {getInterviewSessionProgressLabel(run)}
+                                    </div>
+                                )}
                                 <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-slate-400">
                                     <span>{run.agent_name}@{run.agent_version}</span>
                                     <span className="max-w-full break-all font-mono" title={`运行 ID：${run.run_id}`} aria-label={`运行 ID：${run.run_id}`}>{run.run_id}</span>
@@ -478,10 +508,33 @@ export function RunCenter() {
                                 </div>
                             </div>
                             <div className="flex flex-wrap gap-2">
+                                {generatedResumeId(run) !== null && (
+                                    <Button variant="outline" size="sm" onClick={() => void handleOpenGeneratedResume(generatedResumeId(run)!)} disabled={previewLoadingId === generatedResumeId(run)}>
+                                        {previewLoadingId === generatedResumeId(run) ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Eye className="h-3.5 w-3.5" />}查看简历
+                                    </Button>
+                                )}
+                                {run.session_id && onOpenSession && (
+                                    <Button variant="outline" size="sm" onClick={() => onOpenSession(run.session_id!)}>
+                                        <ArrowLeft className="h-3.5 w-3.5" />返回会话
+                                    </Button>
+                                )}
+                                {isResumeRun(run) && onOpenResumeWorkspace && (
+                                    <Button variant="outline" size="sm" onClick={onOpenResumeWorkspace}>
+                                        <FileText className="h-3.5 w-3.5" />简历工作台
+                                    </Button>
+                                )}
                                 {run.trace_id && (
                                     <Button variant="outline" size="sm" onClick={() => void handleOpenTrace(run)} disabled={actingId === run.run_id}>
                                         <ExternalLink className="h-3.5 w-3.5" />Langfuse
                                     </Button>
+                                )}
+                                {!run.trace_id && (
+                                    <span
+                                        className="inline-flex h-9 items-center rounded-md border border-dashed border-slate-200 px-3 text-xs text-slate-400"
+                                        title="该历史任务没有生成可访问的 Langfuse Trace；新任务仅在 Langfuse 正常启用时显示链接"
+                                    >
+                                        Langfuse 未记录
+                                    </span>
                                 )}
                                 <Button
                                     variant="outline"
@@ -526,6 +579,27 @@ export function RunCenter() {
 
                         {expandedRunId === run.run_id && (
                             <div id={`agent-run-details-${run.run_id}`} className="mt-4 border-t border-slate-100 pt-4">
+                                {(() => {
+                                    const resumeResult = (run.task_type === 'resume_optimize' || run.task_type === 'resume_workspace' || run.task_type === 'resume_generation')
+                                        ? summarizeResumeRunResult(run.result, run.task_type)
+                                        : null;
+                                    return resumeResult && (
+                                        <section className="mb-4 rounded-xl border border-violet-100 bg-violet-50/50 p-3" aria-label="简历任务结果摘要">
+                                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                                                <div className="text-xs font-semibold text-violet-900">简历任务结果</div>
+                                                {resumeResult.resultId && <span className="font-mono text-[10px] text-violet-700">结果 ID：{resumeResult.resultId}</span>}
+                                            </div>
+                                            <div className="mt-2 space-y-1.5">
+                                                {resumeResult.stages.map(stage => <p key={stage.label} className="text-[11px] leading-4 text-violet-950"><span className="font-medium">{stage.label}：</span>{stage.detail}</p>)}
+                                            </div>
+                                            <p className="mt-2 text-[11px] text-violet-800">
+                                                {resumeResult.artifact
+                                                    ? <>最终生成文件：{resumeResult.artifact.name || '已生成简历'}{resumeResult.artifact.id ? `（ID：${resumeResult.artifact.id}）` : ''}</>
+                                                    : '最终生成文件/成品尚未生成'}
+                                            </p>
+                                        </section>
+                                    );
+                                })()}
                                 <div className="mb-3 flex items-center justify-between">
                                     <div>
                                         <div className="text-xs font-semibold text-slate-800">审计事件</div>
@@ -569,6 +643,15 @@ export function RunCenter() {
                     );
                 })}
             </section>
+            {previewResume && (
+                <ResumePreviewDialog
+                    isOpen={true}
+                    onClose={() => setPreviewResume(null)}
+                    title={previewResume.title}
+                    content={previewResume.content}
+                    resumeId={previewResume.id}
+                />
+            )}
         </div>
     );
 }

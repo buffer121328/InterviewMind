@@ -34,15 +34,22 @@ class MemoryUseCaseError(Exception):
 class MemoryUseCases:
     """Query and mutate long-term user memories."""
 
-    async def list_memories(self, *, user_id: str, page_size: int) -> MemoryListResponse:
-        """List all memories for one user."""
-        memory_service = await get_agent_memory_service()
+    async def list_memories(
+        self,
+        *,
+        user_id: str,
+        page_size: int,
+        api_config: dict | None = None,
+    ) -> MemoryListResponse:
+        """List memories using request-scoped model credentials without persisting them."""
+        memory_service = await get_agent_memory_service(api_config)
         if not memory_service.is_enabled:
             return MemoryListResponse(
                 success=True,
                 memories=[],
                 total=0,
                 user_id=user_id,
+                message=MEMORY_DISABLED_MESSAGE,
             )
 
         records = await memory_service.get_all(user_id=user_id, page_size=page_size)
@@ -61,11 +68,18 @@ class MemoryUseCases:
         query: str,
         limit: int,
         memory_type: str | None,
+        api_config: dict | None = None,
     ) -> MemorySearchResponse:
-        """Search memories for one user."""
-        memory_service = await get_agent_memory_service()
+        """Search memories using request-scoped model credentials without persisting them."""
+        memory_service = await get_agent_memory_service(api_config)
         if not memory_service.is_enabled:
-            return MemorySearchResponse(success=True, memories=[], query=query, total=0)
+            return MemorySearchResponse(
+                success=True,
+                memories=[],
+                query=query,
+                total=0,
+                message=MEMORY_DISABLED_MESSAGE,
+            )
 
         memory_types = [memory_type] if memory_type else None
         records = await memory_service.search_memories(
@@ -77,11 +91,22 @@ class MemoryUseCases:
         memories = [MemoryItem(**memory_record_to_item(record)) for record in records]
         return MemorySearchResponse(success=True, memories=memories, query=query, total=len(memories))
 
-    async def get_history(self, *, user_id: str, memory_id: str) -> MemoryHistoryResponse:
-        """Return the change history for one memory."""
-        memory_service = await get_agent_memory_service()
+    async def get_history(
+        self,
+        *,
+        user_id: str,
+        memory_id: str,
+        api_config: dict | None = None,
+    ) -> MemoryHistoryResponse:
+        """Return memory history through the same request-scoped mem0 client."""
+        memory_service = await get_agent_memory_service(api_config)
         if not memory_service.is_enabled:
-            return MemoryHistoryResponse(success=True, history=[], memory_id=memory_id)
+            return MemoryHistoryResponse(
+                success=True,
+                history=[],
+                memory_id=memory_id,
+                message=MEMORY_DISABLED_MESSAGE,
+            )
 
         records = await memory_service.history(user_id=user_id, memory_id=memory_id)
         history = [
@@ -90,9 +115,15 @@ class MemoryUseCases:
         ]
         return MemoryHistoryResponse(success=True, history=history, memory_id=memory_id)
 
-    async def delete_memory(self, *, user_id: str, memory_id: str) -> MemoryDeleteResponse:
-        """Delete one memory if it belongs to the user."""
-        memory_service = await get_agent_memory_service()
+    async def delete_memory(
+        self,
+        *,
+        user_id: str,
+        memory_id: str,
+        api_config: dict | None = None,
+    ) -> MemoryDeleteResponse:
+        """Delete one owner-scoped memory through the request-scoped mem0 client."""
+        memory_service = await get_agent_memory_service(api_config)
         if not memory_service.is_enabled:
             return MemoryDeleteResponse(success=False, message=MEMORY_DISABLED_MESSAGE)
 
@@ -118,7 +149,8 @@ class MemoryUseCases:
         if not request.confirm:
             return MemoryDeleteResponse(success=False, message="需要 confirm=true 才能清空全部记忆")
 
-        memory_service = await get_agent_memory_service()
+        api_config = request.api_config.model_dump() if request.api_config else None
+        memory_service = await get_agent_memory_service(api_config)
         if not memory_service.is_enabled:
             return MemoryDeleteResponse(success=False, message=MEMORY_DISABLED_MESSAGE)
 

@@ -12,7 +12,7 @@
 
 from enum import Enum
 from typing import Any, Dict, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 # ============================================================================
@@ -103,6 +103,34 @@ class EvaluatingOutput(BaseModel):
     tool_name: Optional[str] = Field(default=None, description="请求调用的工具名")
     tool_args: Dict[str, Any] = Field(default_factory=dict, description="工具参数")
     tool_reason: Optional[str] = Field(default=None, description="请求工具的原因说明")
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_compatible_model_output(cls, value):
+        """把常见兼容字段收敛为唯一动作协议，避免重试候选被当作多条回复。"""
+        if not isinstance(value, dict):
+            return value
+        normalized = dict(value)
+        if not normalized.get("evaluation_notes"):
+            normalized["evaluation_notes"] = (
+                normalized.get("evaluation")
+                or normalized.get("assessment")
+                or "已完成当前回答评估"
+            )
+
+        action = normalized.get("action")
+        if not action:
+            for legacy_action in ("end_round", "follow_up", "advance"):
+                if str(normalized.get(legacy_action) or "").strip():
+                    action = legacy_action
+                    normalized["action"] = legacy_action
+                    break
+
+        if not str(normalized.get("content") or "").strip() and action:
+            normalized["content"] = str(normalized.get(str(action)) or "").strip()
+        if normalized.get("tool_args") is None:
+            normalized["tool_args"] = {}
+        return normalized
 
 
 class EndRoundOutput(BaseModel):

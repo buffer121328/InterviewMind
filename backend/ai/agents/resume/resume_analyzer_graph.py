@@ -11,6 +11,7 @@ from langgraph.graph import StateGraph, END
 
 from app.schemas.llm_outputs import ResumeAnalysisOutput, DimensionScoreItem
 from ai.llm.llm_utils import invoke_structured
+from ai.prompts.resume import build_resume_analysis_prompt
 from app.db.repositories.session.session_repo import SessionRepo
 from observability import langgraph_langfuse_scope, with_langgraph_langfuse_config
 
@@ -120,42 +121,12 @@ async def node_analyze(state: ResumeAnalyzerState) -> dict:
 {job_description}
 """
 
-    prompt = f"""你是一位资深的简历评估专家和职业顾问。请对以下简历进行全面的竞争力分析。
-
-【简历内容】：
-{resume_content}
-{jd_section}{interview_section}{profile_section}
-
-请从以下 6 个维度进行评估，每个维度给出 0-100 精准的客观评分和评价（允许90以上高分也允许60以下低分，不要给出模棱两可的评分）：
-
-1. **结构规范性 (structure)**：简历格式是否清晰、专业、易读
-2. **内容完整度 (completeness)**：教育背景、工作经历、项目经验、技能等是否完整
-3. **量化程度 (quantification)**：成果描述是否有具体数据和指标
-4. **表达清晰度 (clarity)**：描述是否简洁、重点突出、无歧义
-5. **亮点突出度 (highlights)**：核心竞争力和成就是否被有效展示
-6. **JD匹配度 (job_match)**：{"与目标职位的匹配程度" if job_description else "通用适配性"}
-
-{"基于面试对话，请特别指出简历中与面试表现不一致的地方，或面试中展现但简历未体现的能力。" if interview_conversations else ""}
-
-**重要：请严格按照以下 JSON 格式输出，所有字符串必须使用英文双引号 \" 而非中文引号，确保所有括号正确闭合，不要使用 markdown 代码块。**
-
-{{
-    "dimension_scores": {{
-        "structure": {{"score": 80, "comment": "结构清晰专业，模块划分合理"}},
-        "completeness": {{"score": 70, "comment": "教育和工作经历完整，缺少项目详情"}},
-        "quantification": {{"score": 60, "comment": "部分成果有数据支撑，可进一步量化"}},
-        "clarity": {{"score": 75, "comment": "表达清晰，重点突出"}},
-        "highlights": {{"score": 65, "comment": "技术亮点明确，可更突出核心竞争力"}},
-        "job_match": {{"score": 80, "comment": "技术栈与职位要求匹配度高"}}
-    }},
-    "strengths": ["优势1（简洁描述）", "优势2"],
-    "weaknesses": ["不足1（简洁描述）", "不足2"],
-    "priority_improvements": ["第一优先：具体改进建议", "第二优先：具体改进建议"],
-    "interview_insights": null
-}}
-
-**注意**：如果没有提供面试对话参考，interview_insights 字段必须为 null（不是字符串 "null"，而是 JSON 的 null 值）。
-"""
+    prompt = build_resume_analysis_prompt(
+        resume_content=resume_content,
+        job_description=job_description or "",
+        interview_section=interview_section,
+        profile_section=profile_section,
+    )
 
     try:
         result = await invoke_structured(prompt, ResumeAnalysisOutput, api_config, channel="general")

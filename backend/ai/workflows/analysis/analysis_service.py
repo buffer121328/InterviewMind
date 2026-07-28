@@ -147,134 +147,29 @@ class CandidateAnalysisService:
             return self._get_default_profile()
 
     def _build_analysis_prompt(self, context: AnalysisContext) -> str:
-        """构建分析 Prompt"""
+        """Build the single-session profile prompt from trusted context fields."""
+        from ai.prompts.analysis import build_candidate_analysis_prompt
 
-        # 格式化问答历史
-        qa_text = "\n\n".join([
-            f"Q{i+1}: {qa['question']}\nA{i+1}: {qa['answer']}"
-            for i, qa in enumerate(context.qa_history)
-        ])
-
-        # 增量分析提示
+        qa_text = "\n\n".join(
+            f"Q{index + 1}: {item['question']}\nA{index + 1}: {item['answer']}"
+            for index, item in enumerate(context.qa_history)
+        )
         previous_hint = ""
         if context.previous_profile:
-            previous_hint = f"""
-【上一轮分析结果】：
-- 专业能力: {context.previous_profile.professional_competence.score}/10
-- 逻辑与问题解决: {context.previous_profile.logic_problem_solving.score}/10
-- 沟通表达力: {context.previous_profile.communication.score}/10
-请在此基础上进行增量更新。
-"""
-
-        prompt = f"""你是一位资深的技术面试官和人才评估专家。请对候选人进行全面、客观的多维度能力分析。
-
-【简历信息】：
-{context.resume}
-
-【岗位要求】：
-{context.job_description}
-
-【公司背景】：
-{context.company_info}
-
-【面试问答记录】（共 {len(context.qa_history)} 轮）：
-{qa_text}
-
-{previous_hint}
-
-【分析要求】：
-请从以下 6 个维度对候选人进行评分和分析：
-
-1. **专业能力 (professional_competence)**：
-   - 核心技术栈掌握程度，底层原理理解。
-   - 评分 0-10，需提供证据。
-
-2. **执行与结果导向 (execution_results)**：
-   - 是否有明确的目标感？能否克服困难拿到结果？
-   - 评分 0-10，需提供证据。
-
-3. **逻辑与问题解决 (logic_problem_solving)**：
-   - 面对复杂问题的拆解能力，逻辑思维是否严密。
-   - 评分 0-10，需提供证据。
-
-4. **沟通表达力 (communication)**：
-   - 表达是否清晰、准确、有条理。
-   - 评分 0-10，需提供证据。
-
-5. **成长潜力 (growth_potential)**：
-   - 学习能力，对新技术的敏感度，反思复盘习惯。
-   - 评分 0-10，需提供证据。
-
-6. **协作能力 (collaboration)**：
-   - 团队合作意识，换位思考能力。
-   - 评分 0-10，需提供证据。
-
-【技能标签】：
-请提取用户最突出、最稳定的技能标签（如：Java, System Design, React 等），限制在 5-10 个。
-
-【输出格式】：
-请按要求输出结构化内容。JSON 结构如下：
-
-{{
-  "professional_competence": {{
-    "score": 7.5,
-    "evidence": "...",
-    "reason": "评分原因说明",
-    "better_answer_example": "更好的回答示例（可选）",
-    "improvement_tip": "具体改进建议"
-  }},
-  "execution_results": {{
-    "score": 8.0,
-    "evidence": "...",
-    "reason": "评分原因说明",
-    "better_answer_example": "更好的回答示例（可选）",
-    "improvement_tip": "具体改进建议"
-  }},
-  "logic_problem_solving": {{
-    "score": 7.0,
-    "evidence": "...",
-    "reason": "评分原因说明",
-    "better_answer_example": "更好的回答示例（可选）",
-    "improvement_tip": "具体改进建议"
-  }},
-  "communication": {{
-    "score": 6.5,
-    "evidence": "...",
-    "reason": "评分原因说明",
-    "better_answer_example": "更好的回答示例（可选）",
-    "improvement_tip": "具体改进建议"
-  }},
-  "growth_potential": {{
-    "score": 8.5,
-    "evidence": "...",
-    "reason": "评分原因说明",
-    "better_answer_example": "更好的回答示例（可选）",
-    "improvement_tip": "具体改进建议"
-  }},
-  "collaboration": {{
-    "score": 7.5,
-    "evidence": "...",
-    "reason": "评分原因说明",
-    "better_answer_example": "更好的回答示例（可选）",
-    "improvement_tip": "具体改进建议"
-  }},
-  "skill_tags": ["Java", "Spring Boot", "System Design"],
-  "overall_assessment": "候选人整体表现...",
-  "key_strengths": ["...", "..."],
-  "key_weaknesses": ["...", "..."],
-  "recommendation": "maybe",
-  "confidence": 0.75,
-  "last_updated": "{datetime.now().isoformat()}"
-}}
-
-【解释字段要求】：
-- reason: 简要说明为什么给这个分数（1-2句话）
-- better_answer_example: 如果该维度有明显不足，给出一个更好的回答示例；如果表现良好，可以省略
-- improvement_tip: 针对该维度的具体改进建议（1句话）
-
-请客观、公正地进行评估，避免主观臆断。"""
-
-        return prompt
+            previous_hint = (
+                "【上一轮画像，仅作增量参考】\n"
+                f"- 专业能力: {context.previous_profile.professional_competence.score}/10\n"
+                f"- 逻辑与问题解决: {context.previous_profile.logic_problem_solving.score}/10\n"
+                f"- 沟通表达力: {context.previous_profile.communication.score}/10"
+            )
+        return build_candidate_analysis_prompt(
+            resume=context.resume,
+            job_description=context.job_description,
+            company_info=context.company_info,
+            qa_text=qa_text,
+            qa_count=len(context.qa_history),
+            previous_hint=previous_hint,
+        )
 
     def _get_default_profile(self) -> CandidateProfile:
         """返回默认画像（分析失败时使用）"""
@@ -379,100 +274,29 @@ class WeaknessAnalysisService:
         job_description: str,
         company_info: str,
         qa_history: List[Dict[str, str]],
-        candidate_profile: Optional[Dict[str, Any]] = None
+        candidate_profile: Optional[Dict[str, Any]] = None,
     ) -> str:
-        """构建短板地图分析 Prompt"""
+        """Build the evidence-bounded weakness report prompt."""
+        from ai.prompts.analysis import build_weakness_analysis_prompt
 
-        # 格式化问答历史
-        qa_text = "\n\n".join([
-            f"Q{i+1}: {qa['question']}\nA{i+1}: {qa['answer']}"
-            for i, qa in enumerate(qa_history)
-        ])
-
-        # 画像上下文
+        qa_text = "\n\n".join(
+            f"Q{index + 1}: {item['question']}\nA{index + 1}: {item['answer']}"
+            for index, item in enumerate(qa_history)
+        )
+        weaknesses = (candidate_profile or {}).get("key_weaknesses", [])
         profile_hint = ""
-        if candidate_profile:
-            key_weaknesses = candidate_profile.get("key_weaknesses", [])
-            if key_weaknesses:
-                profile_hint = f"""
-【已有能力画像中的薄弱项】：
-{chr(10).join(f'- {w}' for w in key_weaknesses)}
-
-请结合这些已知薄弱项进行更精准的短板分析。
-"""
-
-        prompt = f"""你是一位资深的技术面试复盘专家。请根据面试问答记录，生成一份详细的"面试短板地图"报告。
-
-【简历信息】：
-{resume}
-
-【岗位要求】：
-{job_description}
-
-【公司背景】：
-{company_info}
-
-【面试问答记录】（共 {len(qa_history)} 轮）：
-{qa_text}
-{profile_hint}
-
-【分析要求】：
-
-1. **短板分类** (weakness_categories)：
-   - 将短板归类到以下类别之一：基础概念、项目表达、系统设计、行为面试、沟通表达、压力应对
-   - 每个类别给出具体描述和严重程度 (high/medium/low)
-   - 分类不要超过 4 个，聚焦最关键的短板
-
-2. **问题失败分析** (question_failures)：
-   - 挑出 2-3 个回答最差的具体问题
-   - 给出问题原文摘要、用户回答摘要、核心问题、更好的回答示例
-   - 问题原文和用户回答摘要控制在 50 字以内
-
-3. **改进行动项** (improvement_actions)：
-   - 针对每个短板给出具体可执行的改进动作
-   - 按优先级 1-5 排序（1 最高）
-   - 估算投入时间
-
-4. **推荐练习题** (recommended_questions)：
-   - 推荐 3-5 道针对性的练习面试题
-   - 题目应直接针对发现的短板
-
-5. **优先级排序** (priority_order)：
-   - 将短板类别按重要性排序
-
-【输出格式】：
-请按要求输出结构化内容。JSON 结构如下：
-
-{{
-  "weakness_categories": [
-    {{
-      "category": "基础概念",
-      "description": "...",
-      "severity": "high"
-    }}
-  ],
-  "question_failures": [
-    {{
-      "question": "问题摘要",
-      "user_answer": "回答摘要",
-      "issue": "核心问题",
-      "better_example": "更好的回答方向"
-    }}
-  ],
-  "improvement_actions": [
-    {{
-      "action": "具体行动",
-      "priority": 1,
-      "estimated_effort": "1周"
-    }}
-  ],
-  "recommended_questions": ["练习题1", "练习题2"],
-  "priority_order": ["基础概念", "项目表达"]
-}}
-
-请客观、精准地分析，避免泛化建议。证据引用不要太长。"""
-
-        return prompt
+        if weaknesses:
+            profile_hint = "【已有画像薄弱项，仅供交叉验证】\n" + "\n".join(
+                f"- {item}" for item in weaknesses[:5]
+            )
+        return build_weakness_analysis_prompt(
+            resume=resume,
+            job_description=job_description,
+            company_info=company_info,
+            qa_text=qa_text,
+            qa_count=len(qa_history),
+            profile_hint=profile_hint,
+        )
 
     def _get_default_report(self) -> Dict[str, Any]:
         """返回默认报告（分析失败时使用）"""

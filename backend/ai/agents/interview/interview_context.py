@@ -70,12 +70,13 @@ async def load_interview_memory(
     user_id: str,
     job_description: str,
     company_info: str,
+    api_config: dict[str, Any] | None = None,
 ) -> tuple[str, list[dict[str, Any]]]:
-    """读取候选人长期记忆；非鉴权故障降级为空上下文。"""
+    """Read long-term memory through the request-scoped model channels when provided."""
     try:
         from ai.memory import format_memory_context, get_agent_memory_service
 
-        memory_service = await get_agent_memory_service()
+        memory_service = await get_agent_memory_service(api_config)
         if not memory_service.is_enabled:
             return "", []
         memories = await memory_service.search_memories(
@@ -102,8 +103,9 @@ async def build_interview_context(
     question_bank_count: int = 0,
     experience_questions: Iterable[Any] = (),
     session_metadata: Any | None = None,
+    api_config: dict[str, Any] | None = None,
 ) -> InterviewContextSnapshot:
-    """按现有继承规则构建文字、语音共用的面试上下文。"""
+    """Build shared interview context while preserving request-scoped mem0 configuration."""
     stored_resume = getattr(session_metadata, "resume_content", None)
     stored_jd = getattr(session_metadata, "job_description", None)
     stored_company = getattr(session_metadata, "company_info", None)
@@ -122,6 +124,7 @@ async def build_interview_context(
         user_id,
         resolved_jd,
         resolved_company,
+        api_config,
     )
 
     return InterviewContextSnapshot(

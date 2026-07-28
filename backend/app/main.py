@@ -73,14 +73,19 @@ async def lifespan(app: FastAPI):
     # 初始化 mem0 长期记忆服务
     try:
         from ai.memory import get_agent_memory_service
-        memory_service = await get_agent_memory_service()
-        if memory_service.is_enabled:
-            logger.info("✓ mem0 长期记忆服务初始化成功")
+        from ai.memory.config import get_mem0_config
+
+        if get_mem0_config() is None:
+            logger.info("mem0 等待请求携带前端模型设置，首次记忆请求时按需初始化")
         else:
-            logger.info("⚠ mem0 长期记忆服务已禁用 (MEM0_ENABLED=false)")
+            memory_service = await get_agent_memory_service()
+            if memory_service.is_enabled:
+                logger.info("✓ mem0 长期记忆服务初始化成功")
+            else:
+                logger.info("mem0 服务端配置未就绪，仍可由前端模型设置按需初始化")
     except Exception as e:
-        logger.warning(f"⚠ mem0 长期记忆服务初始化失败: {e}")
-        logger.info("  项目将继续运行，但长期记忆功能不可用")
+        logger.warning("mem0 服务端预初始化失败: %s", type(e).__name__)
+        logger.info("项目将继续运行，并允许前端模型设置在请求时按需初始化 mem0")
 
     yield   # 暂停点，应用开始运行
 
@@ -264,6 +269,7 @@ async def health_check():
 
 # 注册路由
 from fastapi.staticfiles import StaticFiles
+from app.api import artifacts
 
 # 注册路由
 app.include_router(chat.router)
@@ -279,6 +285,7 @@ app.include_router(memory_router)
 app.include_router(jobs_router)
 app.include_router(interview_experience_router)
 app.include_router(langfuse_prompts.router)
+app.include_router(artifacts.router)
 
 # 挂载静态文件目录
 static_dir = os.path.join(os.getcwd(), "static")

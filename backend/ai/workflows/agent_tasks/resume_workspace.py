@@ -31,6 +31,36 @@ def _public_workspace_result(result_id: int, result_data: dict[str, Any]) -> dic
     }
 
 
+def _pipeline_jd_analysis(jd_matching: dict[str, Any]) -> dict[str, Any]:
+    """Translate the richer workspace JD result into the optimization pipeline contract.
+
+    The unified workspace already paid for a structured JD analysis, so reusing it
+    prevents the legacy keyword-only stage from replacing a meaningful score with
+    zero when the JD contains skills outside its small deterministic vocabulary.
+    """
+    match_score = float(jd_matching.get("overall_match_score") or 0)
+    matched = list(jd_matching.get("matched_keywords") or [])
+    missing = list(jd_matching.get("missing_keywords") or [])
+    required = list(dict.fromkeys([*matched, *missing]))
+    priority_actions = list(jd_matching.get("priority_actions") or [])
+    return {
+        "match_score": match_score,
+        "hr_pass_rate": round(match_score * 0.85),
+        "jd_keywords": required,
+        "keywords_required": required,
+        "keywords_preferred": [],
+        "matched_keywords": matched,
+        "missing_keywords": missing,
+        "bonus_items": [],
+        "priority_rewrite_points": [
+            {"area": "综合", "action": action, "priority": index + 1}
+            for index, action in enumerate(priority_actions[:5])
+        ],
+        "emphasis_areas": list(jd_matching.get("strengths") or [])[:5],
+        "analysis_summary": f"工作区 JD 匹配分析综合得分 {match_score:.1f}。",
+    }
+
+
 async def execute_resume_workspace(
     payload: dict,
     user_id: str,
@@ -75,6 +105,7 @@ async def execute_resume_workspace(
         resume_content=resume_content,
         job_description=job_description,
         api_config=api_config,
+        user_id=user_id,
     )
     await progress("content_optimization")
     optimization_result = initialize_review(
@@ -87,6 +118,7 @@ async def execute_resume_workspace(
             api_config=api_config,
             run_id=agent_run_id,
             mode=str(payload.get("mode") or "balanced"),
+            precomputed_jd_analysis=_pipeline_jd_analysis(jd_matching),
         )
     )
     # Keep top-level optimize fields for existing generation/review readers; this

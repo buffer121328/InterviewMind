@@ -126,48 +126,12 @@ class AbilityAnalysisService:
         # 构建带权重的上下文
         profiles_context = json.dumps(weighted_profiles, ensure_ascii=False, indent=2)
 
-        prompt = f"""你是一位资深的人才评估专家。请根据用户最近 {len(profiles)} 个面试系列的最终评估记录，生成一份综合的能力画像。
+        from ai.prompts.analysis import build_aggregate_profile_prompt
 
-【历史评估记录】（按时间倒序，最新在前，每条记录代表一个面试系列的最终轮次）：
-{profiles_context}
-
-【分析策略】：
-1. **时间加权**：每条记录都已标注权重（weight），权重越高表示越新，应给予更多考虑
-2. **趋势分析**：关注候选人的成长轨迹，是在进步还是退步
-3. **稳定性评估**：如果某些维度表现稳定，说明该能力比较可靠
-4. **综合平衡**：避免被单次异常表现影响，取加权平均值
-
-【评分维度】（0-10分）：
-1. **专业能力 (professional_competence)**：核心技术栈掌握程度
-2. **执行与结果导向 (execution_results)**：目标感和克服困难的能力
-3. **逻辑与问题解决 (logic_problem_solving)**：复杂问题拆解和逻辑思维
-4. **沟通表达力 (communication)**：清晰、准确、有条理的表达
-5. **成长潜力 (growth_potential)**：学习能力和对新技术的敏感度
-6. **协作能力 (collaboration)**：团队合作意识和换位思考
-
-【技能标签】：
-请提取用户最突出、最稳定的技能标签（如：Java, System Design, React 等），限制在 5-10 个。
-
-【输出格式】：
-请**直接输出纯 JSON 格式**，不要用 markdown 代码块包裹。
-
-{{
-  "professional_competence": {{ "score": 7.5, "evidence": "综合多次表现，候选人在XXX技术栈表现稳定..." }},
-  "execution_results": {{ "score": 8.0, "evidence": "..." }},
-  "logic_problem_solving": {{ "score": 7.0, "evidence": "..." }},
-  "communication": {{ "score": 6.5, "evidence": "..." }},
-  "growth_potential": {{ "score": 8.5, "evidence": "最近几次面试中表现出明显的进步趋势..." }},
-  "collaboration": {{ "score": 7.5, "evidence": "..." }},
-  "skill_tags": ["Java", "Spring Boot", "MySQL", "Redis", "System Design"],
-  "overall_assessment": "候选人整体表现为中高水平，近期呈现上升趋势...",
-  "key_strengths": ["技术栈扎实", "学习能力强"],
-  "key_weaknesses": ["表达可以更简洁"],
-  "recommendation": "hire",
-  "confidence": 0.8,
-  "last_updated": "{datetime.now().isoformat()}"
-}}
-
-请客观、公正地进行评估，重点关注加权平均后的稳定表现。"""
+        prompt = build_aggregate_profile_prompt(
+            profiles_count=len(profiles),
+            profiles_context=profiles_context,
+        )
 
         try:
             response = await llms.invoke_text(prompt, api_config, channel="smart")

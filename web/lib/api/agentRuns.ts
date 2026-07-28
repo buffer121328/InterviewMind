@@ -78,6 +78,11 @@ export async function listGroupedAgentRuns(params: {
     };
 }
 
+/** Reads exact unfiltered task-history totals for the Run Center summary cards. */
+export async function getAgentRunSummary(): Promise<{ active: number; history: number; succeeded: number; failed: number }> {
+    return apiRequest('/api/agent-runs/summary');
+}
+
 /**
  * Requests an explicit, owner-scoped repair of legacy interview session links.
  *

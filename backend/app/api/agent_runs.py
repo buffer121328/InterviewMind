@@ -158,6 +158,17 @@ async def list_agent_runs(
         _raise_use_case_error(exc)
 
 
+@router.get("/summary")
+async def summarize_agent_runs(
+    user_id: str = Depends(get_current_user_id),
+):
+    """Return exact unfiltered lifecycle totals for the current user's task history."""
+    try:
+        return await agent_run_use_cases.summarize_runs(user_id=user_id)
+    except AgentRunUseCaseError as exc:
+        _raise_use_case_error(exc)
+
+
 @router.get("/groups")
 async def list_grouped_agent_runs(
     user_id: str = Depends(get_current_user_id),

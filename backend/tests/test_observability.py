@@ -228,6 +228,33 @@ async def test_agent_observation_collects_model_events_without_langfuse():
         }
     ]
 
+
+@pytest.mark.asyncio
+async def test_agent_observation_does_not_persist_fake_trace_without_langfuse(monkeypatch):
+    """A disabled Langfuse client must not create a misleading Run Center trace link."""
+    import observability
+
+    persisted = []
+
+    class FakeRunService:
+        async def record_observation(self, run_id, *, trace_id, model_events):
+            persisted.append((run_id, trace_id, model_events))
+
+    monkeypatch.setattr(observability, "_get_agent_run_service", lambda: FakeRunService())
+
+    async with observability.agent_observation(
+        name="interview-report",
+        agent_type="interview_report",
+        user_id="user-1",
+        session_id="session-1",
+        run_id="run-1",
+        input_payload={"session_id": "session-1"},
+    ):
+        pass
+
+    assert persisted == []
+
+
 @pytest.mark.asyncio
 async def test_agent_observation_preserves_business_exception(monkeypatch):
     import observability

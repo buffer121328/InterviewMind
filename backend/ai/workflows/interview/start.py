@@ -2,14 +2,17 @@
 
 import logging
 import uuid
+from datetime import datetime
 from dataclasses import dataclass
 
 from app.db.repositories.session.session_repo import SessionRepo
 from app.schemas.schemas import InterviewStartRequest
 from ai.agents.interview.interview_context import build_interview_context
 from ai.agents.interview.interview_graph import build_interview_graph
+from ai.workflows.interview.response_content import extract_latest_assistant_content
 from ai.runtime.error_classification import classify_error_message
 from app.security.security import safe_error_message
+from app.domain.interview_session_titles import build_interview_session_title
 from observability import langgraph_langfuse_scope, with_langgraph_langfuse_config
 
 logger = logging.getLogger(__name__)
@@ -87,6 +90,7 @@ class InterviewStartUseCases:
                 question_bank_count=request.question_bank_count,
                 experience_questions=request.experience_questions,
                 session_metadata=session.metadata if session else None,
+                api_config=api_config,
             )
             inputs = {
                 "messages": [],
@@ -102,9 +106,12 @@ class InterviewStartUseCases:
             }
 
             current_r_idx = inputs["round_index"]
-            jd_for_title = inputs["job_description"] or request.job_description or ""
-            summary = jd_for_title[:15] + "..." if len(jd_for_title) > 15 else jd_for_title
-            title = f"{summary} - 第{current_r_idx}轮"
+            title = build_interview_session_title(
+                started_at=datetime.now(),
+                round_type=inputs["round_type"],
+                max_questions=inputs["max_questions"],
+                round_index=current_r_idx,
+            )
             await self._session_repo.update_session(request.thread_id, title=title, user_id=user_id)
 
             first_question = ""
@@ -119,13 +126,14 @@ class InterviewStartUseCases:
                 },
             )
             with langgraph_langfuse_scope("callbacks" in graph_config):
-                async for event in graph.astream_events(inputs, config=graph_config, version="v1"):
-                    if event["event"] == "on_chat_model_stream":
-                        node_name = event.get("metadata", {}).get("langgraph_node", "")
-                        if node_name == "responder":
-                            content = event["data"]["chunk"].content
-                            if content:
-                                first_question += content
+                async for event in graph.astream_events(inputs, config=graph_config, version="v2"):
+                    if (
+                        event["event"] == "on_chain_end"
+                        and event.get("metadata", {}).get("langgraph_node") == "responder"
+                    ):
+                        content = extract_latest_assistant_content(event.get("data", {}).get("output"))
+                        if content:
+                            first_question = content
 
             if first_question:
                 await self._session_repo.add_message(

@@ -2,7 +2,7 @@ import type { RefObject } from 'react';
 import { AlertCircle, BarChart3, CheckCircle, FileText, Loader2, Shield, Target, TrendingUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import type { JDMatchResult, ResumeAnalyzeResult, ResumeOptimizeResult, ResumeReviewDecision, ResumeReviewState } from '@/lib/api/resume';
+import type { JDMatchResult, ResumeAnalyzeResult, ResumeOptimizeResult, ResumeReviewDecision, ResumeReviewState } from '@/lib/api/resumeTypes';
 
 /** Maps a resume-analysis dimension key to the human-readable label used in the result panel, preserving unknown keys for forward compatibility. */
 function getResumeDimensionLabel(key: string): string {
@@ -438,10 +438,12 @@ export function ResumeOptimizeResultPanel({
 /** Renders the resume jdmatch result panel UI and coordinates its typed props, local state, and approved backend interactions. */
 export function ResumeJDMatchResultPanel({
     result,
-    onContinueOptimize,
+    onToggleOptimize,
+    isOptimizeExpanded = false,
 }: {
     result: JDMatchResult;
-    onContinueOptimize?: () => void;
+    onToggleOptimize?: () => void;
+    isOptimizeExpanded?: boolean;
 }) {
     const jdMatchResult = result;
 
@@ -614,14 +616,15 @@ export function ResumeJDMatchResultPanel({
                 </Card>
 
                 {/* A matching-only result has no unified optimization result to navigate to. */}
-                {onContinueOptimize && <div className="pt-4 border-t flex gap-3">
+                {onToggleOptimize && <div className="pt-4 border-t flex gap-3">
                     <Button
-                        onClick={onContinueOptimize}
+                        onClick={onToggleOptimize}
+                        aria-expanded={isOptimizeExpanded}
                         className="flex-1 bg-gradient-to-r from-teal-500 to-emerald-500 hover:from-teal-600 hover:to-emerald-600 text-white"
                         size="lg"
                     >
                         <FileText className="w-5 h-5 mr-2" />
-                        查看完整优化建议
+                        {isOptimizeExpanded ? '收起完整优化建议' : '查看完整优化建议'}
                     </Button>
                 </div>}
             </div>

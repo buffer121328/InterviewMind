@@ -108,14 +108,18 @@ def build_interview_start_plan(stage: str, status: str) -> list[dict]:
 
 
 def serialize_run(run: AgentRunModel) -> dict:
-    """将 AgentRun 模型序列化为 API 响应格式。"""
+    """将 AgentRun 模型序列化为 API 响应格式，不公开加密任务输入。"""
     definition = get_task_definition(run.task_type)
     agent_definition = get_agent_definition(run.task_type)
     return {
         "run_id": run.id,
         "session_id": getattr(run, "session_id", None),
-        # Only set by ownership-scoped lookup; never derive a title from the encrypted task payload.
+        # Only set by an ownership-scoped lookup; never derive session display data
+        # from the encrypted task payload.
         "session_title": getattr(run, "session_title", None),
+        "session_status": getattr(run, "session_status", None),
+        "session_question_count": getattr(run, "session_question_count", None),
+        "session_max_questions": getattr(run, "session_max_questions", None),
         "agent_name": getattr(run, "agent_name", None) or agent_definition.name,
         "agent_version": getattr(run, "agent_version", None) or agent_definition.version,
         "task_type": run.task_type,
@@ -124,6 +128,7 @@ def serialize_run(run: AgentRunModel) -> dict:
         "stage": run.stage,
         "plan": build_task_plan(run.task_type, run.stage, run.status),
         "result": run.result,
+        "step_results": getattr(run, "step_results", None) or {},
         "error_message": run.error_message,
         "trace_id": getattr(run, "trace_id", None),
         "attempts": run.attempts,
@@ -283,6 +288,7 @@ class AgentRunService:
                 id=str(uuid.uuid4()), user_id=user_id, session_id=session_id, task_type=task_type,
                 agent_name=definition.name, agent_version=definition.version, status="queued", stage="queued",
                 idempotency_key=idempotency_key, payload_encrypted=encrypt_payload(payload), result=None,
+                step_results={},
                 error_message=None, attempts=0, created_at=now, updated_at=now, started_at=None, finished_at=None,
             )
             session.add(run)
@@ -312,25 +318,131 @@ class AgentRunService:
             await session.refresh(run)
             return run, True
 
+    async def create_inline_or_get(
+        self,
+        *,
+        user_id: str,
+        payload: dict,
+        idempotency_key: str,
+        task_type: str,
+        initial_stage: str,
+        session_id: str | None = None,
+    ) -> tuple[AgentRunModel, bool]:
+        """Create an immediately running AgentRun without publishing an outbox task.
+
+        Interactive HTTP workflows use this path after their user-input gate has
+        completed.  The encrypted payload contains only a resumable reference,
+        while lifecycle events and step results remain visible in Run Center.
+        """
+        if task_type not in TASK_DEFINITIONS:
+            raise ValueError(f"unknown task type: {task_type}")
+        definition = get_agent_definition(task_type)
+        valid_stages = [step_id for step_id, _title in definition.steps]
+        if initial_stage not in valid_stages or initial_stage == "queued":
+            raise ValueError(f"invalid initial stage for {task_type}: {initial_stage}")
+
+        async with async_session() as session:
+            existing = await session.scalar(select(AgentRunModel).where(
+                AgentRunModel.user_id == user_id,
+                AgentRunModel.task_type == task_type,
+                AgentRunModel.idempotency_key == idempotency_key,
+            ))
+            if existing:
+                return existing, False
+
+            now = _now()
+            stage_index = valid_stages.index(initial_stage)
+            step_results = {
+                step_id: {"status": "completed", "finished_at": now.isoformat()}
+                for step_id in valid_stages[1:stage_index]
+            }
+            step_results[initial_stage] = {
+                "status": "running",
+                "started_at": now.isoformat(),
+            }
+            run = AgentRunModel(
+                id=str(uuid.uuid4()),
+                user_id=user_id,
+                session_id=session_id,
+                task_type=task_type,
+                agent_name=definition.name,
+                agent_version=definition.version,
+                status="running",
+                stage=initial_stage,
+                idempotency_key=idempotency_key,
+                payload_encrypted=encrypt_payload(payload),
+                result=None,
+                step_results=step_results,
+                error_message=None,
+                attempts=1,
+                created_at=now,
+                updated_at=now,
+                started_at=now,
+                finished_at=None,
+            )
+            session.add(run)
+            await session.flush()
+            await self._append_event(session, run, "run.created", {
+                "task_type": task_type,
+                "agent_name": definition.name,
+                "agent_version": definition.version,
+                "prompt_name": definition.prompt_name,
+                "prompt_version": definition.prompt_version,
+                "checkpoint_policy": definition.checkpoint_policy,
+                "cancellation_policy": definition.cancellation_policy,
+                "execution_mode": "interactive_inline",
+            })
+            await self._append_event(session, run, "run.started", {"attempt": 1})
+            try:
+                await session.commit()
+            except IntegrityError:
+                await session.rollback()
+                existing = await session.scalar(select(AgentRunModel).where(
+                    AgentRunModel.user_id == user_id,
+                    AgentRunModel.task_type == task_type,
+                    AgentRunModel.idempotency_key == idempotency_key,
+                ))
+                if existing:
+                    return existing, False
+                raise
+            await session.refresh(run)
+            return run, True
+
     async def _attach_owned_session_titles(
         self,
         session: AsyncSession,
         runs: list[AgentRunModel],
         user_id: str,
     ) -> None:
-        """Attach display-only titles for the user's referenced interview sessions in one query."""
+        """Attach owner-scoped interview-session display summaries in one query.
+
+        AgentRun status describes one background execution, not the lifecycle of
+        the linked interview.  The extra session fields let clients distinguish a
+        completed turn-generation task from a completed interview without reading
+        or decrypting the task payload.
+        """
         session_ids = {run.session_id for run in runs if run.session_id}
         if not session_ids:
             return
         rows = await session.execute(
-            select(SessionModel.session_id, SessionModel.title).where(
+            select(
+                SessionModel.session_id,
+                SessionModel.title,
+                SessionModel.status,
+                SessionModel.question_count,
+                SessionModel.max_questions,
+            ).where(
                 SessionModel.user_id == user_id,
                 SessionModel.session_id.in_(session_ids),
             )
         )
-        titles = {row.session_id: row.title for row in rows}
+        summaries = {row.session_id: row for row in rows}
         for run in runs:
-            setattr(run, "session_title", titles.get(run.session_id))
+            summary = summaries.get(run.session_id)
+            setattr(run, "session_title", summary.title if summary else None)
+            setattr(run, "session_status", summary.status if summary else None)
+            setattr(run, "session_question_count", summary.question_count if summary else None)
+            setattr(run, "session_max_questions", summary.max_questions if summary else None)
 
     async def backfill_interview_session_ids(self, user_id: str, *, limit: int = 100) -> int:
         """Backfill a bounded batch of missing interview session IDs for one owner.
@@ -415,6 +527,26 @@ class AgentRunService:
             await self._attach_owned_session_titles(session, runs, user_id)
             return runs, int(total or 0)
 
+    async def summarize_runs(self, user_id: str) -> dict[str, int]:
+        """Return exact whole-history lifecycle counts for one owner's AgentRuns.
+
+        This aggregate intentionally has no UI filter or pagination input, so the
+        Run Center never reports a page-sized number as an active or historical total.
+        """
+        async with async_session() as session:
+            rows = await session.execute(
+                select(AgentRunModel.status, func.count(AgentRunModel.id))
+                .where(AgentRunModel.user_id == user_id)
+                .group_by(AgentRunModel.status)
+            )
+            by_status = {status: int(count) for status, count in rows}
+        return {
+            "active": sum(by_status.get(status, 0) for status in ACTIVE_STATUSES),
+            "history": sum(by_status.get(status, 0) for status in TERMINAL_STATUSES),
+            "succeeded": by_status.get("succeeded", 0),
+            "failed": by_status.get("failed", 0),
+        }
+
     async def list_grouped_runs(
         self,
         user_id: str,
@@ -467,7 +599,8 @@ class AgentRunService:
                     )
                 )
                 for run in associated_runs:
-                    runs_by_session[run.session_id].append(run)
+                    if run.session_id is not None:
+                        runs_by_session[run.session_id].append(run)
 
             other_runs = list(
                 await session.scalars(
@@ -515,7 +648,7 @@ class AgentRunService:
             return run, decrypt_payload(run.payload_encrypted)
 
     async def mark_stage(self, run_id: str, stage: str) -> None:
-        """更新运行中 AgentRun 的阶段进度。"""
+        """推进运行阶段并持久化步骤完成记录，不写入敏感任务载荷或模型原文。"""
         async with async_session() as session:
             run = await session.get(AgentRunModel, run_id, with_for_update=True)
             if not run or run.status != "running":
@@ -525,8 +658,18 @@ class AgentRunService:
                 raise ValueError(f"invalid stage for {run.task_type}: {stage}")
             if run.stage == stage:
                 return
+            now = _now()
+            step_results = dict(run.step_results or {})
+            if run.stage in valid_stages and run.stage != "queued":
+                prior = dict(step_results.get(run.stage) or {})
+                prior.update({"status": "completed", "finished_at": now.isoformat()})
+                step_results[run.stage] = prior
+            current = dict(step_results.get(stage) or {})
+            current.update({"status": "running", "started_at": current.get("started_at") or now.isoformat()})
+            step_results[stage] = current
             run.stage = stage
-            run.updated_at = _now()
+            run.step_results = step_results
+            run.updated_at = now
             await self._append_event(session, run, "run.stage.changed")
             await session.commit()
 
@@ -659,6 +802,14 @@ class AgentRunService:
             run.status = "succeeded"
             run.stage = "succeeded"
             run.result = result
+            step_results = dict(run.step_results or {})
+            for step_id, _title in get_task_definition(run.task_type)["steps"]:
+                if step_id == "queued":
+                    continue
+                step = dict(step_results.get(step_id) or {})
+                step.update({"status": "completed", "finished_at": now.isoformat()})
+                step_results[step_id] = step
+            run.step_results = step_results
             run.error_message = None
             run.updated_at = now
             run.finished_at = now

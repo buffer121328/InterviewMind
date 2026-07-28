@@ -11,6 +11,7 @@ from typing import Optional
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from ai.workflows.interview.checkpoints import interview_turn_checkpoint_thread_id
+from ai.workflows.interview.response_content import extract_latest_assistant_content
 from app.db.repositories.session.session_repo import SessionRepo
 from ai.runtime.agent_runs.event_stream import build_run_event_envelope
 from app.domain.agent_runs import TASK_TYPE_INTERVIEW_TURN
@@ -197,6 +198,7 @@ class ChatStreamUseCases:
             {"id": "update_progress", "title": "更新面试进度", "status": "pending"},
         ]
         emitted_steps: set[tuple[str, str]] = set()
+        emitted_response_nodes: set[str] = set()
         run_event_sequence = 0
 
         def stream_event(event_type: str, payload) -> str:
@@ -276,24 +278,25 @@ class ChatStreamUseCases:
                     yield event
 
             with langgraph_langfuse_scope("callbacks" in config):
-                async for event in graph.astream_events(inputs, config=config, version="v1"):
+                async for event in graph.astream_events(inputs, config=config, version="v2"):
                     kind = event["event"]
-                    if kind == "on_chat_model_stream":
+                    if kind == "on_chain_end":
+                        output = event["data"].get("output")
                         node_name = event.get("metadata", {}).get("langgraph_node", "")
-                        if node_name in ["responder", "summary"]:
-                            content = event["data"]["chunk"].content
+                        if node_name in {"responder", "summary"} and node_name not in emitted_response_nodes:
+                            content = extract_latest_assistant_content(output)
                             if content:
+                                emitted_response_nodes.add(node_name)
                                 step = step_event("analyze_answer", "completed")
                                 if step:
                                     yield step
                                 step = step_event("generate_response", "running")
                                 if step:
                                     yield step
-                                ai_response_content += content
-                                response = ChatStreamResponse(type="token", content=content)
+                                visible_content = f"\n\n{content}" if ai_response_content else content
+                                ai_response_content += visible_content
+                                response = ChatStreamResponse(type="token", content=visible_content)
                                 yield f"data: {response.model_dump_json()}\n\n"
-                    elif kind == "on_chain_end":
-                        output = event["data"].get("output")
                         if output and isinstance(output, dict):
                             if "current_question_index" in output:
                                 final_question_index = output["current_question_index"]
@@ -337,7 +340,7 @@ class ChatStreamUseCases:
                     ai_response_content,
                     inputs,
                     user_id,
-                    inputs["api_config"],
+                    inputs.get("api_config"),
                 )
 
             for step_id in ("analyze_answer", "generate_response", "update_progress"):

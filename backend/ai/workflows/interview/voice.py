@@ -110,6 +110,7 @@ class VoiceInterviewUseCases:
                 question_bank_count=request.question_bank_count,
                 experience_questions=request.experience_questions,
                 session_metadata=metadata,
+                api_config=api_config,
             )
             interview_plan = await generate_interview_plan(
                 resume=context.resume_context,

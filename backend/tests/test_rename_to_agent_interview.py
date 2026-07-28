@@ -121,6 +121,8 @@ class TestAgentMemoryConfigBehavior:
         """Default pgvector dbname/user should be agent_interview, not postgres."""
         env = {
             "MEM0_ENABLED": "true",
+            "MEM0_LLM_API_KEY": "llm-key",
+            "MEM0_EMBEDDER_API_KEY": "embedder-key",
             "MEM0_PGVECTOR_DBNAME": "",
             "MEM0_PGVECTOR_USER": "",
             "MEM0_PGVECTOR_PASSWORD": "",
@@ -142,6 +144,8 @@ class TestAgentMemoryConfigBehavior:
         """pgvector config should fall back to POSTGRES_* env vars."""
         env = {
             "MEM0_ENABLED": "true",
+            "MEM0_LLM_API_KEY": "llm-key",
+            "MEM0_EMBEDDER_API_KEY": "embedder-key",
             "MEM0_PGVECTOR_DBNAME": "",
             "MEM0_PGVECTOR_USER": "",
             "MEM0_PGVECTOR_PASSWORD": "",
@@ -163,6 +167,8 @@ class TestAgentMemoryConfigBehavior:
         """MEM0_PGVECTOR_* env vars should take precedence over POSTGRES_*."""
         env = {
             "MEM0_ENABLED": "true",
+            "MEM0_LLM_API_KEY": "llm-key",
+            "MEM0_EMBEDDER_API_KEY": "embedder-key",
             "MEM0_PGVECTOR_DBNAME": "mem0专属",
             "MEM0_PGVECTOR_USER": "mem0user",
             "MEM0_PGVECTOR_PASSWORD": "mem0pass",
@@ -184,6 +190,7 @@ class TestAgentMemoryConfigBehavior:
         """mem0 embedder should reuse RAG OpenAI-compatible env when dedicated values are empty."""
         env = {
             "MEM0_ENABLED": "true",
+            "MEM0_LLM_API_KEY": "llm-key",
             "MEM0_EMBEDDER_API_KEY": "",
             "MEM0_EMBEDDER_BASE_URL": "",
             "OPENAI_API_KEY": "dashscope-key",
@@ -202,6 +209,8 @@ class TestAgentMemoryConfigBehavior:
         """Dedicated mem0 embedder endpoint should take precedence over OPENAI_BASE_URL."""
         env = {
             "MEM0_ENABLED": "true",
+            "MEM0_LLM_API_KEY": "llm-key",
+            "MEM0_EMBEDDER_API_KEY": "embedder-key",
             "MEM0_EMBEDDER_BASE_URL": "https://example.test/compatible-mode/v1",
             "OPENAI_BASE_URL": "https://dashscope.aliyuncs.com/compatible-mode/v1",
         }
@@ -211,6 +220,24 @@ class TestAgentMemoryConfigBehavior:
             config = mem_cfg.get_mem0_config()
 
         assert config["embedder"]["config"]["openai_base_url"] == "https://example.test/compatible-mode/v1"
+
+    def test_mem0_missing_model_credentials_disables_initialization(self):
+        """Enabled mem0 should fail closed before startup when both model credentials are absent."""
+        env = {
+            "MEM0_ENABLED": "true",
+            "MEM0_LLM_PROVIDER": "openai",
+            "MEM0_EMBEDDER_PROVIDER": "openai",
+            "MEM0_LLM_API_KEY": "",
+            "DEEPSEEK_API_KEY": "",
+            "MEM0_EMBEDDER_API_KEY": "",
+            "OPENAI_API_KEY": "",
+        }
+        with patch.dict(os.environ, env, clear=False):
+            import ai.memory.config as mem_cfg
+            importlib.reload(mem_cfg)
+            config = mem_cfg.get_mem0_config()
+
+        assert config is None
 
     def test_mem0_frontend_channels_enable_memory_when_env_disabled(self):
         """Complete request api_config should enable mem0 without server-side model keys."""

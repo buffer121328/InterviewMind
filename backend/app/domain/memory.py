@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-MEMORY_DISABLED_MESSAGE = "mem0 未启用"
+MEMORY_DISABLED_MESSAGE = "mem0 未就绪，请检查长期记忆模型通道与 pgvector 配置"
 
 
 def memory_record_to_item(record: dict[str, Any]) -> dict[str, Any]:

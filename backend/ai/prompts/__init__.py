@@ -31,6 +31,7 @@ from .resume import (
     build_hr_reviewer_prompt,
     build_jd_match_system_prompt,
     build_jd_match_user_prompt,
+    build_material_extraction_prompt,
     build_match_analyst_prompt,
     build_moderator_prompt,
     build_needs_analysis_prompt,
@@ -38,6 +39,8 @@ from .resume import (
     build_project_rewriter_prompt,
     build_refine_prompt,
     build_reflect_prompt,
+    build_rewrite_executor_prompt,
+    build_rewrite_planner_prompt,
     build_resume_analysis_prompt,
 )
 from .voice import (

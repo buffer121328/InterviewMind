@@ -6,10 +6,13 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query
 
 from app.api.deps import get_current_user_id
 from app.schemas.memory import (
+    MemoryAccessRequest,
     MemoryDeleteAllRequest,
     MemoryDeleteResponse,
     MemoryHistoryResponse,
+    MemoryListRequest,
     MemoryListResponse,
+    MemorySearchRequest,
     MemorySearchResponse,
 )
 from ai.workflows.memory import memory_use_cases
@@ -36,8 +39,26 @@ async def get_all_memories(
     try:
         return await memory_use_cases.list_memories(user_id=user_id, page_size=page_size)
     except Exception as exc:
-        logger.error("获取全部记忆失败: %s", exc)
-        raise _internal_error(f"获取全部记忆失败: {exc}") from exc
+        logger.error("获取全部记忆失败: %s", type(exc).__name__)
+        raise _internal_error("获取全部记忆失败，请检查服务端 mem0 配置") from exc
+
+
+@router.post("/list", response_model=MemoryListResponse)
+async def list_memories_with_model_config(
+    request: MemoryListRequest,
+    user_id: str = Depends(get_current_user_id),
+):
+    """List memories using front-end model channels without persisting credentials."""
+    try:
+        api_config = request.api_config.model_dump() if request.api_config else None
+        return await memory_use_cases.list_memories(
+            user_id=user_id,
+            page_size=request.page_size,
+            api_config=api_config,
+        )
+    except Exception as exc:
+        logger.error("获取全部记忆失败: %s", type(exc).__name__)
+        raise _internal_error("获取全部记忆失败，请检查 mem0 模型与向量库配置") from exc
 
 
 @router.get("/search", response_model=MemorySearchResponse)
@@ -56,8 +77,28 @@ async def search_memories(
             memory_type=memory_type,
         )
     except Exception as exc:
-        logger.error("搜索记忆失败: %s", exc)
-        raise _internal_error(f"搜索记忆失败: {exc}") from exc
+        logger.error("搜索记忆失败: %s", type(exc).__name__)
+        raise _internal_error("搜索记忆失败，请检查服务端 mem0 配置") from exc
+
+
+@router.post("/search", response_model=MemorySearchResponse)
+async def search_memories_with_model_config(
+    request: MemorySearchRequest,
+    user_id: str = Depends(get_current_user_id),
+):
+    """Search memories using front-end model channels without placing credentials in the URL."""
+    try:
+        api_config = request.api_config.model_dump() if request.api_config else None
+        return await memory_use_cases.search_memories(
+            user_id=user_id,
+            query=request.query,
+            limit=request.limit,
+            memory_type=request.memory_type,
+            api_config=api_config,
+        )
+    except Exception as exc:
+        logger.error("搜索记忆失败: %s", type(exc).__name__)
+        raise _internal_error("搜索记忆失败，请检查 mem0 模型与向量库配置") from exc
 
 
 @router.get("/{memory_id}/history", response_model=MemoryHistoryResponse)
@@ -69,21 +110,46 @@ async def get_memory_history(
     try:
         return await memory_use_cases.get_history(user_id=user_id, memory_id=memory_id)
     except Exception as exc:
-        logger.error("获取记忆历史失败: %s", exc)
-        raise _internal_error(f"获取记忆历史失败: {exc}") from exc
+        logger.error("获取记忆历史失败: %s", type(exc).__name__)
+        raise _internal_error("获取记忆历史失败，请检查服务端 mem0 配置") from exc
+
+
+@router.post("/{memory_id}/history", response_model=MemoryHistoryResponse)
+async def get_memory_history_with_model_config(
+    memory_id: str,
+    request: MemoryAccessRequest,
+    user_id: str = Depends(get_current_user_id),
+):
+    """Read one memory history through request-scoped model channels."""
+    try:
+        api_config = request.api_config.model_dump() if request.api_config else None
+        return await memory_use_cases.get_history(
+            user_id=user_id,
+            memory_id=memory_id,
+            api_config=api_config,
+        )
+    except Exception as exc:
+        logger.error("获取记忆历史失败: %s", type(exc).__name__)
+        raise _internal_error("获取记忆历史失败，请检查 mem0 配置") from exc
 
 
 @router.delete("/{memory_id}", response_model=MemoryDeleteResponse)
 async def delete_memory(
     memory_id: str,
+    request: MemoryAccessRequest | None = Body(default=None),
     user_id: str = Depends(get_current_user_id),
 ):
-    """删除当前用户某条记忆。"""
+    """Delete one memory using request-scoped model channels when supplied."""
     try:
-        return await memory_use_cases.delete_memory(user_id=user_id, memory_id=memory_id)
+        api_config = request.api_config.model_dump() if request and request.api_config else None
+        return await memory_use_cases.delete_memory(
+            user_id=user_id,
+            memory_id=memory_id,
+            api_config=api_config,
+        )
     except Exception as exc:
-        logger.error("删除记忆失败: %s", exc)
-        raise _internal_error(f"删除记忆失败: {exc}") from exc
+        logger.error("删除记忆失败: %s", type(exc).__name__)
+        raise _internal_error("删除记忆失败，请检查 mem0 配置") from exc
 
 
 @router.delete("", response_model=MemoryDeleteResponse)
@@ -91,9 +157,9 @@ async def delete_all_memories(
     request: MemoryDeleteAllRequest = Body(...),
     user_id: str = Depends(get_current_user_id),
 ):
-    """清空当前用户全部记忆。"""
+    """Clear all owner-scoped memories through the request-scoped mem0 client."""
     try:
         return await memory_use_cases.delete_all(user_id=user_id, request=request)
     except Exception as exc:
-        logger.error("清空记忆失败: %s", exc)
-        raise _internal_error(f"清空记忆失败: {exc}") from exc
+        logger.error("清空记忆失败: %s", type(exc).__name__)
+        raise _internal_error("清空记忆失败，请检查 mem0 配置") from exc

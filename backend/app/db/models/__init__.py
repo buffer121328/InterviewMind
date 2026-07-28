@@ -25,6 +25,8 @@ from .application import JobApplicationModel, ApplicationEventModel
 from .jd import JdAnalysisResultModel
 from .job_capture import CapturedJobModel
 from .agent_run import AgentRunEventModel, AgentRunModel, TaskOutboxModel
+from .prompt import PromptVersionModel
+from .artifact import ArtifactModel
 
 __all__ = [
     # base
@@ -48,4 +50,8 @@ __all__ = [
     "CapturedJobModel",
     # agent runs
     "AgentRunModel", "AgentRunEventModel", "TaskOutboxModel",
+    # prompts
+    "PromptVersionModel",
+    # private generated exports
+    "ArtifactModel",
 ]

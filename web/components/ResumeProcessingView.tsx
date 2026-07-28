@@ -62,7 +62,7 @@ export function ResumeProcessingView({ type = 'optimize', stage = 'content_optim
     const Icon = current.icon;
 
     return (
-        <div className="h-full flex flex-col items-center justify-center p-8 bg-gray-50/30 rounded-xl relative overflow-hidden min-h-[500px]">
+        <div className="h-full min-h-[500px] overflow-y-auto overflow-x-hidden flex flex-col items-center justify-center p-8 bg-gray-50/30 rounded-xl relative">
             {/* 背景动态装饰 */}
             <motion.div
                 className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[400px] h-[400px] rounded-full blur-[80px]"

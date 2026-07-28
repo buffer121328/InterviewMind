@@ -11,6 +11,7 @@
  */
 
 import { apiRequest } from './config';
+import type { ApiConfig } from './resumeTypes';
 
 // ============================================================================
 // 类型定义
@@ -78,42 +79,55 @@ export interface MemoryDeleteAllResponse {
 
 /**
  * 获取当前用户全部记忆
- * GET /api/memory?page_size=100
+ * POST /api/memory/list
  */
-export async function getAllMemories(pageSize = 100): Promise<MemoryListResponse> {
-    return apiRequest<MemoryListResponse>(`/api/memory?page_size=${pageSize}`);
+export async function getAllMemories(apiConfig: ApiConfig, pageSize = 100): Promise<MemoryListResponse> {
+    return apiRequest<MemoryListResponse>('/api/memory/list', {
+        method: 'POST',
+        body: JSON.stringify({ page_size: pageSize, api_config: apiConfig }),
+    });
 }
 
 /**
  * 搜索记忆（语义检索）
- * GET /api/memory/search?q=xxx&limit=5&memory_type=interview_preference
+ * POST /api/memory/search
  */
 export async function searchMemories(params: {
     q: string;
     limit?: number;
     memory_type?: string;
+    api_config: ApiConfig;
 }): Promise<MemorySearchResponse> {
-    const query = new URLSearchParams({ q: params.q });
-    if (params.limit != null) query.set('limit', String(params.limit));
-    if (params.memory_type) query.set('memory_type', params.memory_type);
-    return apiRequest<MemorySearchResponse>(`/api/memory/search?${query.toString()}`);
+    return apiRequest<MemorySearchResponse>('/api/memory/search', {
+        method: 'POST',
+        body: JSON.stringify({
+            query: params.q,
+            limit: params.limit,
+            memory_type: params.memory_type,
+            api_config: params.api_config,
+        }),
+    });
 }
 
 /**
  * 查看单条记忆变更历史
- * GET /api/memory/{memory_id}/history
+ * POST /api/memory/{memory_id}/history
  */
-export async function getMemoryHistory(memoryId: string): Promise<MemoryHistoryResponse> {
-    return apiRequest<MemoryHistoryResponse>(`/api/memory/${encodeURIComponent(memoryId)}/history`);
+export async function getMemoryHistory(memoryId: string, apiConfig: ApiConfig): Promise<MemoryHistoryResponse> {
+    return apiRequest<MemoryHistoryResponse>(`/api/memory/${encodeURIComponent(memoryId)}/history`, {
+        method: 'POST',
+        body: JSON.stringify({ api_config: apiConfig }),
+    });
 }
 
 /**
  * 删除单条记忆
  * DELETE /api/memory/{memory_id}
  */
-export async function deleteMemory(memoryId: string): Promise<MemoryDeleteResponse> {
+export async function deleteMemory(memoryId: string, apiConfig: ApiConfig): Promise<MemoryDeleteResponse> {
     return apiRequest<MemoryDeleteResponse>(`/api/memory/${encodeURIComponent(memoryId)}`, {
         method: 'DELETE',
+        body: JSON.stringify({ api_config: apiConfig }),
     });
 }
 
@@ -121,9 +135,9 @@ export async function deleteMemory(memoryId: string): Promise<MemoryDeleteRespon
  * 清空全部记忆（必须传 confirm=true 才执行）
  * DELETE /api/memory   body: { confirm: true }
  */
-export async function deleteAllMemories(confirm = true): Promise<MemoryDeleteAllResponse> {
+export async function deleteAllMemories(apiConfig: ApiConfig, confirm = true): Promise<MemoryDeleteAllResponse> {
     return apiRequest<MemoryDeleteAllResponse>('/api/memory', {
         method: 'DELETE',
-        body: JSON.stringify({ confirm }),
+        body: JSON.stringify({ confirm, api_config: apiConfig }),
     });
 }

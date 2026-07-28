@@ -89,182 +89,74 @@ def build_planner_prompt(
     round_index: int = 1,
     previous_profile: Optional[Dict] = None,
     previous_questions: Optional[List[str]] = None,
-    output_format: str = "full",  # "full" 或 "simple"
+    output_format: str = "full",
     weakness_report: Optional[Dict] = None,
     retrieval_context: Optional[Dict] = None,
-    memory_context: Optional[str] = None
+    memory_context: Optional[str] = None,
 ) -> str:
-    """
-    构建面试规划 Prompt
+    """Build the interview plan through the central evidence-bounded template."""
+    from ai.prompts.interview import build_planner_prompt as build_central_planner_prompt
 
-    上下文传递规范化 —— 7 项固定输入（按文档定义）：
-    1. job_description       — 当前岗位 JD
-    2. resume                — 当前候选人简历快照
-    3. previous_questions    — 上一轮问题列表（避免重复出题）
-    4. previous_profile      — 上一轮候选人画像（表现摘要）
-    5. weakness_report       — 上一轮短板报告
-    6. previous_profile      — 候选人分层画像（累积，同上字段）
-    7. memory_context        — 长期记忆上下文
-
-    Args:
-        resume: 简历内容
-        job_description: 岗位描述
-        company_info: 公司信息
-        max_questions: 最大问题数
-        round_type: 轮次类型 (tech_initial, tech_deep, hr_comprehensive, voice_default)
-        round_index: 当前轮次序号
-        previous_profile: 上一轮的候选人画像（可选）
-        previous_questions: 上一轮已问过的问题（可选，用于避免重复）
-        output_format: 输出格式 - "full" 包含 id/type，"simple" 只有 topic/content
-        weakness_report: 短板报告（可选）
-        retrieval_context: RAG 检索上下文（可选）
-        memory_context: 长期记忆上下文（可选，来自 mem0）
-
-    Returns:
-        构建好的 Prompt 字符串
-    """
-    # 获取轮次策略
     strategy = ROUND_STRATEGIES.get(round_type, ROUND_STRATEGIES["tech_initial"])
-
-    # 如果是深度轮次且有上一轮画像，添加参考信息
     requirements = strategy["requirements"]
     if round_type == "tech_deep" and previous_profile:
-        assessment = previous_profile.get("overall_assessment", "")[:200]
+        assessment = str(previous_profile.get("overall_assessment", ""))[:300]
         if assessment:
-            requirements = requirements.replace(
-                "从简历已有内容延伸",
-                f"从简历已有内容延伸。上一轮评估供参考：{assessment}"
-            )
+            requirements += f"\n上一轮评估参考：{assessment}"
 
-    # 构建公司信息部分
-    company_section = f"\n    【公司信息】：\n    {company_info}\n" if company_info else ""
-
-    # 构建上一轮问题部分（避免重复）
     previous_questions_section = ""
     if previous_questions:
-        questions_text = "\n".join([f"    - {q}" for q in previous_questions])
-        previous_questions_section = f"""
-    【上一轮已问过的问题（请勿重复）】：
-{questions_text}
-"""
+        previous_questions_section = "【上一轮已问过的问题（请勿重复）】\n" + "\n".join(
+            f"- {question}" for question in previous_questions
+        )
 
-    # 构建短板地图上下文（多轮面试增强）
     weakness_section = ""
-    if weakness_report:
-        weakness_categories = weakness_report.get("weakness_categories", [])
-        if weakness_categories:
-            weakness_text = "\n".join([
-                f"    - [{cat.get('severity', 'medium')}] {cat.get('category', '')}: {cat.get('description', '')}"
-                for cat in weakness_categories[:4]
-            ])
-            weakness_section = f"""
-    【上一轮面试短板（请重点追问）】：
-{weakness_text}
-    请在本轮面试中适当增加对这些薄弱领域的追问，但不要完全重复上一轮的题目。
-"""
+    categories = (weakness_report or {}).get("weakness_categories", [])
+    if categories:
+        weakness_section = "【上一轮短板，仅用于调整考察角度】\n" + "\n".join(
+            f"- [{item.get('severity', 'medium')}] {item.get('category', '')}: {item.get('description', '')}"
+            for item in categories[:4]
+        )
 
-    # 构建 RAG 检索上下文
     rag_section = ""
     if retrieval_context:
-        # 优先使用新的 rag_evidences（带来源和分数）
-        rag_evidences = retrieval_context.get("rag_evidences", [])
-        if rag_evidences:
-            evidence_text = "\n".join([
-                f"    - [{ev.get('source_type', '')}] {ev.get('evidence', '')[:120]} (score: {ev.get('retrieval_score', 0):.2f})"
-                for ev in rag_evidences[:6]
-            ])
-            rag_section = f"""
-    【检索证据（面试题生成依据）】：
-{evidence_text}
-    请基于以上证据生成面试题。每道题应至少引用一个证据来源。
-"""
+        evidences = retrieval_context.get("rag_evidences", [])
+        if evidences:
+            rag_section = "【检索证据】\n" + "\n".join(
+                f"- [{item.get('source_type', '')}] {item.get('evidence', '')[:160]}"
+                for item in evidences[:6]
+            )
         else:
-            # 兼容旧格式
             bank_questions = retrieval_context.get("bank_questions", [])
             if bank_questions:
-                bank_text = "\n".join([
-                    f"    - [{q.get('difficulty', 'medium')}] {q.get('question_text', '')}"
-                    for q in bank_questions[:3]
-                ])
-                rag_section = f"""
-    【题库参考题目（可作为出题灵感）】：
-{bank_text}
-"""
+                rag_section = "【题库参考，仅作灵感且不得照抄】\n" + "\n".join(
+                    f"- [{item.get('difficulty', 'medium')}] {item.get('question_text', '')}"
+                    for item in bank_questions[:4]
+                )
 
     memory_section = ""
     if memory_context:
-        memory_section = f"""
-    【候选人长期记忆】：
-{memory_context}
-    请结合这些长期记忆调整题目侧重点，但不要直接泄露记忆来源。
-"""
+        memory_section = (
+            "【候选人长期记忆】\n"
+            + memory_context[:3000]
+            + "\n请用于调整侧重点，但不要直接泄露记忆来源。"
+        )
 
-    # 根据输出格式选择 JSON 结构
-    if output_format == "simple":
-        json_format = """```json
-[
-  {"topic": "自我介绍", "content": "请做一个简短的自我介绍"},
-  {"topic": "项目经验", "content": "你在XX项目中遇到的最大挑战是什么？"}
-]
-```
-
-只返回 JSON 数组，不要有其他内容。"""
-    else:
-        json_format = """{
-        "questions": [
-            {
-                "id": 1,
-                "topic": "考察主题",
-                "content": "具体问题内容",
-                "type": "题目类型(intro/tech/behavior/system_design)",
-                "target_skill": "目标技能（可选）",
-                "sources": [
-                    {
-                        "source_type": "candidate_material",
-                        "source_id": "123",
-                        "evidence": "证据摘要"
-                    }
-                ],
-                "reason": "为什么问这道题（引用证据）",
-                "fallback_reason": null
-            }
-        ]
-    }
-
-    说明：
-    - sources: 列出生成这道题所依据的证据来源。如果没有明确证据，留空数组。
-    - reason: 解释为什么问这道题，必须引用证据。
-    - fallback_reason: 如果因为证据不足而回退到默认出题，填写原因；否则为 null。"""
-
-    # 构建完整 Prompt
-    prompt = f"""你是一位资深面试官。这是第 {round_index} 轮面试（类型：{round_type}）。
-    你的任务是：根据以下信息，设计**不多不少，正好 {max_questions} 道**面试题目。
-
-    【岗位描述】：
-    {job_description or "未提供"}
-    {company_section}
-    【候选人简历】：
-    {resume or "未提供"}
-    {previous_questions_section}
-    {weakness_section}
-    {rag_section}
-    {memory_section}
-    【本轮面试侧重点】：{strategy['focus']}
-
-    要求：
-    {requirements}
-    【重要】：你只能生成 {max_questions} 道题目。
-
-    【问题内容规范】：
-    1. 每个问题必须是直接的、具体的问题，不要包含元语言
-    2. 保持问题的自然性和专业性，就像真实面试官会问的问题
-
-    请严格按照以下 JSON 结构输出数组，确保包含所有字段。
-    不要包含 markdown 格式（如 ```json ... ```），只输出纯 JSON 字符串，使用英文字符，禁止使用emoji。
-    {json_format}
-    """
-
-    return prompt
+    return build_central_planner_prompt(
+        round_index=round_index,
+        round_type=round_type,
+        max_questions=max_questions,
+        job_description=job_description or "未提供",
+        company_info=company_info,
+        resume=resume or "未提供",
+        previous_questions_section=previous_questions_section,
+        weakness_section=weakness_section,
+        rag_section=rag_section,
+        memory_section=memory_section,
+        strategy_focus=strategy["focus"],
+        requirements=requirements,
+        output_format=output_format,
+    )
 
 
 # ============================================================================
@@ -390,14 +282,20 @@ async def generate_interview_plan(
             prompt=prompt,
             output_model=output_model,
             api_config=api_config,
-            channel="smart",
-            max_retries=2,
+            channel="fast",
+            max_retries=1,
         )
 
         interview_plan = [item.model_dump() for item in structured_plan.questions]
         if not interview_plan:
             logger.warning("[Planner] LLM 返回空计划，使用默认问题兜底。")
             interview_plan = _get_default_questions(max_questions, output_format)
+        elif round_type == "tech_initial" and output_format == "full":
+            interview_plan[0].update({
+                "topic": DEFAULT_QUESTIONS[0]["topic"],
+                "content": DEFAULT_QUESTIONS[0]["content"],
+                "type": DEFAULT_QUESTIONS[0]["type"],
+            })
 
         # 强制截断，确保数量符合要求（兜底逻辑）
         if len(interview_plan) > max_questions:
@@ -474,26 +372,9 @@ async def _generate_hints_async(
             for i, q in enumerate(interview_plan)
         ])
 
-        prompt = f"""你是一位面试辅导专家。以下是面试官将要问候选人的问题列表。
-请为每道题目生成简洁的回答提示，帮助候选人组织回答思路。
+        from ai.prompts.interview import build_hints_prompt
 
-【面试问题列表】：
-{questions_text}
-
-请为每道题生成回答提示，格式要求：
-1. 每道题的提示控制在50-100字
-2. 提示应包含：回答的角度、需要涵盖的要点、可以举例的方向
-3. 不要直接给出答案，而是引导思路
-
-请严格按照以下 JSON 格式输出，标点符号使用英文格式，不要包含 markdown 格式，不要有emoji表情：
-{{
-    "hints": [
-        "第1题的回答提示...",
-        "第2题的回答提示...",
-        ...
-    ]
-}}
-"""
+        prompt = build_hints_prompt(questions_text)
 
         hints_output = await invoke_structured(
             prompt=prompt,

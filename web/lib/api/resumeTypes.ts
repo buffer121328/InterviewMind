@@ -137,6 +137,25 @@ export interface ResumeWorkspaceResult {
     warnings: ResumeWorkspaceWarning[];
 }
 
+/** The persisted unified-workspace payload retains pipeline fields at the top level for generation and review compatibility. */
+export interface ResumeWorkspaceStoredResultData {
+    workspace?: {
+        version?: number;
+        competition_analysis?: unknown;
+        jd_matching?: unknown;
+    };
+    jd_analysis?: unknown;
+    change_items?: unknown;
+    material_pool?: unknown;
+    overall_confidence?: unknown;
+    requires_user_review?: unknown;
+    confirmation_items?: unknown;
+    human_review?: unknown;
+}
+
+/** A persisted history entry can be a legacy public result or a unified workspace pipeline payload. */
+export type ResumeResultData = ResumeAnalyzeResult | ResumeOptimizeResult | ResumeWorkspaceStoredResultData;
+
 export interface CompletedSession {
     session_id: string;
     title: string;
@@ -146,17 +165,26 @@ export interface CompletedSession {
     message_count: number;
 }
 
+export interface ApiModelChannel {
+    api_key: string;
+    base_url: string;
+    model: string;
+}
+
 export interface ApiConfig {
-    smart: {
-        api_key: string;
-        base_url: string;
-        model: string;
-    };
-    fast: {
-        api_key: string;
-        base_url: string;
-        model: string;
-    };
+    smart: ApiModelChannel;
+    fast: ApiModelChannel;
+    general?: ApiModelChannel | null;
+    match_analyst?: ApiModelChannel | null;
+    content_writer?: ApiModelChannel | null;
+    hr_reviewer?: ApiModelChannel | null;
+    reflector?: ApiModelChannel | null;
+    voice?: ApiModelChannel | null;
+    rag_embedding?: ApiModelChannel | null;
+    mem0_llm?: ApiModelChannel | null;
+    mem0_embedder?: ApiModelChannel | null;
+    reasoning_pool?: Array<ApiModelChannel & { name: string; weight: number }>;
+    fast_pool?: Array<ApiModelChannel & { name: string; weight: number }>;
 }
 
 export interface GeneratedResumeItem {
@@ -188,10 +216,22 @@ export interface ResumeGenerateSubmitResponse {
     message?: string;
 }
 
+export type ResumeGenerationProgressStatus = 'pending' | 'running' | 'completed' | 'failed';
+
+export interface ResumeGenerationProgressStep {
+    id: 'requirements_analysis' | 'draft_generation' | 'draft_optimization' | 'fact_check' | 'final_review' | 'saving_result';
+    status: ResumeGenerationProgressStatus;
+}
+
 export interface GenerationSessionStatus {
     session_id: string;
     status: string;
+    current_stage?: ResumeGenerationProgressStep['id'];
+    progress_steps?: ResumeGenerationProgressStep[];
     questions: string[];
     user_answers: Record<string, string>;
     final_markdown?: string;
+    generated_resume_id?: number;
+    agent_run_id?: string;
+    draft_length?: number;
 }

@@ -28,10 +28,7 @@ from typing import Dict, Any, List, Optional, Callable, Awaitable
 from app.schemas.interview import (
     InterviewerAction,
     InterviewPhase,
-    InterviewerOutput,
-    OpeningOutput,
     EvaluatingOutput,
-    EndRoundOutput,
 )
 from observability import agent_observation
 
@@ -140,28 +137,21 @@ class InterviewRuntime:
     # ------------------------------------------------------------------
 
     async def _handle_opening(self) -> Dict[str, Any]:
-        """opening 状态：生成问候语 + 首题"""
+        """opening 状态：使用已确认的计划生成唯一问候语和首题。"""
         logger.info(f"[Runtime] 进入 opening 状态, round={self.round_index}/{self.round_type}")
-        self._add_trace(step="opening_prompt", phase=InterviewPhase.OPENING.value, status="started")
-
-        prompt = self._build_opening_prompt()
-
-        try:
-            output: OpeningOutput = await self.llm_invoker(prompt, OpeningOutput)
-        except Exception as e:
-            logger.error(f"[Runtime] opening LLM 调用失败: {e}")
-            return self._default_response("你好！欢迎参加今天的面试。让我们开始吧。请问你能做一个简短的自我介绍吗？")
+        self._add_trace(step="opening_message", phase=InterviewPhase.OPENING.value, status="started")
+        opening_message = self._build_opening_message()
 
         self.phase = InterviewPhase.ASKING
         self._add_trace(
-            step="opening_prompt",
+            step="opening_message",
             phase=InterviewPhase.OPENING.value,
             status="completed",
-            output_summary=output.greeting[:120],
+            output_summary=opening_message[:120],
         )
 
         return self._with_trace({
-            "messages": [{"role": "assistant", "content": output.greeting}],
+            "messages": [{"role": "assistant", "content": opening_message}],
             "turn_phase": "feedback",
             "current_question_index": 0,
             "follow_up_count": 0,
@@ -190,6 +180,24 @@ class InterviewRuntime:
             status="started",
             input_summary=f"idx={self.current_idx}, follow_up={self.follow_up_count}, tool_rounds={self.tool_round_count}",
         )
+
+        if self.follow_up_count >= self.max_follow_ups:
+            logger.info("[Runtime] 当前题追问次数已达上限，跳过模型决策并强制推进")
+            forced_output = EvaluatingOutput(
+                evaluation_notes="当前题追问次数已达上限",
+                action=InterviewerAction.ADVANCE if next_q else InterviewerAction.END_ROUND,
+                content=next_q or "本轮面试到此结束，感谢你的参与！",
+                follow_up_count=self.follow_up_count,
+            )
+            self._add_trace(
+                step="evaluating",
+                phase=InterviewPhase.EVALUATING.value,
+                status="completed",
+                output_summary=f"forced_action={forced_output.action}",
+            )
+            if next_q:
+                return self._handle_advance_action(forced_output)
+            return self._handle_end_round_action(forced_output)
 
         # 构建评估 prompt（注入工具结果）
         tool_context = self._format_tool_results()
@@ -282,16 +290,17 @@ class InterviewRuntime:
 
         self.phase = InterviewPhase.ADVANCING
         next_q = self._get_next_question()
+        message = self._build_advance_message(next_q)
         logger.info(f"[Runtime] 进入第 {next_idx + 1} 题: {next_q[:50] if next_q else 'N/A'}...")
         self._add_trace(
             step="decision",
             phase=InterviewPhase.ADVANCING.value,
             status="completed",
-            output_summary=f"advance_to={next_idx}: {output.content[:120]}",
+            output_summary=f"advance_to={next_idx}: {message[:120]}",
         )
 
         return self._with_trace({
-            "messages": [{"role": "assistant", "content": output.content}],
+            "messages": [{"role": "assistant", "content": message}],
             "current_question_index": next_idx,
             "question_count": next_idx,
             "follow_up_count": 0,
@@ -362,27 +371,16 @@ class InterviewRuntime:
     # Prompt 构建
     # ------------------------------------------------------------------
 
-    def _build_opening_prompt(self) -> str:
-        """构建开场问候 prompt"""
+    def _build_opening_message(self) -> str:
+        """基于已持久化计划构造稳定开场，不再额外调用模型生成同义首题。"""
         first_q = self.plan[0]["content"] if self.plan else "请做一个简短的自我介绍。"
+        prefix = "欢迎参加本次面试。" if self.round_index <= 1 else f"欢迎进入第 {self.round_index} 轮面试。"
+        return f"{prefix}我们先从第一题开始：{first_q}"
 
-        from .interview_planner import ROUND_STRATEGIES
-        strategy = ROUND_STRATEGIES.get(self.round_type, ROUND_STRATEGIES["tech_initial"])
-
-        prompt = f"""你是一位专业的面试官。这是第 {self.round_index} 轮面试（侧重：{strategy['focus']}）。
-
-请输出开场问候语，然后自然过渡到第一道面试题目。
-
-【第一道题目】：{first_q}
-
-【要求】：
-1. 开场问候简短专业（1-2句话）
-2. 自然引出第一道题目（复述题目原文）
-3. 不要输出"回复："等前缀
-4. 整体控制在50字以内
-
-{memo_hint(self.memory_context)}"""
-        return prompt
+    @staticmethod
+    def _build_advance_message(next_question: str) -> str:
+        """只使用计划中的权威下一题，避免模型动作与展示题目相互矛盾。"""
+        return f"好的，感谢你的回答。接下来，{next_question}"
 
     def _format_historical_followups(self) -> str:
         """格式化当前主问题已沉淀的历史追问候选。"""
@@ -415,42 +413,27 @@ class InterviewRuntime:
         tool_context: str,
         allow_tool_request: bool = False,
     ) -> str:
-        """构建评估 prompt"""
+        """Build the controlled answer-evaluation prompt."""
 
+        from ai.prompts.interview import build_evaluating_prompt
         from .interview_planner import ROUND_STRATEGIES
         strategy = ROUND_STRATEGIES.get(self.round_type, ROUND_STRATEGIES["tech_initial"])
-
-        prompt = f"""你是一位专业的技术面试官。
-第 {self.round_index} 轮面试（侧重：{strategy['focus']}）。
-
-【面试进度】：第 {self.current_idx + 1}/{len(self.plan)} 题
-【当前题目】：{current_q}
-【下一题目】：{next_q if next_q else '已是最后一题'}
-【当前追问次数】：{self.follow_up_count}/{self.max_follow_ups}
-{self._format_historical_followups()}
-
-【候选人回答】：
-{user_answer}
-
-{tool_context}
-
-【你的任务】：
-1. 简要评价候选人的回答（一句话）
-2. 决策下一步动作：
-   - follow_up: 如果回答不够深入、缺少细节，追问（追问次数 < {self.max_follow_ups} 时可用）
-   - advance: 如果回答充分，自然过渡到下一题。必须完整复述【下一题目】原文
-   - end_round: 如果所有题目都已问完
-
-【决策原则】：
-- 追问仅用于深挖细节，不要为了凑数而追问
-- 追问时聚焦当前题目，不要跳到新话题
-- 进入下一题时必须完整复述新题原文
-- 如果是最后一题且回答充分，选择 end_round
-
-{self._build_tool_instruction(allow_tool_request)}
-
-{memo_hint(self.memory_context)}"""
-        return prompt
+        return build_evaluating_prompt(
+            round_index=self.round_index,
+            round_type=self.round_type,
+            strategy_focus=strategy["focus"],
+            current_index=self.current_idx,
+            total_questions=len(self.plan),
+            current_question=current_q,
+            next_question=next_q or "已是最后一题",
+            follow_up_count=self.follow_up_count,
+            max_follow_ups=self.max_follow_ups,
+            historical_followups=self._format_historical_followups(),
+            user_answer=user_answer,
+            tool_context=tool_context,
+            tool_instruction=self._build_tool_instruction(allow_tool_request),
+            memory_context=self.memory_context,
+        )
 
     # ------------------------------------------------------------------
     # 工具调用

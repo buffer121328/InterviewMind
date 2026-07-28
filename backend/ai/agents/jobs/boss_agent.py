@@ -13,9 +13,6 @@ from observability import langgraph_langfuse_scope, with_langgraph_langfuse_conf
 
 logger = logging.getLogger(__name__)
 
-BOSS_AGENT_SYSTEM_PROMPT = """BOSS 求职工作流按固定步骤执行：环境检查、页面读取、岗位提取、匹配评分、保存和资产生成。"""
-
-
 class BossSearchState(TypedDict, total=False):
     """数据对象，承载 `BossSearchState` 的结构化字段和跨模块契约；只表达数据，不在构造或序列化时执行外部调用。"""
     query: str

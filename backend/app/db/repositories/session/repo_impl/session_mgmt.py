@@ -12,6 +12,7 @@ from app.schemas.session import (
 )
 from app.db.models import async_session, SessionModel, MessageModel
 from app.domain.interview_rounds import resolve_max_questions, resolve_round_type
+from app.domain.interview_session_titles import build_interview_session_title
 from .base import BaseService
 
 logger = logging.getLogger(__name__)
@@ -35,12 +36,14 @@ class SessionManagementService(BaseService):
         """创建新会话"""
         round_type = resolve_round_type(round_type)
         max_questions = resolve_max_questions(round_type, max_questions)
-        if title is None:
-            mode_text = "辅导模式" if mode == "coach" else "模拟面试"
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
-            title = f"{mode_text} - {timestamp}"
-
         now = datetime.now()
+        if title is None:
+            title = build_interview_session_title(
+                started_at=now,
+                round_type=round_type,
+                max_questions=max_questions,
+                round_index=1,
+            )
 
         async with async_session() as db:
             try:

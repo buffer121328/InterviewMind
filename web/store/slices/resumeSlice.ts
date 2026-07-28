@@ -49,7 +49,7 @@ export interface ResumeState {
     // JD 匹配分析历史
     jdMatchResults: JDMatchHistoryItem[];
     jdMatchResultsLoading: boolean;
-    currentJDMatchDetail: import('@/lib/api/resume').JDMatchResult | null;
+    currentJDMatchDetail: import('@/lib/api/resumeTypes').JDMatchResult | null;
 
     // 候选人素材库
     candidateMaterials: CandidateMaterial[];
@@ -68,7 +68,7 @@ export interface ResumeState {
 
 export interface ResumeActions {
     fetchResumeResults: (resultType?: 'analyze' | 'optimize', append?: boolean) => Promise<void>;
-    selectResumeResult: (resultId: number) => Promise<void>;
+    selectResumeResult: (resultId: number) => Promise<boolean>;
     deleteResumeResult: (resultId: number) => Promise<boolean>;
     clearResumeResult: () => void;
     fetchCompletedSessions: (force?: boolean) => Promise<void>;
@@ -163,13 +163,17 @@ export const createResumeSlice = (set: SetState, get: GetState): ResumeSlice => 
         }
     },
 
+    /** Loads one history entry and reports whether a selectable result was returned by the owner-scoped API. */
     selectResumeResult: async (resultId: number) => {
-        set({ resumeResultLoading: true, currentResumeResult: null });
+        set({ resumeResultLoading: true });
         try {
             const result = await getResumeResultDetail(resultId);
-            if (result) set({ currentResumeResult: result as ResumeResultItem });
+            if (!result) return false;
+            set({ currentResumeResult: result });
+            return true;
         } catch (error) {
             console.error('获取简历历史详情失败:', error);
+            return false;
         } finally {
             set({ resumeResultLoading: false });
         }

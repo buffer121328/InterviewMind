@@ -10,6 +10,7 @@ _RETRY_POLICIES: dict[str, RunRetryPolicy] = {
     "voice_interview_turn": "checkpoint_resume_only",
     "resume_optimize": "whole_run_retry",
     "resume_workspace": "whole_run_retry",
+    "resume_generation": "checkpoint_resume_only",
     "interview_report": "whole_run_retry",
     "job_assets": "whole_run_retry",
 }

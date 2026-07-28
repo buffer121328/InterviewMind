@@ -16,11 +16,17 @@ class _Question:
 async def test_context_resolves_session_fallback_and_normalizes_sources(monkeypatch):
     captured: dict[str, str] = {}
 
-    async def fake_memory(user_id: str, job_description: str, company_info: str):
+    async def fake_memory(
+        user_id: str,
+        job_description: str,
+        company_info: str,
+        api_config: dict | None = None,
+    ):
         captured.update(
             user_id=user_id,
             job_description=job_description,
             company_info=company_info,
+            api_config=api_config,
         )
         return "候选人偏好深挖项目", [{"id": "memory-1"}]
 
@@ -43,6 +49,7 @@ async def test_context_resolves_session_fallback_and_normalizes_sources(monkeypa
         question_bank_count=20,
         experience_questions=[_Question()],
         session_metadata=metadata,
+        api_config={"mem0_llm": {"model": "memory-model"}},
     )
 
     assert context.resume_context == "已保存简历"
@@ -58,6 +65,7 @@ async def test_context_resolves_session_fallback_and_normalizes_sources(monkeypa
         "user_id": "user-1",
         "job_description": "本次 JD",
         "company_info": "已保存公司",
+        "api_config": {"mem0_llm": {"model": "memory-model"}},
     }
 
 

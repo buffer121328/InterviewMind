@@ -13,7 +13,7 @@ export class PromptManagementError extends Error {
     constructor(message: string, public readonly status?: number) { super(message); this.name = 'PromptManagementError'; }
 }
 
-/** Calls only the supported prompt routes; Langfuse credentials and configuration remain server-side. */
+/** Calls only owner-scoped prompt routes; templates are persisted and resolved by the backend. */
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
     const response = await fetch(buildApiUrl(path), { ...options, headers: { 'Content-Type': 'application/json', 'X-User-ID': getUserId(), ...options?.headers } });
     if (!response.ok) {
@@ -33,7 +33,10 @@ export function getPrompt(name: string, selector: { version: number } | { label:
     return request(`/api/langfuse/prompts/selected?${query}`);
 }
 /** Creates an immutable version and defaults it to draft. */
-export function createPromptVersion(input: PromptCreateRequest): Promise<PromptVersion> { return request('/api/langfuse/prompts', { method: 'POST', body: JSON.stringify({ labels: ['draft'], ...input }) }); }
+export function createPromptVersion(input: PromptCreateRequest): Promise<PromptVersion> {
+    const labels = [...new Set(['draft', ...(input.labels ?? [])])];
+    return request('/api/langfuse/prompts', { method: 'POST', body: JSON.stringify({ ...input, labels }) });
+}
 /** Replaces non-production labels for one version. */
 export function updatePromptLabels(name: string, version: number, labels: string[]): Promise<PromptVersion> { return request(`/api/langfuse/prompts/labels?${new URLSearchParams({ name, version: String(version) })}`, { method: 'PUT', body: JSON.stringify({ labels }) }); }
 /** Requests the separately privileged production-promotion action. */

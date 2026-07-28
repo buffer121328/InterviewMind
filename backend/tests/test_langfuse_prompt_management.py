@@ -189,20 +189,37 @@ def test_preview_requires_one_safe_selector():
         PromptPreviewRequest(name="resume-summary", version=1, label="production")
 
 
-def test_router_returns_503_when_feature_is_unconfigured(monkeypatch):
-    """The optional API clearly reports unavailable configuration without credentials."""
-    monkeypatch.delenv("LANGFUSE_ENABLED", raising=False)
-    monkeypatch.delenv("LANGFUSE_PROMPT_MANAGEMENT_ENABLED", raising=False)
+def test_database_prompt_service_exposes_builtin_registered_templates_as_readonly_v0():
+    """Backend templates remain viewable before a user creates their first editable database version."""
+    from ai.workflows.prompt_management import DatabasePromptManagementService
+
+    builtin = DatabasePromptManagementService._builtin_prompt("interview.planner")
+
+    assert builtin is not None
+    assert builtin.version == 0
+    assert builtin.labels == ["builtin"]
+    assert isinstance(builtin.prompt, str)
+    assert "{{round_index}}" in builtin.prompt
+
+
+def test_router_lists_database_backed_prompts_without_langfuse_configuration(monkeypatch):
+    """Prompt management remains available from the application database without Langfuse."""
+    class FakeService:
+        """Provide the bounded database list contract without a live database."""
+
+        async def list_prompts(self, *, user_id, page, limit):
+            """Return one owner-scoped metadata item for router verification."""
+            assert (user_id, page, limit) == ("default_user", 1, 20)
+            return []
+
+    monkeypatch.setattr("app.api.langfuse_prompts._service", lambda: FakeService())
     app = FastAPI()
     app.include_router(router)
 
     response = TestClient(app).get("/api/langfuse/prompts")
 
-    assert response.status_code == 503
-    assert response.json()["detail"] == {
-        "error": "PromptManagementUnavailable",
-        "message": "Langfuse prompt management is not enabled or configured",
-    }
+    assert response.status_code == 200
+    assert response.json() == {"items": [], "page": 1, "limit": 20}
 
 
 def test_service_is_unavailable_when_management_flag_is_disabled(monkeypatch):
@@ -216,8 +233,26 @@ def test_service_is_unavailable_when_management_flag_is_disabled(monkeypatch):
         LangfusePromptManagementService()._client()
 
 
-def test_router_creates_versions_and_uses_an_explicit_production_action(configured_client):
-    """The single-user UI may write versions, but creation cannot label production directly."""
+def test_router_creates_versions_and_uses_an_explicit_production_action(monkeypatch):
+    """The route delegates immutable creation and production promotion to the database service."""
+    from app.schemas.langfuse_prompts import PromptVersionResponse
+
+    calls: list[tuple[str, dict]] = []
+
+    class FakeService:
+        """Record owner-scoped database mutations without a live database."""
+
+        async def create_version(self, *, user_id, request):
+            """Return the first immutable version created by the owner."""
+            calls.append(("create", {"user_id": user_id, "request": request}))
+            return PromptVersionResponse(name=request.name, type=request.type, version=1, labels=["draft"], prompt=request.prompt)
+
+        async def update_labels(self, **kwargs):
+            """Record explicit production movement and return the promoted version."""
+            calls.append(("update", kwargs))
+            return PromptVersionResponse(name=kwargs["name"], type="text", version=kwargs["version"], labels=["draft", "production"], prompt="Draft {{candidate}}.")
+
+    monkeypatch.setattr("app.api.langfuse_prompts._service", lambda: FakeService())
     app = FastAPI()
     app.include_router(router)
     client = TestClient(app)
@@ -227,11 +262,10 @@ def test_router_creates_versions_and_uses_an_explicit_production_action(configur
     )
     promotion = client.put(
         "/api/langfuse/prompts/production",
-        json={"name": "resume-summary", "version": 2},
+        json={"name": "resume-summary", "version": 1},
     )
 
     assert create.status_code == 201
     assert promotion.status_code == 200
-    assert configured_client.update_calls[-1] == {
-        "name": "resume-summary", "version": 2, "new_labels": ["production"]
-    }
+    assert calls[0][0] == "create"
+    assert calls[1] == ("update", {"user_id": "default_user", "name": "resume-summary", "version": 1, "labels": [], "production": True})

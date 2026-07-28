@@ -136,6 +136,29 @@ class TestPipelineState:
         assert state.user_id == "user-123"
 
 
+class TestStage1JDAnalysis:
+    """JD analysis should preserve a richer result supplied by the workspace."""
+
+    @pytest.mark.asyncio
+    async def test_reuses_precomputed_workspace_score(self, monkeypatch):
+        """A valid upstream score must not be replaced by the legacy keyword matcher."""
+        async def fail_if_called(*_args, **_kwargs):
+            """Fail when the fallback matcher is invoked unexpectedly."""
+            raise AssertionError("keyword fallback should not run")
+
+        monkeypatch.setattr("ai.tools.resume_tools.analyze_jd_keyword_match", fail_if_called)
+        state = PipelineState(
+            resume_content=MOCK_RESUME,
+            job_description=MOCK_JD,
+            jd_analysis={"match_score": 72.5, "missing_keywords": ["Kubernetes"]},
+        )
+
+        result = await stage1_jd_analysis(state)
+
+        assert result.jd_analysis["match_score"] == 72.5
+        assert result.trace[-1]["output_summary"] == "precomputed_match_score=72.5"
+
+
 class TestStage2MaterialSelection:
     """素材选择阶段测试"""
 
