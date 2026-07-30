@@ -65,6 +65,7 @@ const NAV_SECTIONS: Array<{
             { view: 'memory', label: '长期记忆', icon: Database },
             { view: 'runs', label: '任务运行', icon: Activity },
             { view: 'prompts', label: 'Prompt 管理', icon: Sparkles },
+            { view: 'evaluations', label: 'Agent 评测', icon: ShieldCheck },
         ],
     },
 ];
@@ -78,6 +79,7 @@ const VIEW_CONTEXT: Record<WorkspaceView, { title: string; description: string }
     memory: { title: '长期记忆', description: '搜索、审计和删除用于个性化的 mem0 记忆。' },
     runs: { title: '任务运行', description: '查看 AgentRun 阶段、失败原因、取消与重试。' },
     prompts: { title: 'Prompt 管理', description: '查看、预览和安全发布不可变的 Prompt 版本。' },
+    evaluations: { title: 'Agent 评测', description: '运行评测、人工标注、校准 Judge 并检查发布门禁。' },
 };
 
 /** Encapsulates session sidebar; returns typed data or state and keeps side effects within the owning module boundary. */

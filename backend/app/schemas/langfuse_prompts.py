@@ -87,6 +87,7 @@ class PromptProductionPromotionRequest(BaseModel):
 
     name: Annotated[str, Field(min_length=1, max_length=128)]
     version: Annotated[int, Field(ge=1)]
+    evaluation_run_id: Annotated[str | None, Field(min_length=1, max_length=160)] = None
 
     @field_validator("name")
     @classmethod

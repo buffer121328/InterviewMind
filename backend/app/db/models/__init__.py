@@ -27,6 +27,18 @@ from .job_capture import CapturedJobModel
 from .agent_run import AgentRunEventModel, AgentRunModel, TaskOutboxModel
 from .prompt import PromptVersionModel
 from .artifact import ArtifactModel
+from .evaluation import (
+    EvaluationAnnotationModel,
+    EvaluationCalibrationModel,
+    EvaluationCaseModel,
+    EvaluationCaseRunModel,
+    EvaluationDatasetVersionModel,
+    EvaluationGatePolicyModel,
+    EvaluationGateResultModel,
+    EvaluationRunModel,
+    EvaluationScoreModel,
+    EvaluationSuiteModel,
+)
 
 __all__ = [
     # base
@@ -54,4 +66,9 @@ __all__ = [
     "PromptVersionModel",
     # private generated exports
     "ArtifactModel",
+    # evaluation
+    "EvaluationAnnotationModel", "EvaluationCalibrationModel", "EvaluationCaseModel",
+    "EvaluationCaseRunModel", "EvaluationDatasetVersionModel", "EvaluationGatePolicyModel",
+    "EvaluationGateResultModel", "EvaluationRunModel", "EvaluationScoreModel",
+    "EvaluationSuiteModel",
 ]

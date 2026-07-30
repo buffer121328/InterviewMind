@@ -11,6 +11,7 @@ from threading import RLock
 from typing import Literal
 
 from app.domain.agent_runs import (
+    TASK_TYPE_EVALUATION_SUITE,
     TASK_TYPE_INTERVIEW_REPORT,
     TASK_TYPE_INTERVIEW_START,
     TASK_TYPE_INTERVIEW_TURN,
@@ -69,6 +70,25 @@ class AgentDefinitionRegistry:
 
 
 _DEFINITIONS = (
+    AgentDefinition(
+        name="evaluation_suite",
+        version="1",
+        task_type=TASK_TYPE_EVALUATION_SUITE,
+        title="运行 Agent 评测套件",
+        steps=(
+            ("queued", "等待执行资源"),
+            ("preparing_dataset", "准备锁定数据集"),
+            ("starting_cases", "创建案例运行"),
+            ("running_cases", "运行真实生产 Agent"),
+            ("scoring", "执行确定性规则与 Judge"),
+            ("aggregating", "聚合质量、成本与回归"),
+            ("saving_results", "保存评测结果"),
+        ),
+        checkpoint_policy="durable",
+        graph_name=None,
+        prompt_name=None,
+        prompt_version=None,
+    ),
     AgentDefinition(
         name="interview_starter",
         version="1",

@@ -5,6 +5,7 @@
 """
 
 from app.domain.agent_runs import (
+    TASK_TYPE_EVALUATION_SUITE,
     TASK_TYPE_INTERVIEW_REPORT,
     TASK_TYPE_INTERVIEW_START,
     TASK_TYPE_JOB_ASSETS,
@@ -49,7 +50,19 @@ async def _execute_job_assets(payload: dict, user_id: str, progress: ProgressCal
     return await execute_job_assets(payload, user_id, progress)
 
 
+async def _execute_evaluation_suite(
+    payload: dict,
+    user_id: str,
+    progress: ProgressCallback,
+) -> ExecutionResult:
+    """延迟导入并执行 Agent 评测套件。"""
+    from ai.workflows.agent_tasks.evaluation_suite import execute_evaluation_suite
+
+    return await execute_evaluation_suite(payload, user_id, progress)
+
+
 EXECUTORS: dict[str, TaskExecutor] = {
+    TASK_TYPE_EVALUATION_SUITE: _execute_evaluation_suite,
     TASK_TYPE_INTERVIEW_START: _execute_interview_start,
     TASK_TYPE_RESUME_OPTIMIZE: _execute_resume_optimize,
     TASK_TYPE_RESUME_WORKSPACE: _execute_resume_workspace,

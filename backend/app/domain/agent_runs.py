@@ -12,6 +12,7 @@ TASK_TYPE_RESUME_WORKSPACE = "resume_workspace"
 TASK_TYPE_RESUME_GENERATION = "resume_generation"
 TASK_TYPE_INTERVIEW_REPORT = "interview_report"
 TASK_TYPE_JOB_ASSETS = "job_assets"
+TASK_TYPE_EVALUATION_SUITE = "evaluation_suite"
 
 ACTIVE_STATUSES: frozenset[str] = frozenset(
     {"queued", "retrying", "running", "cancel_requested"}

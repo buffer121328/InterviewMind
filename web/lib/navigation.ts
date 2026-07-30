@@ -8,7 +8,8 @@ export type MainView =
   | "boss"
   | "memory"
   | "runs"
-  | "prompts";
+  | "prompts"
+  | "evaluations";
 
 export type WorkspaceView = Exclude<MainView, "landing" | "guide">;
 
@@ -20,6 +21,7 @@ const PUBLIC_MAIN_VIEWS = new Set<MainView>([
   "memory",
   "runs",
   "prompts",
+  "evaluations",
 ]);
 
 /** Determines whether is public main view so callers can apply the same UI or safety boundary consistently. */
@@ -45,6 +47,7 @@ export function parseSavedMainView(value: string | null): MainView {
     case "memory":
     case "runs":
     case "prompts":
+    case "evaluations":
       return value;
     default:
       return "landing";

@@ -14,7 +14,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api import agent_runs, chat, upload, sessions, config, voice_chat, applications, langfuse_prompts
+from app.api import agent_runs, chat, upload, sessions, config, voice_chat, applications, langfuse_prompts, evaluations
 from app.api.resume import router as resume_router
 from app.api.question_bank import router as question_bank_router
 from app.api.memory import router as memory_router
@@ -291,6 +291,7 @@ app.include_router(jobs_router)
 app.include_router(interview_experience_router)
 app.include_router(langfuse_prompts.router)
 app.include_router(artifacts.router)
+app.include_router(evaluations.router)
 
 # 挂载静态文件目录
 static_dir = os.path.join(os.getcwd(), "static")

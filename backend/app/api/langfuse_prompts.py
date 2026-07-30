@@ -4,6 +4,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from ai.workflows.prompt_management import DatabasePromptManagementService
+from ai.workflows.evaluation import EvaluationUseCaseError, evaluation_use_cases
 from app.api.deps import get_current_user_id
 from app.schemas.langfuse_prompts import (
     PromptCreateRequest,
@@ -84,7 +85,16 @@ async def promote_prompt_to_production(
     request: PromptProductionPromotionRequest,
     user_id: str = Depends(get_current_user_id),
 ) -> PromptVersionResponse:
-    """Assign the runtime production label through an explicit single-user action."""
+    """Assign production only after the configured evaluation release gate allows it."""
+    try:
+        await evaluation_use_cases.validate_prompt_promotion(
+            user_id=user_id,
+            prompt_name=request.name,
+            prompt_version=str(request.version),
+            run_id=request.evaluation_run_id,
+        )
+    except EvaluationUseCaseError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
     result = await _service().update_labels(user_id=user_id, name=request.name, version=request.version, labels=[], production=True)
     if not result:
         raise HTTPException(status_code=404, detail="Prompt version not found")

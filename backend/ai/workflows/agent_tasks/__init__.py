@@ -10,6 +10,7 @@ from ai.workflows.agent_tasks.registry import EXECUTORS, execute_registered_task
 from ai.workflows.agent_tasks.types import DeferredExecutionResult, ExecutionResult, ProgressCallback, TaskExecutor
 
 _EXECUTOR_MODULES = {
+    "execute_evaluation_suite": "ai.workflows.agent_tasks.evaluation_suite",
     "execute_interview_report": "ai.workflows.agent_tasks.interview_report",
     "execute_interview_start": "ai.workflows.agent_tasks.interview_start",
     "execute_job_assets": "ai.workflows.agent_tasks.job_assets",
@@ -32,6 +33,7 @@ __all__ = [
     "ExecutionResult",
     "ProgressCallback",
     "TaskExecutor",
+    "execute_evaluation_suite",
     "execute_interview_report",
     "execute_interview_start",
     "execute_job_assets",

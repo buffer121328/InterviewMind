@@ -175,3 +175,15 @@ MEM0_CONTEXT_CHAR_LIMIT=1200
 # 长期记忆默认保留天数；到期记忆不再参与检索。
 MEM0_RETENTION_DAYS=180
 MEM0_BACKGROUND_WRITE=true
+
+# ----------------------------------------------------------------------------
+# Agent 评测中心与 Eval Harness（默认关闭；评测环境禁止真实外部副作用）
+# ----------------------------------------------------------------------------
+EVALUATION_CENTER_ENABLED=false
+EVALUATION_RUNS_ENABLED=false
+EVALUATION_LANGFUSE_REPORTING_ENABLED=false
+EVALUATION_ONLINE_SAMPLING_ENABLED=false
+# off: 不检查；warn: 允许发布但返回审计告警；enforce: 必须有通过的 Gate Result。
+EVALUATION_RELEASE_GATE_MODE=off
+EVALUATION_MAX_CONCURRENCY=4
+EVALUATION_DEFAULT_MAX_BUDGET_USD=5.0

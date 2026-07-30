@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useMemo, useSyncExternalStore } from "react";
-import { Activity, BookOpenCheck, Bot, BriefcaseBusiness, Database, Loader2, Award, Plus, MessageCircle, FileText, ArrowDown, Square, Lightbulb, X, Mic, Target, Sparkles } from "lucide-react";
+import { Activity, BookOpenCheck, Bot, BriefcaseBusiness, Database, Loader2, Award, Plus, MessageCircle, FileText, ArrowDown, Square, Lightbulb, X, Mic, Target, Sparkles, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ChatMessage } from "@/components/ChatMessage";
 import { AbilityProfileView } from "@/components/AbilityProfileView";
@@ -30,6 +30,7 @@ import { BossCenter } from "@/components/BossCenter";
 import { MemoryCenter } from "@/components/MemoryCenter";
 import { RunCenter } from "@/components/RunCenter";
 import { PromptManagementPage } from "@/components/PromptManagementPage";
+import { EvaluationCenter } from "@/components/evaluations/EvaluationCenter";
 import { WorkspaceShell } from "@/components/WorkspaceShell";
 import { QUESTION_COUNT_OPTIONS, defaultQuestionsForRoundIndex } from "@/lib/interview/questionDefaults";
 
@@ -533,6 +534,17 @@ export default function InterviewPage() {
       <>
         <WorkspaceShell sidebarOpen={showSidebar} onSidebarOpenChange={setShowSidebar} currentView="prompts" onViewChange={handleNavigate} onOpenSettings={() => setShowSettingsDialog(true)} onGoHome={() => setActiveMainTab('landing')} icon={<Sparkles className="h-4 w-4" />} title="Prompt 管理" description="安全地查看、预览和发布 Langfuse Prompt 版本">
           <PromptManagementPage />
+        </WorkspaceShell>
+        <SettingsDialog open={showSettingsDialog} onOpenChange={setShowSettingsDialog} />
+      </>
+    );
+  }
+
+  if (activeMainTab === 'evaluations') {
+    return (
+      <>
+        <WorkspaceShell sidebarOpen={showSidebar} onSidebarOpenChange={setShowSidebar} currentView="evaluations" onViewChange={handleNavigate} onOpenSettings={() => setShowSettingsDialog(true)} onGoHome={() => setActiveMainTab('landing')} icon={<ShieldCheck className="h-4 w-4" />} title="Agent 评测中心" description="运行评测、观察质量、人工标注并校准 Agent 与 Judge">
+          <EvaluationCenter />
         </WorkspaceShell>
         <SettingsDialog open={showSettingsDialog} onOpenChange={setShowSettingsDialog} />
       </>

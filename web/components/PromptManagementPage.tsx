@@ -124,6 +124,7 @@ export function PromptManagementPage() {
     const [search, setSearch] = useState('');
     const [groupFilter, setGroupFilter] = useState('all');
     const [acting, setActing] = useState(false);
+    const [evaluationRunId, setEvaluationRunId] = useState('');
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -166,6 +167,7 @@ export function PromptManagementPage() {
         setEditMode('write');
         setEditing(false);
         setVariables({});
+        setEvaluationRunId('');
     };
 
     /** Loads the requested immutable version and resets its local-only editor state. */
@@ -252,7 +254,7 @@ export function PromptManagementPage() {
         if (!selected || !window.confirm(`确认将「${getPromptDisplayName(selected.name)}」v${selected.version} 标记为生产版本？这会替换该版本的标签，版本内容仍不可变。`)) return;
         setActing(true);
         try {
-            setSelected(await promotePromptToProduction(selected.name, selected.version));
+            setSelected(await promotePromptToProduction(selected.name, selected.version, evaluationRunId.trim() || undefined));
             toast.success('已完成生产版本发布');
             await load();
         } catch (cause) {
@@ -298,7 +300,10 @@ export function PromptManagementPage() {
                                         <h2 className="mt-2 text-2xl font-semibold tracking-tight">{getPromptDisplayName(selected.name)}</h2>
                                         <div className="mt-3 flex flex-wrap gap-2"><PromptGroupBadge name={selected.name} />{selected.labels.map(label => <PromptLabel key={label} label={label} />)}</div>
                                     </div>
-                                    <Button disabled={acting || selected.version === 0 || selected.labels.includes('production')} onClick={() => void promote()}><Rocket />{selected.labels.includes('production') ? '已是生产版本' : selected.version === 0 ? '内置版本' : '发布为生产版本'}</Button>
+                                    <div className="w-full max-w-sm space-y-2">
+                                        <label className="block text-xs font-medium text-slate-600">Gate 评测 Run ID（enforce 模式必填）<Input className="mt-1.5" value={evaluationRunId} onChange={event => setEvaluationRunId(event.target.value)} placeholder="例如 eval-run-..." /></label>
+                                        <Button className="w-full" disabled={acting || selected.version === 0 || selected.labels.includes('production')} onClick={() => void promote()}><Rocket />{selected.labels.includes('production') ? '已是生产版本' : selected.version === 0 ? '内置版本' : '发布为生产版本'}</Button>
+                                    </div>
                                 </div>
                             </div>
                             <div className="border-b border-slate-100 p-6">

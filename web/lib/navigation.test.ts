@@ -10,6 +10,7 @@ test("main navigation separates public home modes from API-required business mod
   assert.equal(isPublicMainView("questionbank"), true);
   assert.equal(isPublicMainView("memory"), true);
   assert.equal(isPublicMainView("runs"), true);
+  assert.equal(isPublicMainView("evaluations"), true);
   assert.equal(requiresApiConfig("interview"), true);
   assert.equal(requiresApiConfig("resume"), true);
   assert.equal(requiresApiConfig("boss"), true);
@@ -19,6 +20,7 @@ test("parseSavedMainView falls back to landing for stale values", () => {
   assert.equal(parseSavedMainView("boss"), "boss");
   assert.equal(parseSavedMainView("memory"), "memory");
   assert.equal(parseSavedMainView("runs"), "runs");
+  assert.equal(parseSavedMainView("evaluations"), "evaluations");
   assert.equal(parseSavedMainView("unknown"), "landing");
   assert.equal(parseSavedMainView(null), "landing");
 });

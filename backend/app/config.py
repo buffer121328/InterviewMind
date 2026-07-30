@@ -31,6 +31,15 @@ class AppSettings(BaseSettings):
     # 本地开发默认自动同步表结构；需要严格迁移验证时设为 false，仅使用 Alembic。
     auto_create_tables: bool = True
 
+    # Agent 评测中心默认只保留代码和只读边界，真实运行、线上抽样和强制门禁显式开启。
+    evaluation_center_enabled: bool = False
+    evaluation_runs_enabled: bool = False
+    evaluation_langfuse_reporting_enabled: bool = False
+    evaluation_online_sampling_enabled: bool = False
+    evaluation_release_gate_mode: str = Field(default="off", pattern=r"^(off|warn|enforce)$")
+    evaluation_max_concurrency: int = Field(default=4, ge=1, le=20)
+    evaluation_default_max_budget_usd: float = Field(default=5.0, gt=0, le=1000)
+
     boss_automation_service_url: str = ""
     boss_automation_service_token: SecretStr = SecretStr("")
     boss_automation_request_timeout_seconds: int = Field(default=240, ge=5, le=600)
