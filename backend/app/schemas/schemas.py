@@ -15,10 +15,13 @@ from app.domain.interview_rounds import resolve_max_questions, resolve_round_typ
 # ============================================================================
 
 class ModelChannelConfig(BaseModel):
-    """单个通道的模型配置"""
+    """单个通道的模型配置；provider 字段只用于路由和观测，不包含凭据。"""
     api_key: str = Field(..., description="API Key")
     base_url: str = Field(..., description="API Base URL")
     model: str = Field(..., description="模型名称")
+    provider: Optional[str] = Field(default=None, description="服务商标识，如 deepseek/qwen/openai_compatible")
+    integration: Optional[str] = Field(default=None, description="LangChain 集成方式，如 deepseek/qwen/openai_compatible")
+    pricing_key: Optional[str] = Field(default=None, description="本地价格表键名；缺省使用 model")
 
 
 class ModelPoolMemberConfig(ModelChannelConfig):

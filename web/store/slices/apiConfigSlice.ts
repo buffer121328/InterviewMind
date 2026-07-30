@@ -8,6 +8,15 @@ import { v4 as uuidv4 } from 'uuid';
 import type { ModelConfig, ApiConfig } from '../types';
 import { DEFAULT_API_CONFIG } from '../types';
 
+type ModelRequestConfig = {
+    api_key: string;
+    base_url: string;
+    model: string;
+    provider?: string;
+    integration?: string;
+    pricing_key?: string;
+};
+
 // ============================================================================
 // 类型定义
 // ============================================================================
@@ -48,19 +57,19 @@ export interface ApiConfigActions {
     // 通用方法
     isConfigured: () => boolean;
     getApiConfigForRequest: () => {
-        smart: { api_key: string; base_url: string; model: string };
-        fast: { api_key: string; base_url: string; model: string };
-        general: { api_key: string; base_url: string; model: string };
-        match_analyst: { api_key: string; base_url: string; model: string };
-        content_writer: { api_key: string; base_url: string; model: string };
-        hr_reviewer: { api_key: string; base_url: string; model: string };
-        reflector: { api_key: string; base_url: string; model: string };
-        voice: { api_key: string; base_url: string; model: string } | null;
-        rag_embedding: { api_key: string; base_url: string; model: string } | null;
-        mem0_llm: { api_key: string; base_url: string; model: string } | null;
-        mem0_embedder: { api_key: string; base_url: string; model: string } | null;
-        reasoning_pool: Array<{ api_key: string; base_url: string; model: string; name: string; weight: number }>;
-        fast_pool: Array<{ api_key: string; base_url: string; model: string; name: string; weight: number }>;
+        smart: ModelRequestConfig;
+        fast: ModelRequestConfig;
+        general: ModelRequestConfig;
+        match_analyst: ModelRequestConfig;
+        content_writer: ModelRequestConfig;
+        hr_reviewer: ModelRequestConfig;
+        reflector: ModelRequestConfig;
+        voice: ModelRequestConfig | null;
+        rag_embedding: ModelRequestConfig | null;
+        mem0_llm: ModelRequestConfig | null;
+        mem0_embedder: ModelRequestConfig | null;
+        reasoning_pool: Array<ModelRequestConfig & { name: string; weight: number }>;
+        fast_pool: Array<ModelRequestConfig & { name: string; weight: number }>;
     } | null;
 }
 
@@ -333,6 +342,9 @@ export const createApiConfigSlice = (set: SetState, get: GetState): ApiConfigSli
                 api_key: m.apiKey,
                 base_url: m.baseUrl,
                 model: m.model,
+                provider: m.provider,
+                integration: m.integration,
+                pricing_key: m.pricingKey || m.model,
             };
         };
 

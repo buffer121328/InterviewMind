@@ -3,16 +3,23 @@
 import logging
 import os
 import uuid
+from collections.abc import Mapping, Sequence
 from contextlib import asynccontextmanager, contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
+from hashlib import sha256
+from math import ceil
 from typing import Any, AsyncIterator, Optional
 from urllib.parse import urlsplit
 
+_MODEL_PRICE_ENV = "MODEL_PRICE_REGISTRY"
 
 logger = logging.getLogger(__name__)
 _active_agent_observation: ContextVar[bool] = ContextVar(
     "active_agent_observation", default=False
+)
+_active_trace_id: ContextVar[str | None] = ContextVar(
+    "active_trace_id", default=None
 )
 _model_events: ContextVar[list[dict[str, Any]] | None] = ContextVar(
     "model_events", default=None
@@ -20,8 +27,14 @@ _model_events: ContextVar[list[dict[str, Any]] | None] = ContextVar(
 _agent_run_id: ContextVar[str | None] = ContextVar(
     "agent_run_id", default=None
 )
+_agent_name: ContextVar[str | None] = ContextVar(
+    "agent_name", default=None
+)
 _suppress_direct_llm_callbacks: ContextVar[bool] = ContextVar(
     "suppress_direct_llm_callbacks", default=False
+)
+_model_call_metadata: ContextVar[dict[str, Any] | None] = ContextVar(
+    "model_call_metadata", default=None
 )
 _client: Any = None
 _config: "LangfuseConfig | None" = None
@@ -120,33 +133,400 @@ class AgentObservation:
 
 
 
+def _read_nested_usage_value(usage: Any, path: str) -> Any:
+    """按点分路径读取 usage 字段，兼容 completion_tokens_details.reasoning_tokens 等结构。"""
+    current = usage
+    for part in path.split("."):
+        if current is None:
+            return None
+        current = current.get(part) if isinstance(current, Mapping) else getattr(current, part, None)
+    return current
+
+
+def _read_usage_value(usage: Any, *names: str) -> int | None:
+    """从 dict 或 SDK 对象中按别名读取 token 计数；缺失时返回 None 而不是 0。"""
+    for name in names:
+        value = _read_nested_usage_value(usage, name)
+        if value is None:
+            continue
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def _normalize_token_usage(usage: Any) -> dict[str, int | None]:
+    """把 OpenAI、LangChain 与国产兼容服务商的 usage 字段规整为统一键。"""
+    input_tokens = _read_usage_value(usage, "input_tokens", "prompt_tokens", "promptTokens")
+    output_tokens = _read_usage_value(usage, "output_tokens", "completion_tokens", "completionTokens")
+    total_tokens = _read_usage_value(usage, "total_tokens", "totalTokens")
+    if total_tokens is None and input_tokens is not None and output_tokens is not None:
+        total_tokens = input_tokens + output_tokens
+    return {
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "total_tokens": total_tokens,
+        "cache_read_tokens": _read_usage_value(
+            usage,
+            "cache_read_tokens",
+            "cached_tokens",
+            "prompt_cache_hit_tokens",
+            "cache_hit_tokens",
+        ),
+        "reasoning_tokens": _read_usage_value(
+            usage,
+            "reasoning_tokens",
+            "completion_tokens_details.reasoning_tokens",
+        ),
+    }
+
+
+def _merge_usage_result(usage: Any) -> dict[str, int | None]:
+    """返回标准 token 结构，并在没有有效计数时保留统一的 unavailable 状态。"""
+    result = _normalize_token_usage(usage)
+    if any(value is not None for value in result.values()):
+        return result
+    return {
+        "input_tokens": None,
+        "output_tokens": None,
+        "total_tokens": None,
+        "cache_read_tokens": None,
+        "reasoning_tokens": None,
+    }
+
+
 def extract_token_usage(value: Any) -> dict[str, int | None]:
-    """尽量从 LangChain/OpenAI 响应对象中提取 token usage。"""
+    """从 LangChain/OpenAI 响应提取 token 数量，不读取或上报响应正文。"""
     usage = getattr(value, "usage_metadata", None)
-    if isinstance(usage, dict):
-        return {
-            "input_tokens": usage.get("input_tokens") or usage.get("prompt_tokens"),
-            "output_tokens": usage.get("output_tokens") or usage.get("completion_tokens"),
-        }
+    if isinstance(usage, Mapping):
+        return _merge_usage_result(usage)
     response_metadata = getattr(value, "response_metadata", None)
-    if isinstance(response_metadata, dict):
+    if isinstance(response_metadata, Mapping):
         token_usage = response_metadata.get("token_usage") or response_metadata.get("usage")
-        if isinstance(token_usage, dict):
-            return {
-                "input_tokens": token_usage.get("prompt_tokens") or token_usage.get("input_tokens"),
-                "output_tokens": token_usage.get("completion_tokens") or token_usage.get("output_tokens"),
-            }
+        if isinstance(token_usage, Mapping):
+            return _merge_usage_result(token_usage)
     raw_usage = getattr(value, "usage", None)
     if raw_usage is not None:
-        return {
-            "input_tokens": getattr(raw_usage, "prompt_tokens", None) or getattr(raw_usage, "input_tokens", None),
-            "output_tokens": getattr(raw_usage, "completion_tokens", None) or getattr(raw_usage, "output_tokens", None),
-        }
-    return {"input_tokens": None, "output_tokens": None}
+        return _merge_usage_result(raw_usage)
+    llm_output = getattr(value, "llm_output", None)
+    if isinstance(llm_output, Mapping):
+        token_usage = llm_output.get("token_usage") or llm_output.get("usage")
+        if isinstance(token_usage, Mapping):
+            return _merge_usage_result(token_usage)
+    generations = getattr(value, "generations", None)
+    if generations:
+        try:
+            first = generations[0][0]
+            message = getattr(first, "message", None)
+            usage = getattr(message, "usage_metadata", None)
+            if isinstance(usage, Mapping):
+                return _merge_usage_result(usage)
+            metadata = getattr(message, "response_metadata", None)
+            if isinstance(metadata, Mapping):
+                token_usage = metadata.get("token_usage") or metadata.get("usage")
+                if isinstance(token_usage, Mapping):
+                    return _merge_usage_result(token_usage)
+        except (IndexError, TypeError):
+            pass
+    return _merge_usage_result(None)
+
+
+def _message_role(value: Any) -> str | None:
+    """把消息对象映射到固定角色名，避免把任意用户字段名写入观测事件。"""
+    role = getattr(value, "role", None) or getattr(value, "type", None)
+    if not role and isinstance(value, Mapping):
+        role = value.get("role") or value.get("type")
+    normalized = str(role or "").lower()
+    if normalized in {"system", "human", "user", "ai", "assistant", "tool", "function"}:
+        return "human" if normalized == "user" else "ai" if normalized == "assistant" else normalized
+    class_name = type(value).__name__.lower()
+    for candidate in ("system", "human", "ai", "tool", "function"):
+        if candidate in class_name:
+            return candidate
+    return None
+
+
+def _content_char_count(value: Any) -> int:
+    """递归统计模型可见字符串体积；只返回数量，不序列化或保留原文。"""
+    if value is None:
+        return 0
+    if isinstance(value, str):
+        return len(value)
+    if isinstance(value, bytes):
+        return len(value)
+    if isinstance(value, Mapping):
+        if "content" in value:
+            return _content_char_count(value.get("content"))
+        return sum(_content_char_count(item) for item in value.values())
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        return sum(_content_char_count(item) for item in value)
+    content = getattr(value, "content", None)
+    if content is not None:
+        return _content_char_count(content)
+    return len(str(value)) if isinstance(value, (int, float, bool)) else 0
+
+
+def _content_fingerprint(value: Any) -> str:
+    """对模型可见内容做单向哈希；哈希过程不返回或保存原文。"""
+    digest = sha256()
+
+    def update(current: Any) -> None:
+        """稳定遍历常见消息和结构化输入，加入类型与长度分隔符避免拼接碰撞。"""
+        if current is None:
+            digest.update(b"none;")
+            return
+        if isinstance(current, str):
+            encoded = current.encode("utf-8")
+            digest.update(f"str:{len(encoded)}:".encode("ascii"))
+            digest.update(encoded)
+            return
+        if isinstance(current, bytes):
+            digest.update(f"bytes:{len(current)}:".encode("ascii"))
+            digest.update(current)
+            return
+        if isinstance(current, Mapping):
+            digest.update(b"mapping{")
+            for key in sorted(current, key=lambda item: str(item)):
+                digest.update(sha256(str(key).encode("utf-8")).digest())
+                update(current[key])
+            digest.update(b"}")
+            return
+        if isinstance(current, Sequence) and not isinstance(current, (str, bytes, bytearray)):
+            digest.update(b"sequence[")
+            for item in current:
+                update(item)
+            digest.update(b"]")
+            return
+        content = getattr(current, "content", None)
+        if content is not None:
+            digest.update(f"message:{_message_role(current) or 'unknown'}:".encode("ascii"))
+            update(content)
+            return
+        digest.update(f"scalar:{type(current).__name__}:{current!s}".encode("utf-8"))
+
+    update(value)
+    return digest.hexdigest()
+
+
+def measure_model_input(value: Any, *, chars_per_token: float = 4.0) -> dict[str, Any]:
+    """生成不含原文的模型输入体积、粗略 token 数、来源分布和指纹。"""
+    input_chars = _content_char_count(value)
+    source_breakdown: dict[str, int] = {}
+
+    def iter_items(current: Any):
+        """展平 LangChain 的批次消息外层，同时保留具体消息对象作为统计单元。"""
+        if _message_role(current) is not None or isinstance(current, (str, bytes, Mapping)):
+            yield current
+            return
+        if isinstance(current, Sequence) and not isinstance(current, (str, bytes, bytearray)):
+            for child in current:
+                yield from iter_items(child)
+            return
+        yield current
+
+    for item in iter_items(value):
+        role = _message_role(item) or "input"
+        source_breakdown[role] = source_breakdown.get(role, 0) + _content_char_count(item)
+    if not source_breakdown:
+        source_breakdown = {"input": input_chars}
+    return {
+        "input_chars": input_chars,
+        "estimated_input_tokens": ceil(input_chars / max(chars_per_token, 0.1)),
+        "source_breakdown": source_breakdown,
+        "input_fingerprint": _content_fingerprint(value),
+    }
+
+
+_SAFE_MODEL_EVENT_FIELDS = {
+    "agent_name",
+    "attempt",
+    "cache_hit",
+    "candidate_count",
+    "candidate_index",
+    "channel",
+    "deadline_ms",
+    "deadline_remaining_ms",
+    "degraded",
+    "duration_ms",
+    "error_category",
+    "error_code",
+    "error_type",
+    "estimated_input_tokens",
+    "event_type",
+    "failure_type",
+    "fallback_index",
+    "first_chunk_duration_ms",
+    "input_chars",
+    "input_fingerprint",
+    "input_tokens",
+    "item_count",
+    "max_retries",
+    "model_duration_ms",
+    "model_member",
+    "model_name",
+    "model_provider",
+    "model_integration",
+    "model_endpoint",
+    "pricing_key",
+    "usage_status",
+    "total_tokens",
+    "cache_read_tokens",
+    "reasoning_tokens",
+    "estimated_cost_cny",
+    "estimated_cost_usd",
+    "cost_currency",
+    "cost_source",
+    "cost_status",
+    "operation",
+    "output_token_limit",
+    "output_tokens",
+    "prompt_label",
+    "prompt_name",
+    "prompt_source",
+    "prompt_version",
+    "queue_wait_ms",
+    "result_count",
+    "source_breakdown",
+    "stage",
+    "status",
+    "total_duration_ms",
+    "truncated_sources",
+}
+
+
+def _normalize_model_provider(value: Any) -> str | None:
+    """把前端供应商 ID 归一到观测维度，避免 aliyun 与 qwen 混用。"""
+    raw = str(value or "").strip().lower()
+    if not raw:
+        return None
+    if raw in {"aliyun", "dashscope", "bailian", "qwen", "qwq"}:
+        return "qwen"
+    if raw in {"deepseek", "openai", "openai_compatible", "custom"}:
+        return "openai_compatible" if raw == "custom" else raw
+    return raw
+
+
+def provider_observability_metadata(config: Mapping[str, Any] | None) -> dict[str, Any]:
+    """从模型通道配置生成不含凭据的 Provider 元数据，供 Langfuse 和本地事件统一使用。"""
+    cfg = dict(config or {})
+    base_url = str(cfg.get("base_url") or "")
+    endpoint = None
+    if base_url:
+        parsed = urlsplit(base_url)
+        endpoint = parsed.netloc or None
+    provider = _normalize_model_provider(cfg.get("provider")) or infer_model_provider(cfg.get("model"), base_url)
+    return {
+        "model_provider": provider,
+        "model_integration": cfg.get("integration") or infer_model_integration(cfg.get("model"), base_url, provider),
+        "model_endpoint": endpoint,
+        "pricing_key": cfg.get("pricing_key") or cfg.get("model"),
+    }
+
+
+def infer_model_provider(model: Any, base_url: str | None = None) -> str:
+    """根据显式配置缺失时的模型名和端点推断 Provider，只返回可公开观测的归一化名称。"""
+    text = f"{model or ''} {base_url or ''}".lower()
+    if "deepseek" in text:
+        return "deepseek"
+    if any(marker in text for marker in ("dashscope", "aliyun", "bailian", "qwen", "qwq")):
+        return "qwen"
+    if "openai" in text:
+        return "openai"
+    return "openai_compatible"
+
+
+def infer_model_integration(model: Any, base_url: str | None = None, provider: Any = None) -> str:
+    """推断模型客户端集成类型；原生服务商优先，网关和自定义端点保持 generic 兜底。"""
+    explicit = _normalize_model_provider(provider) or ""
+    inferred = infer_model_provider(model, base_url)
+    base = (base_url or "").lower()
+    if explicit in {"deepseek", "qwen", "openai", "openai_compatible"}:
+        inferred = explicit
+    if inferred == "deepseek" and (not base or "deepseek" in base):
+        return "deepseek"
+    if inferred in {"qwen", "aliyun"} and (not base or any(marker in base for marker in ("dashscope", "aliyun"))):
+        return "qwen"
+    if inferred == "openai" and (not base or "openai" in base):
+        return "openai"
+    return "openai_compatible"
+
+
+def _load_price_registry() -> dict[str, dict[str, Any]]:
+    """从 JSON 环境变量读取本地模型价格表；解析失败时禁用成本估算但不阻断业务。"""
+    raw = os.getenv(_MODEL_PRICE_ENV, "").strip()
+    if not raw:
+        return {}
+    try:
+        import json
+
+        parsed = json.loads(raw)
+    except Exception as error:
+        logger.warning("模型价格表解析失败，跳过成本估算: %s", type(error).__name__)
+        return {}
+    if not isinstance(parsed, Mapping):
+        return {}
+    registry: dict[str, dict[str, Any]] = {}
+    for key, value in parsed.items():
+        if isinstance(value, Mapping):
+            registry[str(key).lower()] = dict(value)
+    return registry
+
+
+def estimate_model_cost(
+    *,
+    pricing_key: Any = None,
+    model_name: Any = None,
+    input_tokens: int | None = None,
+    output_tokens: int | None = None,
+) -> dict[str, Any]:
+    """按本地价格表估算模型成本，默认支持人民币；缺 token 或价格时明确返回 unavailable。"""
+    if input_tokens is None or output_tokens is None:
+        return {"usage_status": "unavailable", "cost_status": "unavailable"}
+    registry = _load_price_registry()
+    key_candidates = [str(item).lower() for item in (pricing_key, model_name) if item]
+    price = next((registry[key] for key in key_candidates if key in registry), None)
+    if not price:
+        return {"usage_status": "available", "cost_status": "unpriced"}
+    currency = str(price.get("currency") or "CNY").upper()
+    try:
+        input_per_1m = float(price.get("input_per_1m", 0) or 0)
+        output_per_1m = float(price.get("output_per_1m", 0) or 0)
+    except (TypeError, ValueError):
+        return {"usage_status": "available", "cost_status": "unpriced"}
+    estimated = (input_tokens * input_per_1m + output_tokens * output_per_1m) / 1_000_000
+    result: dict[str, Any] = {
+        "usage_status": "available",
+        "cost_status": "estimated",
+        "cost_currency": currency,
+        "cost_source": "local_pricelist",
+    }
+    if currency == "CNY":
+        result["estimated_cost_cny"] = round(estimated, 8)
+    elif currency == "USD":
+        result["estimated_cost_usd"] = round(estimated, 8)
+    return result
+
+
+def _safe_model_event_value(value: Any) -> Any:
+    """把事件值限制为短标量或计数映射，拒绝任意业务 payload。"""
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    if isinstance(value, str):
+        return value[:160]
+    if isinstance(value, Mapping):
+        safe_mapping: dict[str, int | float | bool | None] = {}
+        for key, item in value.items():
+            if isinstance(item, (int, float, bool)) or item is None:
+                safe_mapping[str(key)[:64]] = item
+        return safe_mapping
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        return [str(item)[:64] for item in value[:32]]
+    return None
 
 
 def record_model_event(**event: Any) -> None:
-    """记录 `model event`。
+    """记录模型与外部 AI 服务事件，只接受无原文的固定审计字段。
 
     Args:
         **event: 事件对象。
@@ -154,9 +534,43 @@ def record_model_event(**event: Any) -> None:
     events = _model_events.get()
     if events is None:
         return
-    safe_event = dict(event)
-    safe_event.pop("api_key", None)
+    enriched_event = {"agent_name": _agent_name.get(), **event}
+    safe_event = {
+        key: safe_value
+        for key, value in enriched_event.items()
+        if key in _SAFE_MODEL_EVENT_FIELDS
+        and (safe_value := _safe_model_event_value(value)) is not None
+    }
     events.append(safe_event)
+
+
+@contextmanager
+def model_call_metadata_scope(**metadata: Any):
+    """在一次模型 attempt 内传播候选、deadline 和上下文审计元数据。"""
+    current = dict(_model_call_metadata.get() or {})
+    token = _model_call_metadata.set({**current, **metadata})
+    try:
+        yield
+    finally:
+        _model_call_metadata.reset(token)
+
+
+def get_current_model_call_metadata() -> dict[str, Any]:
+    """返回当前 attempt 的安全观测元数据副本。"""
+    return dict(_model_call_metadata.get() or {})
+
+
+def filter_model_call_metadata(metadata: Mapping[str, Any] | None) -> dict[str, Any]:
+    """只保留调用方可覆盖的上下文审计字段，防止覆盖候选和 deadline 决策字段。"""
+    allowed = {
+        "input_fingerprint",
+        "output_token_limit",
+        "queue_wait_ms",
+        "source_breakdown",
+        "stage",
+        "truncated_sources",
+    }
+    return {key: value for key, value in dict(metadata or {}).items() if key in allowed}
 
 
 async def _persist_agent_observation(observation: "AgentObservation") -> None:
@@ -183,6 +597,172 @@ def get_current_model_events() -> list[dict[str, Any]]:
     """读取当前运行上下文中的 model events；只返回本次请求可见的状态，不修改共享配置。"""
     events = _model_events.get()
     return list(events or [])
+
+
+def summarize_model_events(events: Sequence[Mapping[str, Any]]) -> dict[str, dict[str, Any]]:
+    """按 Agent 汇总 P50/P95、超时率、重试率和 fallback 率。"""
+    grouped: dict[str, list[Mapping[str, Any]]] = {}
+    for event in events:
+        grouped.setdefault(str(event.get("agent_name") or "unknown"), []).append(event)
+
+    def percentile(values: list[int], fraction: float) -> int | None:
+        """使用最近秩计算小样本可解释百分位。"""
+        if not values:
+            return None
+        ordered = sorted(values)
+        index = max(0, min(len(ordered) - 1, ceil(len(ordered) * fraction) - 1))
+        return ordered[index]
+
+    summaries: dict[str, dict[str, Any]] = {}
+    for agent_name, agent_events in grouped.items():
+        started = [item for item in agent_events if item.get("event_type") == "llm.request.started"]
+        terminal = [
+            item
+            for item in agent_events
+            if item.get("event_type") in {
+                "llm.request.completed",
+                "llm.request.failed",
+                "llm.request.skipped",
+            }
+        ]
+        durations = [
+            int(item["model_duration_ms"])
+            for item in terminal
+            if isinstance(item.get("model_duration_ms"), (int, float))
+        ]
+        timeout_count = sum(item.get("failure_type") == "timeout" for item in terminal)
+        retry_count = sum(int(item.get("attempt") or 1) > 1 for item in started)
+        fallback_count = sum(int(item.get("fallback_index") or 0) > 0 for item in started)
+        denominator = max(1, len(started))
+        summaries[agent_name] = {
+            "call_count": len(started),
+            "completed_count": sum(item.get("event_type") == "llm.request.completed" for item in terminal),
+            "failed_count": sum(item.get("event_type") != "llm.request.completed" for item in terminal),
+            "p50_model_duration_ms": percentile(durations, 0.50),
+            "p95_model_duration_ms": percentile(durations, 0.95),
+            "timeout_rate": min(timeout_count, denominator) / denominator,
+            "retry_rate": retry_count / denominator,
+            "fallback_rate": fallback_count / denominator,
+        }
+    return summaries
+
+
+def summarize_governance_window(events: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """Summarize one sanitized event window for Phase 6 performance acceptance."""
+    started = [event for event in events if event.get("event_type") == "llm.request.started"]
+    terminal = [
+        event
+        for event in events
+        if event.get("event_type") in {
+            "llm.request.completed",
+            "llm.request.failed",
+            "llm.request.skipped",
+        }
+    ]
+    durations = sorted(
+        int(event["total_duration_ms"])
+        for event in terminal
+        if isinstance(event.get("total_duration_ms"), (int, float))
+    )
+    p95_index = max(0, min(len(durations) - 1, ceil(len(durations) * 0.95) - 1))
+    denominator = max(1, len(started))
+    audited_count = sum(
+        isinstance(event.get("input_chars"), (int, float))
+        and isinstance(event.get("input_fingerprint"), str)
+        and isinstance(event.get("source_breakdown"), Mapping)
+        for event in started
+    )
+    forbidden_fields = {
+        "api_key",
+        "authorization",
+        "cookie",
+        "job_description",
+        "memory",
+        "prompt",
+        "resume",
+        "token",
+        "user_answer",
+    }
+    return {
+        "call_count": len(started),
+        "p95_total_duration_ms": durations[p95_index] if durations else None,
+        "timeout_rate": sum(
+            event.get("failure_type") == "timeout"
+            or event.get("error_category") == "external_io_timeout"
+            for event in terminal
+        ) / denominator,
+        "average_fallback_count": sum(
+            int(event.get("fallback_index") or 0) > 0
+            for event in started
+        ) / denominator,
+        "context_audit_coverage": audited_count / denominator,
+        "unsafe_field_count": sum(
+            bool(forbidden_fields.intersection(event))
+            for event in events
+        ),
+    }
+
+
+def compare_governance_windows(
+    baseline_events: Sequence[Mapping[str, Any]],
+    current_events: Sequence[Mapping[str, Any]],
+    *,
+    voice_baseline_chars: int,
+    voice_current_chars: int,
+    resume_baseline_chars: int,
+    resume_current_chars: int,
+) -> dict[str, Any]:
+    """Compare sanitized before/after windows against the Phase 6 reduction targets."""
+    baseline = summarize_governance_window(baseline_events)
+    current = summarize_governance_window(current_events)
+
+    def reduction(before: int | float | None, after: int | float | None) -> float:
+        """Return a stable reduction ratio; a zero baseline passes only without regression."""
+        before_value = float(before or 0)
+        after_value = float(after or 0)
+        if before_value <= 0:
+            return 1.0 if after_value <= 0 else -1.0
+        return (before_value - after_value) / before_value
+
+    improvements = {
+        "p95_total_duration_reduction": reduction(
+            baseline["p95_total_duration_ms"],
+            current["p95_total_duration_ms"],
+        ),
+        "timeout_rate_reduction": reduction(
+            baseline["timeout_rate"],
+            current["timeout_rate"],
+        ),
+        "average_fallback_reduction": reduction(
+            baseline["average_fallback_count"],
+            current["average_fallback_count"],
+        ),
+        "voice_context_reduction": reduction(
+            voice_baseline_chars,
+            voice_current_chars,
+        ),
+        "resume_repeated_input_reduction": reduction(
+            resume_baseline_chars,
+            resume_current_chars,
+        ),
+    }
+    targets = {
+        "p95_total_duration": improvements["p95_total_duration_reduction"] >= 0.30,
+        "timeout_rate": improvements["timeout_rate_reduction"] >= 0.70,
+        "average_fallback_count": improvements["average_fallback_reduction"] >= 0.50,
+        "voice_context": improvements["voice_context_reduction"] >= 0.60,
+        "resume_repeated_input": improvements["resume_repeated_input_reduction"] >= 0.50,
+        "context_audit_coverage": current["context_audit_coverage"] == 1.0,
+        "sensitive_event_fields": current["unsafe_field_count"] == 0,
+    }
+    return {
+        "baseline": baseline,
+        "current": current,
+        "improvements": improvements,
+        "targets": targets,
+        "passed": all(targets.values()),
+    }
+
 
 def _create_langfuse_client(config: LangfuseConfig) -> Any:
     """按配置创建 Langfuse 客户端；外部追踪不可用时使用安全降级，不让观测初始化阻断业务流程。
@@ -271,9 +851,68 @@ async def agent_observation(
     input_payload: dict[str, Any],
     run_id: Optional[str] = None,
 ) -> AsyncIterator[AgentObservation]:
-    """为一次 Agent 执行创建根 span，SDK 故障不影响业务链路。"""
+    """创建 Agent 根 span；嵌套工作流复用当前 trace 并创建子 span。"""
     if not _configured:
         configure_langfuse()
+
+    parent_trace_id = _active_trace_id.get()
+    if _active_agent_observation.get() and parent_trace_id:
+        observation = AgentObservation(
+            enabled=_client is not None,
+            input_payload=input_payload,
+            trace_id=parent_trace_id,
+            run_id=run_id,
+        )
+        token_run_id = _agent_run_id.set(run_id or _agent_run_id.get())
+        token_agent_name = _agent_name.set(agent_type)
+        parent_events = _model_events.get()
+        event_start = len(parent_events or [])
+
+        if _client is None:
+            try:
+                yield observation
+            except Exception as error:
+                observation.set_error(error)
+                raise
+            finally:
+                observation.model_events = list((_model_events.get() or [])[event_start:])
+                _agent_run_id.reset(token_run_id)
+                _agent_name.reset(token_agent_name)
+            return
+
+        entered = False
+        business_error = False
+        try:
+            with _client.start_as_current_observation(
+                as_type="span",
+                name=name,
+            ) as span:
+                entered = True
+                try:
+                    yield observation
+                except Exception as error:
+                    business_error = True
+                    observation.set_error(error)
+                    raise
+                finally:
+                    observation.model_events = list((_model_events.get() or [])[event_start:])
+                    _update_span(span, observation)
+        except Exception as error:
+            if business_error:
+                raise
+            logger.warning("Langfuse 子观测失败，业务继续执行: %s", type(error).__name__)
+            if not entered:
+                try:
+                    yield observation
+                except Exception as business_exception:
+                    observation.set_error(business_exception)
+                    raise
+                finally:
+                    observation.model_events = list((_model_events.get() or [])[event_start:])
+        finally:
+            _agent_run_id.reset(token_run_id)
+            _agent_name.reset(token_agent_name)
+        return
 
     trace_id = str(uuid.uuid4())
     if _client is not None:
@@ -289,15 +928,24 @@ async def agent_observation(
         run_id=run_id,
     )
     token_run_id = _agent_run_id.set(run_id)
+    token_agent_name = _agent_name.set(agent_type)
+    token_trace_id = _active_trace_id.set(trace_id)
     if _client is None:
+        token_active = _active_agent_observation.set(True)
         token_events = _model_events.set([])
         try:
             yield observation
+        except Exception as error:
+            observation.set_error(error)
+            raise
         finally:
             observation.model_events = get_current_model_events()
             await _persist_agent_observation(observation)
             _model_events.reset(token_events)
+            _active_agent_observation.reset(token_active)
             _agent_run_id.reset(token_run_id)
+            _agent_name.reset(token_agent_name)
+            _active_trace_id.reset(token_trace_id)
         return
 
     entered = False
@@ -333,6 +981,8 @@ async def agent_observation(
                     _model_events.reset(token_events)
                     _active_agent_observation.reset(token)
                     _agent_run_id.reset(token_run_id)
+                    _agent_name.reset(token_agent_name)
+                    _active_trace_id.reset(token_trace_id)
                     _update_span(span, observation)
     except Exception as error:
         if business_error:
@@ -353,6 +1003,8 @@ async def agent_observation(
                 await _persist_agent_observation(fallback)
                 _model_events.reset(token_events)
                 _agent_run_id.reset(token_run_id)
+                _agent_name.reset(token_agent_name)
+                _active_trace_id.reset(token_trace_id)
 
 
 def _update_span(span: Any, observation: AgentObservation) -> None:
@@ -366,7 +1018,10 @@ def _update_span(span: Any, observation: AgentObservation) -> None:
     if observation.run_id:
         output_payload["agent_run_id"] = observation.run_id
     if observation.model_events:
-        output_payload["model_events"] = observation.model_events
+        output_payload["model_event_count"] = len(observation.model_events)
+        output_payload["model_event_summary"] = summarize_model_events(observation.model_events)
+        if _env_bool("LANGFUSE_INCLUDE_MODEL_EVENTS_IN_SPAN_OUTPUT", False):
+            output_payload["model_events"] = observation.model_events
     if observation.error_payload:
         output_payload = {**output_payload, "error": observation.error_payload}
     try:
@@ -387,17 +1042,15 @@ def _create_callback_handler_instance() -> Any | None:
 
 
 def get_langchain_callbacks() -> list[Any]:
-    """只在 Agent 根 span 内为直接 LangChain 模型绑定回调。
+    """为直接 LangChain 模型绑定回调，并在缺少根 span 时创建独立 trace。
 
     当 LangGraph run 级 callback 已启用时，LangGraph 会通过 config 将
     callback 传播给节点/模型调用。此时抑制直接挂在 ChatOpenAI 上的
     callback，避免同一次 LLM 调用在 Langfuse 中重复上报。
     """
-    if (
-        _client is None
-        or not _active_agent_observation.get()
-        or _suppress_direct_llm_callbacks.get()
-    ):
+    if not _configured:
+        configure_langfuse()
+    if _client is None or _suppress_direct_llm_callbacks.get():
         return []
     handler = _create_callback_handler_instance()
     return [handler] if handler is not None else []
@@ -674,6 +1327,9 @@ def _reset_langfuse_for_tests() -> None:
     _config = None
     _configured = False
     _active_agent_observation.set(False)
+    _active_trace_id.set(None)
     _model_events.set(None)
     _agent_run_id.set(None)
+    _agent_name.set(None)
     _suppress_direct_llm_callbacks.set(False)
+    _model_call_metadata.set(None)

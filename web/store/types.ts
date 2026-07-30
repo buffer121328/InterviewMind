@@ -69,6 +69,8 @@ export interface ModelConfig {
     apiKey: string;
     baseUrl: string;
     model: string;
+    pricingKey?: string;
+    integration?: string;
     createdAt: string;
 }
 
@@ -218,6 +220,8 @@ export interface ProjectRewriteRecordItem {
         possible_followup_questions: string[];
         should_update_material: boolean;
         inferred_content: string[] | null;
+        requires_user_confirmation: boolean;
+        review_notes: string[];
     };
     created_at: string;
 }

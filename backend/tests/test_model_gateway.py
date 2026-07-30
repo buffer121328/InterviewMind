@@ -529,3 +529,21 @@ def test_voice_stream_does_not_fallback_after_partial_output(monkeypatch):
     assert calls == ["voice-primary"]
     assert chunks == ["partial"]
     assert all(value == 0 for value in gateway.scheduler._inflight.values())
+
+
+def test_api_config_channel_preserves_provider_observability_fields():
+    config = ApiConfig.model_validate(
+        {
+            "smart": {
+                **_channel("deepseek-chat"),
+                "provider": "deepseek",
+                "integration": "deepseek",
+                "pricing_key": "deepseek-chat",
+            },
+            "fast": _channel("fast-model"),
+        }
+    )
+
+    assert config.smart.provider == "deepseek"
+    assert config.smart.integration == "deepseek"
+    assert config.smart.pricing_key == "deepseek-chat"

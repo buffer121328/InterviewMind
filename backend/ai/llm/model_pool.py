@@ -2,23 +2,37 @@
 
 from __future__ import annotations
 
-from collections import defaultdict
-from hashlib import sha256
 import logging
 import os
+from collections import defaultdict
+from hashlib import sha256
 from threading import RLock
 from time import monotonic, time
 from typing import Any
 
 from langchain_core.callbacks.base import BaseCallbackHandler
 
+from ai.runtime.error_classification import classify_exception
 from app.config import get_settings
+from observability import (
+    estimate_model_cost,
+    extract_token_usage,
+    get_current_model_call_metadata,
+    measure_model_input,
+    record_model_event,
+)
 
 
 def _identity(config: dict) -> str:
     """生成不暴露 API Key 的稳定成员标识。"""
     key_fingerprint = sha256(str(config.get("api_key", "")).encode()).hexdigest()[:12]
-    return "|".join((str(config.get("base_url", "")), str(config.get("model", "")), key_fingerprint))
+    return "|".join((
+        str(config.get("provider", "")),
+        str(config.get("integration", "")),
+        str(config.get("base_url", "")),
+        str(config.get("model", "")),
+        key_fingerprint,
+    ))
 
 
 class ModelPoolScheduler:
@@ -283,14 +297,33 @@ class ModelPoolScheduler:
 
 
 class _ModelPoolCallback(BaseCallbackHandler):
-    """覆盖真实 LangChain 调用的全局健康与 in-flight 统计。"""
+    """统一记录 LangChain 调用体积、耗时、失败类型和模型池健康状态。"""
 
-    def __init__(self, scheduler: ModelPoolScheduler, identity: str, *, pre_reserved: bool = False) -> None:
-        """初始化模型池调度状态；优先使用调用方提供的 Redis 客户端，否则按配置懒加载。"""
+    def __init__(
+        self,
+        scheduler: ModelPoolScheduler,
+        identity: str,
+        *,
+        pre_reserved: bool = False,
+        channel: str | None = None,
+        model_name: str | None = None,
+        provider_metadata: dict[str, Any] | None = None,
+        candidate_count: int = 1,
+        candidate_index: int = 1,
+        output_token_limit: int | None = None,
+    ) -> None:
+        """初始化模型池与安全观测字段；不会保存 prompt、消息正文或凭据。"""
         self.scheduler = scheduler
         self.identity = identity
+        self.channel = channel
+        self.model_name = model_name
+        self.provider_metadata = dict(provider_metadata or {})
+        self.candidate_count = max(1, candidate_count)
+        self.candidate_index = max(1, candidate_index)
+        self.output_token_limit = output_token_limit
         self._lock = RLock()
         self._active_runs: set[str] = set()
+        self._run_metrics: dict[str, tuple[float, dict[str, Any]]] = {}
         self._pre_reserved = pre_reserved
 
     @staticmethod
@@ -298,42 +331,116 @@ class _ModelPoolCallback(BaseCallbackHandler):
         """从 LangChain 回调参数提取一次运行的稳定标识，防止同一调用被重复计数。"""
         return str(kwargs.get("run_id") or "__anonymous__")
 
-    def _start(self, kwargs: dict[str, Any]) -> None:
-        """为尚未登记的 LangChain 模型运行建立 in-flight 记录，兼容调用前已预留的计数。"""
+    def _event_base(self) -> dict[str, Any]:
+        """返回不含业务原文的固定模型成员与候选信息。"""
+        return {
+            "channel": self.channel,
+            "model_name": self.model_name,
+            **self.provider_metadata,
+            "model_member": sha256(self.identity.encode("utf-8")).hexdigest()[:16],
+            "candidate_count": self.candidate_count,
+            "candidate_index": self.candidate_index,
+            "fallback_index": self.candidate_index - 1,
+            "output_token_limit": self.output_token_limit,
+        }
+
+    def _start(self, kwargs: dict[str, Any], input_value: Any = None) -> None:
+        """登记模型运行，并只记录输入体积、来源计数和 deadline 元数据。"""
         token = self._run_token(kwargs)
         with self._lock:
             if token in self._active_runs:
                 return
             self._active_runs.add(token)
+            metrics = measure_model_input(
+                input_value,
+                chars_per_token=get_settings().llm_estimated_chars_per_token,
+            )
+            metadata = get_current_model_call_metadata()
+            self._run_metrics[token] = (monotonic(), {**metrics, **metadata})
             pre_reserved = self._pre_reserved
             self._pre_reserved = False
         if not pre_reserved:
             self.scheduler.start(self.identity)
+        record_model_event(**{
+            **self._event_base(),
+            **metrics,
+            **metadata,
+            "event_type": "llm.request.started",
+        })
 
-    def _finish(self, kwargs: dict[str, Any], *, success: bool) -> None:
-        """结束一次已登记的模型运行，并依据成功与否更新健康状态和并发计数。"""
+    def _finish(
+        self,
+        kwargs: dict[str, Any],
+        *,
+        success: bool,
+        response: Any = None,
+        error: BaseException | None = None,
+    ) -> None:
+        """结束模型运行，记录耗时/token/失败分类并释放模型池 in-flight。"""
         token = self._run_token(kwargs)
         with self._lock:
             if token not in self._active_runs:
                 return
             self._active_runs.remove(token)
+            started_at, metrics = self._run_metrics.pop(token, (monotonic(), {}))
         if success:
             self.scheduler.record_success(self.identity)
         else:
             self.scheduler.record_failure(self.identity)
+        model_duration_ms = max(0, int((monotonic() - started_at) * 1000))
+        queue_wait_ms = int(metrics.get("queue_wait_ms") or 0)
+        event = {
+            **self._event_base(),
+            **metrics,
+            "event_type": "llm.request.completed" if success else "llm.request.failed",
+            "model_duration_ms": model_duration_ms,
+            "duration_ms": model_duration_ms,
+            "total_duration_ms": model_duration_ms + max(0, queue_wait_ms),
+        }
+        if success:
+            usage = extract_token_usage(response)
+            event.update(usage)
+            event.update(estimate_model_cost(
+                pricing_key=self.provider_metadata.get("pricing_key"),
+                model_name=self.model_name,
+                input_tokens=usage.get("input_tokens"),
+                output_tokens=usage.get("output_tokens"),
+            ))
+        elif error is not None:
+            classified = classify_exception(error)
+            event.update(
+                error_type=type(error).__name__,
+                error_category=classified.category.value,
+                error_code=classified.code,
+                failure_type=classified.failure_type.value,
+            )
+        if success or not metrics.get("wrapper_managed"):
+            record_model_event(**event)
 
-    def on_chat_model_start(self, *args: Any, **kwargs: Any) -> None:
-        """接收聊天模型开始事件并交给统一的运行计数逻辑。"""
-        self._start(kwargs)
+    def on_chat_model_start(
+        self,
+        serialized: Any = None,
+        messages: Any = None,
+        *args: Any,
+        **kwargs: Any,
+    ) -> None:
+        """接收聊天模型开始事件；只统计消息长度，不保存消息内容。"""
+        self._start(kwargs, messages)
 
-    def on_llm_start(self, *args: Any, **kwargs: Any) -> None:
-        """接收传统 LLM 开始事件并交给统一的运行计数逻辑。"""
-        self._start(kwargs)
+    def on_llm_start(
+        self,
+        serialized: Any = None,
+        prompts: Any = None,
+        *args: Any,
+        **kwargs: Any,
+    ) -> None:
+        """接收传统 LLM 开始事件；只统计 prompt 长度，不保存 prompt。"""
+        self._start(kwargs, prompts)
 
-    def on_llm_end(self, *args: Any, **kwargs: Any) -> None:
-        """接收模型成功结束事件，释放并发计数并记录成功。"""
-        self._finish(kwargs, success=True)
+    def on_llm_end(self, response: Any = None, *args: Any, **kwargs: Any) -> None:
+        """接收模型成功事件，记录 token/耗时并释放并发计数。"""
+        self._finish(kwargs, success=True, response=response)
 
-    def on_llm_error(self, *args: Any, **kwargs: Any) -> None:
-        """接收模型失败事件，释放并发计数并记录失败/冷却。"""
-        self._finish(kwargs, success=False)
+    def on_llm_error(self, error: BaseException | None = None, *args: Any, **kwargs: Any) -> None:
+        """接收模型失败事件，记录稳定失败类型并释放并发计数。"""
+        self._finish(kwargs, success=False, error=error)
