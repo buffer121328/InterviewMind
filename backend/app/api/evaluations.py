@@ -17,6 +17,7 @@ from app.schemas.evaluations import (
     EvaluationDatasetStatusRequest,
     EvaluationGatePolicyCreateRequest,
     EvaluationOnlineSampleRequest,
+    EvaluationQuickRunRequest,
     EvaluationReviewRequest,
     EvaluationRunCreateRequest,
     EvaluationSuiteCreateRequest,
@@ -31,6 +32,16 @@ def _raise(exc: EvaluationUseCaseError) -> NoReturn:
     """将应用层错误映射为稳定 HTTP 响应。"""
 
     raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+
+
+@router.get("/catalog")
+async def catalog(user_id: str = Depends(get_current_user_id)):
+    """返回默认一键评测可选 Agent、模式及最近成功基线。"""
+
+    try:
+        return await evaluation_use_cases.catalog(user_id=user_id)
+    except EvaluationUseCaseError as exc:
+        _raise(exc)
 
 
 @router.get("/overview")
@@ -188,6 +199,24 @@ async def create_run(
     try:
         return await evaluation_use_cases.create_run(
             user_id=user_id, request=request, idempotency_key=idempotency_key
+        )
+    except EvaluationUseCaseError as exc:
+        _raise(exc)
+
+
+@router.post("/quick-runs", status_code=202)
+async def quick_run(
+    request: EvaluationQuickRunRequest,
+    user_id: str = Depends(get_current_user_id),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+):
+    """使用现有模型设置和服务端内置资产启动一键评测。"""
+
+    try:
+        return await evaluation_use_cases.quick_run(
+            user_id=user_id,
+            request=request,
+            idempotency_key=idempotency_key,
         )
     except EvaluationUseCaseError as exc:
         _raise(exc)

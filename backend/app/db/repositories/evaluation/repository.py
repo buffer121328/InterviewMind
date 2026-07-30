@@ -158,6 +158,24 @@ class EvaluationRepository:
             )
         )
 
+    async def get_dataset_by_name_version(
+        self,
+        session: AsyncSession,
+        *,
+        user_id: str,
+        name: str,
+        version: str,
+    ) -> EvaluationDatasetVersionModel | None:
+        """按 owner/name/version 精确读取数据集，供内置版本幂等引导使用。"""
+
+        return await session.scalar(
+            select(EvaluationDatasetVersionModel).where(
+                EvaluationDatasetVersionModel.user_id == user_id,
+                EvaluationDatasetVersionModel.name == name,
+                EvaluationDatasetVersionModel.version == version,
+            )
+        )
+
     async def list_dataset_cases(
         self,
         session: AsyncSession,
@@ -294,6 +312,22 @@ class EvaluationRepository:
             )
         )
 
+    async def get_suite_by_name(
+        self,
+        session: AsyncSession,
+        *,
+        user_id: str,
+        name: str,
+    ) -> EvaluationSuiteModel | None:
+        """按 owner/name 精确读取套件，避免一键评测重复创建治理事实。"""
+
+        return await session.scalar(
+            select(EvaluationSuiteModel).where(
+                EvaluationSuiteModel.user_id == user_id,
+                EvaluationSuiteModel.name == name,
+            )
+        )
+
     async def create_run(
         self,
         session: AsyncSession,
@@ -397,6 +431,26 @@ class EvaluationRepository:
             .offset(offset)
         )
         return list(rows), int(total or 0)
+
+    async def latest_successful_run_for_agent(
+        self,
+        session: AsyncSession,
+        *,
+        user_id: str,
+        agent_name: str,
+    ) -> EvaluationRunModel | None:
+        """返回 owner 下同一 Agent 最近成功运行，作为可选生产比较基线。"""
+
+        return await session.scalar(
+            select(EvaluationRunModel)
+            .where(
+                EvaluationRunModel.user_id == user_id,
+                EvaluationRunModel.agent_name == agent_name,
+                EvaluationRunModel.status == "succeeded",
+            )
+            .order_by(EvaluationRunModel.created_at.desc())
+            .limit(1)
+        )
 
     async def case_specs_for_run(
         self,

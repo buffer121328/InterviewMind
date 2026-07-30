@@ -1,0 +1,396 @@
+"""Built-in evaluation catalog, smoke datasets, and safe quick-run presets."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+import hashlib
+import json
+from typing import Any
+
+
+@dataclass(frozen=True)
+class BuiltinEvaluationAgent:
+    """Describe one allowlisted production Agent and its owner-scoped seed suite."""
+
+    name: str
+    label: str
+    description: str
+    prompt_name: str
+    prompt_version: str
+    dataset_name: str
+    dataset_version: str
+    suite_name: str
+    rubric_version: str
+    cases: tuple[dict[str, Any], ...]
+
+    def public_dict(self) -> dict[str, Any]:
+        """Return UI-safe catalog metadata without case bodies or credentials."""
+
+        return {
+            "name": self.name,
+            "label": self.label,
+            "description": self.description,
+            "prompt_name": self.prompt_name,
+            "prompt_version": self.prompt_version,
+            "dataset_name": self.dataset_name,
+            "dataset_version": self.dataset_version,
+            "suite_name": self.suite_name,
+            "rubric_version": self.rubric_version,
+            "case_count": len(self.cases),
+        }
+
+
+@dataclass(frozen=True)
+class QuickEvaluationMode:
+    """Bound cost, review, and repetition defaults for one-click evaluation."""
+
+    name: str
+    label: str
+    description: str
+    repetition_count: int
+    max_concurrency: int
+    max_budget_usd: float
+    max_cases: int | None
+    include_judges: bool
+    human_review_rate: float
+
+    def public_dict(self) -> dict[str, Any]:
+        """Return mode defaults so the UI can explain the server-owned behavior."""
+
+        return {
+            "name": self.name,
+            "label": self.label,
+            "description": self.description,
+            "repetition_count": self.repetition_count,
+            "max_concurrency": self.max_concurrency,
+            "max_budget_usd": self.max_budget_usd,
+            "max_cases": self.max_cases,
+            "include_judges": self.include_judges,
+            "human_review_rate": self.human_review_rate,
+        }
+
+
+_COMMON_RESUME = (
+    "5年Python后端经验，负责FastAPI服务、PostgreSQL数据建模、Redis缓存和异步任务。"
+    "主导过接口性能优化，将核心接口P95从800ms降低到240ms。"
+)
+_COMMON_JD = (
+    "招聘Python后端工程师，要求熟悉FastAPI、PostgreSQL、Redis、异步任务、"
+    "接口性能治理和生产可观测性。"
+)
+
+
+BUILTIN_EVALUATION_AGENTS: tuple[BuiltinEvaluationAgent, ...] = (
+    BuiltinEvaluationAgent(
+        name="interview_planner",
+        label="面试问题规划",
+        description="检查面试题是否围绕简历、JD 和轮次生成，并保持题量与事实边界。",
+        prompt_name="interview.planner",
+        prompt_version="2",
+        dataset_name="builtin.interview-planner",
+        dataset_version="v1",
+        suite_name="builtin.interview-planner",
+        rubric_version="builtin-v1",
+        cases=(
+            {
+                "case_key": "planner-python-backend",
+                "category": "interview_planner",
+                "input": {
+                    "resume": _COMMON_RESUME,
+                    "job_description": _COMMON_JD,
+                    "company_info": "企业软件团队",
+                    "max_questions": 3,
+                    "round_type": "tech_initial",
+                    "round_index": 1,
+                    "output_format": "full",
+                    "generate_hints": False,
+                },
+                "forbidden_claims": ["候选人拥有Java开发经验", "候选人管理过20人团队"],
+                "quality_rubric": {"focus": "resume_jd_alignment", "question_count": 3},
+                "tags": ["builtin", "smoke", "interview"],
+                "severity": "high",
+                "latency_budget_ms": 60_000,
+                "token_budget": 8_000,
+            },
+            {
+                "case_key": "planner-hr-round",
+                "category": "interview_planner",
+                "input": {
+                    "resume": _COMMON_RESUME,
+                    "job_description": _COMMON_JD,
+                    "company_info": "成长型技术公司",
+                    "max_questions": 2,
+                    "round_type": "hr_comprehensive",
+                    "round_index": 2,
+                    "output_format": "simple",
+                    "generate_hints": False,
+                },
+                "quality_rubric": {"focus": "motivation_and_collaboration", "question_count": 2},
+                "tags": ["builtin", "smoke", "hr"],
+                "severity": "medium",
+                "latency_budget_ms": 60_000,
+                "token_budget": 6_000,
+            },
+        ),
+    ),
+    BuiltinEvaluationAgent(
+        name="interview_turn",
+        label="面试回答与追问",
+        description="检查开场、回答评估、追问和下一题推进是否遵守面试状态机。",
+        prompt_name="interview.evaluating",
+        prompt_version="2",
+        dataset_name="builtin.interview-turn",
+        dataset_version="v1",
+        suite_name="builtin.interview-turn",
+        rubric_version="builtin-v1",
+        cases=(
+            {
+                "case_key": "turn-opening",
+                "category": "interview_turn",
+                "input": {
+                    "interview_plan": [
+                        {"content": "请介绍一次FastAPI接口性能优化经历。", "followups": []},
+                        {"content": "如何设计异步任务的幂等与重试？", "followups": []},
+                    ],
+                    "current_question_index": 0,
+                    "turn_phase": "opening",
+                    "messages": [],
+                    "resume_context": _COMMON_RESUME,
+                    "job_description": _COMMON_JD,
+                    "company_info": "企业软件团队",
+                    "max_questions": 2,
+                    "round_type": "tech_initial",
+                    "round_index": 1,
+                },
+                "quality_rubric": {"focus": "single_opening_and_first_question"},
+                "tags": ["builtin", "smoke", "opening"],
+                "severity": "medium",
+                "latency_budget_ms": 45_000,
+                "token_budget": 5_000,
+            },
+            {
+                "case_key": "turn-feedback",
+                "category": "interview_turn",
+                "input": {
+                    "interview_plan": [
+                        {"content": "请介绍一次FastAPI接口性能优化经历。", "followups": []},
+                        {"content": "如何设计异步任务的幂等与重试？", "followups": []},
+                    ],
+                    "current_question_index": 0,
+                    "turn_phase": "feedback",
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": "我通过慢查询分析和缓存优化，把接口P95从800ms降到了240ms。",
+                        }
+                    ],
+                    "resume_context": _COMMON_RESUME,
+                    "job_description": _COMMON_JD,
+                    "max_questions": 2,
+                    "round_type": "tech_initial",
+                    "round_index": 1,
+                },
+                "quality_rubric": {"focus": "evidence_based_feedback_and_progression"},
+                "tags": ["builtin", "smoke", "feedback"],
+                "severity": "high",
+                "latency_budget_ms": 60_000,
+                "token_budget": 6_000,
+            },
+        ),
+    ),
+    BuiltinEvaluationAgent(
+        name="interview_scoring",
+        label="面试回答评分",
+        description="检查回答评估是否使用证据、保持评分边界并给出可执行反馈。",
+        prompt_name="interview.evaluating",
+        prompt_version="2",
+        dataset_name="builtin.interview-scoring",
+        dataset_version="v1",
+        suite_name="builtin.interview-scoring",
+        rubric_version="builtin-v1",
+        cases=(
+            {
+                "case_key": "scoring-evidence-rich-answer",
+                "category": "interview_scoring",
+                "input": {
+                    "interview_plan": [
+                        {"content": "请说明你如何定位数据库连接池耗尽问题。", "followups": []},
+                        {"content": "如何避免同类故障再次发生？", "followups": []},
+                    ],
+                    "current_question_index": 0,
+                    "turn_phase": "feedback",
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": "我先确认告警范围，再通过连接池指标和慢SQL定位根因，限流止血后优化查询并补充监控。",
+                        }
+                    ],
+                    "resume_context": _COMMON_RESUME,
+                    "job_description": _COMMON_JD,
+                    "max_questions": 2,
+                    "round_type": "tech_deep",
+                },
+                "quality_rubric": {"focus": "evidence_and_actionable_feedback"},
+                "tags": ["builtin", "smoke", "scoring"],
+                "severity": "high",
+                "latency_budget_ms": 60_000,
+                "token_budget": 6_000,
+            },
+        ),
+    ),
+    BuiltinEvaluationAgent(
+        name="resume_optimizer",
+        label="简历优化",
+        description="检查简历优化流水线是否围绕JD改写并守住事实与待确认边界。",
+        prompt_name="resume.match_analyst",
+        prompt_version="1",
+        dataset_name="builtin.resume-optimizer",
+        dataset_version="v1",
+        suite_name="builtin.resume-optimizer",
+        rubric_version="builtin-v1",
+        cases=(
+            {
+                "case_key": "optimizer-python-backend",
+                "category": "resume_optimizer",
+                "input": {
+                    "resume_content": _COMMON_RESUME,
+                    "job_description": _COMMON_JD,
+                    "mode": "balanced",
+                },
+                "expected_facts": ["FastAPI", "PostgreSQL", "Redis", "P95从800ms降低到240ms"],
+                "forbidden_claims": ["管理20人团队", "精通Java和Spring Cloud"],
+                "quality_rubric": {"focus": "jd_alignment_without_fabrication"},
+                "tags": ["builtin", "smoke", "resume"],
+                "severity": "critical",
+                "latency_budget_ms": 180_000,
+                "token_budget": 30_000,
+            },
+        ),
+    ),
+    BuiltinEvaluationAgent(
+        name="resume_analyzer",
+        label="简历竞争力分析",
+        description="检查简历分析是否基于原始经历与目标JD输出可追溯结论。",
+        prompt_name="resume.analysis",
+        prompt_version="1",
+        dataset_name="builtin.resume-analyzer",
+        dataset_version="v1",
+        suite_name="builtin.resume-analyzer",
+        rubric_version="builtin-v1",
+        cases=(
+            {
+                "case_key": "analyzer-python-backend",
+                "category": "resume_analyzer",
+                "input": {
+                    "resume_content": _COMMON_RESUME,
+                    "job_description": _COMMON_JD,
+                },
+                "expected_facts": ["Python", "FastAPI", "PostgreSQL", "Redis"],
+                "forbidden_claims": ["候选人缺少后端经验", "候选人拥有团队管理经验"],
+                "quality_rubric": {"focus": "evidence_grounded_competitiveness"},
+                "tags": ["builtin", "smoke", "analysis"],
+                "severity": "high",
+                "latency_budget_ms": 120_000,
+                "token_budget": 18_000,
+            },
+        ),
+    ),
+)
+
+
+QUICK_EVALUATION_MODES: tuple[QuickEvaluationMode, ...] = (
+    QuickEvaluationMode(
+        name="quick",
+        label="快速冒烟",
+        description="运行最多3个内置案例，关闭Judge，用最低成本检查真实Agent是否可用。",
+        repetition_count=1,
+        max_concurrency=1,
+        max_budget_usd=1.0,
+        max_cases=3,
+        include_judges=False,
+        human_review_rate=0.0,
+    ),
+    QuickEvaluationMode(
+        name="standard",
+        label="标准回归",
+        description="运行完整内置数据集并抽检10%，适合日常Prompt或模型回归。",
+        repetition_count=1,
+        max_concurrency=2,
+        max_budget_usd=5.0,
+        max_cases=None,
+        include_judges=False,
+        human_review_rate=0.1,
+    ),
+    QuickEvaluationMode(
+        name="release",
+        label="发布检查",
+        description="完整数据集重复运行2次，启用Judge并抽检20%，用于发布前比较。",
+        repetition_count=2,
+        max_concurrency=2,
+        max_budget_usd=5.0,
+        max_cases=None,
+        include_judges=True,
+        human_review_rate=0.2,
+    ),
+)
+
+
+def get_builtin_agent(name: str) -> BuiltinEvaluationAgent:
+    """Resolve an allowlisted built-in Agent or raise a stable validation error."""
+
+    for agent in BUILTIN_EVALUATION_AGENTS:
+        if agent.name == name:
+            return agent
+    raise ValueError("不支持的评测 Agent")
+
+
+def get_quick_mode(name: str) -> QuickEvaluationMode:
+    """Resolve a server-owned one-click mode preset."""
+
+    for mode in QUICK_EVALUATION_MODES:
+        if mode.name == name:
+            return mode
+    raise ValueError("不支持的评测模式")
+
+
+def public_evaluation_catalog() -> dict[str, Any]:
+    """Return the one-click catalog used by the default evaluation UI."""
+
+    return {
+        "agents": [agent.public_dict() for agent in BUILTIN_EVALUATION_AGENTS],
+        "modes": [mode.public_dict() for mode in QUICK_EVALUATION_MODES],
+    }
+
+
+def model_config_fingerprint(api_config: dict[str, Any]) -> str:
+    """Hash model routing metadata while excluding API keys and other secrets."""
+
+    def is_secret_key(key: object) -> bool:
+        """Recognize common credential field names without depending on one provider."""
+
+        normalized = str(key).lower().replace("-", "_")
+        return any(
+            marker in normalized
+            for marker in ("api_key", "authorization", "token", "secret", "cookie")
+        )
+
+    def sanitize(value: Any) -> Any:
+        """Recursively remove credentials while preserving model-routing order and values."""
+
+        if isinstance(value, dict):
+            return {
+                str(key): sanitize(item)
+                for key, item in sorted(value.items())
+                if not is_secret_key(key)
+            }
+        if isinstance(value, list):
+            return [sanitize(item) for item in value]
+        return value
+
+    payload = json.dumps(
+        sanitize(api_config),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return "sha256:" + hashlib.sha256(payload.encode()).hexdigest()

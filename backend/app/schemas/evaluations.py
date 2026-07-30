@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
+from app.schemas.schemas import ApiConfig
 from app.security.security import redact_secret_text
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator
 
@@ -79,6 +80,23 @@ class EvaluationRunCreateRequest(_EvaluationRequest):
     case_ids: list[str] = Field(default_factory=list, max_length=5000)
     include_judges: bool = False
     human_review_rate: float = Field(default=0.0, ge=0, le=1)
+
+
+class EvaluationQuickRunRequest(_EvaluationRequest):
+    """用现有模型设置和服务端内置资产创建一键评测运行。"""
+
+    agent_name: Literal[
+        "interview_planner",
+        "interview_turn",
+        "interview_scoring",
+        "resume_optimizer",
+        "resume_analyzer",
+    ]
+    mode: Literal["quick", "standard", "release"] = "quick"
+    api_config: ApiConfig
+    prompt_name: str | None = Field(default=None, min_length=1, max_length=160)
+    prompt_version: str | None = Field(default=None, min_length=1, max_length=160)
+    compare_production: bool = False
 
 
 class EvaluationReviewRequest(_EvaluationRequest):

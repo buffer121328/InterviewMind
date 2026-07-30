@@ -12,10 +12,16 @@ from app.schemas.evaluations import (
     EvaluationAnnotationCreateRequest,
     EvaluationDatasetCreateRequest,
     EvaluationDatasetStatusRequest,
+    EvaluationQuickRunRequest,
     EvaluationReviewRequest,
     EvaluationRunCreateRequest,
 )
 from app.schemas.langfuse_prompts import PromptProductionPromotionRequest
+from evaluation.builtins import (
+    BUILTIN_EVALUATION_AGENTS,
+    model_config_fingerprint,
+    public_evaluation_catalog,
+)
 
 
 @pytest.mark.fast
@@ -68,6 +74,88 @@ def test_dataset_and_run_requests_enforce_cost_and_case_boundaries() -> None:
             max_concurrency=100,
             max_budget_usd=1,
         )
+
+
+@pytest.mark.fast
+def test_one_click_catalog_and_request_keep_low_level_defaults_server_owned() -> None:
+    """默认 UI 只能选择 allowlist Agent/模式，内置案例必须通过正式 Dataset 校验。"""
+
+    catalog = public_evaluation_catalog()
+
+    assert [item["name"] for item in catalog["agents"]] == [
+        "interview_planner",
+        "interview_turn",
+        "interview_scoring",
+        "resume_optimizer",
+        "resume_analyzer",
+    ]
+    assert [item["name"] for item in catalog["modes"]] == [
+        "quick",
+        "standard",
+        "release",
+    ]
+    for agent in BUILTIN_EVALUATION_AGENTS:
+        request = EvaluationDatasetCreateRequest(
+            name=agent.dataset_name,
+            version=agent.dataset_version,
+            source="builtin",
+            cases=list(agent.cases),
+        )
+        assert request.cases
+
+    request = EvaluationQuickRunRequest(
+        agent_name="interview_planner",
+        mode="quick",
+        api_config={
+            "smart": {
+                "api_key": "test-smart-key",
+                "base_url": "https://model.example/v1",
+                "model": "smart-model",
+            },
+            "fast": {
+                "api_key": "test-fast-key",
+                "base_url": "https://model.example/v1",
+                "model": "fast-model",
+            },
+        },
+    )
+    assert request.compare_production is False
+
+    with pytest.raises(ValidationError):
+        EvaluationQuickRunRequest(
+            agent_name="unknown_agent",
+            mode="manual",
+            api_config=request.api_config,
+        )
+
+
+@pytest.mark.fast
+def test_model_config_fingerprint_excludes_credentials_but_tracks_routing() -> None:
+    """模型指纹不得泄漏或受 Key 轮换影响，但模型与地址变化必须可追踪。"""
+
+    first = {
+        "smart": {
+            "api_key": "first-secret",
+            "base_url": "https://model.example/v1",
+            "model": "smart-model",
+        },
+        "fast": {
+            "api_key": "fast-secret",
+            "base_url": "https://model.example/v1",
+            "model": "fast-model",
+        },
+    }
+    rotated = {
+        **first,
+        "smart": {**first["smart"], "api_key": "rotated-secret"},
+    }
+    rerouted = {
+        **first,
+        "smart": {**first["smart"], "model": "new-smart-model"},
+    }
+
+    assert model_config_fingerprint(first) == model_config_fingerprint(rotated)
+    assert model_config_fingerprint(first) != model_config_fingerprint(rerouted)
 
 
 @pytest.mark.fast
@@ -192,11 +280,13 @@ def test_evaluation_router_contains_owner_scoped_plan_endpoints() -> None:
 
     paths = {route.path for route in router.routes}
     assert {
+        "/api/evaluations/catalog",
         "/api/evaluations/overview",
         "/api/evaluations/suites",
         "/api/evaluations/datasets",
         "/api/evaluations/datasets/{dataset_id}/status",
         "/api/evaluations/runs",
+        "/api/evaluations/quick-runs",
         "/api/evaluations/runs/{run_id}/request-review",
         "/api/evaluations/annotations/queue",
         "/api/evaluations/calibrations",

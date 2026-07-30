@@ -1,5 +1,56 @@
 import { apiRequest, authFetch } from './config';
 
+export type EvaluationAgentName =
+    | 'interview_planner'
+    | 'interview_turn'
+    | 'interview_scoring'
+    | 'resume_optimizer'
+    | 'resume_analyzer';
+
+export type EvaluationQuickModeName = 'quick' | 'standard' | 'release';
+
+export interface EvaluationCatalogAgent {
+    name: EvaluationAgentName;
+    label: string;
+    description: string;
+    prompt_name: string;
+    prompt_version: string;
+    dataset_name: string;
+    dataset_version: string;
+    suite_name: string;
+    rubric_version: string;
+    case_count: number;
+    latest_successful_run_id: string | null;
+}
+
+export interface EvaluationQuickMode {
+    name: EvaluationQuickModeName;
+    label: string;
+    description: string;
+    repetition_count: number;
+    max_concurrency: number;
+    max_budget_usd: number;
+    max_cases: number | null;
+    include_judges: boolean;
+    human_review_rate: number;
+}
+
+export interface EvaluationCatalog {
+    agents: EvaluationCatalogAgent[];
+    modes: EvaluationQuickMode[];
+    runs_enabled: boolean;
+}
+
+export interface EvaluationQuickRunRequest {
+    agent_name: EvaluationAgentName;
+    mode: EvaluationQuickModeName;
+    /** Request-scoped credentials; callers must never log or render this object. */
+    api_config: Record<string, unknown>;
+    prompt_name?: string;
+    prompt_version?: string;
+    compare_production?: boolean;
+}
+
 export interface EvaluationOverview {
     run_count: number;
     runtime_success_rate: number | null;
@@ -220,6 +271,8 @@ function withQuery(path: string, values: object): string {
 }
 
 export const evaluationApi = {
+    /** Loads server-owned one-click presets and owner-scoped baseline availability. */
+    catalog: () => apiRequest<EvaluationCatalog>('/api/evaluations/catalog'),
     overview: () => apiRequest<EvaluationOverview>('/api/evaluations/overview'),
     trends: (filters: EvaluationTrendFilters = {}) => apiRequest<{ items: EvaluationTrendPoint[] }>(withQuery('/api/evaluations/metrics/trends', filters)),
     regressions: () => apiRequest<Page<EvaluationRegression>>('/api/evaluations/regressions'),
@@ -233,6 +286,12 @@ export const evaluationApi = {
     runs: () => apiRequest<Page<EvaluationRun>>('/api/evaluations/runs?limit=200&offset=0'),
     getRun: (id: string) => apiRequest<EvaluationRun & { cases: EvaluationCaseRun[] }>(`/api/evaluations/runs/${id}`),
     createRun: (payload: Record<string, unknown>) => apiRequest<EvaluationRun>('/api/evaluations/runs', { method: 'POST', body: JSON.stringify(payload), headers: { 'Idempotency-Key': crypto.randomUUID() } }),
+    /** Starts a real evaluation while the backend keeps API keys only in encrypted AgentRun payload. */
+    quickRun: (payload: EvaluationQuickRunRequest, idempotencyKey: string) => apiRequest<EvaluationRun>('/api/evaluations/quick-runs', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+        headers: { 'Idempotency-Key': idempotencyKey },
+    }),
     cancelRun: (id: string) => apiRequest<Record<string, unknown>>(`/api/evaluations/runs/${id}/cancel`, { method: 'POST' }),
     retryRun: (id: string) => apiRequest<Record<string, unknown>>(`/api/evaluations/runs/${id}/retry-failed`, { method: 'POST' }),
     requestReview: (id: string, caseRunIds: string[] = [], failedOnly = true) => apiRequest<{ run_id: string; queued_count: number }>(`/api/evaluations/runs/${id}/request-review`, { method: 'POST', body: JSON.stringify({ case_run_ids: caseRunIds, failed_only: failedOnly }) }),

@@ -11,7 +11,7 @@ from typing import Any, NoReturn
 from ai.runtime.agent_runs.crypto import TaskPayloadConfigurationError, decrypt_payload
 from ai.workflows.agent_runs import AgentRunUseCaseError, agent_run_use_cases
 from app.config import get_settings
-from app.db.models import async_session
+from app.db.models import EvaluationSuiteModel, async_session
 from app.db.repositories.evaluation import EvaluationRepository
 from app.db.unit_of_work import UnitOfWork
 from app.domain.agent_runs import TASK_TYPE_EVALUATION_SUITE
@@ -24,14 +24,23 @@ from app.schemas.evaluations import (
     EvaluationDatasetCreateRequest,
     EvaluationDatasetStatusRequest,
     EvaluationGatePolicyCreateRequest,
+    EvaluationOnlineSampleRequest,
+    EvaluationQuickRunRequest,
+    EvaluationReviewRequest,
     EvaluationRunCreateRequest,
     EvaluationSuiteCreateRequest,
-    EvaluationOnlineSampleRequest,
-    EvaluationReviewRequest,
+)
+from evaluation.builtins import (
+    BuiltinEvaluationAgent,
+    get_builtin_agent,
+    get_quick_mode,
+    model_config_fingerprint,
+    public_evaluation_catalog,
 )
 from evaluation.domain import calculate_calibration
 from evaluation.online import sampling_decision, sanitize_production_trace
 from evaluation.reporting import build_run_report, render_run_report_html
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
 @dataclass(slots=True)
@@ -176,6 +185,177 @@ class EvaluationUseCases:
         async with UnitOfWork(async_session) as uow:
             rows = await self.repository.list_suites(uow.db, user_id=user_id)
             return {"items": [_suite(row) for row in rows], "total": len(rows)}
+
+    async def catalog(self, *, user_id: str) -> dict[str, Any]:
+        """返回一键评测目录、服务端有效预算和 owner 最近成功基线。"""
+
+        self._ensure_center_enabled()
+        settings = get_settings()
+        payload = public_evaluation_catalog()
+        payload["runs_enabled"] = settings.evaluation_runs_enabled
+        for mode in payload["modes"]:
+            mode["max_concurrency"] = min(
+                int(mode["max_concurrency"]), settings.evaluation_max_concurrency
+            )
+            mode["max_budget_usd"] = min(
+                float(mode["max_budget_usd"]),
+                settings.evaluation_default_max_budget_usd,
+            )
+        async with UnitOfWork(async_session) as uow:
+            for agent in payload["agents"]:
+                baseline = await self.repository.latest_successful_run_for_agent(
+                    uow.db,
+                    user_id=user_id,
+                    agent_name=str(agent["name"]),
+                )
+                agent["latest_successful_run_id"] = baseline.id if baseline else None
+        return payload
+
+    async def _ensure_builtin_suite(
+        self,
+        session: AsyncSession,
+        *,
+        user_id: str,
+        agent: BuiltinEvaluationAgent,
+    ) -> EvaluationSuiteModel:
+        """幂等创建并锁定 owner 专属内置数据集与套件，不覆盖同名手工资产。"""
+
+        dataset = await self.repository.get_dataset_by_name_version(
+            session,
+            user_id=user_id,
+            name=agent.dataset_name,
+            version=agent.dataset_version,
+        )
+        if dataset is None:
+            dataset = await self.repository.create_dataset(
+                session,
+                user_id=user_id,
+                request=EvaluationDatasetCreateRequest(
+                    name=agent.dataset_name,
+                    version=agent.dataset_version,
+                    source="builtin",
+                    cases=list(agent.cases),
+                ),
+            )
+        elif dataset.source != "builtin":
+            raise EvaluationUseCaseError(
+                "内置评测数据集名称已被手工资产占用，请在高级模式中重命名该资产",
+                status_code=409,
+            )
+
+        if dataset.status in {"draft", "annotating"}:
+            dataset = await self.repository.update_dataset_status(
+                session,
+                dataset_id=dataset.id,
+                user_id=user_id,
+                status="calibrated",
+            )
+        if dataset is None:
+            self._not_found("内置评测数据集创建失败")
+        if dataset.status == "calibrated":
+            dataset = await self.repository.lock_dataset(
+                session,
+                dataset_id=dataset.id,
+                user_id=user_id,
+            )
+        if dataset is None or dataset.status != "locked":
+            raise EvaluationUseCaseError(
+                "内置评测数据集已停用，请在高级模式中检查数据集状态",
+                status_code=409,
+            )
+
+        suite = await self.repository.get_suite_by_name(
+            session,
+            user_id=user_id,
+            name=agent.suite_name,
+        )
+        if suite is None:
+            return await self.repository.create_suite(
+                session,
+                user_id=user_id,
+                request=EvaluationSuiteCreateRequest(
+                    name=agent.suite_name,
+                    agent_name=agent.name,
+                    description=f"系统内置：{agent.description}",
+                    dataset_version_id=dataset.id,
+                    rubric_version=agent.rubric_version,
+                ),
+            )
+        if (
+            suite.agent_name != agent.name
+            or suite.dataset_version_id != dataset.id
+            or suite.rubric_version != agent.rubric_version
+        ):
+            raise EvaluationUseCaseError(
+                "内置评测套件名称已被其他配置占用，请在高级模式中重命名该套件",
+                status_code=409,
+            )
+        return suite
+
+    async def quick_run(
+        self,
+        *,
+        user_id: str,
+        request: EvaluationQuickRunRequest,
+        idempotency_key: str | None,
+    ) -> dict[str, Any]:
+        """把 Agent 与模式选择展开为受服务端约束的真实可恢复评测运行。"""
+
+        self._ensure_runs_enabled()
+        try:
+            agent = get_builtin_agent(request.agent_name)
+            mode = get_quick_mode(request.mode)
+        except ValueError as exc:
+            raise EvaluationUseCaseError(str(exc), status_code=400) from exc
+
+        settings = get_settings()
+        baseline_run_id: str | None = None
+        try:
+            async with UnitOfWork(async_session) as uow:
+                suite = await self._ensure_builtin_suite(
+                    uow.db,
+                    user_id=user_id,
+                    agent=agent,
+                )
+                if request.compare_production:
+                    baseline = await self.repository.latest_successful_run_for_agent(
+                        uow.db,
+                        user_id=user_id,
+                        agent_name=agent.name,
+                    )
+                    baseline_run_id = baseline.id if baseline else None
+                suite_id = suite.id
+        except TaskPayloadConfigurationError as exc:
+            raise EvaluationUseCaseError(str(exc), status_code=503) from exc
+        except ValueError as exc:
+            raise EvaluationUseCaseError(str(exc), status_code=409) from exc
+
+        api_config = request.api_config.model_dump(mode="json")
+        run_request = EvaluationRunCreateRequest(
+            suite_id=suite_id,
+            agent_version="production",
+            prompt_name=request.prompt_name or agent.prompt_name,
+            prompt_version=request.prompt_version or agent.prompt_version,
+            baseline_run_id=baseline_run_id,
+            model_config_hash=model_config_fingerprint(api_config),
+            api_config=api_config,
+            repetition_count=mode.repetition_count,
+            max_concurrency=min(
+                mode.max_concurrency, settings.evaluation_max_concurrency
+            ),
+            max_budget_usd=min(
+                mode.max_budget_usd,
+                settings.evaluation_default_max_budget_usd,
+            ),
+            max_cases=mode.max_cases,
+            include_judges=mode.include_judges,
+            human_review_rate=mode.human_review_rate,
+        )
+        return await self.create_run(
+            user_id=user_id,
+            request=run_request,
+            idempotency_key=idempotency_key,
+        )
 
     async def create_run(
         self,
