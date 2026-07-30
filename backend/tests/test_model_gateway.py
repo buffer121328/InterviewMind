@@ -15,6 +15,15 @@ def _channel(model: str) -> dict:
     }
 
 
+@pytest.fixture
+def local_model_pool(monkeypatch):
+    """Keep deterministic scheduler tests isolated from a developer Redis instance."""
+    monkeypatch.setenv("LLM_POOL_REDIS_ENABLED", "false")
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
+
+
 def test_settings_read_model_runtime_environment(monkeypatch):
     monkeypatch.setenv("LLM_MAX_TOKENS", "4096")
     monkeypatch.setenv("VOICE_NAME", "Serena")
@@ -100,7 +109,7 @@ def test_api_config_accepts_fast_and_reasoning_pools():
     assert config.fast_pool[0].name == "Flash A"
 
 
-def test_weighted_pool_rotates_primary_candidate(monkeypatch):
+def test_weighted_pool_rotates_primary_candidate(monkeypatch, local_model_pool):
     gateway = llms.ModelGateway()
     monkeypatch.setattr(
         llms,
@@ -121,7 +130,7 @@ def test_weighted_pool_rotates_primary_candidate(monkeypatch):
     assert primaries == ["flash-a", "flash-a", "flash-b"]
 
 
-def test_failed_pool_member_enters_cooldown(monkeypatch):
+def test_failed_pool_member_enters_cooldown(monkeypatch, local_model_pool):
     monkeypatch.setenv("LLM_POOL_FAILURE_THRESHOLD", "1")
     monkeypatch.setenv("LLM_POOL_COOLDOWN_SECONDS", "60")
     get_settings.cache_clear()

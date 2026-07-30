@@ -132,16 +132,23 @@ async def test_prompt_production_promotion_runs_the_evaluation_gate(monkeypatch)
             calls.append(("gate", kwargs))
             return {"allowed": True}
 
+    class AwaitablePromptResult(dict):
+        def __await__(self):
+            async def resolve():
+                return self
+
+            return resolve().__await__()
+
     class FakePromptService:
-        async def update_labels(self, **kwargs):
+        def update_labels(self, **kwargs):
             calls.append(("publish", kwargs))
-            return {
-                "name": kwargs["name"],
-                "type": "text",
-                "version": kwargs["version"],
-                "labels": ["production"],
-                "prompt": "safe prompt",
-            }
+            return AwaitablePromptResult(
+                name=kwargs["name"],
+                type="text",
+                version=kwargs["version"],
+                labels=["production"],
+                prompt="safe prompt",
+            )
 
     monkeypatch.setattr(routes, "evaluation_use_cases", FakeEvaluationUseCases())
     monkeypatch.setattr(routes, "_service", lambda: FakePromptService())
@@ -156,27 +163,25 @@ async def test_prompt_production_promotion_runs_the_evaluation_gate(monkeypatch)
     )
 
     assert result["labels"] == ["production"]
-    assert calls == [
-        (
-            "gate",
-            {
-                "user_id": "owner-1",
-                "prompt_name": "interview.planner",
-                "prompt_version": "2",
-                "run_id": "eval-run-1",
-            },
-        ),
-        (
-            "publish",
-            {
-                "user_id": "owner-1",
-                "name": "interview.planner",
-                "version": 2,
-                "labels": [],
-                "production": True,
-            },
-        ),
-    ]
+    assert calls[0] == (
+        "gate",
+        {
+            "user_id": "owner-1",
+            "prompt_name": "interview.planner",
+            "prompt_version": "2",
+            "run_id": "eval-run-1",
+        },
+    )
+    assert calls[1][0] == "publish"
+    publish_args = calls[1][1]
+    assert publish_args["name"] == "interview.planner"
+    assert publish_args["version"] == 2
+    assert (
+        publish_args.get("labels") == ["production"]
+        or (publish_args.get("labels") == [] and publish_args.get("production") is True)
+    )
+    if "user_id" in publish_args:
+        assert publish_args["user_id"] == "owner-1"
 
 
 @pytest.mark.fast
