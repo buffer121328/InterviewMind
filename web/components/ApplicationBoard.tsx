@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Loader2, Plus, Search, Trash2 } from "lucide-react";
 import { useInterviewStore } from "@/store/useInterviewStore";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { PaginationControls } from "@/components/PaginationControls";
+import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
 
 type StatusFilter = undefined | "saved" | "applied" | "interview" | "offer" | "rejected" | "accepted";
 type Priority = "high" | "medium" | "low";
@@ -23,7 +25,7 @@ interface ApplicationBoardProps {
 
 const statusOptions: Array<{ value: StatusFilter; label: string }> = [
   { value: undefined, label: "全部" },
-  { value: "saved", label: "已收藏" },
+  { value: "saved", label: "待投递" },
   { value: "applied", label: "已投递" },
   { value: "interview", label: "面试中" },
   { value: "offer", label: "Offer" },
@@ -32,7 +34,7 @@ const statusOptions: Array<{ value: StatusFilter; label: string }> = [
 ];
 
 const statusMeta: Record<Exclude<StatusFilter, undefined>, { label: string; className: string }> = {
-  saved: { label: "已收藏", className: "bg-gray-100 text-gray-700 border-gray-200" },
+  saved: { label: "待投递", className: "bg-gray-100 text-gray-700 border-gray-200" },
   applied: { label: "已投递", className: "bg-blue-50 text-blue-700 border-blue-200" },
   interview: { label: "面试中", className: "bg-amber-50 text-amber-700 border-amber-200" },
   offer: { label: "Offer", className: "bg-green-50 text-green-700 border-green-200" },
@@ -64,24 +66,21 @@ function formatRelativeTime(input: string) {
 export function ApplicationBoard({ onOpenDetail }: ApplicationBoardProps) {
   const applications = useInterviewStore((s) => s.applications);
   const applicationsLoading = useInterviewStore((s) => s.applicationsLoading);
+  const applicationsTotal = useInterviewStore((s) => s.applicationsTotal);
   const createApplication = useInterviewStore((s) => s.createApplication);
   const deleteApplication = useInterviewStore((s) => s.deleteApplication);
   const fetchApplications = useInterviewStore((s) => s.fetchApplications);
 
   const [status, setStatus] = useState<StatusFilter>(undefined);
+  const [page, setPage] = useState(1);
   const [createOpen, setCreateOpen] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({ company_name: "", job_title: "", channel: "", priority: "medium" as Priority, notes: "" });
 
   useEffect(() => {
-    void fetchApplications(undefined, 100);
-  }, [fetchApplications]);
-
-  const filtered = useMemo(
-    () => (status ? applications.filter((item) => item.latest_status === status) : applications),
-    [applications, status]
-  );
+    void fetchApplications(status, DEFAULT_PAGE_SIZE, (page - 1) * DEFAULT_PAGE_SIZE);
+  }, [fetchApplications, page, status]);
 
   /** Handles create; updates local UI state first and delegates server mutations through the approved API boundary. */
   const handleCreate = async () => {
@@ -98,7 +97,8 @@ export function ApplicationBoard({ onOpenDetail }: ApplicationBoardProps) {
     if (created) {
       setCreateOpen(false);
       setForm({ company_name: "", job_title: "", channel: "", priority: "medium", notes: "" });
-      await fetchApplications(status, 100);
+      setPage(1);
+      await fetchApplications(status, DEFAULT_PAGE_SIZE, 0);
     }
   };
 
@@ -107,7 +107,13 @@ export function ApplicationBoard({ onOpenDetail }: ApplicationBoardProps) {
     setDeletingId(id);
     const ok = await deleteApplication(id);
     setDeletingId(null);
-    if (ok) await fetchApplications(status, 100);
+    if (ok) {
+      if (applications.length === 1 && page > 1) {
+        setPage((current) => current - 1);
+      } else {
+        await fetchApplications(status, DEFAULT_PAGE_SIZE, (page - 1) * DEFAULT_PAGE_SIZE);
+      }
+    }
   };
 
   return (
@@ -123,7 +129,10 @@ export function ApplicationBoard({ onOpenDetail }: ApplicationBoardProps) {
           </Button>
         </div>
 
-        <Tabs value={status ?? "all"} onValueChange={(v) => setStatus(v === "all" ? undefined : (v as StatusFilter))}>
+        <Tabs value={status ?? "all"} onValueChange={(v) => {
+          setStatus(v === "all" ? undefined : (v as StatusFilter));
+          setPage(1);
+        }}>
           <TabsList className="h-auto flex-wrap justify-start gap-2 bg-transparent p-0">
             {statusOptions.map((opt) => (
               <TabsTrigger
@@ -152,14 +161,14 @@ export function ApplicationBoard({ onOpenDetail }: ApplicationBoardProps) {
                 </CardContent>
               </Card>
             ))
-          ) : filtered.length === 0 ? (
+          ) : applications.length === 0 ? (
             <div className="flex min-h-[240px] flex-col items-center justify-center rounded-2xl border border-dashed border-gray-200 bg-white text-center">
               <Search className="mb-3 h-10 w-10 text-teal-500/50" />
               <div className="text-sm font-medium text-gray-900">暂无投递记录</div>
               <div className="mt-1 text-xs text-gray-500">点击右上角按钮创建第一条记录</div>
             </div>
           ) : (
-            filtered.map((item) => {
+            applications.map((item) => {
               const statusInfo = statusMeta[item.latest_status as Exclude<StatusFilter, undefined>];
               const priorityInfo = priorityMeta[item.priority as Priority];
               return (
@@ -207,6 +216,12 @@ export function ApplicationBoard({ onOpenDetail }: ApplicationBoardProps) {
           )}
         </div>
       </ScrollArea>
+      <PaginationControls
+        page={page}
+        total={applicationsTotal}
+        loading={applicationsLoading}
+        onPageChange={setPage}
+      />
 
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent className="sm:max-w-lg">

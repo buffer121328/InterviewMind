@@ -40,9 +40,9 @@ class AppSettings(BaseSettings):
     evaluation_max_concurrency: int = Field(default=4, ge=1, le=20)
     evaluation_default_max_budget_usd: float = Field(default=5.0, gt=0, le=1000)
 
-    boss_automation_service_url: str = ""
-    boss_automation_service_token: SecretStr = SecretStr("")
-    boss_automation_request_timeout_seconds: int = Field(default=240, ge=5, le=600)
+    browser_automation_service_url: str = ""
+    browser_automation_service_token: SecretStr = SecretStr("")
+    browser_automation_request_timeout_seconds: int = Field(default=300, ge=5, le=600)
 
     voice_model: str = "qwen3-omni-flash-2025-12-01"
     voice_name: str = "Cherry"

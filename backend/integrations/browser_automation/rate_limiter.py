@@ -1,9 +1,8 @@
 """
-频率限制器
+宿主机 BOSS 标签页导入频率限制器。
 
 保护机制：
-- 单用户每小时最多 N 次采集
-- 单用户每小时最多 M 次发送
+- 单用户每小时最多 N 次当前页导入
 - 连续失败 3 次自动暂停 30 分钟
 - 配置 REDIS_URL 时跨进程持久化；本地开发回退内存实现
 """
@@ -13,31 +12,51 @@ import logging
 import os
 import secrets
 import time
-from enum import Enum
-from typing import Dict, Any, Tuple
 from collections import defaultdict
+from enum import Enum
+from typing import Any, Dict, Tuple
 
 logger = logging.getLogger(__name__)
 
 
 class RateLimitType(str, Enum):
-    """BOSS 自动化限流维度枚举，区分岗位采集和投递发送；由限流器与 Redis/内存实现共同解释，不能作为权限或审批替代。"""
-    CAPTURE = "capture"  # 岗位采集
-    SEND = "send"        # 投递发送
+    """当前页导入限流维度；限流不能替代 URL 白名单或 owner 校验。"""
+
+    BOSS_CAPTURE = "boss_capture"
 
 
 # ============================================================================
 # 配置
 # ============================================================================
 
+
+def _bounded_int_env(name: str, default: int, *, minimum: int, maximum: int) -> int:
+    """读取有界整数配置；非法值回退默认值，避免限流因环境变量失效。"""
+    try:
+        value = int(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+    return max(minimum, min(value, maximum))
+
+
+_BOSS_CAPTURE_MAX_PER_HOUR = _bounded_int_env(
+    "BOSS_CAPTURE_MAX_PER_HOUR",
+    4,
+    minimum=1,
+    maximum=20,
+)
+_BOSS_CAPTURE_MIN_INTERVAL_SECONDS = _bounded_int_env(
+    "BOSS_CAPTURE_MIN_INTERVAL_SECONDS",
+    180,
+    minimum=10,
+    maximum=3600,
+)
+
 RATE_LIMITS = {
-    RateLimitType.CAPTURE: {
-        "max_per_hour": 30,     # 每小时最多采集30次
+    RateLimitType.BOSS_CAPTURE: {
+        "max_per_hour": _BOSS_CAPTURE_MAX_PER_HOUR,
         "window_seconds": 3600,
-    },
-    RateLimitType.SEND: {
-        "max_per_hour": 10,     # 每小时最多发送10次
-        "window_seconds": 3600,
+        "min_interval_seconds": _BOSS_CAPTURE_MIN_INTERVAL_SECONDS,
     },
 }
 
@@ -70,8 +89,14 @@ class RedisRateLimitStore:
     redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', tonumber(ARGV[1]) - tonumber(ARGV[2]))
     local used = redis.call('ZCARD', KEYS[1])
     if used >= tonumber(ARGV[3]) then return {0, used} end
-    if ARGV[4] == '1' then
-        redis.call('ZADD', KEYS[1], ARGV[1], ARGV[5])
+    local latest = redis.call('ZREVRANGE', KEYS[1], 0, 0, 'WITHSCORES')
+    local minimum_interval = tonumber(ARGV[4])
+    if minimum_interval > 0 and latest[2] then
+        local remaining = minimum_interval - (tonumber(ARGV[1]) - tonumber(latest[2]))
+        if remaining > 0 then return {-2, remaining} end
+    end
+    if ARGV[5] == '1' then
+        redis.call('ZADD', KEYS[1], ARGV[1], ARGV[6])
         redis.call('EXPIRE', KEYS[1], math.ceil(tonumber(ARGV[2]) / 1000) + 60)
         used = used + 1
     end
@@ -112,7 +137,7 @@ class RedisRateLimitStore:
             user_id: 当前用户标识。
             limit_type: 经过类型边界校验的 `limit_type`；其格式和可选值由参数类型及调用流程约束。
         """
-        return f"agent-interview:rate:{self._user_key(user_id)}:{limit_type.value}"
+        return f"agent-interview:browser-rate:{self._user_key(user_id)}:{limit_type.value}"
 
     def _failure_key(self, user_id: str) -> str:
         """生成按用户隔离的失败计数 key，不把用户标识原文暴露在共享存储键中。
@@ -120,7 +145,7 @@ class RedisRateLimitStore:
         Args:
             user_id: 当前用户标识。
         """
-        return f"agent-interview:rate:{self._user_key(user_id)}:failures"
+        return f"agent-interview:browser-rate:{self._user_key(user_id)}:failures"
 
     async def check_rate(
         self, user_id: str, limit_type: RateLimitType, *, record: bool
@@ -142,12 +167,15 @@ class RedisRateLimitStore:
             now_ms,
             int(config["window_seconds"] * 1000),
             config["max_per_hour"],
+            int(config.get("min_interval_seconds", 0) * 1000),
             "1" if record else "0",
             f"{now_ms}:{secrets.token_hex(8)}",
         )
         code, value = int(result[0]), int(result[1])
         if code == -1:
             return False, f"由于连续失败，操作已暂停 {max(1, value // 1000)} 秒，请稍后再试"
+        if code == -2:
+            return False, f"操作间隔过短，请至少等待 {max(1, value // 1000)} 秒后再试"
         if code == 0:
             return False, (
                 f"频率限制：{limit_type.value} 每小时最多 "
@@ -198,6 +226,7 @@ class RedisRateLimitStore:
                 "used": used,
                 "limit": config["max_per_hour"],
                 "remaining": max(0, config["max_per_hour"] - used),
+                "min_interval_seconds": config.get("min_interval_seconds", 0),
             }
         failure = await self._client.hgetall(self._failure_key(user_id))
         paused_until = float(failure.get("paused_until", 0)) / 1000
@@ -261,6 +290,12 @@ async def check_rate(
             f"{limit_config['max_per_hour']} 次，请稍后再试"
         )
 
+    minimum_interval = int(limit_config.get("min_interval_seconds", 0))
+    if bucket and minimum_interval > 0:
+        remaining = minimum_interval - int(now - bucket[-1])
+        if remaining > 0:
+            return False, f"操作间隔过短，请至少等待 {remaining} 秒后再试"
+
     if record:
         bucket.append(now)
     return True, "ok"
@@ -310,6 +345,7 @@ async def get_rate_status(user_id: str) -> Dict[str, Any]:
             "used": len(bucket),
             "limit": RATE_LIMITS[limit_type]["max_per_hour"],
             "remaining": max(0, RATE_LIMITS[limit_type]["max_per_hour"] - len(bucket)),
+            "min_interval_seconds": RATE_LIMITS[limit_type].get("min_interval_seconds", 0),
         }
 
     failure_state = _failure_states[user_id]

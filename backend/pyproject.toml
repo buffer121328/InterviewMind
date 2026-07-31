@@ -29,7 +29,6 @@ dependencies = [
     "pgvector>=0.4.2",
     "greenlet>=3.5.1",
     "alembic>=1.18.4",
-    "playwright>=1.60.0",
     "guardrails-ai>=0.10.2",
     "langchain-deepseek>=1.0.0,<2.0.0",
     "langchain-qwq>=0.1.0,<1.0.0",

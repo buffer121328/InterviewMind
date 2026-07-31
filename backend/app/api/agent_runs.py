@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from fastapi.responses import JSONResponse
 
 from app.api.deps import create_sse_response, get_current_user_id
-from app.schemas.job_schemas import AssetGenerateRequest
+from app.schemas.job_schemas import AssetGenerateRequest, CaptureRecommendationsRequest
 from app.schemas.resume_schemas import ResumeOptimizeRequest, ResumeWorkspaceRequest, ResumeWorkspaceRunResponse
 from app.schemas.schemas import InterviewReportRunRequest, InterviewStartRequest
 from ai.workflows.agent_runs import (
@@ -131,6 +131,24 @@ async def create_job_assets_run(
             payload=request.model_dump(),
             user_id=user_id,
             idempotency_key=idempotency_key or f"job-assets:{request.job_id}:{uuid.uuid4()}",
+        )
+        return _response(result.payload, result.status_code)
+    except AgentRunUseCaseError as exc:
+        _raise_use_case_error(exc)
+
+
+@router.post("/job-recommendation-capture")
+async def create_job_recommendation_capture_run(
+    request: CaptureRecommendationsRequest,
+    user_id: str = Depends(get_current_user_id),
+    idempotency_key: Optional[str] = Header(default=None, alias="Idempotency-Key"),
+):
+    """创建可恢复的 BOSS 现有标签页 DOM 导入任务。"""
+    try:
+        result = await agent_run_use_cases.create_job_recommendation_capture(
+            payload=request.model_dump(mode="json"),
+            user_id=user_id,
+            idempotency_key=idempotency_key or f"job-capture:{uuid.uuid4()}",
         )
         return _response(result.payload, result.status_code)
     except AgentRunUseCaseError as exc:

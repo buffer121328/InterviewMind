@@ -1,15 +1,16 @@
 /**
- * 岗位自动化 API 接口
+ * 岗位采集与投递资产 API 接口
  *
  * 对应后端 backend/app/api/jobs.py，路径前缀 /api/jobs
  *
  * 主要功能：
- * 1. 单个岗位采集：从 URL 或手动 JD 文本提取结构化信息
- * 2. 列表/详情/删除：管理已采集岗位
- * 3. 批量推荐采集（BOSS 半自动化）：搜索页抓取前 N 个 + 匹配度排序 + 生成投递资产
+ * 1. 列表/详情/删除：管理已导入岗位
+ * 2. 现有浏览器标签页：复用用户已登录的 Edge/Chrome BOSS 页面搜索并读取有限岗位卡片
+ * 3. 资产编辑/投递管理联动：保存文案、加入待投递列表，并复用现有登录标签页打开岗位
  */
 
-import { apiRequest, getUserId } from './config';
+import { apiRequest } from './config';
+import type { AgentRun } from './agentRunTypes';
 
 // ============================================================================
 // 类型定义
@@ -31,53 +32,21 @@ export interface ApiConfig {
     reflector?: ApiChannelConfig;
 }
 
-export interface JobCaptureRequest {
-    /** 岗位链接（优先） */
-    source_url?: string;
-    /** 手动粘贴的 JD 文本（当没有 URL 时） */
-    job_description?: string;
-    /** 平台标识：boss / lagou / linkedin / ... */
-    platform?: string;
-    /** 公司名提示 */
-    company_name_hint?: string;
-    /** 岗位名提示 */
-    job_title_hint?: string;
-    /** 用户 API 配置，不传则使用后端 .env 默认 */
-    api_config?: ApiConfig;
-    /** 用户登录 Cookies（List[Playwright Cookie Dict]），仅 URL 采集时有效 */
-    cookies?: Array<Record<string, unknown>>;
-    /** 浏览器无头模式，无 cookies 时建议 false 让用户完成验证 */
-    headless?: boolean;
-}
-
-export interface NormalizedJob {
-    company_name: string;
-    job_title: string;
-    job_description: string;
-    salary_text: string;
-    city: string;
-    [k: string]: unknown;
-}
-
-export interface JobCaptureResponse {
-    success: boolean;
-    message?: string;
-    job_id?: number;
-    normalized_job?: NormalizedJob;
-    is_duplicate?: boolean;
-}
-
 export interface JobListItem {
     id: number;
     company_name: string;
+    company_size_text: string;
     job_title: string;
     platform: string;
     salary_text: string;
     city: string;
+    source_url: string;
+    match_score?: number | null;
+    asset_run_id?: string | null;
+    asset_status?: string | null;
     tags?: string[];
     captured_at?: string;
     status?: string;
-    [k: string]: unknown;
 }
 
 export interface JobListResponse {
@@ -86,13 +55,25 @@ export interface JobListResponse {
     jobs: JobListItem[];
 }
 
+export interface JobAssetPayload {
+    jd_analysis?: Record<string, unknown> | null;
+    custom_resume_id?: number | null;
+    custom_resume_preview?: string | null;
+    greetings?: GreetingItem[];
+    risk_flags?: string[];
+    messages?: string[];
+}
+
+export interface JobDetail extends JobListItem {
+    job_description?: string;
+    source_text?: string;
+    asset_payload?: JobAssetPayload | null;
+}
+
 export interface JobDetailResponse {
     success: boolean;
-    job: JobListItem & {
-        jd_analysis?: Record<string, unknown>;
-        assets?: Record<string, unknown>;
-        [k: string]: unknown;
-    };
+    job: JobDetail;
+    message?: string;
 }
 
 export interface GreetingItem {
@@ -104,8 +85,11 @@ export interface GreetingItem {
 
 export interface CapturedJobSummary {
     job_id: number;
+    source_url?: string;
     company_name: string;
+    company_size_text?: string;
     job_title: string;
+    job_description?: string;
     salary_text: string;
     city: string;
     match_score?: number | null;
@@ -113,69 +97,101 @@ export interface CapturedJobSummary {
     greetings: GreetingItem[];
     risk_flags: string[];
     asset_run_id?: string | null;
-    asset_status?: 'queued' | 'retrying' | 'running' | 'succeeded' | 'failed' | 'cancelled' | null;
+    asset_status?: 'queued' | 'retrying' | 'running' | 'cancel_requested' | 'succeeded' | 'failed' | 'cancelled' | null;
+}
+
+export interface BossDomJobCard {
+    company_name: string;
+    company_size_text: string;
+    job_title: string;
+    salary_text: string;
+    city: string;
+    title_summary: string;
+    job_description: string;
+    source_url: string;
+}
+
+export interface BossDomCapturePayload {
+    kind: 'interviewmind-boss-dom-capture-v1';
+    source_page_url: string;
+    captured_at: string;
+    cards: BossDomJobCard[];
+}
+
+export type BossBrowserChannel = 'msedge' | 'chrome';
+
+export interface BossTabStatusResponse {
+    success: boolean;
+    browser_channel: BossBrowserChannel;
+    browser_label: string;
+    connected: boolean;
+    current_url: string;
+    page_status: 'search_ready' | 'search_loading' | 'login_required' | 'security_check' | 'boss_page' | 'blank' | string;
+    ready_state: string;
+    visible_card_count: number;
+    message: string;
+}
+
+export interface BossTabCaptureRequest {
+    /** 搜索关键词；后端会写入现有 BOSS 标签页。 */
+    query: string;
+    /** BOSS 城市代码；留空时复用当前标签页的 city 参数。 */
+    city?: string;
+    /** 单次 DOM 候选卡片读取上限，后端硬限制为 20。 */
+    max_cards?: number;
+    /** 要接管的现有浏览器渠道。 */
+    browser_channel?: BossBrowserChannel;
+}
+
+export interface BossTabCaptureResponse extends BossDomCapturePayload {
+    success: boolean;
+    browser_channel: BossBrowserChannel;
+    browser_label: string;
+    page_status: string;
+    ready_state: string;
+    message: string;
 }
 
 export interface CaptureRecommendationsRequest {
-    /** 搜索关键词，如 "Java架构师" */
+    /** 已由现有浏览器标签页执行的搜索关键词，用于匹配度排序。 */
     query: string;
-    /** 候选人简历内容 */
+    /** 候选人简历内容。 */
     resume_content: string;
-    /** 可选城市名（仅作提示，BOSS 默认按 IP 自动定位） */
+    /** 用户当前已登录的 BOSS 搜索页 URL。 */
+    source_page_url: string;
+    /** 后端从现有标签页提取的 1-20 张有限字段岗位卡片。 */
+    cards: BossDomJobCard[];
+    /** 可选城市提示，用于字段补全。 */
     city?: string;
-    /** 抓取前 N 个岗位，1-10，默认 5 */
+    /** 导入前 N 个岗位，1-20，默认 3。 */
     top_n?: number;
-    /** 用户标识，也可走 X-User-ID header */
-    user_id?: string;
-    /** 用户自定义 API 配置 */
+    /** 用户自定义 API 配置。 */
     api_config?: ApiConfig;
 }
 
-export interface CaptureRecommendationsResponse {
-    success: boolean;
-    total: number;
-    jobs: CapturedJobSummary[];
-    message?: string;
-}
+export type JobGreetingUpdateResponse = JobDetailResponse;
 
-export interface ApplyPreviewRequest {
-    job_id: number;
-    greeting_index?: number;
-    greeting_text: string;
-    resume_id?: number;
-}
-
-export interface ApplySendRequest extends ApplyPreviewRequest {
-    approval_token: string;
-    confirmed: true;
-}
-
-export interface ApplyResponse {
+export interface JobExportApplicationResponse {
     success: boolean;
     message?: string;
-    screenshot_path?: string;
-    screenshot_base64?: string;
-    send_status: 'pending' | 'sent' | 'failed' | 'manual_takeover' | 'login_required' | 'unavailable' | string;
-    send_ready: boolean;
-    approval_token?: string;
-    approval_expires_in?: number;
-    error?: string;
+    application?: {
+        id: number;
+        latest_status: string;
+        greeting_text?: string | null;
+    };
+}
+
+export interface BossOpenJobResponse {
+    success: boolean;
+    browser_channel: BossBrowserChannel;
+    browser_label: string;
+    opened_url: string;
+    message: string;
 }
 
 // ============================================================================
 // API 调用
 // ============================================================================
-
-/**
- * 单个岗位采集
- * POST /api/jobs/capture
- */
-export async function captureJob(req: JobCaptureRequest): Promise<JobCaptureResponse> {
-    return apiRequest<JobCaptureResponse>('/api/jobs/capture', {
-        method: 'POST',
-        body: JSON.stringify(req),
-    });
-}
 
 /**
  * 获取岗位列表
@@ -213,43 +229,76 @@ export async function deleteJob(jobId: number): Promise<{ success: boolean; mess
 }
 
 /**
- * 生成真实投递前的只读预览，并签发短期一次性审批许可。
+ * 检查现有 Edge/Chrome 中已打开的 BOSS 标签页。
+ * 后端不会启动浏览器、创建 profile 或读取 Cookie。
  */
-export async function previewJobApplication(req: ApplyPreviewRequest): Promise<ApplyResponse> {
-    return apiRequest<ApplyResponse>('/api/jobs/apply/preview', {
+export async function getBossBrowserTabStatus(
+    browserChannel: BossBrowserChannel,
+): Promise<BossTabStatusResponse> {
+    const query = new URLSearchParams({ browser_channel: browserChannel });
+    return apiRequest<BossTabStatusResponse>(`/api/jobs/browser-tab/status?${query.toString()}`);
+}
+
+/**
+ * 复用现有登录标签页完成一次搜索和有限字段采集。
+ * 页面检查间隔与单次卡片数由后端强制限制。
+ */
+export async function searchAndCaptureBossBrowserTab(
+    req: BossTabCaptureRequest,
+): Promise<BossTabCaptureResponse> {
+    return apiRequest<BossTabCaptureResponse>('/api/jobs/browser-tab/search-and-capture', {
         method: 'POST',
         body: JSON.stringify(req),
     });
 }
 
 /**
- * 消费预览许可执行一次发送。调用方必须在 UI 中取得用户显式确认。
- */
-export async function sendJobApplication(req: ApplySendRequest): Promise<ApplyResponse> {
-    return apiRequest<ApplyResponse>('/api/jobs/apply/send', {
-        method: 'POST',
-        body: JSON.stringify(req),
-    });
-}
-
-/**
- * 批量抓取 BOSS 推荐页/搜索页前 N 个岗位 + 生成投递资产
+ * 导入现有浏览器标签页提取的岗位卡片并生成投递资产。
+ * 请求不包含 Cookie、HTML 或浏览器控制参数。
  *
- * 注意：本接口依赖 macOS + 已登录 BOSS 的 Chrome + AppleScript JS 权限。
- * 后端会在 Chrome 中新开 tab，若触发反爬验证页会最长等待 3 分钟，
- * 等用户手动完成验证后继续抓取。
- *
- * POST /api/jobs/capture-recommendations
+ * POST /api/agent-runs/job-recommendation-capture
  */
 export async function captureRecommendations(
     req: CaptureRecommendationsRequest,
-): Promise<CaptureRecommendationsResponse> {
-    const body: CaptureRecommendationsRequest & { user_id?: string } = { ...req };
-    // 同步把 user_id 也写进 body（后端可二选一接收）
-    const userId = getUserId();
-    if (!body.user_id) body.user_id = userId;
-    return apiRequest<CaptureRecommendationsResponse>('/api/jobs/capture-recommendations', {
+): Promise<AgentRun> {
+    return apiRequest<AgentRun>('/api/agent-runs/job-recommendation-capture', {
         method: 'POST',
-        body: JSON.stringify(body),
+        headers: { 'Idempotency-Key': crypto.randomUUID() },
+        body: JSON.stringify(req),
+    });
+}
+
+/** 保存岗位资产中的一条可编辑打招呼方案；后端负责 owner 校验。 */
+export async function updateJobGreeting(
+    jobId: number,
+    greetingIndex: number,
+    messageText: string,
+): Promise<JobGreetingUpdateResponse> {
+    return apiRequest<JobGreetingUpdateResponse>(`/api/jobs/${jobId}/assets/greetings/${greetingIndex}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ message_text: messageText }),
+    });
+}
+
+/** 把岗位和当前文案加入投递管理，初始状态固定为待投递。 */
+export async function exportJobToApplication(
+    jobId: number,
+    greetingIndex: number,
+    greetingText: string,
+): Promise<JobExportApplicationResponse> {
+    return apiRequest<JobExportApplicationResponse>(`/api/jobs/${jobId}/export-application`, {
+        method: 'POST',
+        body: JSON.stringify({ greeting_index: greetingIndex, greeting_text: greetingText }),
+    });
+}
+
+/** 让宿主机服务复用现有登录 BOSS 标签页打开岗位，不创建新窗口也不执行发送。 */
+export async function openJobInExistingBossTab(
+    jobId: number,
+    browserChannel: BossBrowserChannel,
+): Promise<BossOpenJobResponse> {
+    return apiRequest<BossOpenJobResponse>(`/api/jobs/${jobId}/browser-tab/open`, {
+        method: 'POST',
+        body: JSON.stringify({ browser_channel: browserChannel }),
     });
 }

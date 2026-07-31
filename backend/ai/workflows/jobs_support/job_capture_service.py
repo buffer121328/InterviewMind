@@ -1,241 +1,106 @@
 """
 岗位采集服务
 
-支持两种采集方式：
-1. URL 采集：HTTP 抓取页面 → LLM 提取结构化字段
-2. 手动粘贴：用户粘贴 JD 原文 → LLM 提取结构化字段
+岗位来源是用户当前已登录 BOSS 搜索页导入的有限 DOM 岗位卡片。
 
-采集后自动标准化 + 去重检测 + 按匹配度排序。
+导入后自动校验、过滤实习岗位、标准化去重并按匹配度排序。
 """
 
-from hashlib import sha256
-
 import logging
-from typing import Dict, Any, Optional
+import re
+from collections.abc import Awaitable, Callable
+from hashlib import sha256
+from typing import Any, Dict, Optional
 
-from app.security.security import safe_error_message
-
-from .job_capture_persistence import normalize_and_save_job as _normalize_and_save
-from integrations.boss.job_page_fetcher import (
-    _fetch_page_text,
-    _fetch_page_text_browser,
-    _fetch_via_existing_chrome,
-    _open_and_read_in_chrome,
+from ai.runtime.context_assembler import (
+    AssembledContext,
+    ContextAssembler,
+    ContextSource,
 )
+from ai.runtime.deadlines import TaskDeadline
+from app.config import get_settings
+from app.security.security import safe_error_message
+from integrations.boss.existing_tab_bridge import normalize_company_size_text
+from integrations.boss.security import (
+    is_allowed_boss_job_url,
+    is_allowed_boss_search_url,
+    is_valid_boss_search_card,
+)
+
+from .job_capture_log import JobCaptureTextLog
+from .job_capture_persistence import normalize_and_save_job as _normalize_and_save
 
 logger = logging.getLogger(__name__)
 
 
-async def capture_from_url(
-    url: str,
-    user_id: str,
-    platform: str = "boss",
-    company_name_hint: str = "",
-    job_title_hint: str = "",
-    api_config: Optional[dict] = None,
-    cookies: Optional[list] = None,
-    headless: bool = True,
-) -> Dict[str, Any]:
-    """
-    从 URL 采集岗位信息。
+def _assemble_job_model_context(
+    *,
+    stage: str,
+    sources: list[ContextSource],
+    total_model_chars: int,
+) -> tuple[AssembledContext, dict[str, Any]]:
+    """Assemble job-capture inputs and return source-level audit without raw payloads."""
+    source_budgets = {
+        source.name: source.max_chars
+        for source in sources
+        if source.max_chars is not None
+    }
+    assembled = ContextAssembler(
+        agent_name="job_capture",
+        total_model_chars=total_model_chars,
+        source_budgets=source_budgets,
+        cache_version="2026-07-29.phase6.job_capture.v1",
+    ).assemble(sources)
+    return assembled, {**assembled.model_event_fields(), "stage": stage}
 
-    Args:
-        url: 岗位页面 URL
-        user_id: 用户 ID
-        platform: 平台标识
-        company_name_hint: 公司名提示
-        job_title_hint: 岗位名提示
-        api_config: API 配置
-        cookies: 用户登录 Cookies（List[Playwright Cookie Dict]）
-        headless: 浏览器无头模式（无 cookies 时建议 False 让用户完成验证）
 
-    Returns:
-        {"success": bool, "job_id": int, "normalized_job": dict, "is_duplicate": bool}
-    """
-    from ai.llm.llm_utils import invoke_structured
-    from pydantic import BaseModel
+_INTERNSHIP_MARKERS = ("实习", "实习生", "internship")
+_MATCH_KEYWORDS = (
+    "python", "django", "fastapi", "flask", "java", "spring", "go", "golang",
+    "typescript", "javascript", "react", "vue", "node", "sql", "mysql", "postgresql",
+    "redis", "docker", "kubernetes", "k8s", "linux", "aws", "agent", "langchain",
+    "langgraph", "dify", "mcp", "rag", "大模型", "后端", "算法", "微服务", "分布式",
+)
 
-    class JobExtractionOutput(BaseModel):
-        """数据对象，承载 `JobExtractionOutput` 的结构化字段和跨模块契约；只表达数据，不在构造或序列化时执行外部调用。"""
-        company_name: str
-        job_title: str
-        job_description: str
-        salary_text: str
-        city: str
 
-    # Step 1: 抓取页面文本（优先 HTTP，失败时用浏览器渲染）
-    page_text = await _fetch_page_text(url)
-    browser_used = False
-
-    # BOSS直聘等平台有反爬安全页，HTTP 拿到的内容不含岗位信息
-    # 判断标准：提取后字段全空 → 切换到浏览器渲染
-    _needs_browser = False
-    if page_text:
-        # 快速检测：安全页面通常很短且包含特定关键词
-        if len(page_text) < 500 or "请稍候" in page_text or "安全验证" in page_text:
-            _needs_browser = True
-            logger.info("[JobCapture] HTTP 获取到安全验证页，切换到浏览器模式")
-
-    if not page_text or _needs_browser:
-        logger.info("[JobCapture] 尝试浏览器渲染...")
-        browser_text = await _fetch_page_text_browser(url, cookies=cookies, headless=headless)
-        if browser_text:
-            page_text = browser_text
-            browser_used = True
-        elif not page_text:
-            return {
-                "success": False,
-                "message": "无法获取页面内容，请检查链接或尝试手动粘贴 JD",
-                "is_duplicate": False,
-            }
-
-    # Step 2: LLM 提取结构化字段
-    try:
-        extraction = await invoke_structured(
-            prompt=_build_extraction_prompt(
-                page_text, company_name_hint, job_title_hint
-            ),
-            output_model=JobExtractionOutput,
-            api_config=api_config,
-            channel="smart",
-        )
-        raw_data = extraction.model_dump()
-    except Exception as e:
-        logger.error(f"[JobCapture] URL 提取失败: {e}")
-        return {
-            "success": False,
-            "message": f"岗位信息提取失败: {e}",
-            "is_duplicate": False,
-        }
-
-    # Step 2.5: LLM 提取后仍为空 → 浏览器重试
-    if not raw_data.get("company_name") and not raw_data.get("job_title") and not browser_used:
-        logger.info("[JobCapture] LLM 提取为空，切换到浏览器模式重试...")
-        browser_text = await _fetch_page_text_browser(url, cookies=cookies, headless=headless)
-        if browser_text:
-            try:
-                extraction2 = await invoke_structured(
-                    prompt=_build_extraction_prompt(
-                        browser_text, company_name_hint, job_title_hint
-                    ),
-                    output_model=JobExtractionOutput,
-                    api_config=api_config,
-                    channel="smart",
-                )
-                raw_data = extraction2.model_dump()
-            except Exception as e:
-                logger.warning(f"[JobCapture] 浏览器模式 LLM 提取也失败: {e}")
-
-    # Step 3: 标准化 + 去重 + 保存
-    return await _normalize_and_save(
-        raw_data, user_id, platform, url, page_text
+def _is_internship_card(card: dict[str, Any]) -> bool:
+    """Reject internship roles before ranking, persistence, or model calls."""
+    text = " ".join(str(card.get(key) or "") for key in (
+        "job_title", "title_summary", "job_description",
+    )).casefold()
+    return any(marker in text for marker in _INTERNSHIP_MARKERS) or bool(
+        re.search(r"\bintern\b", text, flags=re.IGNORECASE)
     )
 
 
-async def capture_from_text(
-    jd_text: str,
-    user_id: str,
-    platform: str = "manual",
-    company_name_hint: str = "",
-    job_title_hint: str = "",
-    api_config: Optional[dict] = None,
-) -> Dict[str, Any]:
-    """
-    从用户手动粘贴的 JD 文本采集岗位信息。
-
-    Args:
-        jd_text: JD 文本
-        user_id: 用户 ID
-        platform: 平台标识
-        company_name_hint: 公司名提示
-        job_title_hint: 岗位名提示
-        api_config: API 配置
-
-    Returns:
-        {"success": bool, "job_id": int, "normalized_job": dict, "is_duplicate": bool}
-    """
-    from ai.llm.llm_utils import invoke_structured
-    from pydantic import BaseModel
-
-    class JobExtractionOutput(BaseModel):
-        """数据对象，承载 `JobExtractionOutput` 的结构化字段和跨模块契约；只表达数据，不在构造或序列化时执行外部调用。"""
-        company_name: str
-        job_title: str
-        job_description: str
-        salary_text: str
-        city: str
-
-    # LLM 提取结构化字段
-    try:
-        extraction = await invoke_structured(
-            prompt=_build_extraction_prompt(
-                jd_text[:3000], company_name_hint, job_title_hint
-            ),
-            output_model=JobExtractionOutput,
-            api_config=api_config,
-            channel="smart",
-        )
-        raw_data = extraction.model_dump()
-    except Exception as e:
-        logger.error(f"[JobCapture] 文本提取失败: {e}")
-        return {
-            "success": False,
-            "message": f"岗位信息提取失败: {e}",
-            "is_duplicate": False,
-        }
-
-    # 标准化 + 去重 + 保存
-    return await _normalize_and_save(
-        raw_data, user_id, platform, source_url="", source_text=jd_text
-    )
+def _match_terms(text: str) -> set[str]:
+    """Extract compact deterministic terms used as a transparent ranking fallback."""
+    lowered = str(text or "").casefold()
+    terms = {
+        token
+        for token in re.findall(r"[a-z][a-z0-9+#.-]{1,30}", lowered)
+        if len(token) > 1
+    }
+    terms.update(keyword for keyword in _MATCH_KEYWORDS if keyword in lowered)
+    return terms
 
 
-# ============================================================================
-# 内部函数
-# ============================================================================
-
-def _build_extraction_prompt(
-    page_text: str,
-    company_name_hint: str = "",
-    job_title_hint: str = "",
-) -> str:
-    """Build a safe single-job extraction prompt from visible page text."""
-    from ai.prompts.jobs import build_job_extraction_prompt
-
-    return build_job_extraction_prompt(
-        page_text=page_text,
-        company_name_hint=company_name_hint,
-        job_title_hint=job_title_hint,
-    )
-
-
-async def _llm_extract_job_cards(
-    page_text: str,
-    top_n: int,
-    query_filter: str = "",
-) -> list[dict[str, Any]]:
-    """Extract visible BOSS job cards with the central injection-safe prompt."""
-    from ai.llm.llm_utils import invoke_structured
-    from ai.prompts.jobs import build_job_card_extraction_prompt
-    from app.schemas.llm_outputs import JobCardList
-
-    for marker in ["综合排序", "最新优先", "BOSS直聘", "面试", "招聘"]:
-        if marker in page_text:
-            position = page_text.find(marker)
-            if position > 0:
-                page_text = page_text[position:]
-                break
-    prompt = build_job_card_extraction_prompt(
-        page_text=page_text,
-        top_n=top_n,
-        keyword=query_filter,
-    )
-    try:
-        result = await invoke_structured(prompt=prompt, output_model=JobCardList, api_config=None, channel="fast")
-        return [item.model_dump() for item in result.cards[:top_n]]
-    except Exception as exc:
-        logger.error("[JobCapture] 推荐页岗位提取失败: %s", exc)
-        return []
+def _keyword_match_score(card: dict[str, Any], resume_content: str, query: str) -> float:
+    """Compute a bounded resume/JD keyword-overlap score without trusting search keywords as facts."""
+    resume_terms = _match_terms(resume_content)
+    job_text = " ".join(str(card.get(key) or "") for key in (
+        "job_title", "title_summary", "job_description",
+    ))
+    job_terms = _match_terms(job_text)
+    if not resume_terms or not job_terms:
+        return 35.0
+    overlap = resume_terms & job_terms
+    denominator = max(3, min(len(job_terms), 12))
+    score = 30.0 + min(60.0, len(overlap) / denominator * 60.0)
+    query_terms = _match_terms(query)
+    if query_terms and query_terms <= resume_terms and query_terms & job_terms:
+        score += 10.0
+    return round(max(0.0, min(score, 100.0)), 1)
 
 
 async def _score_job_cards_by_match(
@@ -243,6 +108,7 @@ async def _score_job_cards_by_match(
     resume_content: str,
     query: str,
     api_config: Optional[dict] = None,
+    deadline: TaskDeadline | None = None,
 ) -> list:
     """
     用 fast 通道一次性对所有候选岗位做轻量匹配度打分，按分数降序排序。
@@ -251,7 +117,7 @@ async def _score_job_cards_by_match(
     仅让 LLM 一次性对每张卡片输出一个 0-100 的匹配分数。
 
     Args:
-        cards: 由 _llm_extract_job_cards 返回的卡片列表
+        cards: 已通过当前 BOSS 搜索页 DOM 校验的有限岗位卡片列表
         resume_content: 简历内容
         query: 用户搜索的关键词
         api_config: API 配置
@@ -259,34 +125,76 @@ async def _score_job_cards_by_match(
     Returns:
         按匹配度降序的卡片列表，每张卡片新增一个 preliminary_match_score 字段
     """
-    from ai.llm import llms
     import json as _json
+
+    from ai.llm import llms
 
     if not cards or not resume_content:
         return cards
 
+    deterministic_scores = {
+        idx: _keyword_match_score(card, resume_content, query)
+        for idx, card in enumerate(cards)
+    }
+
     # 构造紧凑的卡片列表（截断 prompt 大小）
     cards_brief = []
-    for idx, c in enumerate(cards[:15]):
+    for idx, c in enumerate(cards[:20]):
         cards_brief.append({
             "id": idx,
             "title": c.get("job_title", "")[:50],
             "company": c.get("company_name", "")[:30],
             "salary": c.get("salary_text", ""),
             "city": c.get("city", ""),
-            "jd_short": (c.get("job_description") or c.get("title_summary") or "")[:120],
+            "jd_short": (c.get("job_description") or c.get("title_summary") or "")[:240],
+            "keyword_score": deterministic_scores[idx],
         })
 
     from ai.prompts.jobs import build_job_card_scoring_prompt
 
+    assembled, call_metadata = _assemble_job_model_context(
+        stage="job_card_scoring",
+        total_model_chars=7000,
+        sources=[
+            ContextSource(
+                name="candidate_resume",
+                content=resume_content,
+                trusted=True,
+                required=True,
+                priority=100,
+                max_chars=1800,
+                truncation_strategy="head_tail",
+            ),
+            ContextSource(
+                name="job_cards",
+                content=cards_brief,
+                required=True,
+                priority=90,
+                max_chars=4800,
+                truncation_strategy="head_tail",
+            ),
+            ContextSource(
+                name="search_direction",
+                content=query,
+                trusted=True,
+                priority=60,
+                max_chars=400,
+            ),
+        ],
+    )
     prompt = build_job_card_scoring_prompt(
-        cards_brief=cards_brief,
-        resume_context=resume_content,
-        jd_summary=f"查询岗位关键词：{query}",
+        card_count=len(cards_brief),
+        scoring_context=assembled.model_context,
     )
 
     try:
-        response = await llms.invoke_text(prompt, api_config, channel="fast")
+        response = await llms.invoke_text(
+            prompt,
+            api_config,
+            channel="fast",
+            deadline=deadline or TaskDeadline(float(get_settings().llm_task_timeout_seconds)),
+            call_metadata=call_metadata,
+        )
         response_text = response.content if hasattr(response, "content") else str(response)
 
         # 解析 JSON
@@ -300,9 +208,15 @@ async def _score_job_cards_by_match(
         scores_list = parsed.get("scores", [])
         score_map = {s.get("id"): s.get("score", 50) for s in scores_list if isinstance(s, dict)}
 
-        # 按分数给每张卡片打标并排序
+        # LLM 语义分占 80%，透明关键词重合分占 20%；解析缺项时使用关键词分。
         for idx, c in enumerate(cards):
-            c["preliminary_match_score"] = score_map.get(idx, 50)
+            keyword_score = deterministic_scores.get(idx, 35.0)
+            llm_score = score_map.get(idx)
+            if isinstance(llm_score, (int, float)):
+                score = float(llm_score) * 0.8 + keyword_score * 0.2
+            else:
+                score = keyword_score
+            c["preliminary_match_score"] = round(max(0.0, min(score, 100.0)), 1)
         sorted_cards = sorted(
             cards,
             key=lambda c: c.get("preliminary_match_score", 50),
@@ -313,141 +227,103 @@ async def _score_job_cards_by_match(
         )
         return sorted_cards
     except Exception as e:
-        logger.warning(f"[JobCapture] 轻量匹配度打分失败，跳过排序: {e}")
-        return cards
+        logger.warning("[JobCapture] 轻量匹配度模型打分失败，回退关键词排序: %s", type(e).__name__)
+        for idx, card in enumerate(cards):
+            card["preliminary_match_score"] = deterministic_scores.get(idx, 35.0)
+        return sorted(cards, key=lambda item: item.get("preliminary_match_score", 35.0), reverse=True)
 
 
-async def capture_from_recommendations(
+async def capture_from_imported_cards(
     user_id: str,
     query: str,
     resume_content: str,
+    imported_cards: list[dict[str, Any]],
+    source_page_url: str,
     api_config: Optional[dict] = None,
     top_n: int = 5,
     city: Optional[str] = None,
+    progress: Callable[[str], Awaitable[None]] | None = None,
+    run_id: str | None = None,
 ) -> Dict[str, Any]:
-    """
-    批量抓取 BOSS 推荐页前 N 个岗位 + 生成投递资产。
+    """校验现有 BOSS 标签页桥接返回的 DOM 卡片并生成投递资产。
 
-    Args:
-        user_id: 用户 ID
-        query: 搜索关键词（可空）
-        resume_content: 候选人基础简历
-        api_config: API 配置（必需，内含 smart/fast 通道）
-        top_n: 抓取前 N 个岗位，默认 5，上限 10
-        city: 城市提示（可选，目前 BOSS 按 IP 自动定位）
-
-    Returns:
-        {"success": bool, "jobs": List[dict], "total": int, "message": str}
+    上游桥接不启动浏览器或复制 profile；本函数不接收 Cookie、HTML 或认证信息，
+    只接收最多 20 张经过 URL 白名单约束的有限字段岗位卡片。
     """
+    capture_log = JobCaptureTextLog(run_id or "untracked")
+    top_n = max(1, min(int(top_n), 20))
+
+    async def mark(stage: str, message: str) -> None:
+        """同步更新 AgentRun 阶段与脱敏 TXT 日志。"""
+        if progress is not None:
+            await progress(stage)
+        await capture_log.write(message)
+
     if not api_config:
+        await capture_log.write("导入失败：缺少模型配置")
         return {
-            "success": False, "total": 0, "jobs": [],
+            "success": False,
+            "total": 0,
+            "jobs": [],
             "message": "未检测到 API 配置。请在请求中传入 api_config。",
         }
+    if not is_allowed_boss_search_url(source_page_url):
+        await capture_log.write("导入失败：来源不是 BOSS 官方岗位搜索页")
+        return {
+            "success": False,
+            "total": 0,
+            "jobs": [],
+            "message": "仅允许导入 BOSS 官方岗位搜索页。",
+        }
 
-    # Step 1: 构造 BOSS 搜索页 URL，并使用与预览/发送相同的持久化会话。
-    # 搜索页 URL: https://www.zhipin.com/web/geek/job?query=xxx&city=100010000
-    # city 不传时 BOSS 会按 IP 自动定位
-    from urllib.parse import quote_plus
-    search_url = f"https://www.zhipin.com/web/geek/job?query={quote_plus(query)}"
-    if city:
-        # 常见城市码：北京 101010100 / 上海 101020100 / 广州 101280100 / 深圳 101280600
-        # 杭州 101210100 / 成都 101270100 / 全国 100010000
-        # 这里仅作 URL 注入，BOSS 会按 IP 自动定位，city 参数仅作标记
-        search_url += f"&city={quote_plus(city)}"
-
-    logger.info(f"[JobCapture] 批量采集启动: user={user_id}, query={query!r}, top_n={top_n}, url={search_url}")
-    page_text = await _fetch_page_text_browser(
-        search_url,
-        headless=False,
-        manual_wait_seconds=180,
+    query_fingerprint = sha256(query.encode("utf-8")).hexdigest()[:16]
+    logger.info(
+        "[JobCapture] 当前页 DOM 导入启动: user=%s query_fingerprint=%s candidates=%s top_n=%s",
+        user_id,
+        query_fingerprint,
+        min(len(imported_cards), 20),
+        top_n,
     )
+    await mark("validating_import", "正在校验当前 BOSS 页面导入的岗位卡片")
 
-    if not page_text:
-        return {
-            "success": False, "total": 0, "jobs": [],
-            "message": "无法读取 BOSS 页面。请在项目打开的专用浏览器中完成登录或安全验证后重试（最长等待 3 分钟）。",
+    raw_cards = imported_cards[:20]
+    cards: list[dict[str, Any]] = []
+    for raw_card in raw_cards:
+        if not isinstance(raw_card, dict):
+            continue
+        card = {
+            "company_name": str(raw_card.get("company_name") or "").strip()[:200],
+            "company_size_text": normalize_company_size_text(raw_card.get("company_size_text")),
+            "job_title": str(raw_card.get("job_title") or "").strip()[:200],
+            "salary_text": str(raw_card.get("salary_text") or "").strip()[:100],
+            "city": str(raw_card.get("city") or "").strip()[:100],
+            "title_summary": str(raw_card.get("title_summary") or "").strip()[:300],
+            "job_description": str(raw_card.get("job_description") or "").strip()[:3000],
+            "source_url": str(raw_card.get("source_url") or "").strip()[:2048],
         }
+        if not is_allowed_boss_job_url(card["source_url"]):
+            continue
+        if _is_internship_card(card):
+            continue
+        if is_valid_boss_search_card(card):
+            cards.append(card)
 
-    # 反爬兜底检测（即使开了 wait_for_user_captcha 也再确认一次）
-    if "请稍候" in page_text or "安全验证" in page_text or "verify.html" in page_text:
-        return {
-            "success": False, "total": 0, "jobs": [],
-            "message": "BOSS 仍处于安全验证页。请在项目打开的专用浏览器中完成验证后重试。",
-        }
-
-    # 搜索页内容检测：BOSS 搜索页通常包含「BOSS直聘」「招聘」「综合」「最新」等关键词
-    if "招聘" not in page_text and "BOSS" not in page_text.upper():
-        return {
-            "success": False, "total": 0, "jobs": [],
-            "message": "未能识别 BOSS 搜索页内容（页面里没找到「招聘」相关元素）。",
-        }
-
-    # Step 2: LLM 提取卡片
-    # 临时 monkey-patch api_config 给 _llm_extract_job_cards 内的 invoke_structured
-    # （它原本写死 api_config=None，我们要传入）
-    _orig_extract = _llm_extract_job_cards
-
-    async def _extract_with_api_config(page_text_arg, top_n_arg, query_filter_arg):
-        """使用请求级模型配置提取岗位信息，并继续经过 URL 校验、超时和脱敏边界。
-
-        Args:
-            page_text_arg: 经过类型边界校验的 `page_text_arg`；其格式和可选值由参数类型及调用流程约束。
-            top_n_arg: 经过类型边界校验的 `top_n_arg`；其格式和可选值由参数类型及调用流程约束。
-            query_filter_arg: 经过类型边界校验的 `query_filter_arg`；其格式和可选值由参数类型及调用流程约束。
-        """
-        from ai.llm.llm_utils import invoke_structured
-        from app.schemas.llm_outputs import JobCardList
-
-        # 搜索页找起始 marker
-        for marker in ["综合排序", "最新优先", "BOSS直聘", "面试", "招聘"]:
-            if marker in page_text_arg:
-                pos = page_text_arg.find(marker)
-                if pos > 0:
-                    page_text_arg = page_text_arg[pos:]
-                    break
-
-        snippet = page_text_arg[:6000]
-        filter_hint = ""
-        if query_filter_arg:
-            filter_hint = (
-                f"\n【搜索关键词】用户搜索的是「{query_filter_arg}」相关岗位。\n"
-                f"请优先返回与该方向最相关的前 {top_n_arg} 个岗位；"
-                f"如果搜索结果中没有理想匹配，就返回最靠前的 {top_n_arg} 个，不要硬凑。"
-            )
-
-        from ai.prompts.jobs import build_job_card_extraction_prompt
-
-        prompt = build_job_card_extraction_prompt(
-            page_text=snippet,
-            top_n=top_n_arg,
-            keyword=query_filter_arg,
-        )
-
-        try:
-            result = await invoke_structured(
-                prompt=prompt, output_model=JobCardList,
-                api_config=api_config, channel="fast",
-            )
-            return [c.model_dump() for c in result.cards[:top_n_arg]]
-        except Exception as e:
-            logger.error(f"[JobCapture] 推荐页岗位提取失败: {e}")
-            return []
-
-    # 多提取一些卡片用于后续匹配度排序
-    fetch_count = min(top_n * 4, 15)
-    cards = await _extract_with_api_config(page_text, fetch_count, query)
-
+    rejected_cards = len(raw_cards) - len(cards)
+    if rejected_cards:
+        await capture_log.write(f"已拒绝 {rejected_cards} 张无效、外部或字段不完整的岗位卡片")
     if not cards:
         return {
-            "success": False, "total": 0, "jobs": [],
-            "message": "未能从搜索结果页提取到任何岗位卡片，请检查 Chrome 中 BOSS 页面是否已加载。",
+            "success": False,
+            "total": 0,
+            "jobs": [],
+            "message": "导入内容中没有有效岗位卡片，请回到 BOSS 搜索结果页重新提取。",
         }
 
-    logger.info(f"[JobCapture] LLM 提取到 {len(cards)} 个候选岗位卡片")
+    await mark("extracting_jobs", f"已接收并确认 {len(cards)} 张有效岗位卡片")
 
     # Step 2.5: 用 fast 通道做轻量匹配度打分，按分取前 top_n 个
-    if query and resume_content and len(cards) > top_n:
+    await mark("ranking_jobs", "正在按简历匹配度排序岗位")
+    if resume_content:
         scored_cards = await _score_job_cards_by_match(
             cards=cards,
             resume_content=resume_content,
@@ -462,7 +338,8 @@ async def capture_from_recommendations(
     else:
         cards = cards[:top_n]
 
-    # Step 3: 对每张卡片复用 capture_from_text；资产生成进入统一可恢复任务。
+    # Step 3: 标准化每张有效卡片；资产生成进入统一可恢复任务。
+    await mark("saving_jobs", f"正在标准化并保存 {len(cards)} 个岗位")
     results: list = []
     failures: list = []
 
@@ -472,18 +349,22 @@ async def capture_from_recommendations(
         salary = card.get("salary_text", "")
         city_val = card.get("city", "") or (city or "")
         jd_text = card.get("job_description") or card.get("title_summary") or title
+        source_url = str(card.get("source_url") or "")
 
         logger.info(f"[JobCapture] [{idx}/{len(cards)}] 处理: {company} - {title}")
 
-        # 复用 capture_from_text：标准化 + 入库
+        # 岗位卡片标准化 + 入库
         try:
-            cap = await capture_from_text(
-                jd_text=jd_text,
-                user_id=user_id,
-                platform="boss",
-                company_name_hint=company,
-                job_title_hint=title,
-                api_config=api_config,
+            cap = await _normalize_and_save(
+                {
+                    **card,
+                    "city": city_val,
+                    "preliminary_match_score": card.get("preliminary_match_score"),
+                },
+                user_id,
+                "boss",
+                source_url=source_url,
+                source_text=jd_text,
             )
         except Exception as e:
             logger.warning(f"[JobCapture] 卡片 {idx} 标准化失败: {e}")
@@ -499,21 +380,22 @@ async def capture_from_recommendations(
         # 复用 generate_assets：JD分析 + 定制简历 + 打招呼文案
         asset_result = None
         risk_flags: list = []
-        match_score = None
+        match_score = card.get("preliminary_match_score")
         custom_resume_id = None
         greetings: list = []
         asset_run_id = None
         asset_status = None
 
         try:
-            from app.domain.agent_runs import TASK_TYPE_JOB_ASSETS
+            await mark("scheduling_assets", f"正在为岗位 {idx}/{len(cards)} 创建投递资产任务")
             from ai.runtime.agent_runs.service import (
                 AgentRunService,
                 task_queue_enabled,
             )
+            from app.domain.agent_runs import TASK_TYPE_JOB_ASSETS
 
             if task_queue_enabled():
-                from ai.runtime.agent_runs.dispatcher import enqueue_agent_run
+                from ai.runtime.agent_runs.outbox import dispatch_pending_outbox
 
                 run_service = AgentRunService()
                 resume_token = sha256(resume_content.encode()).hexdigest()[:16]
@@ -530,13 +412,22 @@ async def capture_from_recommendations(
                     idempotency_key=f"capture-assets:{job_id}:{resume_token}",
                 )
                 if created:
-                    try:
-                        enqueue_agent_run(run.id)
-                    except Exception:
-                        await run_service.fail(run.id, "岗位资产任务入队失败，请在任务中心重试")
-                        run = await run_service.get(run.id, user_id) or run
+                    _, failed = await dispatch_pending_outbox(limit=50)
+                    if failed:
+                        logger.warning(
+                            "[JobCapture] 岗位资产任务等待 Outbox 重试: run_id=%s",
+                            run.id,
+                        )
                 asset_run_id = run.id
                 asset_status = run.status
+                from app.db.repositories.jobs.job_capture_repo import get_job_capture_repo
+                await get_job_capture_repo().update_asset_tracking(
+                    int(job_id),
+                    user_id,
+                    asset_run_id=run.id,
+                    asset_status=run.status,
+                    match_score=match_score,
+                )
                 asset_result = run.result or {}
                 assets_data = asset_result.get("assets") if isinstance(asset_result, dict) else None
                 if isinstance(assets_data, dict):
@@ -547,7 +438,9 @@ async def capture_from_recommendations(
                     custom_resume_id = assets_data.get("custom_resume_id")
                     greetings = list(assets_data.get("greetings") or [])
             else:
-                from ai.workflows.jobs_support.job_asset_orchestrator import generate_assets
+                from ai.workflows.jobs_support.job_asset_orchestrator import (
+                    generate_assets,
+                )
 
                 asset_result = await generate_assets(
                     job_id=job_id,
@@ -569,6 +462,14 @@ async def capture_from_recommendations(
                             "highlights_used": g.highlights_used,
                             "risk_notes": g.risk_notes,
                         })
+                    from app.db.repositories.jobs.job_capture_repo import get_job_capture_repo
+                    await get_job_capture_repo().update_asset_tracking(
+                        int(job_id),
+                        user_id,
+                        asset_status=asset_status,
+                        match_score=match_score,
+                        asset_payload=assets_obj.model_dump(),
+                    )
         except Exception as e:
             logger.warning(f"[JobCapture] 卡片 {idx} 资产生成失败: {e}")
             asset_status = "failed"
@@ -576,8 +477,11 @@ async def capture_from_recommendations(
 
         results.append({
             "job_id": job_id,
+            "source_url": source_url,
             "company_name": company,
+            "company_size_text": card.get("company_size_text", ""),
             "job_title": title,
+            "job_description": jd_text,
             "salary_text": salary,
             "city": city_val,
             "match_score": match_score,
@@ -588,9 +492,10 @@ async def capture_from_recommendations(
             "asset_status": asset_status,
         })
 
-    msg = f"共抓取 {len(results)} 个岗位"
+    msg = f"共导入 {len(results)} 个岗位"
     if failures:
         msg += f"，{len(failures)} 个失败"
+    await capture_log.write(f"导入完成：成功 {len(results)} 个，失败 {len(failures)} 个")
 
     return {
         "success": len(results) > 0,

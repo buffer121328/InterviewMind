@@ -20,12 +20,15 @@ export interface ApplicationState {
     applications: JobApplicationListItem[];
     applicationsLoading: boolean;
     applicationsTotal: number;
+    applicationsLimit: number;
+    applicationsOffset: number;
+    applicationsStatus?: string;
     currentApplication: JobApplication | null;
     applicationDetailLoading: boolean;
 }
 
 export interface ApplicationActions {
-    fetchApplications: (status?: string, limit?: number) => Promise<void>;
+    fetchApplications: (status?: string, limit?: number, offset?: number) => Promise<void>;
     selectApplication: (applicationId: number) => Promise<void>;
     createApplication: (data: CreateApplicationRequest) => Promise<JobApplication | null>;
     updateApplication: (applicationId: number, data: UpdateApplicationRequest) => Promise<boolean>;
@@ -49,18 +52,24 @@ export const createApplicationSlice = (set: SetState, get: GetState): Applicatio
     applications: [],
     applicationsLoading: false,
     applicationsTotal: 0,
+    applicationsLimit: 10,
+    applicationsOffset: 0,
+    applicationsStatus: undefined,
     currentApplication: null,
     applicationDetailLoading: false,
 
     // ===== Actions =====
 
-    fetchApplications: async (status?: string, limit?: number) => {
+    fetchApplications: async (status?: string, limit: number = 10, offset: number = 0) => {
         set({ applicationsLoading: true });
         try {
-            const result = await fetchApplications(status, limit);
+            const result = await fetchApplications(status, limit, offset);
             set({
                 applications: result.applications,
                 applicationsTotal: result.total,
+                applicationsLimit: result.limit,
+                applicationsOffset: result.offset,
+                applicationsStatus: status,
             });
         } catch (error) {
             console.error('获取投递列表失败:', error);
@@ -87,8 +96,12 @@ export const createApplicationSlice = (set: SetState, get: GetState): Applicatio
         try {
             const app = await createApplication(data);
             if (app) {
-                // 刷新列表
-                await get().fetchApplications();
+                const state = get();
+                await state.fetchApplications(
+                    state.applicationsStatus,
+                    state.applicationsLimit,
+                    state.applicationsOffset,
+                );
                 return app;
             }
             return null;
@@ -107,8 +120,12 @@ export const createApplicationSlice = (set: SetState, get: GetState): Applicatio
                 if (currentApplication?.id === applicationId) {
                     set({ currentApplication: app });
                 }
-                // 刷新列表
-                await get().fetchApplications();
+                const state = get();
+                await state.fetchApplications(
+                    state.applicationsStatus,
+                    state.applicationsLimit,
+                    state.applicationsOffset,
+                );
                 return true;
             }
             return false;
@@ -143,8 +160,12 @@ export const createApplicationSlice = (set: SetState, get: GetState): Applicatio
             if (event) {
                 // 重新加载详情以获取最新事件列表
                 await get().selectApplication(applicationId);
-                // 刷新列表（状态可能已更新）
-                await get().fetchApplications();
+                const state = get();
+                await state.fetchApplications(
+                    state.applicationsStatus,
+                    state.applicationsLimit,
+                    state.applicationsOffset,
+                );
                 return true;
             }
             return false;

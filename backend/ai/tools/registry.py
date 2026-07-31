@@ -101,21 +101,6 @@ def _resume_tools(context: AgentContext) -> list[Any]:
     return make_resume_tools(resume_content=resume, job_description=jd)
 
 
-def _job_tools(context: AgentContext) -> list[Any]:
-    """构造绑定当前用户和简历上下文的岗位工具集合，并保留投递确认边界。
-
-    Args:
-        context: 运行上下文。
-    """
-    from ai.tools.job_tools import make_jobs_tools
-
-    return make_jobs_tools(
-        user_id=context.user_id,
-        api_config=dict(context.api_config),
-        resume_content=str(context.api_config.get("resume_content", "")),
-    )
-
-
 def _memory_tools(context: AgentContext) -> list[Any]:
     """构造绑定当前用户的长期记忆工具，并确保记忆读写遵守 namespace 隔离。
 
@@ -130,12 +115,3 @@ def _memory_tools(context: AgentContext) -> list[Any]:
 tool_registry.register(ToolSpec("interview", _interview_tools, effect="read"))
 tool_registry.register(ToolSpec("resume", _resume_tools, effect="read"))
 tool_registry.register(ToolSpec("memory", _memory_tools, effect="read"))
-tool_registry.register(
-    ToolSpec(
-        "job_application",
-        _job_tools,
-        effect="external",
-        required_permissions=frozenset({"jobs:automate"}),
-        requires_confirmation=True,
-    )
-)

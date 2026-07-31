@@ -14,6 +14,7 @@ _EXECUTOR_MODULES = {
     "execute_interview_report": "ai.workflows.agent_tasks.interview_report",
     "execute_interview_start": "ai.workflows.agent_tasks.interview_start",
     "execute_job_assets": "ai.workflows.agent_tasks.job_assets",
+    "execute_job_recommendation_capture": "ai.workflows.agent_tasks.job_recommendation_capture",
     "execute_resume_optimize": "ai.workflows.agent_tasks.resume_optimize",
     "execute_resume_workspace": "ai.workflows.agent_tasks.resume_workspace",
 }
@@ -37,6 +38,7 @@ __all__ = [
     "execute_interview_report",
     "execute_interview_start",
     "execute_job_assets",
+    "execute_job_recommendation_capture",
     "execute_registered_task",
     "execute_resume_optimize",
     "execute_resume_workspace",

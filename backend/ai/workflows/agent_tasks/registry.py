@@ -9,6 +9,7 @@ from app.domain.agent_runs import (
     TASK_TYPE_INTERVIEW_REPORT,
     TASK_TYPE_INTERVIEW_START,
     TASK_TYPE_JOB_ASSETS,
+    TASK_TYPE_JOB_RECOMMENDATION_CAPTURE,
     TASK_TYPE_RESUME_OPTIMIZE,
     TASK_TYPE_RESUME_WORKSPACE,
 )
@@ -50,6 +51,19 @@ async def _execute_job_assets(payload: dict, user_id: str, progress: ProgressCal
     return await execute_job_assets(payload, user_id, progress)
 
 
+async def _execute_job_recommendation_capture(
+    payload: dict,
+    user_id: str,
+    progress: ProgressCallback,
+) -> ExecutionResult:
+    """延迟导入并转发 BOSS 推荐页采集任务。"""
+    from ai.workflows.agent_tasks.job_recommendation_capture import (
+        execute_job_recommendation_capture,
+    )
+
+    return await execute_job_recommendation_capture(payload, user_id, progress)
+
+
 async def _execute_evaluation_suite(
     payload: dict,
     user_id: str,
@@ -68,6 +82,7 @@ EXECUTORS: dict[str, TaskExecutor] = {
     TASK_TYPE_RESUME_WORKSPACE: _execute_resume_workspace,
     TASK_TYPE_INTERVIEW_REPORT: _execute_interview_report,
     TASK_TYPE_JOB_ASSETS: _execute_job_assets,
+    TASK_TYPE_JOB_RECOMMENDATION_CAPTURE: _execute_job_recommendation_capture,
 }
 
 

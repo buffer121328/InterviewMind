@@ -122,6 +122,9 @@
 
   docker compose --env-file .env restart backend worker
 
+  docker compose --env-file .env restart nginx
+
+
 停止服务（保留数据库数据卷）：
 
   docker compose --env-file .env down
@@ -131,54 +134,140 @@
   docker compose --env-file .env down -v
 
 ------------------------------------------------------------
-六、BOSS 半自动化（可选，不在主 Compose 内）
+六、BOSS 现有登录标签页接管与可选投递自动化
 ------------------------------------------------------------
 
-主系统启动后，如需使用 BOSS 半自动化，还必须在宿主机另开一个终端启动 Playwright 服务：
+BOSS 岗位推荐采集不再使用书签或剪贴板。Apple 事件/JXA 由 macOS 宿主机上的
+`browser_automation_service` 执行，主后端可以继续运行在 Docker，通过 Bearer Token
+调用宿主机服务。服务在同一标签页设置官方搜索 URL，按至少 5 秒间隔等待列表稳定，
+读取最多 20 张有限字段岗位卡片；程序不会读取 Cookie、Token、localStorage、认证头或整页 HTML。
+
+现有标签页接管的使用条件：
+
+1. 在 macOS 宿主机启动 `browser_automation_service`，主后端可以在 Docker 中运行。
+2. 在 Edge/Chrome 打开“查看 → 开发人员 → 允许 Apple 事件中的 JavaScript”。
+3. 在 macOS“隐私与安全性 → 自动化”中允许宿主机浏览器服务的启动终端控制所选浏览器。
+4. 在日常浏览器中打开 BOSS 并手动完成登录、验证码或安全验证，保留该标签页。
+5. 进入“岗位中心 → 浏览器接管”，选择 Edge/Chrome，先点击“检查已打开页面”，
+   再填写搜索关键词、从 15 个热门城市中按中文选择城市、结果数量和基础简历，点击“接管页面并采集”。
+   城市选择器旁的只读框会显示实际提交给 BOSS 的数字城市代码。
+
+基础简历会参与初筛：透明关键词分占 20%，Fast 模型语义分占 80%，语义输出解析失败时
+回退关键词排序。系统过滤实习岗位，保留岗位、薪资、公司人数、官方链接和卡片可见职位介绍，
+并在岗位中心展示匹配度。当前标签页采集默认处理 3 个、最多 20 个岗位；同一用户两次导入仍受最小间隔和
+每小时上限保护。`BOSS_CAPTURE_ACTION_DELAY_SECONDS` 控制导航前动作间隔，
+`BOSS_CAPTURE_POLL_INTERVAL_SECONDS` 的硬下限为 5 秒，
+`BOSS_CAPTURE_MAX_CANDIDATE_CARDS` 不能突破 20。标准 Worker 默认使用
+`AGENT_RUN_WORKER_THREADS=5` 并行生成最多 5 个岗位资产；其他 LLM 任务仍使用原全局单任务门。
+岗位库支持点击查看资产、编辑三种第一人称打招呼方案，并一键加入投递管理，状态为“待投递”。
+岗位中心和投递管理都不执行发送，只可复用已有登录 BOSS 标签页打开岗位。
+
+1. 首次安装宿主机依赖
+
+   从项目根目录执行：
 
   cd backend
   uv sync
-  uv run playwright install chromium
-  uv run uvicorn app.entrypoints.boss_service:app --host 0.0.0.0 --port 8765
+
+   默认接管 Microsoft Edge（BOSS_BROWSER_CHANNEL=msedge）；也可设置为 chrome。
+   `uv sync` 可能需要使用当前网络代理下载依赖。不要为了无代理启动而修改或删除全局代理配置。
+
+2. 启动宿主机浏览器服务
+
+   现有标签页接管不会启动浏览器，只控制用户已打开的 Edge/Chrome 标签页。启动脚本仍默认
+   清理服务进程继承的 HTTP_PROXY、HTTPS_PROXY 和 ALL_PROXY，避免宿主机桥接请求受到不稳定代理影响。
+   代理自动切换节点、负载均衡或出口 IP 漂移时，Google 和 BOSS 都可能将同一浏览器会话识别为异常流量。
+
+   在任意目录执行以下完整单行命令，可直接整行复制：
+
+  cd "/Users/cheng/Downloads/DesktopOrganizer/学习资料/agent_interview/backend" && ./scripts/run-browser-automation-service.sh
+
+   脚本默认等价于以下安全启动方式：监听 127.0.0.1:8765，并只清除本次
+   browser_automation_service 进程及其可选子浏览器继承的代理变量，不会改动当前终端、
+   主后端、Worker 或系统的永久代理设置。
+
+  env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u http_proxy -u https_proxy -u all_proxy uv run uvicorn app.entrypoints.browser_automation_service:app --host 127.0.0.1 --port 8765
+
+   如果已经位于 backend/ 目录，并确认当前环境完全没有代理，也可以使用普通单行命令：
+
+  BROWSER_AUTOMATION_CLEAR_PROXY_ENV=false ./scripts/run-browser-automation-service.sh
+
+3. 启动前检查是否存在代理
+
+   只查看代理变量名称，不打印可能包含凭据的完整代理 URL：
+
+  env | awk -F= \
+    'tolower($1) ~ /^(http_proxy|https_proxy|all_proxy)$/ {print $1 "=<set>"}'
+
+   macOS 还可以检查系统代理：
+
+  scutil --proxy
+
+   注意：
+   - `env -u ...` 只能移除进程环境变量，不能关闭 VPN、TUN 模式或 macOS 系统代理。
+   - 如果代理客户端启用了 TUN、增强模式、自动选节点或负载均衡，应在代理客户端中关闭，
+     或改用固定且稳定的出口节点。
+   - 不要通过频繁更换浏览器 profile、Cookie、账号或节点来尝试绕过安全验证。
+
+4. 处理 8765 端口已被占用
+
+   出现 `[Errno 48] address already in use` 时，先查看监听进程：
+
+  lsof -nP -iTCP:8765 -sTCP:LISTEN
+
+   确认 PID 属于旧的 browser_automation_service 后，再正常停止：
+
+  kill -TERM <确认后的旧服务 PID>
+
+   再次确认命令无输出，表示端口已经释放：
+
+  lsof -nP -iTCP:8765 -sTCP:LISTEN
+
+   不要在未确认进程用途时直接 kill，也不要使用 `kill -9` 作为常规停止方式。
+
+5. 验证宿主机服务
+
+另开终端验证宿主机服务：
+
+  curl -fsS http://127.0.0.1:8765/
+
+返回 status=running 表示 HTTP 服务已经启动。主后端会使用带 Bearer Token 的
+POST /v1/health 以及 `/v1/boss/browser-tab/*` 继续调用宿主机服务。
+如果主后端运行在 Docker，`.env` 中使用 `BROWSER_AUTOMATION_SERVICE_URL=http://host.docker.internal:8765`；
+如果主后端也运行在宿主机，使用 `http://127.0.0.1:8765`。
+
+   如果主后端在 Docker 且 `host.docker.internal` 无法访问 127.0.0.1，需把宿主机服务改为监听 Docker Desktop 可达的宿主机地址，并使用 macOS 防火墙限制来源；Token 仍是必须的。不要在公网直接暴露 8765。
+   如果 curl 报连接失败，先确认启动终端仍在运行，再检查 8765 端口监听状态。
+
+6. 根目录环境变量
 
 根目录 .env 需设置：
 
-  BOSS_AUTOMATION_SERVICE_URL=http://host.docker.internal:8765
-  BOSS_AUTOMATION_SERVICE_TOKEN=<至少 32 字符的随机 token>
+  BROWSER_AUTOMATION_SERVICE_URL=http://host.docker.internal:8765
+  BROWSER_AUTOMATION_SERVICE_TOKEN=<至少 32 字符的随机 token>
 
 生成 token：
 
   openssl rand -hex 32
 
-首次使用会在项目专用浏览器 profile 中要求手动登录、处理验证码。
-真实投递仍必须在系统中预览并由用户确认；不要绕过审批边界直接调用自动化服务。
+   Token 由主后端调用宿主机服务时使用，与 BOSS、Google、代理账号密码无关。
+   不要把真实 Token 写入本指南、README、日志或提交到 Git。
 
-------------------------------------------------------------
-七、常见问题
-------------------------------------------------------------
+7. 首次登录与风控处理
 
-1. docker compose 无法连接 Docker daemon
-   - 打开 Docker Desktop，等待其完全启动后重试。
+首次使用时，用户应在日常 Edge/Chrome 中自行打开 BOSS、扫码登录并处理验证码，然后保留
+该官方标签页供岗位中心复用。当前岗位中心和投递管理不执行真实投递，也不展示投递预览；
+用户只能查看或编辑打招呼文案，并在已有登录标签页中自行完成后续操作。
 
-2. backend / worker 启动失败
-   - 查看日志：docker compose --env-file .env logs -f backend worker
-   - 检查 .env 中 DATABASE_URL、POSTGRES_PASSWORD、TASK_PAYLOAD_ENCRYPTION_KEY。
+   如果浏览器显示 Google“异常流量”，并出现两个公网 IP 不一致：
+   - 这通常表示代理转发或出口 IP 不稳定，不是 BOSS 登录凭据或服务 Token 失效；
+   - 先关闭正在跳转的浏览器和宿主机服务，不要持续刷新；
+   - 按第 2 节的无代理完整命令重新启动服务；
+   - 如果无代理后仍然发生，检查 VPN、TUN、系统代理和上游网络出口；
+   - 必须使用代理时，只使用固定出口，不要使用自动切换或负载均衡节点。
 
-3. 任务一直处于 queued
-   - 确认 TASK_QUEUE_ENABLED=true。
-   - 确认 redis 和 worker 都在运行。
-   - 检查 Worker 日志及 TASK_PAYLOAD_ENCRYPTION_KEY 是否由 API 和 Worker 共用。
-
-4. /health 正常但实际功能报错
-   - /health 不覆盖所有依赖；执行：
-
-       docker compose --env-file .env exec backend \
-         python -m app.entrypoints.deployment readiness
-
-5. 模型调用失败
-   - 在前端“设置 → 模型配置”中检查 API 地址、模型名、凭据、超时与连接验证结果。
-
-6. 修改 NEXT_PUBLIC_API_URL 后页面仍使用旧值
-   - 该变量在前端构建期写入产物；执行：
-
-       docker compose --env-file .env up -d --build frontend nginx
+   如果 BOSS 已进入 security.html、安全验证页或搜索页循环跳转：
+   - 停止本次采集，等待用户在同一个已登录 BOSS 标签页中手动处理；
+   - 验证完成前不要自动搜索、刷新或重复打开采集任务；
+   - 手动访问也持续跳转时，应停止网页端尝试并通过 BOSS App 完成验证或联系客服；
+   - 不要清除浏览器站点数据、复制 Cookie、修改请求参数或尝试绕过验证码。

@@ -1,4 +1,4 @@
-"""宿主机 BOSS HTTP 服务与客户端测试；不启动真实浏览器。"""
+"""宿主机 BOSS 标签页桥接 HTTP 服务与客户端测试；不启动真实浏览器。"""
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -7,20 +7,39 @@ import pytest
 from pydantic import SecretStr
 
 from app.config import AppSettings
-from integrations.boss.automation_client import (
-    BossAutomationClient,
-    BossAutomationError,
-)
-
+from integrations.boss.automation_client import BossAutomationClient, BossAutomationError
+from integrations.boss.existing_tab_bridge import BossExistingTabError, BossTabStatus
 
 TOKEN = "t" * 32
 
 
 @pytest.mark.asyncio
-async def test_host_service_requires_bearer_token(monkeypatch):
-    from app.entrypoints.boss_service import app
+async def test_host_service_root_reports_running_without_credentials():
+    """直接打开宿主机服务地址时应明确显示已运行，而不是返回 404。"""
 
-    monkeypatch.setenv("BOSS_AUTOMATION_SERVICE_TOKEN", TOKEN)
+    from app.entrypoints.browser_automation_service import app
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://test",
+    ) as client:
+        root_response = await client.get("/")
+        favicon_response = await client.get("/favicon.ico")
+
+    assert root_response.status_code == 200
+    assert root_response.json() == {
+        "service": "browser_tab_bridge",
+        "status": "running",
+        "authenticated_health_endpoint": "/v1/health",
+    }
+    assert favicon_response.status_code == 204
+
+
+@pytest.mark.asyncio
+async def test_host_service_requires_bearer_token(monkeypatch):
+    from app.entrypoints.browser_automation_service import app
+
+    monkeypatch.setenv("BROWSER_AUTOMATION_SERVICE_TOKEN", TOKEN)
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app),
         base_url="http://test",
@@ -31,109 +50,184 @@ async def test_host_service_requires_bearer_token(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_host_service_rejects_non_boss_url(monkeypatch):
-    from app.entrypoints.boss_service import app
+async def test_host_health_reports_selected_boss_browser_channel(monkeypatch):
+    """健康检查只报告标签页桥接能力，不再暴露旧浏览器会话信息。"""
 
-    monkeypatch.setenv("BOSS_AUTOMATION_SERVICE_TOKEN", TOKEN)
+    from app.entrypoints.browser_automation_service import app
+
+    monkeypatch.setenv("BROWSER_AUTOMATION_SERVICE_TOKEN", TOKEN)
+    monkeypatch.setenv("BOSS_BROWSER_CHANNEL", "chrome")
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app),
         base_url="http://test",
     ) as client:
         response = await client.post(
-            "/v1/pages/scrape",
+            "/v1/health",
             headers={"Authorization": f"Bearer {TOKEN}"},
-            json={"source_url": "https://example.com/job/1"},
+            json={},
         )
 
-    assert response.status_code == 400
+    assert response.status_code == 200
+    body = response.json()
+    assert body["service"] == "browser_tab_bridge"
+    assert body["default_browser_channel"] == "chrome"
+    assert body["capabilities"] == ["status", "search_and_capture", "open_job"]
 
 
 @pytest.mark.asyncio
-async def test_host_service_send_requires_confirmation(monkeypatch):
-    from app.entrypoints.boss_service import app
+async def test_host_service_delegates_existing_tab_status_to_bridge(monkeypatch):
+    """宿主进程负责 Apple 事件访问，并只返回有限标签页状态。"""
 
-    monkeypatch.setenv("BOSS_AUTOMATION_SERVICE_TOKEN", TOKEN)
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app),
-        base_url="http://test",
-    ) as client:
-        response = await client.post(
-            "/v1/applications/send",
-            headers={"Authorization": f"Bearer {TOKEN}"},
-            json={
-                "source_url": "https://www.zhipin.com/job_detail/1.html",
-                "greeting_text": "您好",
-                "confirmed": False,
-            },
-        )
+    from app.entrypoints.browser_automation_service import app
 
-    assert response.status_code == 400
-
-
-@pytest.mark.asyncio
-async def test_host_service_preview_delegates_after_guards(monkeypatch):
-    from app.entrypoints.boss_service import app
-
-    monkeypatch.setenv("BOSS_AUTOMATION_SERVICE_TOKEN", TOKEN)
-    operation = AsyncMock(return_value={"success": True, "send_ready": True})
-    with patch("app.entrypoints.boss_service.preview_boss_application", new=operation):
+    monkeypatch.setenv("BROWSER_AUTOMATION_SERVICE_TOKEN", TOKEN)
+    status_result = BossTabStatus(
+        success=True,
+        browser_channel="msedge",
+        browser_label="Microsoft Edge",
+        connected=True,
+        current_url="https://www.zhipin.com/web/geek/jobs?query=agent",
+        page_status="search_ready",
+        ready_state="complete",
+        visible_card_count=3,
+        message="connected",
+    )
+    bridge = MagicMock()
+    bridge.inspect = AsyncMock(return_value=status_result)
+    with patch(
+        "app.entrypoints.browser_automation_service.get_boss_existing_tab_bridge",
+        return_value=bridge,
+    ):
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app),
             base_url="http://test",
         ) as client:
             response = await client.post(
-                "/v1/applications/preview",
+                "/v1/boss/browser-tab/status",
+                headers={"Authorization": f"Bearer {TOKEN}"},
+                json={"browser_channel": "msedge"},
+            )
+
+    assert response.status_code == 200
+    assert response.json()["visible_card_count"] == 3
+    bridge.inspect.assert_awaited_once_with("msedge")
+
+
+@pytest.mark.asyncio
+async def test_host_service_preserves_actionable_existing_tab_errors(monkeypatch):
+    from app.entrypoints.browser_automation_service import app
+
+    monkeypatch.setenv("BROWSER_AUTOMATION_SERVICE_TOKEN", TOKEN)
+    bridge = MagicMock()
+    bridge.inspect = AsyncMock(
+        side_effect=BossExistingTabError(
+            "browser_javascript_disabled",
+            "请在浏览器中开启 Apple 事件 JavaScript",
+            status_code=409,
+        )
+    )
+    with patch(
+        "app.entrypoints.browser_automation_service.get_boss_existing_tab_bridge",
+        return_value=bridge,
+    ):
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://test",
+        ) as client:
+            response = await client.post(
+                "/v1/boss/browser-tab/status",
+                headers={"Authorization": f"Bearer {TOKEN}"},
+                json={},
+            )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == {
+        "error": "browser_javascript_disabled",
+        "message": "请在浏览器中开启 Apple 事件 JavaScript",
+    }
+
+
+@pytest.mark.asyncio
+async def test_host_service_delegates_search_and_capture(monkeypatch):
+    from app.entrypoints.browser_automation_service import app
+
+    monkeypatch.setenv("BROWSER_AUTOMATION_SERVICE_TOKEN", TOKEN)
+    bridge = MagicMock()
+    bridge.search_and_capture = AsyncMock(
+        return_value={"success": True, "cards": [{"job_title": "Agent 工程师"}]}
+    )
+    with patch(
+        "app.entrypoints.browser_automation_service.get_boss_existing_tab_bridge",
+        return_value=bridge,
+    ):
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://test",
+        ) as client:
+            response = await client.post(
+                "/v1/boss/browser-tab/search-and-capture",
+                headers={"Authorization": f"Bearer {TOKEN}"},
+                json={"query": "Agent", "city": "101280600", "max_cards": 20},
+            )
+
+    assert response.status_code == 200
+    assert response.json()["success"] is True
+    bridge.search_and_capture.assert_awaited_once_with(
+        query="Agent",
+        city="101280600",
+        max_cards=20,
+        browser_channel=None,
+    )
+
+
+@pytest.mark.asyncio
+async def test_host_service_opens_job_in_existing_tab_after_token_and_url_guards(monkeypatch):
+    """open-job 只把官方岗位链接交给现有标签页桥接。"""
+
+    from app.entrypoints.browser_automation_service import app
+
+    monkeypatch.setenv("BROWSER_AUTOMATION_SERVICE_TOKEN", TOKEN)
+    bridge = MagicMock()
+    bridge.open_job = AsyncMock(
+        return_value={
+            "success": True,
+            "browser_channel": "msedge",
+            "browser_label": "Microsoft Edge",
+            "opened_url": "https://www.zhipin.com/job_detail/card_1-real.html",
+            "message": "opened",
+        }
+    )
+    with patch(
+        "app.entrypoints.browser_automation_service.get_boss_existing_tab_bridge",
+        return_value=bridge,
+    ):
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://test",
+        ) as client:
+            response = await client.post(
+                "/v1/boss/browser-tab/open-job",
                 headers={"Authorization": f"Bearer {TOKEN}"},
                 json={
-                    "source_url": "https://www.zhipin.com/job_detail/1.html",
-                    "greeting_text": "您好",
+                    "source_url": "https://www.zhipin.com/job_detail/card_1-real.html",
+                    "browser_channel": "msedge",
+                },
+            )
+            external = await client.post(
+                "/v1/boss/browser-tab/open-job",
+                headers={"Authorization": f"Bearer {TOKEN}"},
+                json={
+                    "source_url": "https://example.com/job_detail/card_1-real.html",
+                    "browser_channel": "msedge",
                 },
             )
 
     assert response.status_code == 200
-    operation.assert_awaited_once()
-
-
-@pytest.mark.asyncio
-async def test_preview_operation_never_clicks_send_button():
-    from integrations.boss.browser_operations import preview_boss_application
-
-    page = AsyncMock()
-    send_button = AsyncMock()
-    session = MagicMock(context=AsyncMock(), close=AsyncMock())
-    with (
-        patch(
-            "integrations.boss.browser_operations.open_boss_browser_session",
-            new=AsyncMock(return_value=session),
-        ),
-        patch(
-            "integrations.boss.browser_operations.open_job_page",
-            new=AsyncMock(return_value=page),
-        ),
-        patch(
-            "integrations.boss.browser_operations.inspect_page_state",
-            new=AsyncMock(return_value={"status": "ready", "reason": ""}),
-        ),
-        patch(
-            "integrations.boss.browser_operations.locate_and_fill_greeting",
-            new=AsyncMock(return_value={"filled": True, "selector_used": "textarea"}),
-        ),
-        patch(
-            "integrations.boss.browser_operations.locate_and_click_send",
-            new=AsyncMock(return_value={"found": True, "element": send_button}),
-        ),
-        patch(
-            "integrations.boss.browser_operations.take_screenshot",
-            new=AsyncMock(return_value="image-base64"),
-        ),
-    ):
-        result = await preview_boss_application(
-            "https://www.zhipin.com/job_detail/1.html",
-            "您好",
-        )
-
-    assert result["send_ready"] is True
-    send_button.click.assert_not_awaited()
+    bridge.open_job.assert_awaited_once_with(
+        "https://www.zhipin.com/job_detail/card_1-real.html",
+        "msedge",
+    )
+    assert external.status_code == 400
 
 
 @pytest.mark.asyncio
@@ -144,8 +238,8 @@ async def test_http_client_sends_bearer_token_without_exposing_it():
         return httpx.Response(200, json={"success": True})
 
     settings = AppSettings(
-        boss_automation_service_url="http://host.docker.internal:8765",
-        boss_automation_service_token=SecretStr(TOKEN),
+        browser_automation_service_url="http://host.docker.internal:8765",
+        browser_automation_service_token=SecretStr(TOKEN),
     )
     client = BossAutomationClient(settings, transport=httpx.MockTransport(handler))
 
@@ -153,17 +247,59 @@ async def test_http_client_sends_bearer_token_without_exposing_it():
 
 
 @pytest.mark.asyncio
-async def test_http_client_marks_read_timeout_as_ambiguous():
+async def test_http_client_forwards_existing_tab_status_and_preserves_host_detail():
+    """Docker 主后端通过 POST 调用宿主机桥接，并保留可操作的 409 文案。"""
+
+    requests: list[httpx.Request] = []
+
     def handler(request: httpx.Request) -> httpx.Response:
-        raise httpx.ReadTimeout("timeout", request=request)
+        requests.append(request)
+        return httpx.Response(
+            409,
+            json={
+                "detail": {
+                    "error": "browser_javascript_disabled",
+                    "message": "请在浏览器中开启 Apple 事件 JavaScript",
+                }
+            },
+        )
 
     settings = AppSettings(
-        boss_automation_service_url="http://host.docker.internal:8765",
-        boss_automation_service_token=SecretStr(TOKEN),
+        browser_automation_service_url="http://host.docker.internal:8765",
+        browser_automation_service_token=SecretStr(TOKEN),
     )
     client = BossAutomationClient(settings, transport=httpx.MockTransport(handler))
 
     with pytest.raises(BossAutomationError) as caught:
-        await client.send("https://www.zhipin.com/job_detail/1.html", "您好")
+        await client.browser_tab_status("msedge")
 
-    assert caught.value.request_may_have_run is True
+    assert caught.value.status_code == 409
+    assert "Apple 事件" in str(caught.value)
+    assert requests[0].url.path == "/v1/boss/browser-tab/status"
+    assert requests[0].method == "POST"
+
+
+@pytest.mark.asyncio
+async def test_main_jobs_api_routes_browser_tab_calls_to_host_client(monkeypatch):
+    """容器主 API 必须经应用层调用宿主机能力，不能直接实例化 Apple 事件桥接。"""
+
+    from app.api.jobs import get_boss_browser_tab_status, search_and_capture_current_boss_tab
+    from app.schemas.job_schemas import BossTabCaptureRequest
+
+    use_cases = MagicMock()
+    use_cases.get_boss_browser_tab_status = AsyncMock(
+        return_value={"success": True, "browser_channel": "msedge"}
+    )
+    use_cases.search_and_capture_boss_tab = AsyncMock(
+        return_value={"success": True, "cards": []}
+    )
+    monkeypatch.setattr("app.api.jobs.jobs_use_cases", use_cases)
+
+    request = BossTabCaptureRequest(query="Agent")
+    status_result = await get_boss_browser_tab_status("msedge", "user-1")
+    capture_result = await search_and_capture_current_boss_tab(request, "user-1")
+
+    assert status_result["success"] is True
+    assert capture_result["success"] is True
+    use_cases.get_boss_browser_tab_status.assert_awaited_once_with(browser_channel="msedge")
+    use_cases.search_and_capture_boss_tab.assert_awaited_once_with(request=request)

@@ -36,6 +36,7 @@ class JobCaptureRepo:
                 source_url=job_data.get("source_url", ""),
                 source_text=job_data.get("source_text", ""),
                 company_name=job_data.get("company_name", ""),
+                company_size_text=job_data.get("company_size_text", ""),
                 job_title=job_data.get("job_title", ""),
                 job_description=job_data.get("job_description", ""),
                 salary_text=job_data.get("salary_text", ""),
@@ -43,6 +44,10 @@ class JobCaptureRepo:
                 salary_max=job_data.get("salary_max"),
                 city=job_data.get("city", ""),
                 tags=job_data.get("tags", []),
+                match_score=job_data.get("match_score"),
+                asset_run_id=job_data.get("asset_run_id"),
+                asset_status=job_data.get("asset_status"),
+                asset_payload=job_data.get("asset_payload"),
                 source_hash=job_data.get("source_hash", ""),
                 status=job_data.get("status", "pending"),
                 captured_at=datetime.now() if not job_data.get("captured_at") else None,
@@ -188,6 +193,78 @@ class JobCaptureRepo:
             return await _update(session, owns_session=False)
         async with async_session() as db:
             return await _update(db, owns_session=True)
+
+    async def update_asset_tracking(
+        self,
+        job_id: int,
+        user_id: str,
+        *,
+        asset_run_id: str | None = None,
+        asset_status: str | None = None,
+        match_score: float | None = None,
+        asset_payload: dict[str, Any] | None = None,
+        session: AsyncSession | None = None,
+    ) -> bool:
+        """更新岗位库可见的资产任务、匹配分和公开资产摘要；所有写入都受 owner 约束。"""
+
+        async def _update(db: AsyncSession, *, owns_session: bool) -> bool:
+            """在指定事务中更新资产字段；仅在仓储拥有会话时提交。"""
+            row = await db.scalar(
+                select(CapturedJobModel).where(
+                    CapturedJobModel.id == job_id,
+                    CapturedJobModel.user_id == user_id,
+                )
+            )
+            if row is None:
+                return False
+            if asset_run_id is not None:
+                row.asset_run_id = asset_run_id
+            if asset_status is not None:
+                row.asset_status = asset_status
+            if match_score is not None:
+                row.match_score = max(0.0, min(float(match_score), 100.0))
+            if asset_payload is not None:
+                row.asset_payload = asset_payload
+            row.updated_at = datetime.now()
+            if owns_session:
+                await db.commit()
+            return True
+
+        if session is not None:
+            return await _update(session, owns_session=False)
+        async with async_session() as db:
+            return await _update(db, owns_session=True)
+
+    async def update_greeting(
+        self,
+        job_id: int,
+        user_id: str,
+        greeting_index: int,
+        message_text: str,
+    ) -> Optional[Dict[str, Any]]:
+        """在 owner 校验下更新一条已生成文案，同时保留同岗位的其他资产。"""
+        async with async_session() as db:
+            row = await db.scalar(
+                select(CapturedJobModel).where(
+                    CapturedJobModel.id == job_id,
+                    CapturedJobModel.user_id == user_id,
+                )
+            )
+            if row is None:
+                return None
+            payload = dict(row.asset_payload or {})
+            greetings = list(payload.get("greetings") or [])
+            if greeting_index < 0 or greeting_index >= len(greetings):
+                raise IndexError("greeting index out of range")
+            greeting = dict(greetings[greeting_index] or {})
+            greeting["message_text"] = message_text
+            greetings[greeting_index] = greeting
+            payload["greetings"] = greetings
+            row.asset_payload = payload
+            row.updated_at = datetime.now()
+            await db.commit()
+            await db.refresh(row)
+            return row.to_dict()
 
     async def claim_for_application(self, job_id: int, user_id: str, session: AsyncSession | None = None) -> bool:
         """原子占用岗位发送权，防止多请求重复点击；可接入外层 UnitOfWork。"""

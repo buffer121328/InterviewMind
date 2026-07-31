@@ -6,6 +6,7 @@ import {
     AlertCircle,
     CheckCircle2,
     ChevronDown,
+    ExternalLink,
     FileText,
     HeartHandshake,
     Loader2,
@@ -38,6 +39,8 @@ import {
     AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Skeleton } from '@/components/ui/skeleton';
+import { toast } from 'sonner';
+import { openJobInExistingBossTab, type BossBrowserChannel } from '@/lib/api/jobs';
 import type {
     ApplicationEvent,
     UpdateApplicationRequest,
@@ -51,7 +54,7 @@ interface Props {
 type Priority = 'high' | 'medium' | 'low';
 
 const eventMeta: Record<string, { label: string; color: string; icon: LucideIcon }> = {
-    saved: { label: '已收藏', color: 'bg-slate-100 text-slate-700 border-slate-200', icon: Sparkles },
+    saved: { label: '待投递', color: 'bg-slate-100 text-slate-700 border-slate-200', icon: Sparkles },
     applied: { label: '已投递', color: 'bg-teal-100 text-teal-700 border-teal-200', icon: CheckCircle2 },
     phone_screen: { label: '电话面试', color: 'bg-cyan-100 text-cyan-700 border-cyan-200', icon: PhoneCall },
     technical: { label: '技术面', color: 'bg-emerald-100 text-emerald-700 border-emerald-200', icon: FileText },
@@ -64,7 +67,9 @@ const eventMeta: Record<string, { label: string; color: string; icon: LucideIcon
 };
 
 const statusColorMap: Record<string, string> = {
+    saved: 'bg-slate-100 text-slate-700 ring-slate-200',
     applied: 'bg-teal-100 text-teal-700 ring-teal-200',
+    interview: 'bg-cyan-100 text-cyan-700 ring-cyan-200',
     interviewing: 'bg-cyan-100 text-cyan-700 ring-cyan-200',
     offer: 'bg-amber-100 text-amber-700 ring-amber-200',
     rejected: 'bg-rose-100 text-rose-700 ring-rose-200',
@@ -93,6 +98,17 @@ function priorityLabel(priority?: string) {
     return '中';
 }
 
+/** Converts persisted application status codes to the labels used by the board. */
+function applicationStatusLabel(status?: string): string {
+    if (status === 'saved') return '待投递';
+    if (status === 'applied') return '已投递';
+    if (status === 'interview' || status === 'interviewing') return '面试中';
+    if (status === 'offer') return 'Offer';
+    if (status === 'rejected') return '已拒绝';
+    if (status === 'accepted') return '已接受';
+    return status || '未知状态';
+}
+
 /** Encapsulates application detail drawer; returns typed data or state and keeps side effects within the owning module boundary. */
 export function ApplicationDetailDrawer({ applicationId, onClose }: Props) {
     const currentApplication = useInterviewStore((s) => s.currentApplication);
@@ -108,6 +124,8 @@ export function ApplicationDetailDrawer({ applicationId, onClose }: Props) {
     const [openDelete, setOpenDelete] = useState(false);
     const [showNoteComposer, setShowNoteComposer] = useState(false);
     const [noteText, setNoteText] = useState('');
+    const [bossBrowserChannel, setBossBrowserChannel] = useState<BossBrowserChannel>('msedge');
+    const [openingBoss, setOpeningBoss] = useState(false);
 
     useEffect(() => {
         if (applicationId != null) {
@@ -130,6 +148,7 @@ export function ApplicationDetailDrawer({ applicationId, onClose }: Props) {
                     latest_status: currentApplication.latest_status,
                     priority: currentApplication.priority,
                     notes: currentApplication.notes ?? '',
+                    greeting_text: currentApplication.greeting_text ?? '',
                 });
             });
         }
@@ -153,6 +172,7 @@ export function ApplicationDetailDrawer({ applicationId, onClose }: Props) {
         if ((draft.latest_status ?? '') !== currentApplication.latest_status) changes.latest_status = draft.latest_status;
         if ((draft.priority ?? '') !== currentApplication.priority) changes.priority = draft.priority;
         if ((draft.notes ?? '') !== (currentApplication.notes ?? '')) changes.notes = draft.notes?.trim();
+        if ((draft.greeting_text ?? '') !== (currentApplication.greeting_text ?? '')) changes.greeting_text = draft.greeting_text?.trim();
 
         if (Object.keys(changes).length === 0) return;
         setSaving(true);
@@ -178,6 +198,23 @@ export function ApplicationDetailDrawer({ applicationId, onClose }: Props) {
         await handleQuickEvent('note', { note: noteText.trim() });
         setNoteText('');
         setShowNoteComposer(false);
+    }
+
+    /** Reuses the existing logged-in BOSS tab for this tracked captured job; it never sends a message. */
+    async function handleOpenBossJob() {
+        if (!currentApplication?.captured_job_id) {
+            toast.error('这条投递记录没有关联岗位库记录，无法复用 BOSS 标签页打开');
+            return;
+        }
+        setOpeningBoss(true);
+        try {
+            const response = await openJobInExistingBossTab(currentApplication.captured_job_id, bossBrowserChannel);
+            toast.success(response.message);
+        } catch (error) {
+            toast.error(error instanceof Error ? error.message : '打开 BOSS 岗位失败');
+        } finally {
+            setOpeningBoss(false);
+        }
     }
 
     /** Handles delete; updates local UI state first and delegates server mutations through the approved API boundary. */
@@ -230,7 +267,7 @@ export function ApplicationDetailDrawer({ applicationId, onClose }: Props) {
                                             />
                                             <div className="flex flex-wrap items-center gap-2">
                                                 <span className={cn('rounded-full px-2.5 py-1 text-xs font-medium ring-1', statusColorMap[currentApplication?.latest_status || ''] || 'bg-slate-100 text-slate-700 ring-slate-200')}>
-                                                    {currentApplication?.latest_status || 'unknown'}
+                                                    {applicationStatusLabel(currentApplication?.latest_status)}
                                                 </span>
                                                 <span className="rounded-full bg-teal-50 px-2.5 py-1 text-xs font-medium text-teal-700 ring-1 ring-teal-100">
                                                     优先级 {priorityLabel(currentApplication?.priority)}
@@ -296,6 +333,38 @@ export function ApplicationDetailDrawer({ applicationId, onClose }: Props) {
                                                     <Textarea value={draft.notes ?? ''} onChange={(e) => setDraft((p) => ({ ...p, notes: e.target.value }))} rows={4} placeholder="投递备注、跟进信息等" />
                                                 </div>
                                             </div>
+                                        </section>
+
+                                        <section className="space-y-3 rounded-xl border border-teal-100 bg-teal-50/40 p-4">
+                                            <div className="flex flex-wrap items-center justify-between gap-2">
+                                                <h3 className="text-sm font-semibold text-slate-900">待发送打招呼文案</h3>
+                                                <span className="text-xs text-slate-500">只展示和编辑，不自动发送</span>
+                                            </div>
+                                            <Textarea
+                                                value={draft.greeting_text ?? ''}
+                                                onChange={(e) => setDraft((p) => ({ ...p, greeting_text: e.target.value }))}
+                                                rows={6}
+                                                maxLength={500}
+                                                placeholder="从岗位中心导入的打招呼文案会显示在这里"
+                                            />
+                                            {currentApplication?.captured_job_id && (
+                                                <div className="flex flex-wrap items-end gap-2">
+                                                    <label className="grid gap-1 text-xs text-slate-600">已有登录浏览器
+                                                        <select
+                                                            value={bossBrowserChannel}
+                                                            onChange={(event) => setBossBrowserChannel(event.target.value as BossBrowserChannel)}
+                                                            className="h-9 rounded-md border border-input bg-white px-3 text-sm"
+                                                        >
+                                                            <option value="msedge">Microsoft Edge</option>
+                                                            <option value="chrome">Google Chrome</option>
+                                                        </select>
+                                                    </label>
+                                                    <Button variant="outline" disabled={openingBoss} onClick={() => void handleOpenBossJob()}>
+                                                        {openingBoss ? <Loader2 className="h-4 w-4 animate-spin" /> : <ExternalLink className="h-4 w-4" />}
+                                                        在已有 BOSS 标签页打开岗位
+                                                    </Button>
+                                                </div>
+                                            )}
                                         </section>
 
                                         <Separator />

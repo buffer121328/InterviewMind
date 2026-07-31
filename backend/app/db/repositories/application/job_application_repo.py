@@ -57,6 +57,13 @@ class JobApplicationRepo:
                 latest_status=request.latest_status or "saved",
                 priority=request.priority or "medium",
                 notes=request.notes,
+                source_platform=request.source_platform,
+                source_url=request.source_url,
+                external_job_id=request.external_job_id,
+                captured_job_id=request.captured_job_id,
+                greeting_text=request.greeting_text,
+                send_status=request.send_status or "pending",
+                custom_resume_id=request.custom_resume_id or request.generated_resume_id,
                 created_at=now,
                 updated_at=now,
             )
@@ -89,6 +96,21 @@ class JobApplicationRepo:
             stmt = stmt.order_by(JobApplicationModel.updated_at.desc()).limit(limit).offset(offset)
             result = await db.execute(stmt)
             return [self._row_to_list_item(row) for row in result.scalars().all()]
+
+    async def find_by_captured_job_id(
+        self,
+        captured_job_id: int,
+        user_id: str,
+    ) -> Optional[ApplicationDetail]:
+        """按 owner 和岗位库 ID 查找既有投递记录，避免一键导出重复创建。"""
+        async with async_session() as db:
+            row = await db.scalar(
+                select(JobApplicationModel).where(
+                    JobApplicationModel.captured_job_id == captured_job_id,
+                    JobApplicationModel.user_id == user_id,
+                )
+            )
+            return self._row_to_detail(row) if row else None
 
     async def get_application(
         self,
@@ -134,6 +156,7 @@ class JobApplicationRepo:
                 ("latest_status", request.latest_status),
                 ("priority", request.priority),
                 ("notes", request.notes),
+                ("greeting_text", request.greeting_text),
             ]
             changed = False
             for field_name, value in fields:
@@ -186,6 +209,12 @@ class JobApplicationRepo:
             latest_status=row.latest_status,
             priority=row.priority,
             notes=row.notes,
+            source_platform=row.source_platform,
+            source_url=row.source_url,
+            captured_job_id=row.captured_job_id,
+            greeting_text=row.greeting_text,
+            send_status=row.send_status,
+            custom_resume_id=row.custom_resume_id,
             created_at=row.created_at.isoformat() if isinstance(row.created_at, datetime) else row.created_at,
             updated_at=row.updated_at.isoformat() if isinstance(row.updated_at, datetime) else row.updated_at,
         )
@@ -203,6 +232,13 @@ class JobApplicationRepo:
             latest_status=row.latest_status,
             priority=row.priority,
             notes=row.notes,
+            source_platform=row.source_platform,
+            source_url=row.source_url,
+            external_job_id=row.external_job_id,
+            captured_job_id=row.captured_job_id,
+            greeting_text=row.greeting_text,
+            send_status=row.send_status,
+            custom_resume_id=row.custom_resume_id,
             created_at=row.created_at.isoformat() if isinstance(row.created_at, datetime) else row.created_at,
             updated_at=row.updated_at.isoformat() if isinstance(row.updated_at, datetime) else row.updated_at,
             events=[self._event_row_to_model(event) for event in getattr(row, "events", [])],

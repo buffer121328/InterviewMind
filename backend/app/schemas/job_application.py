@@ -41,6 +41,13 @@ class JobApplicationRow(BaseModel):
     latest_status: str = 'saved'
     priority: str = 'medium'
     notes: Optional[str] = None
+    source_platform: Optional[str] = None
+    source_url: Optional[str] = None
+    external_job_id: Optional[str] = None
+    captured_job_id: Optional[int] = None
+    greeting_text: Optional[str] = None
+    send_status: Optional[str] = None
+    custom_resume_id: Optional[int] = None
     created_at: str
     updated_at: str
 
@@ -69,6 +76,13 @@ class ApplicationCreateRequest(BaseModel):
     latest_status: Optional[str] = Field('saved', description="初始状态")
     priority: Optional[str] = Field('medium', description="优先级")
     notes: Optional[str] = Field(None, description="备注")
+    source_platform: Optional[str] = Field(None, max_length=50)
+    source_url: Optional[str] = Field(None, max_length=2048)
+    external_job_id: Optional[str] = Field(None, max_length=200)
+    captured_job_id: Optional[int] = None
+    greeting_text: Optional[str] = Field(None, max_length=500)
+    send_status: Optional[str] = Field(None, max_length=50)
+    custom_resume_id: Optional[int] = None
 
 
 class ApplicationUpdateRequest(BaseModel):
@@ -81,6 +95,7 @@ class ApplicationUpdateRequest(BaseModel):
     latest_status: Optional[str] = Field(None, description="当前状态")
     priority: Optional[str] = Field(None, description="优先级")
     notes: Optional[str] = Field(None, description="备注")
+    greeting_text: Optional[str] = Field(None, max_length=500)
 
 
 class EventCreateRequest(BaseModel):
@@ -104,6 +119,12 @@ class ApplicationListItem(BaseModel):
     latest_status: str
     priority: str
     notes: Optional[str] = None
+    source_platform: Optional[str] = None
+    source_url: Optional[str] = None
+    captured_job_id: Optional[int] = None
+    greeting_text: Optional[str] = None
+    send_status: Optional[str] = None
+    custom_resume_id: Optional[int] = None
     created_at: str
     updated_at: str
 
@@ -120,6 +141,13 @@ class ApplicationDetail(BaseModel):
     latest_status: str
     priority: str
     notes: Optional[str] = None
+    source_platform: Optional[str] = None
+    source_url: Optional[str] = None
+    external_job_id: Optional[str] = None
+    captured_job_id: Optional[int] = None
+    greeting_text: Optional[str] = None
+    send_status: Optional[str] = None
+    custom_resume_id: Optional[int] = None
     created_at: str
     updated_at: str
     events: List[ApplicationEventRow] = Field(default_factory=list, description="事件流水")

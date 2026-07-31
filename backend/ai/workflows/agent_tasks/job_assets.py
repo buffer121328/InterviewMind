@@ -7,24 +7,46 @@ from observability import agent_observation
 
 
 async def execute_job_assets(payload: dict, user_id: str, progress: ProgressCallback) -> ExecutionResult:
-    """Generate job assets inside a root observation linked to the owning AgentRun."""
-    async with agent_observation(
-        name="job-assets",
-        agent_type="job_assets",
-        user_id=user_id,
-        session_id=None,
-        run_id=payload.get("_agent_run_id"),
-        input_payload={
-            "job_id": int(payload["job_id"]),
-            "include_project_rewrite": bool(payload.get("include_project_rewrite", False)),
-            "template_style": str(payload.get("template_style", "professional"))[:40],
-        },
-    ) as observation:
-        result = await _execute_job_assets(payload, user_id, progress)
-        observation.set_output({
-            "deferred_persistence": isinstance(result, DeferredExecutionResult),
-        })
-        return result
+    """执行岗位资产任务，并把运行中或失败状态同步到 owner 范围内的岗位库。"""
+    from app.db.repositories.jobs.job_capture_repo import get_job_capture_repo
+
+    job_id = int(payload["job_id"])
+    agent_run_id = payload.get("_agent_run_id")
+    repo = get_job_capture_repo()
+    if agent_run_id:
+        await repo.update_asset_tracking(
+            job_id,
+            user_id,
+            asset_run_id=str(agent_run_id),
+            asset_status="running",
+        )
+    try:
+        async with agent_observation(
+            name="job-assets",
+            agent_type="job_assets",
+            user_id=user_id,
+            session_id=None,
+            run_id=agent_run_id,
+            input_payload={
+                "job_id": job_id,
+                "include_project_rewrite": bool(payload.get("include_project_rewrite", False)),
+                "template_style": str(payload.get("template_style", "professional"))[:40],
+            },
+        ) as observation:
+            result = await _execute_job_assets(payload, user_id, progress)
+            observation.set_output({
+                "deferred_persistence": isinstance(result, DeferredExecutionResult),
+            })
+            return result
+    except Exception:
+        if agent_run_id:
+            await repo.update_asset_tracking(
+                job_id,
+                user_id,
+                asset_run_id=str(agent_run_id),
+                asset_status="failed",
+            )
+        raise
 
 
 async def _execute_job_assets(payload: dict, user_id: str, progress: ProgressCallback) -> ExecutionResult:
@@ -60,10 +82,23 @@ async def _execute_job_assets(payload: dict, user_id: str, progress: ProgressCal
         from app.db.repositories.jobs.job_capture_repo import get_job_capture_repo
 
         if agent_run_id:
-            await get_job_capture_repo().update_status(
+            repo = get_job_capture_repo()
+            await repo.update_status(
                 int(payload["job_id"]),
                 user_id,
                 "assets_generated",
+                session=session,
+            )
+            asset_payload = public_result.get("assets") or {}
+            jd_analysis = asset_payload.get("jd_analysis") if isinstance(asset_payload, dict) else {}
+            match_score = jd_analysis.get("overall_match_score") if isinstance(jd_analysis, dict) else None
+            await repo.update_asset_tracking(
+                int(payload["job_id"]),
+                user_id,
+                asset_run_id=str(agent_run_id),
+                asset_status="succeeded",
+                match_score=match_score,
+                asset_payload=asset_payload if isinstance(asset_payload, dict) else {},
                 session=session,
             )
         return public_result

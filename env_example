@@ -29,6 +29,8 @@ AGENT_RUN_MAX_ATTEMPTS=3
 # queued/retrying 长时间未领取或 running 无心跳时，后台恢复循环会自动重新投递。
 AGENT_RUN_STALE_SECONDS=1800
 AGENT_RUN_HEARTBEAT_SECONDS=30
+# 单个 Worker 最多并行 5 个岗位资产任务；其他 LLM 任务仍受单任务门禁保护。
+AGENT_RUN_WORKER_THREADS=5
 AGENT_RUN_CANCEL_POLL_SECONDS=2
 AGENT_RUN_RECOVERY_INTERVAL_SECONDS=60
 # 交互式简历生成会话在 PostgreSQL 中保留的时间。
@@ -51,7 +53,38 @@ AUTO_CREATE_TABLES=true
 # 注意：具体模型成员由前端配置，不使用 FAST_LLM_* / SMART_LLM_* 环境变量。
 # ----------------------------------------------------------------------------
 LLM_REQUEST_TIMEOUT_SECONDS=45
+# 同一任务跨重试/fallback 的总时间预算；TASK_DEADLINE_ENABLED=false 时仅供已显式迁移流程使用。
+LLM_TASK_TIMEOUT_SECONDS=90
+# 剩余时间低于此值时不再启动新的 attempt 或备用模型。
+LLM_MIN_ATTEMPT_TIMEOUT_SECONDS=2
 LLM_MAX_TOKENS=8000
+# 只用于安全观测的 token 粗估，不替代供应商返回的实际 usage。
+LLM_ESTIMATED_CHARS_PER_TOKEN=4
+# 基础设施默认保持兼容；业务 Agent 分批迁移并验收后再全局开启。
+TASK_DEADLINE_ENABLED=false
+# JSON 映射，可按 Agent 覆盖上下文预算开关，例如 {"interview":true,"voice_interview":false}。
+AGENT_CONTEXT_BUDGET_FLAGS={}
+# 面试 Planner 的用户阻塞链路总预算；超时后立即使用本地题目兜底。
+INTERVIEW_PLAN_TIMEOUT_SECONDS=20
+# 面试报告原始 QA 超过该字符数后按块提取逐题证据，再汇总画像和短板。
+INTERVIEW_REPORT_QA_CHAR_BUDGET=12000
+INTERVIEW_REPORT_CHUNK_SIZE=5
+INTERVIEW_REPORT_TASK_TIMEOUT_SECONDS=180
+# Resume Workspace、交互式生成、岗位资产与画像各自共享的任务总预算。
+RESUME_WORKSPACE_TASK_TIMEOUT_SECONDS=240
+RESUME_GENERATION_TASK_TIMEOUT_SECONDS=240
+JOB_ASSETS_TASK_TIMEOUT_SECONDS=240
+ABILITY_PROFILE_TASK_TIMEOUT_SECONDS=60
+# 素材与项目改写的独立输入预算。
+RESUME_MATERIAL_MAX_ITEMS=8
+RESUME_MATERIAL_ITEM_MAX_CHARS=1200
+PROJECT_REWRITE_PROJECT_MAX_CHARS=5000
+PROJECT_REWRITE_JD_MAX_CHARS=2500
+# 外部 embedding/vector/mem0 调用独立超时；失败后降级为空结果。
+EMBEDDING_TIMEOUT_SECONDS=8
+VECTOR_SEARCH_TIMEOUT_SECONDS=5
+MEM0_SEARCH_TIMEOUT_SECONDS=5
+MEM0_ADD_TIMEOUT_SECONDS=5
 API_CONFIG_VALIDATION_TIMEOUT_SECONDS=10
 # 成员连续失败达到阈值后进入冷却，冷却期间由同池其他模型承接请求。
 LLM_POOL_FAILURE_THRESHOLD=2
@@ -109,6 +142,12 @@ VOICE_MODEL=qwen3-omni-flash-2025-12-01
 VOICE_NAME=Cherry
 VOICE_INPUT_FORMAT=wav
 VOICE_OUTPUT_FORMAT=wav
+# 每轮只发送近期原文和更早历史的确定性摘要；音频限制在模型调用前校验。
+VOICE_HISTORY_MAX_CHARS=5000
+VOICE_RECENT_MESSAGE_COUNT=8
+VOICE_AUDIO_MAX_BYTES=8000000
+VOICE_AUDIO_MAX_DURATION_SECONDS=120
+VOICE_FIRST_CHUNK_TIMEOUT_SECONDS=12
 # JSON 对象；仅配置确认需要修正的识别词。
 VOICE_TRANSCRIPT_TERM_FIXES={}
 # 示例：VOICE_TRANSCRIPT_TERM_FIXES={"lang graph":"LangGraph","拉姆达":"Lambda"}
@@ -132,17 +171,28 @@ LANGFUSE_PROMPT_CACHE_TTL_SECONDS=300
 LANGFUSE_EVAL_REPORTING_ENABLED=false
 
 # ----------------------------------------------------------------------------
-# BOSS 半自动投递
+# BOSS 现有标签页桥接
+# 当前页采集和岗位详情导航由 macOS 宿主机上的 browser_automation_service
+# 通过 Apple 事件复用用户已经登录的 Edge/Chrome 标签页；主后端可在 Docker 中调用。
 # ----------------------------------------------------------------------------
-BOSS_AUTOMATION_SERVICE_URL=http://host.docker.internal:8765
+BROWSER_AUTOMATION_SERVICE_URL=http://host.docker.internal:8765
 # 至少 32 字符，API 与宿主机自动化服务必须一致；用 openssl rand -hex 32 生成。
-BOSS_AUTOMATION_SERVICE_TOKEN=
-BOSS_AUTOMATION_REQUEST_TIMEOUT_SECONDS=240
-# 岗位 URL HTTP 抓取最大响应体，超过后中止。
-JOB_CAPTURE_MAX_RESPONSE_BYTES=2097152
-# 仅由宿主机服务读取；为空时使用默认 backend/data/browser_profiles/boss。
-BOSS_BROWSER_PROFILE_DIR=
-BOSS_APPLY_APPROVAL_TTL_SECONDS=300
+BROWSER_AUTOMATION_SERVICE_TOKEN=
+BROWSER_AUTOMATION_REQUEST_TIMEOUT_SECONDS=300
+# 以下 3 个变量仅供 backend/scripts/run-browser-automation-service.sh 读取；默认只监听本机。
+BROWSER_AUTOMATION_SERVICE_HOST=127.0.0.1
+BROWSER_AUTOMATION_SERVICE_PORT=8765
+BROWSER_AUTOMATION_CLEAR_PROXY_ENV=true
+# 现有标签页桥接默认渠道；前端岗位中心也可在 msedge/chrome 间显式切换。
+BOSS_BROWSER_CHANNEL=msedge
+# 现有标签页导入采用固定保守节奏；同一用户两次提交至少间隔 180 秒，每小时最多 4 次。
+BOSS_CAPTURE_MIN_INTERVAL_SECONDS=180
+BOSS_CAPTURE_MAX_PER_HOUR=4
+# 搜索提交前动作间隔与岗位列表检查间隔；检查间隔硬下限为 5 秒。
+BOSS_CAPTURE_ACTION_DELAY_SECONDS=2
+BOSS_CAPTURE_POLL_INTERVAL_SECONDS=5
+# DOM 单次最多处理 20 个候选卡片；请求值和环境值都不能突破该上限。
+BOSS_CAPTURE_MAX_CANDIDATE_CARDS=20
 
 # ----------------------------------------------------------------------------
 # mem0 长期记忆

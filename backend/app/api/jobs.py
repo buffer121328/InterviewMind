@@ -1,24 +1,29 @@
 """
-BOSS 岗位自动化 API 路由
-提供岗位采集、资产生成、投递操作接口
+BOSS 岗位中心 API 路由
+提供当前页岗位导入、资产管理、投递管理联动和现有标签页导航接口
 """
 
 import logging
 from collections.abc import Awaitable, Callable
-from typing import Optional, TypeVar
+from typing import Literal, Optional, TypeVar
 
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.deps import get_current_user_id
-from ai.workflows.jobs import JobBadRequest, JobNotFound, JobsUseCaseError, jobs_use_cases
+from ai.workflows.jobs import (
+    JobBadRequest,
+    JobBrowserTabUnavailable,
+    JobNotFound,
+    JobsUseCaseError,
+    jobs_use_cases,
+)
 from app.schemas.job_schemas import (
-    ApplyPreviewRequest,
-    ApplyResponse,
-    ApplySendRequest,
-    CaptureRecommendationsRequest,
-    CaptureRecommendationsResponse,
-    JobCaptureRequest,
-    JobCaptureResponse,
+    BossTabCaptureRequest,
+    BossTabCaptureResponse,
+    BossTabStatusResponse,
+    BossOpenJobRequest,
+    GreetingUpdateRequest,
+    JobExportApplicationRequest,
     JobDetailResponse,
     JobListResponse,
 )
@@ -32,6 +37,7 @@ T = TypeVar("T")
 _ERROR_STATUS = {
     JobBadRequest: 400,
     JobNotFound: 404,
+    JobBrowserTabUnavailable: 409,
 }
 
 
@@ -57,56 +63,76 @@ async def _call_use_case(action: Callable[[], Awaitable[T]], error_code: str, er
         raise HTTPException(status_code=500, detail={"error": error_code, "message": str(exc)}) from exc
 
 
-# ============================================================================
-# 岗位采集
-# ============================================================================
 
-@router.post("/capture", response_model=JobCaptureResponse)
-async def capture_job(
-    request: JobCaptureRequest,
-    user_id: str = Depends(get_current_user_id),
+
+@router.get("/browser-tab/status", response_model=BossTabStatusResponse)
+async def get_boss_browser_tab_status(
+    browser_channel: Optional[Literal["msedge", "chrome"]] = None,
+    _user_id: str = Depends(get_current_user_id),
 ):
-    """
-    岗位采集接口
-
-    支持两种方式：
-    1. URL 采集：提供 source_url
-    2. 手动粘贴：提供 job_description
-    """
+    """经宿主机服务检查 Edge/Chrome BOSS 标签页；Docker 主后端不直接访问 GUI。"""
     return await _call_use_case(
-        lambda: jobs_use_cases.capture_job(request=request, user_id=user_id),
-        "capture_failed",
-        "岗位采集失败",
+        lambda: jobs_use_cases.get_boss_browser_tab_status(browser_channel=browser_channel),
+        "boss_browser_tab_failed",
+        "检查现有 BOSS 标签页失败",
     )
 
 
-# ============================================================================
-# 岗位查询
-# ============================================================================
-
-@router.post("/apply/preview", response_model=ApplyResponse)
-async def preview_job_application(
-    request: ApplyPreviewRequest,
-    user_id: str = Depends(get_current_user_id),
+@router.post("/browser-tab/search-and-capture", response_model=BossTabCaptureResponse)
+async def search_and_capture_current_boss_tab(
+    request: BossTabCaptureRequest,
+    _user_id: str = Depends(get_current_user_id),
 ):
-    """生成不会点击发送按钮的投递预览，并签发短期一次性许可。"""
+    """经宿主机服务复用现有登录标签页搜索和采集，不接收或导出浏览器凭据。"""
     return await _call_use_case(
-        lambda: jobs_use_cases.preview_job_application(request=request, user_id=user_id),
-        "apply_preview_failed",
-        "生成投递预览失败",
+        lambda: jobs_use_cases.search_and_capture_boss_tab(request=request),
+        "boss_browser_tab_failed",
+        "现有 BOSS 标签页搜索采集失败",
     )
 
 
-@router.post("/apply/send", response_model=ApplyResponse)
-async def send_job_application(
-    request: ApplySendRequest,
+@router.patch("/{job_id}/assets/greetings/{greeting_index}", response_model=JobDetailResponse)
+async def update_job_greeting(
+    job_id: int,
+    greeting_index: int,
+    request: GreetingUpdateRequest,
     user_id: str = Depends(get_current_user_id),
 ):
-    """消费预览许可并执行一次发送；许可与预览内容不一致时拒绝。"""
+    """保存用户编辑后的打招呼方案。"""
     return await _call_use_case(
-        lambda: jobs_use_cases.send_job_application(request=request, user_id=user_id),
-        "apply_send_failed",
-        "发送投递失败",
+        lambda: jobs_use_cases.update_greeting(
+            job_id=job_id, greeting_index=greeting_index, request=request, user_id=user_id
+        ),
+        "greeting_update_failed",
+        "保存打招呼方案失败",
+    )
+
+
+@router.post("/{job_id}/export-application")
+async def export_job_to_application(
+    job_id: int,
+    request: JobExportApplicationRequest,
+    user_id: str = Depends(get_current_user_id),
+):
+    """一键加入投递管理，初始状态统一为待投递。"""
+    return await _call_use_case(
+        lambda: jobs_use_cases.export_to_application(job_id=job_id, request=request, user_id=user_id),
+        "job_export_failed",
+        "加入投递管理失败",
+    )
+
+
+@router.post("/{job_id}/browser-tab/open")
+async def open_job_in_existing_boss_tab(
+    job_id: int,
+    request: BossOpenJobRequest,
+    user_id: str = Depends(get_current_user_id),
+):
+    """在已有登录 BOSS 标签页打开岗位详情，不执行投递或发送。"""
+    return await _call_use_case(
+        lambda: jobs_use_cases.open_job_in_existing_tab(job_id=job_id, request=request, user_id=user_id),
+        "open_job_failed",
+        "打开 BOSS 岗位失败",
     )
 
 
@@ -159,32 +185,4 @@ async def delete_job(
         lambda: jobs_use_cases.delete_job(job_id=job_id, user_id=user_id),
         "delete_failed",
         "删除岗位失败",
-    )
-
-
-# ============================================================================
-# 批量推荐页采集（BOSS 半自动化）
-# ============================================================================
-
-@router.post("/capture-recommendations", response_model=CaptureRecommendationsResponse)
-async def capture_recommendations(
-    request: CaptureRecommendationsRequest,
-    user_id: str = Depends(get_current_user_id),
-):
-    """
-    批量抓取 BOSS 推荐页前 N 个岗位 + 为每个岗位生成投递资产。
-
-    前置条件：
-    - 已安装 Playwright Chromium
-    - 首次使用时在项目打开的专用浏览器中登录 BOSS直聘
-
-    流程：
-    1. 通过持久化 Playwright 会话打开 BOSS 搜索页，读取前 N 个岗位卡片
-    2. 对每个卡片：capture_from_text 标准化+入库 → generate_assets 生成 JD分析+定制简历+打招呼
-    3. 返回 5 个岗位 + 各自资产
-    """
-    return await _call_use_case(
-        lambda: jobs_use_cases.capture_recommendations(request=request, user_id=user_id),
-        "capture_recommendations_failed",
-        "批量推荐采集失败",
     )

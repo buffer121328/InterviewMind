@@ -13,6 +13,7 @@ from app.domain.agent_runs import (
     TASK_TYPE_INTERVIEW_REPORT,
     TASK_TYPE_INTERVIEW_START,
     TASK_TYPE_JOB_ASSETS,
+    TASK_TYPE_JOB_RECOMMENDATION_CAPTURE,
     TASK_TYPE_RESUME_OPTIMIZE,
     TASK_TYPE_RESUME_WORKSPACE,
     TERMINAL_STATUSES,
@@ -178,6 +179,29 @@ class AgentRunUseCases:
         """Create a job-assets task."""
         return await self.create_queued_run(
             task_type=TASK_TYPE_JOB_ASSETS,
+            payload=payload,
+            user_id=user_id,
+            idempotency_key=idempotency_key,
+        )
+
+    async def create_job_recommendation_capture(
+        self,
+        *,
+        payload: dict[str, Any],
+        user_id: str,
+        idempotency_key: str,
+    ) -> AgentRunResponse:
+        """Create a recoverable BOSS DOM import after enforcing user-scoped pacing."""
+        from integrations.browser_automation.rate_limiter import (
+            RateLimitType,
+            check_rate,
+        )
+
+        can_proceed, message = await check_rate(user_id, RateLimitType.BOSS_CAPTURE)
+        if not can_proceed:
+            raise AgentRunConflict(message, status_code=429)
+        return await self.create_queued_run(
+            task_type=TASK_TYPE_JOB_RECOMMENDATION_CAPTURE,
             payload=payload,
             user_id=user_id,
             idempotency_key=idempotency_key,

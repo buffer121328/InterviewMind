@@ -7,14 +7,16 @@
 1. JD 分析 → 调用 jd_matcher.analyze_jd_match()
 2. 定制简历 → 调用 resume_generation_sessions.init_generation_session()
 3. 打招呼文案 → 调用 greeting_generator.generate_greetings()
-4. 投递预览 → 打包所有资产返回
+4. 资产打包 → 返回 JD 分析、定制简历和可编辑打招呼方案
 
 每步产物可独立审查、可回溯。
 """
 
 import logging
-from typing import Dict, Any, List, Optional
+from typing import Any, Dict, List, Optional
 
+from ai.runtime.deadlines import TaskDeadline
+from app.config import get_settings
 from app.schemas.job_schemas import AssetPackage, GreetingItem
 
 logger = logging.getLogger(__name__)
@@ -78,6 +80,27 @@ async def generate_assets(
             "guardrail": jd_decision.to_audit_payload(),
         }
 
+    from ai.agents.resume.resume_context import (
+        assemble_resume_context,
+        select_candidate_highlights,
+    )
+
+    deadline = TaskDeadline(float(get_settings().job_assets_task_timeout_seconds))
+    context_bundle = assemble_resume_context(
+        owner_id=user_id,
+        resume_content=resume_content,
+        job_description=job_description,
+        mode="job_assets",
+    )
+    compact_resume = context_bundle.fact_sheet.model_dump_json()
+    compact_jd = context_bundle.requirement_map.model_dump_json()
+    context_metadata = context_bundle.assembled.model_event_fields()
+    candidate_highlights = select_candidate_highlights(
+        context_bundle.fact_sheet,
+        context_bundle.match_map,
+        limit=5,
+    )
+
     # ======================================================================
     # Step 1: JD 分析
     # ======================================================================
@@ -85,17 +108,20 @@ async def generate_assets(
     try:
         from ai.agents.resume.jd_matcher import analyze_jd_match
         jd_analysis = await analyze_jd_match(
-            resume_content=resume_content,
-            job_description=job_description,
+            resume_content=compact_resume,
+            job_description=compact_jd,
             api_config=api_config,
+            user_id=user_id,
+            deadline=deadline,
+            call_metadata=context_metadata,
         )
         messages.append(
             f"JD分析完成: 匹配度 {jd_analysis.get('overall_match_score', 0)}%"
         )
         logger.info(f"[AssetOrchestrator] JD分析: match={jd_analysis.get('overall_match_score')}%")
     except Exception as e:
-        risk_flags.append(f"JD分析失败: {e}")
-        logger.error(f"[AssetOrchestrator] JD分析失败: {e}")
+        risk_flags.append(f"JD分析失败: {type(e).__name__}")
+        logger.error("[AssetOrchestrator] JD分析失败: %s", type(e).__name__)
 
     # ======================================================================
     # Step 2: 定制简历
@@ -123,6 +149,7 @@ async def generate_assets(
             template_style=template_style,
             api_config=api_config,
             agent_run_id=agent_run_id,
+            deadline=deadline,
         )
 
         if gen_result.get("needs_input"):
@@ -135,8 +162,8 @@ async def generate_assets(
             messages.append("定制简历生成完成")
 
     except Exception as e:
-        risk_flags.append(f"定制简历生成失败: {e}")
-        logger.error(f"[AssetOrchestrator] 简历生成失败: {e}")
+        risk_flags.append(f"定制简历生成失败: {type(e).__name__}")
+        logger.error("[AssetOrchestrator] 简历生成失败: %s", type(e).__name__)
 
     # ======================================================================
     # Step 3: 打招呼文案
@@ -157,18 +184,14 @@ async def generate_assets(
                 f"优势: {', '.join(strengths[:3])}"
             )
 
-        # 候选人亮点
-        candidate_highlights = None
-        if custom_resume_preview:
-            candidate_highlights = custom_resume_preview[:600]
-
         greeting_items = await generate_greetings(
             company_name=company_name,
             job_title=job_title,
             jd_summary=jd_summary,
             candidate_highlights=candidate_highlights,
-            custom_resume_summary=custom_resume_preview,
             api_config=api_config,
+            deadline=deadline,
+            call_metadata=context_metadata,
         )
 
         for g in greeting_items:
@@ -181,8 +204,11 @@ async def generate_assets(
 
         messages.append(f"打招呼文案生成完成: {len(greetings)} 条")
     except Exception as e:
-        risk_flags.append(f"打招呼文案生成失败: {e}")
-        logger.error(f"[AssetOrchestrator] 文案生成失败: {e}")
+        risk_flags.append(f"打招呼文案生成失败: {type(e).__name__}")
+        logger.error("[AssetOrchestrator] 文案生成失败: %s", type(e).__name__)
+
+    if include_project_rewrite:
+        risk_flags.append("项目改写为可选独立能力，未阻塞默认资产包；请在项目改写入口单独审阅。")
 
     # ======================================================================
     # Step 4: 风险检查
@@ -190,7 +216,7 @@ async def generate_assets(
     if jd_analysis and jd_analysis.get("overall_match_score", 0) < 30:
         risk_flags.append(f"匹配度过低 ({jd_analysis.get('overall_match_score')}%)，建议不投递")
 
-    if tags and "Java" in tags:
+    if jd_analysis and tags and "Java" in tags:
         if "微服务" not in str(jd_analysis.get("matched_keywords", [])):
             risk_flags.append("JD 要求微服务但简历未体现，简历可能已过度包装")
 
@@ -201,7 +227,7 @@ async def generate_assets(
         try:
             await repo.update_status(job_id, user_id, "assets_generated")
         except Exception as e:
-            logger.warning(f"[AssetOrchestrator] 更新岗位状态失败: {e}")
+            logger.warning("[AssetOrchestrator] 更新岗位状态失败: %s", type(e).__name__)
 
     # ======================================================================
     # 打包返回

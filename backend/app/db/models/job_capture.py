@@ -6,7 +6,7 @@
 """
 
 from sqlalchemy import (
-    Column, Integer, String, Text, DateTime, JSON,
+    Column, Integer, String, Text, DateTime, JSON, Float,
     Index, func
 )
 from app.db.models.base import Base
@@ -29,6 +29,7 @@ class CapturedJobModel(Base):
 
     # 标准化后字段
     company_name = Column(String, nullable=True)
+    company_size_text = Column(String, nullable=True)
     job_title = Column(String, nullable=True)
     job_description = Column(Text, nullable=True)
     salary_text = Column(String, nullable=True)
@@ -38,6 +39,10 @@ class CapturedJobModel(Base):
 
     # 标签与元数据
     tags = Column(JSON, nullable=True, default=list)       # ["Java", "Spring", "微服务"]
+    match_score = Column(Float, nullable=True)
+    asset_run_id = Column(String, nullable=True)
+    asset_status = Column(String, nullable=True)
+    asset_payload = Column(JSON, nullable=True)
     source_hash = Column(String, nullable=False, index=True)  # 去重标识
 
     # 状态
@@ -52,6 +57,7 @@ class CapturedJobModel(Base):
         Index("idx_captured_jobs_user", "user_id", "created_at"),
         Index("idx_captured_jobs_platform", "platform", "user_id"),
         Index("idx_captured_jobs_hash_user", "source_hash", "user_id", unique=True),
+        Index("idx_captured_jobs_asset_run", "asset_run_id"),
     )
 
     def to_dict(self) -> dict:
@@ -64,6 +70,7 @@ class CapturedJobModel(Base):
             "source_url": self.source_url,
             "source_text": self.source_text,
             "company_name": self.company_name,
+            "company_size_text": self.company_size_text,
             "job_title": self.job_title,
             "job_description": self.job_description,
             "salary_text": self.salary_text,
@@ -71,6 +78,10 @@ class CapturedJobModel(Base):
             "salary_max": self.salary_max,
             "city": self.city,
             "tags": self.tags or [],
+            "match_score": self.match_score,
+            "asset_run_id": self.asset_run_id,
+            "asset_status": self.asset_status,
+            "asset_payload": self.asset_payload or {},
             "source_hash": self.source_hash,
             "status": self.status,
             "captured_at": self.captured_at.isoformat() if self.captured_at else None,
