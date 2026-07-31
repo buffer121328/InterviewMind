@@ -8,8 +8,7 @@ BACKEND_APP = Path(__file__).resolve().parents[1] / "app"
 MIGRATED_FUNCTIONS = {
     "generate_profile",
     "get_overall_profile",
-    "get_session_profile",
-    "get_weakness_by_session",
+    "get_session_report",
 }
 FORBIDDEN_NAMES = {"session_repo", "get_ability_service", "get_weakness_report_repo", "trigger_weakness_analysis"}
 
@@ -34,5 +33,10 @@ def test_unused_weakness_compatibility_routes_are_removed():
     }
     assert "generate_weakness_report" not in function_names
     assert "get_weakness_history" not in function_names
+    assert "get_session_profile" not in function_names
+    assert "get_weakness_by_session" not in function_names
     assert '"/weakness/generate"' not in source
     assert '"/weakness/history"' not in source
+    assert '"/profile/session/{session_id}"' not in source
+    assert '"/weakness/session/{session_id}"' not in source
+    assert '"/report/session/{session_id}"' in source

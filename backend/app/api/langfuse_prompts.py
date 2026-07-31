@@ -1,12 +1,20 @@
-"""HTTP endpoints for bounded, database-backed Prompt Management."""
+"""HTTP endpoints for bounded Langfuse Cloud Prompt Management."""
 
+import asyncio
+from collections.abc import Callable
 from typing import Annotated
+from typing import TypeVar
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from ai.workflows.prompt_management import DatabasePromptManagementService
+from ai.workflows.langfuse_prompt_management import (
+    LangfusePromptManagementService,
+    PromptManagementRemoteError,
+    PromptManagementUnavailable,
+)
 from ai.workflows.evaluation import EvaluationUseCaseError, evaluation_use_cases
 from app.api.deps import get_current_user_id
 from app.schemas.langfuse_prompts import (
+    PromptBuiltinSyncResponse,
     PromptCreateRequest,
     PromptLabelUpdateRequest,
     PromptListResponse,
@@ -18,16 +26,33 @@ from app.schemas.langfuse_prompts import (
 
 
 router = APIRouter(prefix="/api/langfuse/prompts", tags=["Prompt Management"])
+T = TypeVar("T")
 
 
-def _service() -> DatabasePromptManagementService:
-    """Create the stateless database prompt service used by API and runtime boundaries."""
-    return DatabasePromptManagementService()
+def _service() -> LangfusePromptManagementService:
+    """Create the stateless, bounded Langfuse Cloud prompt service."""
+    return LangfusePromptManagementService()
+
+
+async def _remote(action: Callable[[], T]) -> T:
+    """Run the synchronous SDK off the event loop and map safe feature errors."""
+    try:
+        return await asyncio.to_thread(action)
+    except PromptManagementUnavailable as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Langfuse Prompt Management 未启用或凭据不完整",
+        ) from exc
+    except PromptManagementRemoteError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="Langfuse Prompt Management 暂时不可访问",
+        ) from exc
 
 
 @router.get("", response_model=PromptListResponse)
 async def list_prompts(
-    user_id: str = Depends(get_current_user_id),
+    _user_id: str = Depends(get_current_user_id),
     page: Annotated[int, Query(ge=1, le=10_000)] = 1,
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     label: Annotated[str | None, Query(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")] = None,
@@ -35,14 +60,19 @@ async def list_prompts(
     """List prompt metadata; user identity uses the existing API dependency boundary."""
     if label == "latest":
         raise HTTPException(status_code=422, detail="label cannot be 'latest'")
-    items = await _service().list_prompts(user_id=user_id, page=page, limit=limit)
-    return PromptListResponse(items=items, page=page, limit=limit)
+    result = await _remote(lambda: _service().list_prompts(page=page, limit=limit, label=label))
+    return PromptListResponse(
+        items=result.items,
+        total=result.total,
+        page=result.page,
+        limit=result.limit,
+    )
 
 
 @router.get("/selected", response_model=PromptVersionResponse)
 async def fetch_prompt(
     name: Annotated[str, Query(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")],
-    user_id: str = Depends(get_current_user_id),
+    _user_id: str = Depends(get_current_user_id),
     version: Annotated[int | None, Query(ge=0)] = None,
     label: Annotated[str | None, Query(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")] = None,
 ) -> PromptVersionResponse:
@@ -51,19 +81,18 @@ async def fetch_prompt(
         raise HTTPException(status_code=422, detail="provide exactly one of version or label")
     if label == "latest":
         raise HTTPException(status_code=422, detail="label cannot be 'latest'")
-    result = await _service().fetch_prompt(user_id=user_id, name=name, version=version, label=label)
-    if not result:
-        raise HTTPException(status_code=404, detail="Prompt version not found")
-    return result
+    return await _remote(
+        lambda: _service().fetch_prompt(name=name, version=version, label=label)
+    )
 
 
 @router.post("", response_model=PromptVersionResponse, status_code=201)
 async def create_prompt_version(
     request: PromptCreateRequest,
-    user_id: str = Depends(get_current_user_id),
+    _user_id: str = Depends(get_current_user_id),
 ) -> PromptVersionResponse:
     """Create a validated immutable prompt version for the single-user workspace."""
-    return await _service().create_version(user_id=user_id, request=request)
+    return await _remote(lambda: _service().create_version(request))
 
 
 @router.put("/labels", response_model=PromptVersionResponse)
@@ -71,13 +100,16 @@ async def update_prompt_labels(
     request: PromptLabelUpdateRequest,
     name: Annotated[str, Query(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")],
     version: Annotated[int, Query(ge=1)],
-    user_id: str = Depends(get_current_user_id),
+    _user_id: str = Depends(get_current_user_id),
 ) -> PromptVersionResponse:
     """Replace non-production labels for one selected immutable prompt version."""
-    result = await _service().update_labels(user_id=user_id, name=name, version=version, labels=request.labels)
-    if not result:
-        raise HTTPException(status_code=404, detail="Prompt version not found")
-    return result
+    return await _remote(
+        lambda: _service().update_labels(
+            name=name,
+            version=version,
+            labels=request.labels,
+        )
+    )
 
 
 @router.put("/production", response_model=PromptVersionResponse)
@@ -85,7 +117,7 @@ async def promote_prompt_to_production(
     request: PromptProductionPromotionRequest,
     user_id: str = Depends(get_current_user_id),
 ) -> PromptVersionResponse:
-    """Assign production only after the configured evaluation release gate allows it."""
+    """Assign the runtime production label through an explicit single-user action."""
     try:
         await evaluation_use_cases.validate_prompt_promotion(
             user_id=user_id,
@@ -95,19 +127,34 @@ async def promote_prompt_to_production(
         )
     except EvaluationUseCaseError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
-    result = await _service().update_labels(user_id=user_id, name=request.name, version=request.version, labels=[], production=True)
-    if not result:
-        raise HTTPException(status_code=404, detail="Prompt version not found")
-    return result
+    return await _remote(
+        lambda: _service().update_labels(
+            name=request.name,
+            version=request.version,
+            labels=["production"],
+        )
+    )
+
+
+@router.post("/sync-builtins", response_model=PromptBuiltinSyncResponse)
+async def sync_builtin_prompts(
+    _user_id: str = Depends(get_current_user_id),
+) -> PromptBuiltinSyncResponse:
+    """Publish every missing built-in prompt as a Langfuse production version."""
+    return await _remote(lambda: _service().sync_builtin_production_prompts())
 
 
 @router.post("/preview", response_model=PromptPreviewResponse)
 async def preview_prompt(
     request: PromptPreviewRequest,
-    user_id: str = Depends(get_current_user_id),
+    _user_id: str = Depends(get_current_user_id),
 ) -> PromptPreviewResponse:
     """Locally preview substitutions for one selected prompt without model execution."""
-    result = await _service().preview(user_id=user_id, name=request.name, version=request.version, label=request.label, values=request.values)
-    if not result:
-        raise HTTPException(status_code=404, detail="Prompt version not found")
-    return result
+    return await _remote(
+        lambda: _service().preview(
+            name=request.name,
+            version=request.version,
+            label=request.label,
+            values=request.values,
+        )
+    )

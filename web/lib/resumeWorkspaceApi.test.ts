@@ -18,6 +18,7 @@ test('accepts the backend terminal workspace result contract', () => {
 
 test('rejects succeeded workspace results missing review or required fields', () => {
     const { review: _review, ...incompleteResult } = validWorkspaceResult;
+    assert.equal(_review.status, 'not_required');
     assert.equal(isResumeWorkspaceResult(incompleteResult), false);
     assert.equal(isResumeWorkspaceResult({ ...validWorkspaceResult, content_optimization: null }), false);
 });

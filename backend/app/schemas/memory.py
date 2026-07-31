@@ -33,6 +33,19 @@ class MemorySearchRequest(MemoryAccessRequest):
     memory_type: Optional[str] = Field(default=None, max_length=100)
 
 
+class MemoryCreateRequest(MemoryAccessRequest):
+    """Request for a user-authored memory; the service stores it without LLM inference."""
+
+    content: str = Field(min_length=1, max_length=2000)
+    memory_type: Optional[str] = Field(default=None, max_length=100)
+
+
+class MemoryUpdateRequest(MemoryAccessRequest):
+    """Request for replacing one owner-scoped memory's content."""
+
+    content: str = Field(min_length=1, max_length=2000)
+
+
 class MemoryItem(BaseModel):
     """单条记忆"""
     id: str = Field(description="记忆 ID")
@@ -84,6 +97,14 @@ class MemoryDeleteResponse(BaseModel):
     success: bool = Field(description="是否成功")
     message: str = Field(description="提示消息")
     memory_id: Optional[str] = Field(default=None, description="删除的记忆 ID")
+
+
+class MemoryWriteResponse(BaseModel):
+    """Response for manual memory creation or update."""
+
+    success: bool = Field(description="是否成功")
+    message: str = Field(description="提示消息")
+    memory_id: Optional[str] = Field(default=None, description="写入的记忆 ID")
 
 
 class MemoryDeleteAllRequest(MemoryAccessRequest):

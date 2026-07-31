@@ -10,6 +10,8 @@ from ai.agents.resume.resume_assembler import (
     save_assembly_result,
     select_materials_for_jd,
 )
+from ai.runtime.deadlines import TaskDeadline
+from app.config import get_settings
 
 
 @dataclass(slots=True)
@@ -44,6 +46,7 @@ class ResumeAssemblyUseCases:
         if not api_config:
             raise ResumeAssemblyBadRequest(message="请先配置 API Key")
 
+        deadline = TaskDeadline(get_settings().llm_task_timeout_seconds)
         try:
             selection_result = await select_materials_for_jd(
                 user_id=user_id,
@@ -51,6 +54,7 @@ class ResumeAssemblyUseCases:
                 api_config=api_config,
                 material_type_filter=request.get("material_type_filter"),
                 max_materials=request.get("max_materials", 50),
+                deadline=deadline,
             )
             selected_ids = request.get("selected_material_ids") or selection_result.selected_material_ids
             if not selected_ids:
@@ -67,6 +71,7 @@ class ResumeAssemblyUseCases:
                 job_description=job_description,
                 selected_material_ids=selected_ids,
                 api_config=api_config,
+                deadline=deadline,
             )
             result_id = await save_assembly_result(
                 user_id=user_id,

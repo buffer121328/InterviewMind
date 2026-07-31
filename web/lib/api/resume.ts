@@ -3,9 +3,8 @@
  */
 
 import { apiRequest } from './config';
-import { createResumeOptimizeRun, createResumeWorkspaceRun, pollAgentRun, type AgentRun } from './agentRuns';
+import { createResumeWorkspaceRun, pollAgentRun, type AgentRun } from './agentRuns';
 import type { ApiConfig, CompletedSession, GeneratedResumeItem, GenerationSessionStatus, JDMatchResult, ResumeAnalyzeResult, ResumeGenerateInitResponse, ResumeGenerateSubmitResponse, ResumeOptimizeMode, ResumeOptimizeResult, ResumeResultData, ResumeReviewDecision, ResumeReviewState, ResumeWorkspaceResult } from './resumeTypes';
-import { buildResumeOptimizePayload } from './resumePayloads';
 import { isResumeWorkspaceResult, safeWorkspaceErrorMessage } from '../resumeWorkspaceResult';
 import { unwrapGenerationSessionStatus } from '../resumeGenerationStatus';
 export { getResumeWorkspaceStage } from '../resumeWorkspaceHelpers';
@@ -98,36 +97,6 @@ export async function analyzeResume(params: {
         return {
             success: false,
             message: error instanceof Error ? error.message : '分析失败',
-        };
-    }
-}
-
-/**
- * 简历内容优化
- */
-export async function optimizeResume(params: {
-    resume_content: string;
-    job_description: string;
-    session_ids?: string[];
-    include_overall_profile?: boolean;
-    mode?: ResumeOptimizeMode;
-    api_config: ApiConfig;
-}): Promise<{
-    success: boolean;
-    result?: ResumeOptimizeResult;
-    result_id?: number;
-    message?: string;
-}> {
-    try {
-        return await apiRequest('/api/resume/optimize', {
-            method: 'POST',
-            body: JSON.stringify(buildResumeOptimizePayload(params)),
-        });
-    } catch (error) {
-        console.error('简历优化失败:', error);
-        return {
-            success: false,
-            message: error instanceof Error ? error.message : '优化失败',
         };
     }
 }
@@ -248,116 +217,6 @@ export async function getResumeResultDetail(resultId: number): Promise<{
     } catch (error) {
         console.error('获取结果详情失败:', error);
         return null;
-    }
-}
-
-// ============================================================================
-// SSE 流式接口类型
-// ============================================================================
-
-export interface OptimizeProgressEvent {
-    type: 'progress';
-    stage: string;
-    message: string;
-    complete?: boolean;
-}
-
-export interface OptimizeResultEvent {
-    type: 'result';
-    data: ResumeOptimizeResult;
-}
-
-export interface OptimizeDoneEvent {
-    type: 'done';
-    content: string;
-    result_id?: number;
-}
-
-export interface OptimizeErrorEvent {
-    type: 'error';
-    content: string;
-}
-
-export interface OptimizeWarningEvent {
-    type: 'warning';
-    node: string;
-    message: string;
-}
-
-export type OptimizeStreamEvent = OptimizeProgressEvent | OptimizeResultEvent | OptimizeDoneEvent | OptimizeErrorEvent | OptimizeWarningEvent;
-
-/**
- * 简历内容优化 (SSE 流式)
- * 
- * @param params 优化参数
- * @param onProgress 进度回调
- * @param onWarning 警告回调（当节点失败时调用）
- * @returns 最终结果
- */
-export async function optimizeResumeStreaming(
-    params: {
-        resume_content: string;
-        job_description: string;
-        session_ids?: string[];
-        include_overall_profile?: boolean;
-        mode?: ResumeOptimizeMode;
-        api_config: ApiConfig;
-    },
-    onProgress?: (event: OptimizeProgressEvent) => void,
-    onWarning?: (event: OptimizeWarningEvent) => void
-): Promise<{
-    success: boolean;
-    result?: ResumeOptimizeResult;
-    result_id?: number;
-    message?: string;
-    warnings?: Array<{ node: string; message: string }>;
-}> {
-    try {
-        const created = await createResumeOptimizeRun(buildResumeOptimizePayload(params));
-        let completed: AgentRun | { status: 'succeeded'; result: Record<string, unknown> } = created;
-        if ('run_id' in created) {
-            completed = await pollAgentRun(created.run_id, run => {
-                const runningStep = run.plan.find(step => step.status === 'running');
-                onProgress?.({
-                    type: 'progress',
-                    stage: run.stage,
-                    message: runningStep?.title || (run.status === 'queued' ? '任务正在排队' : run.title),
-                    complete: run.status === 'succeeded',
-                });
-            });
-        }
-
-        if (completed.status !== 'succeeded' || !completed.result) {
-            const errorMessage = 'error_message' in completed ? completed.error_message : null;
-            return { success: false, message: errorMessage || '简历优化任务未完成' };
-        }
-
-        const taskResult = completed.result as {
-            success?: boolean;
-            result?: ResumeOptimizeResult;
-            result_id?: number;
-            warnings?: Array<{ node?: string; message?: string } | string>;
-        };
-        const warnings = (taskResult.warnings || []).map((warning, index) => (
-            typeof warning === 'string'
-                ? { node: `pipeline-${index + 1}`, message: warning }
-                : { node: warning.node || `pipeline-${index + 1}`, message: warning.message || '节点执行异常' }
-        ));
-        warnings.forEach(warning => onWarning?.({ type: 'warning', ...warning }));
-        return {
-            success: taskResult.success !== false && Boolean(taskResult.result),
-            result: taskResult.result,
-            result_id: taskResult.result_id,
-            warnings: warnings.length > 0 ? warnings : undefined,
-            message: taskResult.result ? undefined : '未收到优化结果',
-        };
-
-    } catch (error) {
-        console.error('可恢复简历优化失败:', error);
-        return {
-            success: false,
-            message: error instanceof Error ? error.message : '优化失败',
-        };
     }
 }
 

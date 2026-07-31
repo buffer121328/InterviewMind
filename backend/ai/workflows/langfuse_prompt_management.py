@@ -5,9 +5,8 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-from observability import LangfuseConfig, get_langfuse_client
-
 from app.schemas.langfuse_prompts import (
+    PromptBuiltinSyncResponse,
     PromptChatMessage,
     PromptCreateRequest,
     PromptMetadataResponse,
@@ -15,7 +14,7 @@ from app.schemas.langfuse_prompts import (
     PromptType,
     PromptVersionResponse,
 )
-
+from observability import LangfuseConfig, get_langfuse_client
 
 logger = logging.getLogger(__name__)
 _TEMPLATE_VARIABLE = re.compile(r"{{\s*([A-Za-z_][A-Za-z0-9_]*)\s*}}")
@@ -34,6 +33,7 @@ class PromptListPage:
     """Safe metadata page returned by the Langfuse Prompt Management service."""
 
     items: list[PromptMetadataResponse]
+    total: int
     page: int
     limit: int
 
@@ -66,7 +66,9 @@ class LangfusePromptManagementService:
         try:
             response = self._client().api.prompts.list(page=page, limit=limit, label=label)
             items = [self._metadata(item) for item in getattr(response, "data", [])]
-            return PromptListPage(items=items, page=page, limit=limit)
+            meta = getattr(response, "meta", None)
+            total = int(getattr(meta, "total_items", len(items)))
+            return PromptListPage(items=items, total=total, page=page, limit=limit)
         except PromptManagementUnavailable:
             raise
         except Exception as error:
@@ -118,6 +120,56 @@ class LangfusePromptManagementService:
             self._log_remote_failure("update-labels", error)
             raise PromptManagementRemoteError() from error
 
+    def sync_builtin_production_prompts(self) -> PromptBuiltinSyncResponse:
+        """Create missing production prompts from the latest local registry versions.
+
+        Existing production prompts are never overwritten. This makes the operation
+        safe to retry after a partial remote failure and preserves cloud-owned edits.
+        """
+        from ai.prompts.management_catalog import latest_builtin_managed_prompts
+
+        try:
+            production_names: set[str] = set()
+            page = 1
+            limit = 100
+            while True:
+                result = self.list_prompts(page=page, limit=limit, label="production")
+                production_names.update(item.name for item in result.items)
+                if page * limit >= result.total or not result.items:
+                    break
+                page += 1
+
+            builtins = latest_builtin_managed_prompts()
+            created_names: list[str] = []
+            client = self._client()
+            for builtin in builtins:
+                if builtin.name in production_names:
+                    continue
+                client.create_prompt(
+                    name=builtin.name,
+                    prompt=builtin.prompt,
+                    labels=["production"],
+                    type=builtin.prompt_type,
+                    commit_message=(
+                        f"Sync built-in {builtin.name}@{builtin.version}: "
+                        f"{builtin.description}"
+                    )[:500],
+                )
+                created_names.append(builtin.name)
+            return PromptBuiltinSyncResponse(
+                discovered=len(builtins),
+                created=len(created_names),
+                skipped=len(builtins) - len(created_names),
+                created_names=created_names,
+            )
+        except PromptManagementUnavailable:
+            raise
+        except PromptManagementRemoteError:
+            raise
+        except Exception as error:
+            self._log_remote_failure("sync-builtins", error)
+            raise PromptManagementRemoteError() from error
+
     def preview(
         self, *, name: str, version: int | None, label: str | None, values: dict[str, str]
     ) -> PromptPreviewResponse:
@@ -160,9 +212,16 @@ class LangfusePromptManagementService:
     @staticmethod
     def _metadata(value: Any) -> PromptMetadataResponse:
         """Map SDK metadata to an explicit response model without template content."""
+        from ai.prompts.management_catalog import prompt_presentation
+
+        name = str(getattr(value, "name"))
+        presentation = prompt_presentation(name)
         updated_at = getattr(value, "last_updated_at", None)
         return PromptMetadataResponse(
-            name=str(getattr(value, "name")),
+            name=name,
+            display_name=presentation.display_name,
+            functional_group=presentation.functional_group,
+            is_builtin=presentation.is_builtin,
             type=LangfusePromptManagementService._prompt_type(value),
             versions=[int(item) for item in getattr(value, "versions", [])],
             labels=[str(item) for item in getattr(value, "labels", [])],
@@ -172,7 +231,11 @@ class LangfusePromptManagementService:
     @staticmethod
     def _version(value: Any) -> PromptVersionResponse:
         """Map either a generated prompt object or SDK prompt client to a safe schema."""
+        from ai.prompts.management_catalog import prompt_presentation
+
         source = value
+        name = str(getattr(source, "name"))
+        presentation = prompt_presentation(name)
         content = getattr(source, "prompt", None)
         prompt_type = LangfusePromptManagementService._prompt_type(source, content)
         if prompt_type == "text":
@@ -184,7 +247,10 @@ class LangfusePromptManagementService:
                 raise ValueError("Langfuse returned an invalid chat prompt")
             normalized_content = [LangfusePromptManagementService._chat_message(item) for item in content]
         return PromptVersionResponse(
-            name=str(getattr(source, "name")),
+            name=name,
+            display_name=presentation.display_name,
+            functional_group=presentation.functional_group,
+            is_builtin=presentation.is_builtin,
             type=prompt_type,
             version=int(getattr(source, "version")),
             labels=[str(item) for item in getattr(source, "labels", [])],

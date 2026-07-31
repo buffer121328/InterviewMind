@@ -45,55 +45,6 @@ class RagResult:
             "retrieval_trace": self.retrieval_trace,
         }
 
-    def to_legacy_context(self) -> dict[str, Any]:
-        """转换为 retrieval_repo 旧格式，兼容 interview_planner 现有调用。"""
-        bank_questions = []
-        candidate_materials = []
-        weakness_categories = []
-        historical_questions = []
-        jd_keywords = []
-
-        for ev in self.evidences:
-            if ev.source_type in {"question_bank", "question_bank_followup"}:
-                bank_questions.append({
-                    "id": ev.source_id,
-                    "question_text": ev.evidence,
-                    "target_skill": ev.metadata.get("target_skill"),
-                    "difficulty": ev.metadata.get("difficulty", "medium"),
-                    "tags": ev.metadata.get("tags", []),
-                })
-            elif ev.source_type == "candidate_material":
-                candidate_materials.append({
-                    "id": ev.source_id,
-                    "material_type": ev.metadata.get("material_type"),
-                    "title": ev.metadata.get("title", ev.source_title),
-                    "content": ev.evidence,
-                    "tags": ev.metadata.get("tags", []),
-                })
-            elif ev.source_type == "weakness_report":
-                weakness_categories.append({
-                    "category": ev.metadata.get("category"),
-                    "severity": ev.metadata.get("severity", "medium"),
-                    "description": ev.evidence,
-                })
-            elif ev.source_type == "historical_question":
-                historical_questions.append(ev.evidence)
-            elif ev.source_type == "jd_analysis":
-                keywords = ev.metadata.get("matched_keywords", [])
-                keywords.extend(ev.metadata.get("missing_keywords", []))
-                jd_keywords.extend(keywords)
-
-        return {
-            "jd_keywords": list(dict.fromkeys(jd_keywords)),
-            "weakness_categories": weakness_categories,
-            "historical_questions": historical_questions,
-            "bank_questions": bank_questions,
-            "candidate_materials": candidate_materials,
-            "retrieval_mode": self.retrieval_mode,
-            "fallback_reason": self.fallback_reason,
-            "rag_evidences": [e.to_dict() for e in self.evidences],
-            "rag_trace": self.retrieval_trace,
-        }
 
 
 @dataclass

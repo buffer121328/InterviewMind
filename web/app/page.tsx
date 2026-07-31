@@ -5,7 +5,6 @@ import { Activity, BookOpenCheck, BriefcaseBusiness, Database, Loader2, Award, P
 import { Button } from "@/components/ui/button";
 import { AbilityProfileView } from "@/components/AbilityProfileView";
 import { SettingsDialog } from "@/components/SettingsDialog";
-import { SessionProfileDialog } from "@/components/SessionProfileDialog";
 import { useInterviewStore } from "@/store/useInterviewStore";
 import { useSpeechToText } from "@/hooks/useSpeechToText";
 import { getUserId } from "@/hooks/useUserIdentity";
@@ -31,6 +30,7 @@ import { PromptManagementPage } from "@/components/PromptManagementPage";
 import { EvaluationCenter } from "@/components/evaluations/EvaluationCenter";
 import { WorkspaceShell } from "@/components/WorkspaceShell";
 import { QUESTION_COUNT_OPTIONS, defaultQuestionsForRoundIndex } from "@/lib/interview/questionDefaults";
+import { waitForInterviewStartRun, type InterviewStartRunState } from "@/lib/interviewStartRun";
 
 // 定义视图类型，包含 'landing'
 type ViewType = MainView;
@@ -57,13 +57,13 @@ export default function InterviewPage() {
 
   const [showScrollButton, setShowScrollButton] = useState(false);
   const [autoScrollEnabled, setAutoScrollEnabled] = useState(true);
-  const [showSessionProfileDialog, setShowSessionProfileDialog] = useState(false);
-  const [sessionProfileDefaultTab, setSessionProfileDefaultTab] = useState<'profile' | 'weakness'>('profile');
+  const [isAnswerComposerExpanded, setIsAnswerComposerExpanded] = useState(false);
   const [activeMainTab, setActiveMainTab] = useState<ViewType>(getSavedMainTab);
   const [hintContent, setHintContent] = useState<string | null>(null);
   const [isLoadingHint, setIsLoadingHint] = useState(false);
   const [selectedApplicationId, setSelectedApplicationId] = useState<number | null>(null);
   const [historyDetailSessionId, setHistoryDetailSessionId] = useState<string | null>(null);
+  const [historyDetailInitialTab, setHistoryDetailInitialTab] = useState<'overview' | 'dialogue' | 'report'>('overview');
   const [nextRoundQuestionOverride, setNextRoundQuestionOverride] = useState<number | null>(null);
 
   useEffect(() => {
@@ -122,6 +122,11 @@ export default function InterviewPage() {
       void fetchSessions(undefined);
     }
   }, [activeMainTab, fetchSessions]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setIsAnswerComposerExpanded(false), 0);
+    return () => window.clearTimeout(timer);
+  }, [currentSession?.session_id]);
 
   // ===== API 错误 Toast 提示 =====
   useEffect(() => {
@@ -372,8 +377,24 @@ export default function InterviewPage() {
       return;
     }
 
-    setShowSessionProfileDialog(false);
     setActiveMainTab(page);
+  };
+
+  /** Selects a persisted interview and navigates to its real conversation workspace. */
+  const handleOpenInterviewSession = async (sessionId: string) => {
+    setHistoryDetailSessionId(null);
+    setStoreShowAbilityProfile(false);
+    setActiveMainTab('interview');
+    await selectSession(sessionId);
+  };
+
+  /** Opens the unified session dialog on the requested view without changing the active conversation. */
+  const handleOpenSessionDetail = (
+    sessionId: string,
+    initialTab: 'overview' | 'dialogue' | 'report' = 'overview',
+  ) => {
+    setHistoryDetailInitialTab(initialTab);
+    setHistoryDetailSessionId(sessionId);
   };
 
   if (!isMounted) {
@@ -425,7 +446,11 @@ export default function InterviewPage() {
           title="题库与面经"
           description="管理题目、文件导入、面经采集和历史追问沉淀"
         >
-          <QuestionBankPage embedded onStartInterview={() => handleNavigate('interview')} />
+          <QuestionBankPage
+            embedded
+            onStartInterview={() => handleNavigate('interview')}
+            onOpenSession={(sessionId) => void handleOpenInterviewSession(sessionId)}
+          />
         </WorkspaceShell>
         <SettingsDialog open={showSettingsDialog} onOpenChange={setShowSettingsDialog} />
       </>
@@ -519,10 +544,22 @@ export default function InterviewPage() {
         >
           <RunCenter
             onOpenResumeWorkspace={() => setActiveMainTab('resume')}
-            onOpenSession={setHistoryDetailSessionId}
+            onOpenSession={(sessionId) => void handleOpenInterviewSession(sessionId)}
+            onOpenReport={(sessionId) => handleOpenSessionDetail(sessionId, 'report')}
           />
         </WorkspaceShell>
         <SettingsDialog open={showSettingsDialog} onOpenChange={setShowSettingsDialog} />
+        {historyDetailSessionId && (
+          <InterviewHistoryDetailDialog
+            key={`${historyDetailSessionId}-${historyDetailInitialTab}`}
+            sessionId={historyDetailSessionId}
+            initialTab={historyDetailInitialTab}
+            open={true}
+            onOpenChange={(open) => {
+              if (!open) setHistoryDetailSessionId(null);
+            }}
+          />
+        )}
       </>
     );
   }
@@ -557,7 +594,7 @@ export default function InterviewPage() {
       onViewChange={handleNavigate}
       onOpenSettings={() => setShowSettingsDialog(true)}
       onGoHome={() => setActiveMainTab('landing')}
-      onViewSessionDetail={setHistoryDetailSessionId}
+      onViewSessionDetail={(sessionId) => handleOpenSessionDetail(sessionId)}
       icon={activeMainTab === 'interview' ? <MessageCircle className="h-4 w-4" /> : <FileText className="h-4 w-4" />}
       title={activeMainTab === 'interview' ? '模拟面试' : '简历工作台'}
       description={activeMainTab === 'interview' ? '文字与语音、多轮面试、能力报告和短板复盘' : '分析、优化、JD 匹配、素材组装、改写与生成'}
@@ -571,7 +608,7 @@ export default function InterviewPage() {
                 apiConfig={hasApiConfig ? useInterviewStore.getState().getApiConfigForRequest() : null}
                 resumeContent={resume?.content || ""}
                 onResumeChange={() => undefined}
-                onOpenSession={setHistoryDetailSessionId}
+                onOpenSession={(sessionId) => handleOpenSessionDetail(sessionId)}
               />
             </div>
           </div>
@@ -660,7 +697,7 @@ export default function InterviewPage() {
 
                 {/* 输入区域 */}
                 <div className="relative w-full bg-white border-t border-gray-100 px-6 py-4 z-20">
-                  <div className="max-w-3xl mx-auto relative">
+                  <div className="relative mx-auto max-w-5xl">
                     {/* 滚动到底部按钮 - 移动到输入框上方，确保不被遮挡 */}
                     {showScrollButton && (
                       <div className="absolute -top-12 left-0 right-0 flex justify-center z-20 pointer-events-none">
@@ -702,25 +739,11 @@ export default function InterviewPage() {
                             <div className="flex items-center gap-3">
                               <Button
                                 variant="outline"
-                                onClick={() => {
-                                  setSessionProfileDefaultTab('profile');
-                                  setShowSessionProfileDialog(true);
-                                }}
+                                onClick={() => currentSession && handleOpenSessionDetail(currentSession.session_id, 'report')}
                                 className="gap-2"
                               >
                                 <Award className="w-4 h-4 text-pink-500" />
-                                本轮能力画像
-                              </Button>
-                              <Button
-                                variant="outline"
-                                onClick={() => {
-                                  setSessionProfileDefaultTab('weakness');
-                                  setShowSessionProfileDialog(true);
-                                }}
-                                className="gap-2"
-                              >
-                                <Target className="w-4 h-4 text-teal-500" />
-                                短板地图
+                                本轮完整评估
                               </Button>
                               {/* 仅在非最后一轮时显示下一轮选项 */}
                               {(currentSession.metadata.round_index ?? 1) < 3 && (
@@ -777,17 +800,27 @@ export default function InterviewPage() {
                                         await fetchSessions(undefined);
                                         await selectSession(newSessionId);
 
-                                        // 3. 直接调用 /chat/start，后端会从数据库加载继承的简历/JD
+                                        // 3. 通过可恢复 AgentRun 启动下一轮，避免同步启动请求在模型超时时锁住页面。
                                         const apiConfig = useInterviewStore.getState().getApiConfigForRequest();
                                         if (!apiConfig) {
                                           throw new Error('请先配置 API');
                                         }
 
-                                        const startResponse = await fetch(`${API_BASE_URL}/api/chat/start`, {
+                                        useInterviewStore.setState({
+                                          isInitializing: true,
+                                          initializationStage: 'queued',
+                                          executionPlan: [
+                                            { id: 'queued', title: '等待执行资源', status: 'running' },
+                                            { id: 'loading_context', title: '读取简历与面试上下文', status: 'pending' },
+                                            { id: 'generating_question', title: '规划面试并生成首题', status: 'pending' },
+                                          ],
+                                        });
+                                        const startResponse = await fetch(`${API_BASE_URL}/api/agent-runs/interview-start`, {
                                           method: 'POST',
                                           headers: {
                                             'Content-Type': 'application/json',
-                                            'X-User-ID': getUserId()
+                                            'X-User-ID': getUserId(),
+                                            'Idempotency-Key': newSessionId,
                                           },
                                           body: JSON.stringify({
                                             thread_id: newSessionId,
@@ -798,44 +831,47 @@ export default function InterviewPage() {
                                         });
 
                                         if (!startResponse.ok) {
-                                          throw new Error('启动面试失败');
+                                          const message = await startResponse.text();
+                                          throw new Error(message || '启动面试失败');
                                         }
 
-                                        // 4. 处理流式响应
-                                        const reader = startResponse.body?.getReader();
-                                        if (reader) {
-                                          const decoder = new TextDecoder();
-                                          let buffer = '';
+                                        const initialRun = await startResponse.json() as InterviewStartRunState;
+                                        const result = await waitForInterviewStartRun(
+                                          initialRun,
+                                          async (runId) => {
+                                            const runResponse = await fetch(`${API_BASE_URL}/api/agent-runs/${runId}`, {
+                                              headers: { 'X-User-ID': getUserId() },
+                                            });
+                                            if (!runResponse.ok) throw new Error('读取面试任务状态失败');
+                                            return runResponse.json() as Promise<InterviewStartRunState>;
+                                          },
+                                          {
+                                            onProgress: (run) => useInterviewStore.setState({
+                                              initializationStage: run.stage || 'queued',
+                                              executionPlan: Array.isArray(run.plan)
+                                                ? run.plan
+                                                : useInterviewStore.getState().executionPlan,
+                                            }),
+                                          },
+                                        );
 
-                                          while (true) {
-                                            const { done, value } = await reader.read();
-                                            if (done) {
-                                              if (buffer.trim()) {
-                                                try {
-                                                  const jsonData = JSON.parse(buffer);
-                                                  if (jsonData.first_question) {
-                                                    useInterviewStore.setState({
-                                                      messages: [{
-                                                        role: 'assistant',
-                                                        content: jsonData.first_question,
-                                                        timestamp: new Date().toISOString(),
-                                                      }],
-                                                      isLoading: false,
-                                                      isStreaming: false,
-                                                    });
-                                                  }
-                                                } catch { }
-                                              }
-                                              break;
-                                            }
-                                            buffer += decoder.decode(value, { stream: true });
-                                          }
-                                        }
+                                        useInterviewStore.setState({
+                                          messages: [{
+                                            role: 'assistant',
+                                            content: result.first_question!,
+                                            timestamp: new Date().toISOString(),
+                                          }],
+                                          isLoading: false,
+                                          isStreaming: false,
+                                          isInitializing: false,
+                                          initializationStage: null,
+                                        });
+                                        await fetchSessions(undefined);
 
                                       } catch (error) {
                                         console.error('创建下一轮失败:', error);
                                         toast.error((error as Error).message || '创建下一轮失败');
-                                        useInterviewStore.setState({ isLoading: false, isStreaming: false });
+                                        useInterviewStore.setState({ isLoading: false, isStreaming: false, isInitializing: false, initializationStage: null });
                                       }
                                     }}
                                     disabled={isLoading || isStreaming}
@@ -861,10 +897,12 @@ export default function InterviewPage() {
                       onKeyDown={handleKeyDown}
                       isStreaming={isStreaming}
                       isListening={isListening}
+                      isExpanded={isAnswerComposerExpanded}
                       isInterviewCompleted={Boolean(interviewProgress && interviewProgress.current >= interviewProgress.total)}
                       isLoadingHint={isLoadingHint}
                       canRequestHint={Boolean(threadId)}
                       hintContent={hintContent}
+                      onExpandedChange={setIsAnswerComposerExpanded}
                       onRequestHint={handleGetHint}
                       onDismissHint={() => setHintContent(null)}
                       onToggleListening={toggleListening}
@@ -883,18 +921,11 @@ export default function InterviewPage() {
           <InterviewHistoryDetailDialog
             key={historyDetailSessionId}
             sessionId={historyDetailSessionId}
+            initialTab={historyDetailInitialTab}
             open={true}
             onOpenChange={(open) => {
               if (!open) setHistoryDetailSessionId(null);
             }}
-          />
-        )}
-        {showSessionProfileDialog && (
-          <SessionProfileDialog
-            open={showSessionProfileDialog}
-            onOpenChange={setShowSessionProfileDialog}
-            sessionId={currentSession?.session_id || ""}
-            defaultTab={sessionProfileDefaultTab}
           />
         )}
     </WorkspaceShell>

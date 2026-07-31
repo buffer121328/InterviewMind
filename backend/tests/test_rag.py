@@ -4,22 +4,18 @@ RAG 层单元测试
 不依赖真实数据库，使用 mock
 """
 
+
 import pytest
-from unittest.mock import AsyncMock, patch, MagicMock
 
 import ai.agents.interview.interview_rag as rag_module
 from ai.agents.interview.interview_rag import (
     RagEvidence,
     RagResult,
-    build_queries,
-    rerank_evidences,
-    fact_guard,
     RetrievalQuery,
-    WEIGHT_VECTOR,
-    WEIGHT_TEXT,
-    WEIGHT_SOURCE_PRIORITY,
+    build_queries,
+    fact_guard,
+    rerank_evidences,
 )
-
 
 # ── build_queries 测试 ────────────────────────────────────
 
@@ -245,8 +241,8 @@ class TestFactGuard:
 
 
 class TestRagResult:
-    def test_to_legacy_context(self):
-        """to_legacy_context 正确转换为旧格式"""
+    def test_to_dict_preserves_typed_evidences(self):
+        """to_dict 直接序列化统一证据，不再构造旧检索字典。"""
         evidences = [
             RagEvidence(
                 source_type="question_bank",
@@ -271,14 +267,12 @@ class TestRagResult:
             ),
         ]
         result = RagResult(retrieval_mode="hybrid", evidences=evidences)
-        legacy = result.to_legacy_context()
+        payload = result.to_dict()
 
-        assert legacy["retrieval_mode"] == "hybrid"
-        assert len(legacy["bank_questions"]) == 1
-        assert legacy["bank_questions"][0]["question_text"] == "什么是 REST API?"
-        assert len(legacy["candidate_materials"]) == 1
-        assert len(legacy["weakness_categories"]) == 1
-        assert len(legacy["rag_evidences"]) == 3
+        assert payload["retrieval_mode"] == "hybrid"
+        assert len(payload["evidences"]) == 3
+        assert payload["evidences"][0]["source_type"] == "question_bank"
+        assert payload["evidences"][0]["evidence"] == "什么是 REST API?"
 
     def test_to_dict(self):
         """to_dict 正确序列化"""
@@ -436,6 +430,12 @@ async def test_agentic_active_adopts_only_improved_evidence(monkeypatch):
     monkeypatch.setattr(rag_module, "VECTOR_ENABLED", False)
     monkeypatch.setattr(rag_module, "AGENTIC_MODE", "active")
     monkeypatch.setattr(rag_module, "_retrieve_memory_evidences", _fake_memory_evidences)
+    events = []
+    monkeypatch.setattr(
+        rag_module,
+        "record_external_io_event",
+        lambda event: events.append(event.to_local_payload()),
+    )
 
     result = await rag_module.run_rag_pipeline(
         user_id="user-1",
@@ -445,7 +445,16 @@ async def test_agentic_active_adopts_only_improved_evidence(monkeypatch):
     assert result.retrieval_mode == "agentic_hybrid"
     assert len({item.source_type for item in result.evidences}) >= 2
     assert result.retrieval_trace["agentic_adopted"] is True
+    assert result.retrieval_trace["retrieval_adopted"] is True
+    assert result.retrieval_trace["retrieval_strategy"] == "agentic_hybrid"
     assert result.retrieval_trace["final_quality_issues"] == []
+    terminal_event = next(
+        event for event in events
+        if event.get("operation") == "rag.retrieve" and event.get("status") == "completed"
+    )
+    assert terminal_event["adopted"] is True
+    assert terminal_event["strategy"] == "agentic_hybrid"
+    assert str(terminal_event["query_fingerprint"]).startswith("sha256:")
 
 
 @pytest.mark.asyncio

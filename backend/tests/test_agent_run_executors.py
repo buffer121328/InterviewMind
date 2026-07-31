@@ -152,6 +152,7 @@ async def test_job_assets_executor_defers_job_status_for_agent_run_transaction(m
     progress_stages: list[str] = []
     generate_calls: list[dict] = []
     update_calls: list[dict] = []
+    asset_calls: list[dict] = []
     tx_session = object()
 
     async def fake_generate_assets(**kwargs):
@@ -170,6 +171,10 @@ async def test_job_assets_executor_defers_job_status_for_agent_run_transaction(m
                 "status": status,
                 "session": session,
             })
+            return True
+
+        async def update_asset_tracking(self, job_id, user_id, **kwargs):
+            asset_calls.append({"job_id": job_id, "user_id": user_id, **kwargs})
             return True
 
     async def progress(stage: str) -> None:
@@ -193,6 +198,12 @@ async def test_job_assets_executor_defers_job_status_for_agent_run_transaction(m
     assert progress_stages == ["loading_job", "analyzing_jd", "generating_assets", "saving_assets"]
     assert generate_calls[0]["update_job_status"] is False
     assert update_calls == []
+    assert asset_calls == [{
+        "job_id": 12,
+        "user_id": "user-1",
+        "asset_run_id": "run-assets-1",
+        "asset_status": "running",
+    }]
 
     public_result = await result.persist(tx_session)
 
@@ -200,3 +211,12 @@ async def test_job_assets_executor_defers_job_status_for_agent_run_transaction(m
     assert update_calls == [
         {"job_id": 12, "user_id": "user-1", "status": "assets_generated", "session": tx_session}
     ]
+    assert asset_calls[-1] == {
+        "job_id": 12,
+        "user_id": "user-1",
+        "asset_run_id": "run-assets-1",
+        "asset_status": "succeeded",
+        "match_score": None,
+        "asset_payload": {"job_id": 12},
+        "session": tx_session,
+    }

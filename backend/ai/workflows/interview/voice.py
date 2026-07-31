@@ -5,13 +5,13 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from app.db.repositories.session.session_repo import SessionRepo
-from app.schemas.voice import VoiceCloneRequest, VoiceStartRequest, VoiceStartResponse
 from ai.agents.interview.interview_context import build_interview_context
-from app.domain.interview_rounds import resolve_max_questions
-from ai.agents.interview.voice_interview import generate_interview_plan, generate_voice_summary
+from ai.agents.interview.voice_interview import generate_interview_plan
 from ai.prompts.voice import build_interview_voice_system_prompt as build_system_prompt
 from ai.prompts.voice import get_opening_message
+from app.db.repositories.session.session_repo import SessionRepo
+from app.domain.interview_rounds import resolve_max_questions
+from app.schemas.voice import VoiceCloneRequest, VoiceStartRequest, VoiceStartResponse
 
 logger = logging.getLogger(__name__)
 
@@ -185,14 +185,6 @@ class VoiceInterviewUseCases:
             round_index=round_index,
             question_count=getattr(metadata, "question_count", 0),
             max_questions=max_questions,
-        )
-
-    def stream_summary(self, *, session_id: str, api_config: dict[str, Any], user_id: str):
-        """Stream a voice-interview summary."""
-        return generate_voice_summary(
-            session_id=session_id,
-            api_config=api_config,
-            user_id=user_id,
         )
 
     async def clone(self, *, request: VoiceCloneRequest, user_id: str) -> dict[str, object]:

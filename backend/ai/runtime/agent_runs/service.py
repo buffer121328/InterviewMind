@@ -2,31 +2,28 @@
 
 import os
 import uuid
-from datetime import datetime, timedelta
 from collections.abc import Awaitable, Callable
+from datetime import datetime, timedelta
 from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ai.runtime.agent_runs.outbox import enqueue_agent_run_outbox
+from ai.runtime.agent_runs.policies import allows_whole_run_retry
+from app.db.models import AgentRunEventModel, AgentRunModel, SessionModel, async_session
+from app.db.unit_of_work import UnitOfWork
 from app.domain.agent_definitions import get_agent_definition, get_agent_definitions
 from app.domain.agent_runs import (
     ACTIVE_STATUSES,
     TASK_TYPE_INTERVIEW_START,
-    TASK_TYPE_JOB_ASSETS,
-    TASK_TYPE_RESUME_OPTIMIZE,
-    TASK_TYPE_RESUME_WORKSPACE,
     TERMINAL_STATUSES,
     build_task_plan_from_steps,
     can_cancel_status,
 )
-from app.db.unit_of_work import UnitOfWork
-from app.db.models import AgentRunEventModel, AgentRunModel, SessionModel, async_session
 from app.security.security import redact_secrets
 from app.security.payload_crypto import decrypt_payload, encrypt_payload
-from ai.runtime.agent_runs.outbox import enqueue_agent_run_outbox
-from ai.runtime.agent_runs.policies import allows_whole_run_retry
 
 TASK_DEFINITIONS: dict[str, dict] = {
     definition.task_type: {"title": definition.title, "steps": definition.steps}
@@ -41,6 +38,12 @@ def task_queue_enabled() -> bool:
 def _now() -> datetime:
     """当前时间快照（便于测试替换）。"""
     return datetime.now()
+
+
+def _queue_wait_ms(run: AgentRunModel, now: datetime) -> int:
+    """按首次排队或最近一次重试入队时间计算非负队列等待毫秒数。"""
+    queued_since = run.updated_at if run.status == "retrying" else run.created_at
+    return max(0, int((now - queued_since).total_seconds() * 1000))
 
 
 def max_attempts() -> int:
@@ -73,6 +76,16 @@ def build_task_plan(task_type: str, stage: str, status: str) -> list[dict]:
     )
 
 
+def _public_step_results(value: dict | None) -> dict:
+    """移除步骤状态中的加密恢复载荷，只向客户端暴露时间和状态摘要。"""
+    public: dict[str, dict] = {}
+    for step_id, raw in (value or {}).items():
+        step = dict(raw or {})
+        step.pop("checkpoint_encrypted", None)
+        public[str(step_id)] = step
+    return public
+
+
 def serialize_run(run: AgentRunModel) -> dict:
     """将 AgentRun 模型序列化为 API 响应格式，不公开加密任务输入。"""
     definition = get_task_definition(run.task_type)
@@ -94,7 +107,7 @@ def serialize_run(run: AgentRunModel) -> dict:
         "stage": run.stage,
         "plan": build_task_plan(run.task_type, run.stage, run.status),
         "result": run.result,
-        "step_results": getattr(run, "step_results", None) or {},
+        "step_results": _public_step_results(getattr(run, "step_results", None)),
         "error_message": run.error_message,
         "trace_id": getattr(run, "trace_id", None),
         "attempts": run.attempts,
@@ -351,7 +364,12 @@ class AgentRunService:
                 "cancellation_policy": definition.cancellation_policy,
                 "execution_mode": "interactive_inline",
             })
-            await self._append_event(session, run, "run.started", {"attempt": 1})
+            await self._append_event(
+                session,
+                run,
+                "run.started",
+                {"attempt": 1, "queue_wait_ms": 0},
+            )
             try:
                 await session.commit()
             except IntegrityError:
@@ -403,6 +421,13 @@ class AgentRunService:
             setattr(run, "session_question_count", summary.question_count if summary else None)
             setattr(run, "session_max_questions", summary.max_questions if summary else None)
 
+    async def get_task_type_for_worker(self, run_id: str) -> str | None:
+        """Read only the task type needed to select an execution concurrency gate."""
+        async with async_session() as session:
+            return await session.scalar(
+                select(AgentRunModel.task_type).where(AgentRunModel.id == run_id)
+            )
+
     async def get(self, run_id: str, user_id: str) -> AgentRunModel | None:
         """获取单个 AgentRun（带用户归属校验）。"""
         async with async_session() as session:
@@ -434,7 +459,13 @@ class AgentRunService:
                 filters.append(AgentRunModel.task_type == task_type)
             if session_id:
                 filters.append(AgentRunModel.session_id == session_id)
-            rows = await session.scalars(select(AgentRunModel).where(*filters).order_by(AgentRunModel.created_at.desc()).limit(limit).offset(offset))
+            rows = await session.scalars(
+                select(AgentRunModel)
+                .where(*filters)
+                .order_by(AgentRunModel.created_at.desc(), AgentRunModel.id.desc())
+                .limit(limit)
+                .offset(offset)
+            )
             total = await session.scalar(select(func.count(AgentRunModel.id)).where(*filters))
             runs = list(rows)
             await self._attach_owned_session_titles(session, runs, user_id)
@@ -549,13 +580,19 @@ class AgentRunService:
             if not run or run.status not in {"queued", "retrying"}:
                 return None
             now = _now()
+            queue_wait_ms = _queue_wait_ms(run, now)
             run.status = "running"
             run.stage = first_running_stage(run.task_type)
             run.attempts += 1
             run.started_at = now
             run.finished_at = None
             run.updated_at = now
-            await self._append_event(session, run, "run.started", {"attempt": run.attempts})
+            await self._append_event(
+                session,
+                run,
+                "run.started",
+                {"attempt": run.attempts, "queue_wait_ms": queue_wait_ms},
+            )
             await session.commit()
             await session.refresh(run)
             return run, decrypt_payload(run.payload_encrypted)
@@ -585,6 +622,59 @@ class AgentRunService:
             run.updated_at = now
             await self._append_event(session, run, "run.stage.changed")
             await session.commit()
+
+    async def save_checkpoint(
+        self,
+        run_id: str,
+        stage: str,
+        checkpoint: dict[str, Any],
+        *,
+        user_id: str,
+    ) -> None:
+        """按 owner 加密保存恢复 checkpoint，事件仅记录不含正文的阶段摘要。"""
+        async with async_session() as session:
+            run = await session.scalar(
+                select(AgentRunModel)
+                .where(
+                    AgentRunModel.id == run_id,
+                    AgentRunModel.user_id == user_id,
+                )
+                .with_for_update()
+            )
+            if not run or run.status not in {"running", "cancel_requested"}:
+                return
+            valid_stages = {item[0] for item in get_task_definition(run.task_type)["steps"]}
+            if stage not in valid_stages:
+                raise ValueError(f"invalid checkpoint stage for {run.task_type}: {stage}")
+            now = _now()
+            step_results = dict(run.step_results or {})
+            step = dict(step_results.get(stage) or {})
+            step["checkpoint_encrypted"] = encrypt_payload(checkpoint)
+            step["checkpoint_updated_at"] = now.isoformat()
+            step_results[stage] = step
+            run.step_results = step_results
+            run.updated_at = now
+            item_count = len(checkpoint.get("items") or []) if isinstance(checkpoint, dict) else 0
+            await self._append_event(session, run, "run.checkpoint.saved", {"item_count": item_count})
+            await session.commit()
+
+    async def load_checkpoint(self, run_id: str, user_id: str, stage: str) -> dict[str, Any] | None:
+        """按 owner 读取并解密恢复 checkpoint；密文不存在时返回 None。"""
+        async with async_session() as session:
+            run = await session.scalar(
+                select(AgentRunModel).where(
+                    AgentRunModel.id == run_id,
+                    AgentRunModel.user_id == user_id,
+                )
+            )
+            if not run:
+                return None
+            step = dict((run.step_results or {}).get(stage) or {})
+            encrypted = step.get("checkpoint_encrypted")
+            if not isinstance(encrypted, str) or not encrypted:
+                return None
+            value = decrypt_payload(encrypted)
+            return value if isinstance(value, dict) else None
 
     async def touch(self, run_id: str) -> None:
         """更新 AgentRun 的 updated_at 时间戳，防止被判定为"卡住"。"""
@@ -721,6 +811,7 @@ class AgentRunService:
                     continue
                 step = dict(step_results.get(step_id) or {})
                 step.update({"status": "completed", "finished_at": now.isoformat()})
+                step.pop("checkpoint_encrypted", None)
                 step_results[step_id] = step
             run.step_results = step_results
             run.error_message = None

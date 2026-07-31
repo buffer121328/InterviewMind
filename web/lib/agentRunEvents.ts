@@ -6,6 +6,7 @@ const KNOWN_AGENT_RUN_EVENT_TYPES = new Set<AgentRunEventType>([
     'run.created',
     'run.started',
     'run.stage.changed',
+    'run.checkpoint.saved',
     'run.completed',
     'run.failed',
     'run.cancelled',

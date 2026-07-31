@@ -35,28 +35,27 @@ session_3 (HR面, active)     → 读取前两轮累积画像
 ```
 """
 
-import asyncio
-import json
 import logging
 import operator
-import re
 import uuid
-from typing import Annotated, List, Literal, TypedDict, Optional
+from typing import Annotated, List, Literal, Optional, TypedDict
 from weakref import WeakSet
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, BaseMessage
+
+from langchain_core.messages import AIMessage, BaseMessage
 from pydantic import BaseModel, Field
+
 try:
-    from langgraph.graph import StateGraph, END
+    from langgraph.graph import END, StateGraph
 except ModuleNotFoundError:  # pragma: no cover - 测试环境可无 langgraph
     StateGraph = None  # type: ignore[assignment]
     END = "__end__"
 
 from ai.memory.memory import get_checkpointer
 from ai.tools.interview_tools import (
-    search_question_bank,
     get_candidate_profile,
     get_interview_history,
     make_interview_tool_executor,
+    search_question_bank,
 )
 from ai.tools.memory_tools import search_memory
 
@@ -191,7 +190,9 @@ async def node_planner(state: InterviewState):
     bank_count = min(max(int(state.get("question_bank_count", 0) or 0), 0), max_q)
     if bank_count:
         try:
-            from app.db.repositories.interview.question_bank_repo import get_question_bank_repo
+            from app.db.repositories.interview.question_bank_repo import (
+                get_question_bank_repo,
+            )
 
             bank_items = await get_question_bank_repo().select_for_interview(user_id, bank_count)
         except Exception as e:
@@ -210,6 +211,7 @@ async def node_planner(state: InterviewState):
     previous_questions = []
     weakness_report = None
     previous_session_summary = None
+    cache_scope = session_id or run_id
 
     if session_id:
         try:
@@ -219,6 +221,7 @@ async def node_planner(state: InterviewState):
             if session:
                 round_index = session.metadata.round_index
                 round_type = session.metadata.round_type
+                cache_scope = getattr(session.metadata, "series_id", None) or session_id or run_id
 
                 # 获取上一轮画像和问题（如果是第二轮及以后）
                 if round_index > 1 and session.metadata.parent_session_id:
@@ -243,7 +246,9 @@ async def node_planner(state: InterviewState):
 
                     # 获取上一轮短板报告（用于多轮上下文继承）
                     try:
-                        from app.db.repositories.interview.weakness_report_repo import get_weakness_report_repo
+                        from app.db.repositories.interview.weakness_report_repo import (
+                            get_weakness_report_repo,
+                        )
                         weakness_service = get_weakness_report_repo()
                         weakness_report = await weakness_service.get_report_by_session(
                             session.metadata.parent_session_id,
@@ -261,7 +266,9 @@ async def node_planner(state: InterviewState):
     retrieval_context = None
     if remaining_questions > 0:
         try:
-            from ai.agents.interview.retrieval_service import get_interview_retrieval_service
+            from ai.agents.interview.retrieval_service import (
+                get_interview_retrieval_service,
+            )
             retrieval_svc = get_interview_retrieval_service()
             retrieval_context = await retrieval_svc.retrieve_for_question_generation(
                 user_id=user_id,
@@ -294,6 +301,9 @@ async def node_planner(state: InterviewState):
             weakness_report=weakness_report,
             retrieval_context=retrieval_context,
             memory_context=memory_context,
+            previous_summary=previous_session_summary,
+            owner_id=user_id,
+            cache_scope=cache_scope,
         )
     interview_plan = merge_question_plan(candidates, generated_plan, max_q)
     if session_id:
@@ -333,13 +343,20 @@ async def node_responder(state: InterviewState):
     每个状态调用 invoke_structured() 输出 InterviewerOutput，
     action 字段决定状态转移 —— 不再靠自然语言猜测。
     """
-    from .interview_runtime import InterviewRuntime
     from ai.llm.llm_utils import invoke_structured
+
+    from .interview_runtime import InterviewRuntime
 
     api_config = state.get("api_config")
 
     # 构建 LLM 调用器：封装 invoke_structured，自动注入 api_config
-    async def llm_invoker(prompt: str, output_model):
+    async def llm_invoker(
+        prompt: str,
+        output_model,
+        *,
+        deadline=None,
+        call_metadata=None,
+    ):
         """调用统一模型网关生成面试回复，并将调用结果映射为图状态。
 
         Args:
@@ -352,6 +369,8 @@ async def node_responder(state: InterviewState):
             api_config=api_config,
             channel="fast",
             max_retries=2,
+            deadline=deadline,
+            call_metadata=call_metadata,
         )
 
     # 构建工具执行器（状态机在 evaluating 状态时显式调用）
@@ -386,38 +405,28 @@ async def node_responder(state: InterviewState):
 
 async def node_summary(state: InterviewState):
     """
-    总结节点：生成面试报告
-    使用 workflow completion 用例编排总结与报告触发
+    完成节点：持久化会话完成状态并触发统一 Markdown 报告任务。
 
-    同时触发：轮后总结 + 分层画像更新 + 短板地图分析
+    候选人可见结束语已经由 responder 以固定文案输出；此节点不再追加
+    一段文字总结，避免面试问答末尾出现两份互相重复的反馈。
     """
-    from ai.workflows.interview.completion import process_interview_summary
-    from langchain_core.messages import AIMessage
+    from ai.workflows.interview.completion import handle_interview_complete
 
-    mode = state.get("mode", "mock")
     session_id = state.get("session_id")
     api_config = state.get("api_config")
     user_id = state.get("user_id", "default_user")
     run_id = state.get("run_id", "unknown")
 
-    # 获取长期记忆上下文
-    memory_context = state.get("memory_context", "")
-
-    logger.info(f"[Summary] run_id={run_id} user_id={user_id} session={session_id} 开始生成总结")
-
-    # 执行统一流程（生成文本 + 状态更新 + 画像分析）
-    summary = await process_interview_summary(
+    logger.info(f"[Summary] run_id={run_id} user_id={user_id} session={session_id} 开始完成会话")
+    await handle_interview_complete(
         session_id=session_id,
-        messages=state["messages"],
-        mode=mode,
         api_config=api_config,
         trigger_analysis=True,
-        memory_context=memory_context,
-        user_id=user_id,  # 传递 user_id 用于后台分析隔离
+        user_id=user_id,
     )
 
     return {
-        "messages": [AIMessage(content=summary)],
+        "messages": [],
         "question_count": state.get("question_count"),
         "max_questions": state.get("max_questions")
     }

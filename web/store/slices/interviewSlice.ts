@@ -13,6 +13,7 @@ import { listAgentRunEvents } from '@/lib/api/agentRunEvents';
 import { parseStreamEvent, reduceExecutionPlanStreamEvent } from '@/lib/streamEvents';
 import { buildInteractiveExecutionPlan } from '@/lib/agentRunEvents';
 import { parseSseFrames } from '@/lib/sse';
+import { waitForInterviewStartRun, type InterviewStartRunState } from '@/lib/interviewStartRun';
 
 // ============================================================================
 // 类型定义
@@ -263,40 +264,28 @@ export const createInterviewSlice = (set: SetState, get: GetState): InterviewFlo
                 throw new Error(`启动面试失败: ${response.status} - ${errorText}`);
             }
 
-            const startData = await response.json();
+            const startData = await response.json() as InterviewStartRunState;
             if (Array.isArray(startData.plan)) {
                 set({ executionPlan: startData.plan });
             }
-            let result = startData.result;
-            let runId = startData.run_id as string | undefined;
-            let runStatus = startData.status as string | undefined;
-
-            // 队列启用时轮询持久化状态；本地关闭队列时兼容同步结果。
-            while (runStatus !== 'succeeded') {
-                if (!runId) throw new Error('启动面试失败：未返回任务 ID');
-                if (abortController.signal.aborted) {
-                    throw new DOMException('请求已取消', 'AbortError');
-                }
-                await new Promise(resolve => setTimeout(resolve, 1200));
-                const runResponse = await fetch(`${API_BASE_URL}/api/agent-runs/${runId}`, {
-                    headers: { 'X-User-ID': getUserId() },
+            const result = await waitForInterviewStartRun(
+                startData,
+                async (runId) => {
+                    const runResponse = await fetch(`${API_BASE_URL}/api/agent-runs/${runId}`, {
+                        headers: { 'X-User-ID': getUserId() },
+                        signal: abortController.signal,
+                    });
+                    if (!runResponse.ok) throw new Error('读取面试任务状态失败');
+                    return runResponse.json() as Promise<InterviewStartRunState>;
+                },
+                {
                     signal: abortController.signal,
-                });
-                if (!runResponse.ok) throw new Error('读取面试任务状态失败');
-                const run = await runResponse.json();
-                set({
-                    initializationStage: run.stage || 'queued',
-                    executionPlan: Array.isArray(run.plan) ? run.plan : get().executionPlan,
-                });
-                runStatus = run.status;
-                if (runStatus === 'failed' || runStatus === 'cancelled') {
-                    throw new Error(run.error_message || '面试任务未完成');
-                }
-                result = run.result;
-                runId = run.run_id;
-            }
-
-            if (!result?.first_question) throw new Error('面试初始化未生成首题');
+                    onProgress: (run) => set({
+                        initializationStage: run.stage || 'queued',
+                        executionPlan: Array.isArray(run.plan) ? run.plan : get().executionPlan,
+                    }),
+                },
+            );
             const initializedSession = get().currentSession;
             (set as (partial: Record<string, unknown>) => void)({
                 messages: [{ role: 'assistant', content: result.first_question, timestamp: new Date().toISOString() }],

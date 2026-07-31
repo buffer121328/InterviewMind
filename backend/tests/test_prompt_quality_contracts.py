@@ -27,9 +27,7 @@ def test_registry_covers_all_runtime_prompt_families():
         "interview.hints",
         "interview.opening",
         "interview.evaluating",
-        "interview.feedback",
-        "analysis.candidate_profile",
-        "analysis.weakness_report",
+        "analysis.session_report",
         "analysis.aggregate_profile",
         "jobs.greeting",
         "jobs.extraction",
@@ -66,7 +64,10 @@ def test_untrusted_job_inputs_are_data_and_unknown_fields_stay_empty():
     prompts = [
         build_job_extraction_prompt("网页文本"),
         build_job_card_extraction_prompt("搜索页", top_n=3),
-        build_job_card_scoring_prompt([{"job_title": "工程师"}], "候选人简历"),
+        build_job_card_scoring_prompt(
+            card_count=1,
+            scoring_context="【candidate_resume】候选人简历\n【job_cards】工程师",
+        ),
         build_greeting_prompt("公司", "岗位", jd_text="JD", highlights_text="亮点"),
     ]
     assert all("不可信数据" in prompt for prompt in prompts)
@@ -100,23 +101,11 @@ def test_structured_interview_prompts_keep_exact_counts_and_actions():
         round_index=1,
         round_type="tech_initial",
         max_questions=4,
-        job_description="JD",
-        resume="简历",
         requirements="覆盖核心技能",
+        planning_context="【job_description】JD\n【resume】简历",
     )
     evaluating = build_evaluating_prompt(
-        round_index=1,
-        round_type="tech_initial",
-        strategy_focus="技术基础",
-        current_index=0,
-        total_questions=2,
-        current_question="问题一",
-        next_question="问题二",
-        follow_up_count=0,
-        max_follow_ups=1,
-        historical_followups="",
-        user_answer="回答",
-        tool_context="无",
+        runtime_context="【progress】1/2\n【question】问题一\n【answer】回答",
         tool_instruction="",
     )
     assert "恰好 4 道主问题" in planner

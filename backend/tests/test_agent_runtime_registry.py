@@ -2,9 +2,9 @@
 
 import pytest
 
+from ai.prompts import prompt_registry
 from ai.runtime.context import AgentContext
 from ai.runtime.graphs import graph_registry
-from ai.prompts import prompt_registry
 from ai.runtime.middleware import build_default_middleware, contains_prompt_injection
 from ai.runtime.models.registry import ModelProviderRegistry
 from ai.tools import (
@@ -54,7 +54,7 @@ def test_tool_registry_checks_permissions_before_building():
 
 
 def test_default_registries_expose_business_capabilities():
-    assert {"interview", "resume", "memory", "job_application"}.issubset(tool_registry.names())
+    assert {"interview", "resume", "memory"}.issubset(tool_registry.names())
     assert {
         "interview",
         "resume_analyzer",
@@ -65,13 +65,26 @@ def test_default_registries_expose_business_capabilities():
         "interview.planner",
         "interview.evaluating",
         "voice.system",
-        "analysis.candidate_profile",
-        "analysis.weakness_report",
+        "analysis.session_report",
         "analysis.aggregate_profile",
         "resume.match_analyst",
         "resume.jd_match.user",
         "jobs.card_scoring",
     }.issubset(prompt_registry.names())
+
+
+def test_job_capture_agent_exposes_current_page_import_stages():
+    """The public run plan must describe server-side DOM import, not browser login."""
+    from app.domain.agent_definitions import get_agent_definition
+    from app.domain.agent_runs import TASK_TYPE_JOB_RECOMMENDATION_CAPTURE
+
+    definition = get_agent_definition(TASK_TYPE_JOB_RECOMMENDATION_CAPTURE)
+
+    assert definition.version == "2"
+    assert ("validating_import", "校验当前页 DOM 导入") in definition.steps
+    assert ("extracting_jobs", "确认有效岗位卡片") in definition.steps
+    assert ("ranking_jobs", "按简历匹配度排序") in definition.steps
+    assert all("login" not in stage for stage, _title in definition.steps)
 
 
 def test_prompt_registry_renders_registered_production_builder():
@@ -146,9 +159,13 @@ async def test_tool_guard_emits_audit_records_for_successful_calls():
     )
 
     assert result == {"value": "ok", "token": "[REDACTED]"}
-    assert [event["status"] for event in audit_events] == ["started", "completed"]
-    assert audit_events[1]["tool_name"] == "demo_call"
-    assert audit_events[1]["output_summary"].startswith("{'value': 'ok'")
+    assert [event["status"] for event in audit_events] == [
+        "requested",
+        "started",
+        "completed",
+    ]
+    assert audit_events[2]["tool_name"] == "demo_call"
+    assert audit_events[2]["output_summary"].startswith("{'value': 'ok'")
 
 
 @pytest.mark.asyncio
@@ -249,6 +266,7 @@ async def test_tool_guard_redacts_nested_secrets():
 
 
 def test_production_agent_definitions_are_registered():
+    from ai.workflows.agent_tasks.registry import EXECUTORS
     from app.domain.agent_definitions import get_agent_definitions
 
     definitions = {item.task_type: item for item in get_agent_definitions()}
@@ -261,42 +279,33 @@ def test_production_agent_definitions_are_registered():
         "resume_workspace",
         "resume_generation",
         "interview_report",
+        "interview_experience_collect",
         "job_assets",
+        "job_recommendation_capture",
+        "evaluation_suite",
     }
     assert definitions["interview_start"].checkpoint_policy == "durable"
     assert definitions["interview_turn"].checkpoint_policy == "durable"
     assert definitions["voice_interview_turn"].checkpoint_policy == "durable"
+    assert definitions["interview_experience_collect"].deprecated is True
+    assert "interview_experience_collect" not in EXECUTORS
     assert all(item.cancellation_policy == "cooperative" for item in definitions.values())
     for definition in definitions.values():
+        if definition.deprecated:
+            continue
         # Workspace is a durable orchestrator made of existing agents, not a LangGraph registration.
-        if definition.task_type != "resume_workspace":
+        if definition.task_type not in {
+            "resume_workspace",
+            "job_recommendation_capture",
+            "evaluation_suite",
+        }:
             assert definition.graph_name in graph_registry.names()
-        assert definition.prompt_name is not None
-        assert definition.prompt_version is not None
-        assert definition.prompt_version in prompt_registry.versions(definition.prompt_name)
-
-
-def test_contract_driven_governance_derives_permissions_and_approval():
-    from ai.tools.contracts import derive_tool_governance
-    from ai.tools.job_tools import make_jobs_tools
-
-    tools = make_jobs_tools(user_id="user-1", api_config={}, resume_content="resume")
-    governance = derive_tool_governance(tools)
-
-    assert governance.permissions["open_boss_search_page"] == frozenset({"boss.browser.read"})
-    assert "open_boss_search_page" in governance.approval_tools
-    assert "save_job" not in governance.approval_tools
-
-
-def test_guarded_agent_uses_external_contract_to_require_checkpointer():
-    from ai.runtime.factory import create_guarded_agent
-    from ai.tools.job_tools import make_jobs_tools
-
-    tools = make_jobs_tools(user_id="user-1", api_config={}, resume_content="resume")
-    external_tool = next(tool for tool in tools if tool.name == "open_boss_search_page")
-
-    with pytest.raises(ValueError, match="approval_tools require a checkpointer"):
-        create_guarded_agent("demo", [external_tool])
+        if definition.task_type != "evaluation_suite":
+            assert definition.prompt_name is not None
+            assert definition.prompt_version is not None
+            assert definition.prompt_version in prompt_registry.versions(
+                definition.prompt_name
+            )
 
 
 @pytest.mark.asyncio
@@ -318,5 +327,9 @@ async def test_tool_guard_awaits_async_audit_sink_and_redacts_input_summary():
     )
 
     assert result == {"status": "ok"}
-    assert [event["status"] for event in audit_events] == ["started", "completed"]
+    assert [event["status"] for event in audit_events] == [
+        "requested",
+        "started",
+        "completed",
+    ]
     assert "very-secret-value" not in str(audit_events)

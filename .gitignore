@@ -46,3 +46,8 @@ skills/
 
 # Local-only docs
 README.local.md
+
+.codegraph/
+.deepeval/
+.reasonix/
+reasonix.toml

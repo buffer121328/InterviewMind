@@ -206,12 +206,13 @@ export async function deleteQuestionItem(itemId: number): Promise<{ success: boo
 /**
  * 搜索题库
  */
-export async function searchQuestionBank(query: string, limit?: number): Promise<QuestionBankListResponse> {
+export async function searchQuestionBank(query: string, limit?: number, offset?: number): Promise<QuestionBankListResponse> {
     try {
         const searchParams = new URLSearchParams();
         searchParams.set('user_id', getUserId());
         searchParams.set('q', query);
         if (limit) searchParams.set('limit', String(limit));
+        if (offset) searchParams.set('offset', String(offset));
 
         const response = await fetch(`${API_BASE_URL}/api/question-bank/search?${searchParams}`, {
             headers: { 'X-User-ID': getUserId() }

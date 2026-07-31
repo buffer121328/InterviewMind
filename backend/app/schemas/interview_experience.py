@@ -5,13 +5,12 @@ from typing import Literal
 from pydantic import BaseModel, Field, HttpUrl
 
 
-ExperienceSource = Literal["nowcoder", "xiaohongshu"]
+ExperienceSource = Literal["nowcoder"]
 
 
 class ExportedExperienceItem(BaseModel):
     """数据对象，承载 `ExportedExperienceItem` 的结构化字段和跨模块契约；只表达数据，不在构造或序列化时执行外部调用。"""
     id: str | None = Field(default=None, max_length=200)
-    note_id: str | None = Field(default=None, max_length=200)
     title: str = Field(default="", max_length=500)
     content: str | None = Field(default=None, max_length=50_000)
     desc: str | None = Field(default=None, max_length=50_000)

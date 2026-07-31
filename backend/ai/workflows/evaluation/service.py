@@ -8,8 +8,18 @@ from dataclasses import asdict, dataclass
 from datetime import datetime
 from typing import Any, NoReturn
 
-from app.security.payload_crypto import TaskPayloadConfigurationError, decrypt_payload
 from ai.workflows.agent_runs import AgentRunUseCaseError, agent_run_use_cases
+from ai.workflows.evaluation.serializers import (
+    _annotation,
+    _calibration,
+    _case_run,
+    _dataset,
+    _dataset_case,
+    _gate,
+    _run,
+    _score,
+    _suite,
+)
 from app.config import get_settings
 from app.db.models import EvaluationSuiteModel, async_session
 from app.db.repositories.evaluation import EvaluationRepository
@@ -30,18 +40,7 @@ from app.schemas.evaluations import (
     EvaluationRunCreateRequest,
     EvaluationSuiteCreateRequest,
 )
-
-from ai.workflows.evaluation.serializers import (
-    _annotation,
-    _calibration,
-    _case_run,
-    _dataset,
-    _dataset_case,
-    _gate,
-    _run,
-    _score,
-    _suite,
-)
+from app.security.payload_crypto import TaskPayloadConfigurationError, decrypt_payload
 from evaluation.builtins import (
     BuiltinEvaluationAgent,
     get_builtin_agent,
@@ -1351,24 +1350,6 @@ class EvaluationUseCases:
         """抛出不会泄露资源是否属于其他用户的 404。"""
 
         raise EvaluationUseCaseError(message, status_code=404)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 def _weighted_ratio(

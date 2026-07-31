@@ -1,4 +1,8 @@
 from app.db.repositories.interview.archive_mapper import build_archived_turns
+from app.db.repositories.interview.question_archive_repo import (
+    should_persist_plan_question,
+)
+from app.domain.interview_rounds import SYSTEM_FALLBACK_QUESTION_SOURCE_TYPE
 
 
 def test_build_archived_turns_separates_main_question_and_followup():
@@ -26,3 +30,15 @@ def test_build_archived_turns_falls_back_to_plan_question():
 
     assert len(turns) == 1
     assert turns[0].asked_question == "什么是事务隔离级别？"
+
+
+def test_system_fallback_question_is_not_persisted_to_question_bank():
+    """系统兜底题的作答可以归档，但题目本身不得写回个人题库。"""
+    assert should_persist_plan_question({
+        "content": "请做一个简短的自我介绍。",
+        "source_type": SYSTEM_FALLBACK_QUESTION_SOURCE_TYPE,
+    }) is False
+    assert should_persist_plan_question({
+        "content": "请说明你在项目中的技术选型。",
+        "source_type": "interview_session",
+    }) is True

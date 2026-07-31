@@ -20,6 +20,13 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+def _env_non_negative_int(name: str, default: int) -> int:
+    """Read an integer option where zero is a valid value, such as retry count."""
+
+    try:
+        return max(0, int(os.getenv(name, str(default))))
+    except ValueError:
+        return default
 
 
 def _env_float_optional(name: str) -> float | None:
@@ -33,6 +40,11 @@ def _env_float_optional(name: str) -> float | None:
         return None
 
 
+def _env_float(name: str, default: float) -> float:
+    """Read a float environment variable with a safe fallback for best-effort knobs."""
+
+    value = _env_float_optional(name)
+    return default if value is None else value
 
 
 @dataclass(frozen=True)
@@ -48,6 +60,8 @@ class LangfuseConfig:
     prompt_management_enabled: bool = False
     prompt_label: str | None = "production"
     prompt_cache_ttl_seconds: int = 300
+    prompt_fetch_timeout_seconds: float = 0.05
+    prompt_max_retries: int = 0
 
     @classmethod
     def from_env(cls) -> "LangfuseConfig":
@@ -64,4 +78,9 @@ class LangfuseConfig:
             prompt_management_enabled=_env_bool("LANGFUSE_PROMPT_MANAGEMENT_ENABLED"),
             prompt_label=prompt_label,
             prompt_cache_ttl_seconds=_env_int("LANGFUSE_PROMPT_CACHE_TTL_SECONDS", 300),
+            prompt_fetch_timeout_seconds=max(
+                0.01,
+                _env_float("LANGFUSE_PROMPT_FETCH_TIMEOUT_SECONDS", 0.05),
+            ),
+            prompt_max_retries=min(4, _env_non_negative_int("LANGFUSE_PROMPT_MAX_RETRIES", 0)),
         )

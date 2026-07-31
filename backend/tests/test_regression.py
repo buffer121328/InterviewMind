@@ -5,10 +5,7 @@
 使用 mock LLM，不调用真实 API。
 """
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-from langchain_core.messages import HumanMessage, AIMessage
-
+from langchain_core.messages import AIMessage, HumanMessage
 
 # ============================================================================
 # 面试图路由逻辑回归测试
@@ -81,8 +78,7 @@ class TestInterviewGraphRoute:
 
     def test_route_after_responder_continue(self):
         """题目未完时路由到 END（等待用户）"""
-        from ai.agents.interview.interview_graph import route_after_responder
-        from ai.agents.interview.interview_graph import END
+        from ai.agents.interview.interview_graph import END, route_after_responder
 
         state = {
             "interview_plan": [{"id": 1}, {"id": 2}, {"id": 3}],
@@ -200,8 +196,8 @@ class TestBuildPlannerPrompt:
             round_type="tech_initial",
         )
 
-        assert "岗位描述" in prompt
-        assert "候选人简历" in prompt
+        assert "【job_description】" in prompt
+        assert "【resume】" in prompt
         assert "3年Java经验" in prompt
         assert "Java高级工程师" in prompt
 
@@ -216,7 +212,8 @@ class TestBuildPlannerPrompt:
             previous_questions=["自我介绍", "项目经验"],
         )
 
-        assert "上一轮已问过的问题" in prompt
+        assert "【history】" in prompt
+        assert "prohibited_exact_questions" in prompt
         assert "自我介绍" in prompt
 
     def test_prompt_with_memory_context(self):
@@ -230,8 +227,9 @@ class TestBuildPlannerPrompt:
             memory_context="候选人偏好技术深度追问",
         )
 
-        assert "长期记忆" in prompt
-        assert "不要直接泄露记忆来源" in prompt
+        assert "【memory】" in prompt
+        assert "候选人偏好技术深度追问" in prompt
+        assert "记忆来源" in prompt
 
 
 # ============================================================================

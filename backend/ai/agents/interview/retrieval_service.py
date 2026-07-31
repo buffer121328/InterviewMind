@@ -3,8 +3,11 @@
 import logging
 from typing import Any, Dict, List, Optional
 
-from app.db.repositories.interview.retrieval_repo import RetrievalRepo, get_retrieval_repo
-from ai.agents.interview.interview_rag import rag_retrieve_for_interview
+from ai.agents.interview.interview_rag import run_rag_pipeline
+from app.db.repositories.interview.retrieval_repo import (
+    RetrievalRepo,
+    get_retrieval_repo,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +45,7 @@ class InterviewRetrievalService:
             limit: 返回数量上限。
         """
         try:
-            result = await rag_retrieve_for_interview(
+            rag_result = await run_rag_pipeline(
                 user_id=user_id,
                 job_description=job_description,
                 session_id=session_id,
@@ -51,11 +54,12 @@ class InterviewRetrievalService:
                 round_type=round_type,
                 api_config=api_config,
             )
+            result = rag_result.to_dict()
             logger.info(
                 "RAG 检索完成: user=%s mode=%s evidences=%s",
                 user_id,
                 result.get("retrieval_mode"),
-                len(result.get("rag_evidences", [])),
+                len(result.get("evidences", [])),
             )
             return result
         except Exception as exc:

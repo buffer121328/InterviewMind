@@ -2,8 +2,10 @@
 
 from dataclasses import dataclass
 
+from app.domain.interview_reports import build_interview_report_markdown
 from app.db.repositories.interview.weakness_report_repo import get_weakness_report_repo
 from app.db.repositories.session.session_repo import SessionRepo
+from app.schemas.session import SessionMarkdownReportResponse
 from app.schemas.schemas import ProfileGenerateRequest
 from ai.workflows.analysis.ability_service import get_ability_service
 
@@ -60,31 +62,44 @@ class InterviewReportUseCases:
             return {"success": False, "message": "尚未生成综合能力画像。请点击「生成画像」按钮。"}
         return {"success": True, "profile": result["profile"], "generated_at": result["updated_at"]}
 
-    async def get_session_profile(self, *, session_id: str, user_id: str) -> dict[str, object]:
-        """读取 session profile，并通过 owner 校验限制可见范围；资源不存在或状态不合法时返回稳定的业务结果或异常。
+    async def get_session_report(
+        self,
+        *,
+        session_id: str,
+        user_id: str,
+    ) -> SessionMarkdownReportResponse:
+        """Return one owner-scoped Markdown report assembled from both persisted artifacts.
 
-        Args:
-            session_id: 会话标识。
-            user_id: 当前用户标识。
+        The endpoint deliberately exposes neither the resume snapshot nor raw model
+        payloads. A report becomes downloadable only after both parts of the single
+        report-generation task have been persisted.
         """
         session = await self._session_repo.get_session(session_id, user_id=user_id)
         if not session:
             raise InterviewReportNotFound(message="会话不存在或无权访问")
         profile = await self._session_repo.get_profile(session_id, user_id=user_id)
-        if profile is None:
-            return {"success": False, "message": "画像生成中，请稍后刷新"}
-        return {"success": True, "profile": profile}
-
-    async def get_weakness_by_session(self, *, session_id: str, user_id: str) -> dict[str, object]:
-        """读取 weakness by session，并通过 owner 校验限制可见范围；资源不存在或状态不合法时返回稳定的业务结果或异常。
-
-        Args:
-            session_id: 会话标识。
-            user_id: 当前用户标识。
-        """
         report = await get_weakness_report_repo().get_report_by_session(session_id, user_id=user_id)
-        if not report:
-            return {"success": False, "message": "该会话暂无短板地图，请先生成"}
-        return {"success": True, "report": report}
+        if profile is None or report is None:
+            return SessionMarkdownReportResponse(
+                success=False,
+                session_id=session_id,
+                message="本场面试报告尚未生成或仍在生成中",
+            )
+        generated_at = str(report.get("updated_at") or profile.get("last_updated") or "")
+        markdown = build_interview_report_markdown(
+            title=session.title,
+            mode=session.metadata.mode,
+            round_index=session.metadata.round_index,
+            max_questions=session.metadata.max_questions,
+            profile=profile,
+            weakness_report=report,
+            generated_at=generated_at,
+        )
+        return SessionMarkdownReportResponse(
+            success=True,
+            session_id=session_id,
+            markdown=markdown,
+            generated_at=generated_at or None,
+        )
 
 interview_report_use_cases = InterviewReportUseCases()

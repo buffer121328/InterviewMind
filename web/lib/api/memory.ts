@@ -7,7 +7,8 @@
  * 1. 查看当前用户全部 mem0 记忆
  * 2. 搜索记忆（语义检索）
  * 3. 查看单条记忆的变更历史
- * 4. 删除单条 / 清空全部记忆
+ * 4. 用户主动添加 / 编辑记忆
+ * 5. 删除单条 / 清空全部记忆
  */
 
 import { apiRequest } from './config';
@@ -64,6 +65,12 @@ export interface MemoryDeleteResponse {
     memory_id?: string;
 }
 
+export interface MemoryWriteResponse {
+    success: boolean;
+    message: string;
+    memory_id?: string;
+}
+
 export interface MemoryDeleteAllRequest {
     confirm: boolean;
 }
@@ -76,6 +83,34 @@ export interface MemoryDeleteAllResponse {
 // ============================================================================
 // API 调用
 // ============================================================================
+
+/**
+ * 用户主动添加一条原始记忆；后端使用 infer=false，避免改写用户输入。
+ */
+export async function addMemory(
+    content: string,
+    apiConfig: ApiConfig,
+    memoryType?: string,
+): Promise<MemoryWriteResponse> {
+    return apiRequest<MemoryWriteResponse>('/api/memory', {
+        method: 'POST',
+        body: JSON.stringify({ content, memory_type: memoryType, api_config: apiConfig }),
+    });
+}
+
+/**
+ * 用户主动编辑一条记忆；后端会先验证记忆属于当前用户。
+ */
+export async function updateMemory(
+    memoryId: string,
+    content: string,
+    apiConfig: ApiConfig,
+): Promise<MemoryWriteResponse> {
+    return apiRequest<MemoryWriteResponse>(`/api/memory/${encodeURIComponent(memoryId)}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ content, api_config: apiConfig }),
+    });
+}
 
 /**
  * 获取当前用户全部记忆

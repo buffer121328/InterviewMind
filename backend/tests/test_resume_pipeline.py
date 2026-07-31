@@ -11,28 +11,22 @@
 from contextlib import asynccontextmanager
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-import ai.agents.resume.resume_orchestrator as orchestrator
 
+import ai.agents.resume.resume_orchestrator as orchestrator
+from ai.agents.resume.resume_fact_policy import (
+    REQUIRES_CONFIRMATION_KEYWORDS,
+    detect_keyword_stuffing,
+    validate_change_items,
+)
 from ai.agents.resume.resume_orchestrator import (
     PipelineState,
+    _calc_confidence,
     run_pipeline,
     stage1_jd_analysis,
     stage2_material_selection,
-    stage3_custom_rewrite,
-    stage4_assemble,
-    stage5_fact_check,
     stage5_quality_judge,
-    stage6_confirmation_prep,
-    _calc_confidence,
-)
-from ai.agents.resume.resume_fact_policy import (
-    validate_change_items,
-    detect_keyword_stuffing,
-    REQUIRES_CONFIRMATION_KEYWORDS,
 )
 from app.schemas.llm_outputs import ChangeItem
-
 
 # ============================================================================
 # 模拟数据
@@ -279,7 +273,7 @@ class TestFactCheck:
             MOCK_CHANGE_ITEMS,
             MOCK_RESUME,
             "优化后简历：主导架构迁移，QPS提升200%",
-            MOCK_JD,
+            jd_keywords=["Java", "微服务"],
         )
         assert result["overall_risk"] in ("low", "medium", "high")
         # 有 fact_inference 和夸大项
@@ -291,7 +285,7 @@ class TestFactCheck:
             safe_items,
             MOCK_RESUME,
             "优化后简历（仅润色）",
-            MOCK_JD,
+            jd_keywords=["Java", "微服务"],
         )
         assert result["overall_risk"] == "low"
         assert len(result["fact_inference_items"]) == 0
@@ -302,7 +296,7 @@ class TestFactCheck:
             [MOCK_CHANGE_ITEMS[3]],  # "QPS提升200%"
             MOCK_RESUME,
             "主导架构迁移，QPS提升200%，系统可用性99.99%",
-            MOCK_JD,
+            jd_keywords=["Java", "微服务"],
         )
         # 应该检测到夸大（原简历没有这些数据）
         assert len(result["exaggeration_items"]) > 0 or result["overall_risk"] != "low"
@@ -528,7 +522,6 @@ class TestConfirmationKeywords:
             "confidence": 0.8,
         }
         # 包含 "独立完成" 和 "从0到1" 两个高风险关键词
-        from ai.agents.resume.resume_orchestrator import stage6_confirmation_prep
         keywords_triggered = sum(
             1 for kw in REQUIRES_CONFIRMATION_KEYWORDS
             if kw in item["optimized_text"]

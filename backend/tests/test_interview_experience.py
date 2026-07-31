@@ -1,15 +1,19 @@
 """面经采集与题目抽取单元测试。"""
 
-import httpx
-import pytest
 from unittest.mock import AsyncMock
 
-from app.api import interview_experience as experience_api
-from app.schemas.interview_experience import ExperienceCollectRequest, ExperienceQuestionCandidate, ExperienceQuestionImportRequest
-from app.schemas.experience_provider import ExperienceDocument
+import httpx
+import pytest
+
 from ai.workflows.interview_experience.extractor import extract_questions
 from ai.workflows.interview_experience.providers import NowcoderProvider
-from ai.workflows.interview_experience.service import InterviewExperienceService
+from app.api import interview_experience as experience_api
+from app.schemas.experience_provider import ExperienceDocument
+from app.schemas.interview_experience import (
+    ExperienceCollectRequest,
+    ExperienceQuestionCandidate,
+    ExperienceQuestionImportRequest,
+)
 
 
 def test_extract_questions_deduplicates_and_classifies():
@@ -34,43 +38,6 @@ def test_extract_questions_deduplicates_and_classifies():
     assert questions[0]["target_skill"] == "Python"
     assert questions[1]["question_type"] == "system_design"
     assert questions[0]["source_type"] == "experience:nowcoder"
-
-
-@pytest.mark.asyncio
-async def test_xiaohongshu_requires_authorized_export():
-    service = InterviewExperienceService()
-
-    with pytest.raises(ValueError, match="用户授权导出"):
-        await service.collect(
-            source="xiaohongshu",
-            queries=["后端面经"],
-            max_pages=1,
-            exported_items=[],
-        )
-
-
-@pytest.mark.asyncio
-async def test_xiaohongshu_export_is_normalized_and_extracted():
-    service = InterviewExperienceService()
-
-    documents, questions = await service.collect(
-        source="xiaohongshu",
-        queries=["字节 后端"],
-        max_pages=1,
-        exported_items=[
-            {
-                "note_id": "note-1",
-                "title": "一面记录",
-                "desc": "1. Redis 为什么快？\n2. 讲讲你处理团队冲突的经历？",
-                "url": "https://www.xiaohongshu.com/explore/note-1",
-            }
-        ],
-    )
-
-    assert documents[0].source == "xiaohongshu"
-    assert documents[0].source_id == "note-1"
-    assert len(questions) == 2
-    assert questions[1]["question_type"] == "behavior"
 
 
 @pytest.mark.asyncio
@@ -124,18 +91,18 @@ async def test_collect_interview_experiences_uses_application_layer(monkeypatch)
         async def collect(self, **_kwargs):
             return [
                 ExperienceDocument(
-                    source="xiaohongshu",
-                    source_id="note-1",
+                    source="nowcoder",
+                    source_id="post-1",
                     title="后端面经",
                     query="后端",
                     content="Redis 为什么快？",
-                    url="https://example.test/note-1",
+                    url="https://example.test/post-1",
                 )
             ], [
                 {
                     "question_text": "Redis 为什么快？",
-                    "source_type": "experience:xiaohongshu",
-                    "source_id": "note-1",
+                    "source_type": "experience:nowcoder",
+                    "source_id": "post-1",
                 }
             ]
 
@@ -146,16 +113,16 @@ async def test_collect_interview_experiences_uses_application_layer(monkeypatch)
     )
 
     request = ExperienceCollectRequest(
-        source="xiaohongshu",
+        source="nowcoder",
         queries=["后端"],
-        exported_items=[{"note_id": "note-1", "title": "后端面经", "desc": "Redis 为什么快？"}],
+        exported_items=[],
     )
 
     response = await experience_api.collect_interview_experiences(request, "user-1")
 
-    assert response.experiences[0].source_id == "note-1"
+    assert response.experiences[0].source_id == "post-1"
     assert response.questions[0].question_text == "Redis 为什么快？"
-    assert response.questions[0].source_id == "note-1"
+    assert response.questions[0].source_id == "post-1"
 
 
 @pytest.mark.asyncio
@@ -168,9 +135,9 @@ async def test_import_experience_questions_keeps_source_trace(monkeypatch):
         questions=[
             ExperienceQuestionCandidate(
                 question_text="Redis 为什么快？",
-                tags=["来源:xiaohongshu"],
-                source_type="experience:xiaohongshu",
-                source_id="note-1",
+                tags=["来源:nowcoder"],
+                source_type="experience:nowcoder",
+                source_id="post-1",
             )
         ]
     )
@@ -180,5 +147,5 @@ async def test_import_experience_questions_keeps_source_trace(monkeypatch):
     assert response.success is True
     assert response.success_count == 1
     repo.create_item.assert_awaited_once()
-    assert repo.create_item.await_args.kwargs["source_id"] == "note-1"
-    assert repo.create_item.await_args.kwargs["source_type"] == "experience:xiaohongshu"
+    assert repo.create_item.await_args.kwargs["source_id"] == "post-1"
+    assert repo.create_item.await_args.kwargs["source_type"] == "experience:nowcoder"

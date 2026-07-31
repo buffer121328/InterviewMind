@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, type ComponentPropsWithoutRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import rehypeHighlight from 'rehype-highlight';
 import 'highlight.js/styles/atom-one-dark.css';
@@ -122,13 +122,11 @@ export function ChatMessage({ role, content, isStreaming, onEdit, onCancelEdit, 
                             {role === 'assistant' ? (
                                 <div className="prose prose-base dark:prose-invert break-words max-w-none text-base leading-7">
                                     <ReactMarkdown
-                                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                                        rehypePlugins={[rehypeHighlight as any]}
+                                        rehypePlugins={[rehypeHighlight]}
                                         components={{
                                             // 自定义 pre 标签（代码块容器）
-                                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
                                             /** Encapsulates pre; returns typed data or state and keeps side effects within the owning module boundary. */
-                                            pre({ children, ...props }: any) {
+                                            pre({ children, ...props }: ComponentPropsWithoutRef<'pre'>) {
                                                 return (
                                                     <pre className="bg-zinc-950 p-3 rounded-md my-2 overflow-x-auto text-xs text-white" {...props}>
                                                         {children}
@@ -136,11 +134,10 @@ export function ChatMessage({ role, content, isStreaming, onEdit, onCancelEdit, 
                                                 );
                                             },
                                             // 自定义 code 标签
-                                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
                                             /** Encapsulates code; returns typed data or state and keeps side effects within the owning module boundary. */
-                                            code({ inline, className, children, ...props }: any) {
+                                            code({ className, children, ...props }: ComponentPropsWithoutRef<'code'>) {
                                                 // 内联代码
-                                                if (inline) {
+                                                if (!className?.includes('language-')) {
                                                     return (
                                                         <code className="bg-muted px-1 py-0.5 rounded font-mono text-xs" {...props}>
                                                             {children}

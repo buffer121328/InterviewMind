@@ -15,6 +15,16 @@ from app.db.models.interview import (
 from app.db.models.session import MessageModel, SessionModel
 from app.db.repositories.interview.archive_mapper import build_archived_turns
 from app.db.repositories.interview.rag_index_repo import get_rag_index_repo
+from app.domain.interview_rounds import SYSTEM_FALLBACK_QUESTION_SOURCE_TYPE
+
+
+def should_persist_plan_question(plan_item: dict[str, Any]) -> bool:
+    """判断计划题是否允许沉淀到个人题库。
+
+    本地兜底题属于系统内置目录，可保留真实作答记录，但不得作为用户题库内容
+    重复写入。没有来源标记的历史计划维持原归档行为。
+    """
+    return plan_item.get("source_type") != SYSTEM_FALLBACK_QUESTION_SOURCE_TYPE
 
 
 class QuestionArchiveRepo:
@@ -59,11 +69,13 @@ class QuestionArchiveRepo:
                     continue
 
                 plan_item = plan[turn.question_index] if turn.question_index < len(plan) else {}
-                question = await self._get_or_create_question(
-                    db, user_id, session_id, turn.question_index, plan_item, turn.asked_question, now
-                )
+                question = None
+                if should_persist_plan_question(plan_item):
+                    question = await self._get_or_create_question(
+                        db, user_id, session_id, turn.question_index, plan_item, turn.asked_question, now
+                    )
                 followup_id = None
-                if turn.followup_order > 0:
+                if turn.followup_order > 0 and question is not None:
                     followup = (
                         await db.execute(
                             select(QuestionBankFollowupModel).where(
@@ -99,7 +111,7 @@ class QuestionArchiveRepo:
                         user_id=user_id,
                         session_id=session_id,
                         turn_key=turn.turn_key,
-                        question_id=question.id,
+                        question_id=question.id if question is not None else None,
                         followup_id=followup_id,
                         asked_question=turn.asked_question,
                         user_answer=turn.user_answer,
@@ -108,7 +120,7 @@ class QuestionArchiveRepo:
                         created_at=now,
                     )
                 )
-                if turn.followup_order == 0:
+                if turn.followup_order == 0 and question is not None:
                     question.usage_count = (question.usage_count or 0) + 1
                     question.updated_at = now
                 counts["attempts"] += 1
@@ -210,7 +222,8 @@ class QuestionArchiveRepo:
             source_id=archive_source_id,
             origin_session_id=session_id,
             question_text=str(plan_item.get("content") or asked_question),
-            reference_answer=plan_item.get("reference_answer") or plan_item.get("hint"),
+            # Interview prompts and coaching hints are not verified reference answers.
+            reference_answer=None,
             tags=tags,
             difficulty=str(plan_item.get("difficulty") or "medium"),
             target_skill=plan_item.get("target_skill") or plan_item.get("topic"),

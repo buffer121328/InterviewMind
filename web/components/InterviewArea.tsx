@@ -5,11 +5,10 @@ import { VoiceInterview } from "./VoiceInterview";
 import { DialogueReview } from "./DialogueReview";
 import { PreparingInterview } from "./interview/PreparingInterview";
 import { Button } from "./ui/button";
-import { SessionProfileDialog } from "./SessionProfileDialog";
+import { InterviewHistoryDetailDialog, INTERVIEW_CLOSING_MESSAGE } from "./InterviewHistoryDetailDialog";
 import { toast } from "sonner";
 import { getUserId } from "@/hooks/useUserIdentity";
 import { API_BASE_URL } from "@/lib/api/config";
-import { getRequestApiConfig } from "@/store/interviewFacade";
 import { QUESTION_COUNT_OPTIONS, defaultQuestionsForRoundIndex } from "@/lib/interview/questionDefaults";
 
 interface InterviewAreaProps {
@@ -31,9 +30,8 @@ export function InterviewArea({ children }: InterviewAreaProps) {
     const setInitializing = useInterviewStore((state) => state.setInitializing);
     const clearVoiceState = useInterviewStore((state) => state.clearVoiceState);
 
-    const [showSessionProfileDialog, setShowSessionProfileDialog] = useState(false);
+    const [showInterviewReportDialog, setShowInterviewReportDialog] = useState(false);
     const [iscloning, setIsCloning] = useState(false);
-    const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
     const [nextRoundQuestionOverride, setNextRoundQuestionOverride] = useState<number | null>(null);
 
     // 1. 如果处于语音模式
@@ -69,6 +67,23 @@ export function InterviewArea({ children }: InterviewAreaProps) {
         }));
 
         const isCompleted = currentSession.metadata.status === 'completed';
+        if (isCompleted) {
+            const closingTimestamp = [...formattedMessages].reverse().find(message => message.role === 'assistant')?.timestamp;
+            let lastUserIndex = -1;
+            for (let index = formattedMessages.length - 1; index >= 0; index -= 1) {
+                if (formattedMessages[index]?.role === 'user') {
+                    lastUserIndex = index;
+                    break;
+                }
+            }
+            formattedMessages.splice(lastUserIndex + 1);
+            formattedMessages.push({
+                role: 'assistant',
+                content: INTERVIEW_CLOSING_MESSAGE,
+                timestamp: closingTimestamp || currentSession.updated_at,
+                audio_url: undefined,
+            });
+        }
         const roundIndex = currentSession.metadata.round_index || 1;
 
         /** Handles next round; updates local UI state first and delegates server mutations through the approved API boundary. */
@@ -112,48 +127,10 @@ export function InterviewArea({ children }: InterviewAreaProps) {
             }
         };
 
-        /** Handles generate summary; updates local UI state first and delegates server mutations through the approved API boundary. */
-        const handleGenerateSummary = async () => {
-            if (isGeneratingSummary) return;
-            setIsGeneratingSummary(true);
-            const apiConfig = getRequestApiConfig();
-
-            try {
-                const response = await fetch(`${API_BASE_URL}/api/voice/summary`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-User-ID': getUserId() },
-                    body: JSON.stringify({
-                        session_id: currentSession.session_id,
-                        api_config: apiConfig
-                    })
-                });
-
-                if (!response.ok) throw new Error('生成总结失败');
-
-                const reader = response.body?.getReader();
-                if (!reader) throw new Error('无法读取流');
-
-                while (true) {
-                    const { done } = await reader.read();
-                    if (done) break;
-                }
-
-                await selectSession(currentSession.session_id);
-                toast.success('总结生成成功');
-            } catch (error) {
-                console.error(error);
-                toast.error('生成总结失败');
-            } finally {
-                setIsGeneratingSummary(false);
-            }
-        };
-
-        const hasSummary = formattedMessages.some(m => m.content.includes('【面试总结】'));
-
         return (
             <div className="flex-1 flex flex-col h-full overflow-hidden bg-slate-50/50">
                 <div className="p-8 overflow-y-auto flex-1 custom-scrollbar">
-                    <div className="max-w-3xl mx-auto space-y-8 pb-12">
+                    <div className="mx-auto max-w-5xl space-y-8 pb-12">
                         <div className="flex items-center justify-between border-b border-slate-200 pb-4">
                             <h2 className="text-xl font-bold text-slate-800 flex items-center gap-3">
                                 <div className="w-2.5 h-2.5 rounded-full bg-indigo-500 animate-pulse"></div>
@@ -187,25 +164,13 @@ export function InterviewArea({ children }: InterviewAreaProps) {
                                         )}
                                     </div>
                                     <div className="flex flex-wrap items-center gap-3">
-                                        {!hasSummary && (
-                                            <Button
-                                                variant="outline"
-                                                onClick={handleGenerateSummary}
-                                                disabled={isGeneratingSummary}
-                                                className="bg-white border-indigo-200 text-indigo-700 hover:bg-indigo-50 gap-2 shadow-sm h-10"
-                                            >
-                                                {isGeneratingSummary ? <Loader2 className="w-4 h-4 animate-spin" /> : <Award className="w-4 h-4 text-amber-500" />}
-                                                生成反馈总结
-                                            </Button>
-                                        )}
-
                                         <Button
                                             variant="outline"
-                                            onClick={() => setShowSessionProfileDialog(true)}
+                                            onClick={() => setShowInterviewReportDialog(true)}
                                             className="bg-white border-indigo-200 text-indigo-700 hover:bg-indigo-50 gap-2 shadow-sm h-10"
                                         >
                                             <Award className="w-4 h-4 text-pink-500" />
-                                            查看能力画像
+                                            查看本轮完整评估
                                         </Button>
 
                                         {roundIndex < 3 && (
@@ -275,11 +240,12 @@ export function InterviewArea({ children }: InterviewAreaProps) {
                     </div>
                 </div>
 
-                {showSessionProfileDialog && (
-                    <SessionProfileDialog
+                {showInterviewReportDialog && (
+                    <InterviewHistoryDetailDialog
                         sessionId={currentSession.session_id}
-                        open={showSessionProfileDialog}
-                        onOpenChange={setShowSessionProfileDialog}
+                        initialTab="report"
+                        open={showInterviewReportDialog}
+                        onOpenChange={setShowInterviewReportDialog}
                     />
                 )}
             </div>

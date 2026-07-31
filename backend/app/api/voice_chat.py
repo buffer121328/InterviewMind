@@ -4,10 +4,8 @@
 """
 
 import logging
-from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
 from app.schemas.voice import (
     VoiceStartRequest,
     VoiceChatRequest,
@@ -83,36 +81,3 @@ async def clone_voice_session(
     except Exception as exc:
         logger.error("[Voice] 克隆会话失败: %s", exc)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-
-class VoiceSummaryRequest(BaseModel):
-    """API 请求数据对象，定义 `VoiceSummary` 的字段校验和反序列化契约；只承载数据，不执行业务副作用。"""
-    session_id: str
-    api_config: dict[str, Any]
-
-
-@router.post("/summary")
-async def voice_summary_endpoint(
-    request: VoiceSummaryRequest,
-    user_id: str = Depends(get_current_user_id)
-):
-    """
-    生成语音面试总结（SSE 流式输出）
-
-    在面试完成后调用此接口生成面试反馈总结。
-    """
-    generator = voice_interview_use_cases.stream_summary(
-        session_id=request.session_id,
-        api_config=request.api_config,
-        user_id=user_id,
-    )
-
-    return StreamingResponse(
-        generator,
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no"
-        }
-    )

@@ -2,6 +2,9 @@
 
 from dataclasses import dataclass
 
+from ai.agents.resume.project_rewriter import rewrite_project
+from ai.runtime.deadlines import TaskDeadline
+from app.config import get_settings
 from app.db.repositories.resume.project_rewrite_repo import get_project_rewrite_repo
 from app.schemas.project_rewrite_schemas import (
     ProjectRewriteDetailResponse,
@@ -10,7 +13,6 @@ from app.schemas.project_rewrite_schemas import (
     ProjectRewriteRequest,
     ProjectRewriteResponse,
 )
-from ai.agents.resume.project_rewriter import rewrite_project
 
 VALID_REWRITE_MODES = ["star_rewrite", "quantify_results", "jd_customize", "followup_prediction"]
 
@@ -56,6 +58,7 @@ class ProjectRewriteUseCases:
                 rewrite_mode=request.rewrite_mode,
                 job_description=request.job_description,
                 api_config=request.api_config.model_dump() if request.api_config else None,
+                deadline=TaskDeadline(get_settings().llm_task_timeout_seconds),
             )
         except ValueError as exc:
             raise ProjectRewriteBadRequest(message=str(exc)) from exc

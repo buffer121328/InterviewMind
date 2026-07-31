@@ -5,14 +5,14 @@ import pytest
 
 @pytest.mark.asyncio
 async def test_redis_rate_limit_keys_do_not_expose_user_id():
-    from integrations.boss.rate_limiter import RedisRateLimitStore, RateLimitType
+    from integrations.browser_automation.rate_limiter import RedisRateLimitStore, RateLimitType
 
     store = object.__new__(RedisRateLimitStore)
     store._client = AsyncMock()
     store._client.eval.return_value = [1, 1]
 
     allowed, _ = await store.check_rate(
-        "private-user@example.com", RateLimitType.SEND, record=True
+        "private-user@example.com", RateLimitType.BOSS_CAPTURE, record=True
     )
 
     assert allowed
@@ -23,57 +23,17 @@ async def test_redis_rate_limit_keys_do_not_expose_user_id():
 
 @pytest.mark.asyncio
 async def test_redis_rate_limit_failure_is_fail_closed():
-    from integrations.boss import rate_limiter
+    from integrations.browser_automation import rate_limiter
 
     store = AsyncMock()
     store.check_rate.side_effect = ConnectionError("redis unavailable")
     with patch.object(rate_limiter, "_redis_store", store):
         allowed, message = await rate_limiter.check_rate(
-            "user-1", rate_limiter.RateLimitType.SEND
+            "user-1", rate_limiter.RateLimitType.BOSS_CAPTURE
         )
 
     assert not allowed
     assert "安全暂停" in message
-
-
-@pytest.mark.asyncio
-async def test_application_audit_does_not_persist_full_greeting():
-    from ai.workflows.jobs_support.boss_apply_service import _save_application_record
-
-    application_repo = AsyncMock()
-    application_repo.create_application.return_value.id = 42
-    event_repo = AsyncMock()
-    greeting = "您好，我对该岗位非常感兴趣，期待沟通"
-
-    with (
-        patch(
-            "app.db.repositories.application.job_application_repo.job_application_repo",
-            application_repo,
-        ),
-        patch(
-            "app.db.repositories.application.application_event_repo.application_event_repo",
-            event_repo,
-        ),
-    ):
-        await _save_application_record(
-            user_id="user-1",
-            job={
-                "company_name": "示例公司",
-                "job_title": "Python 工程师",
-                "source_url": "https://www.zhipin.com/job_detail/1.html",
-            },
-            greeting_text=greeting,
-            resume_id=1,
-            send_status="sent",
-            steps=[],
-        )
-
-    create_request = application_repo.create_application.await_args.args[1]
-    event_request = event_repo.add_event.await_args.kwargs["request"]
-    assert greeting not in create_request.notes
-    assert "greeting_used" not in event_request.event_data
-    assert event_request.event_data["greeting_length"] == len(greeting)
-    assert len(event_request.event_data["greeting_digest"]) == 64
 
 
 @pytest.mark.asyncio
@@ -142,8 +102,20 @@ async def test_resume_generation_submit_and_status_are_user_scoped(monkeypatch):
         status_calls.append((session_id, user_id))
         return {"status": "awaiting_input"}
 
+    async def create_inline_or_get(_self, **_kwargs):
+        return SimpleNamespace(id="run-1", status="running"), True
+
+    async def succeed(_self, _run_id, _result):
+        return None
+
     monkeypatch.setattr(resume_generation, "submit_user_answers", fake_submit)
     monkeypatch.setattr(resume_generation, "get_session_status", fake_status)
+    monkeypatch.setattr(
+        resume_generation.AgentRunService,
+        "create_inline_or_get",
+        create_inline_or_get,
+    )
+    monkeypatch.setattr(resume_generation.AgentRunService, "succeed", succeed)
     request = SimpleNamespace(
         session_id="session-1",
         answers={"问题": "回答"},

@@ -1,7 +1,7 @@
-import type { AgentRun, AgentRunTaskType } from './api/agentRunTypes.ts';
+import type { AgentRun, AgentRunStatus, AgentRunTaskType } from './api/agentRunTypes.ts';
 
 /** User-facing task categories that intentionally hide AgentRun's implementation-level task types. */
-export type AgentRunCategory = 'text-interview' | 'voice-interview' | 'resume-optimization' | 'job-delivery';
+export type AgentRunCategory = 'text-interview' | 'voice-interview' | 'resume-optimization' | 'job-delivery' | 'experience-collection';
 
 /** Supplies the stable category values and labels accepted by Run Center's user-facing filter. */
 export const AGENT_RUN_CATEGORIES: ReadonlyArray<{ value: AgentRunCategory; label: string }> = [
@@ -9,13 +9,15 @@ export const AGENT_RUN_CATEGORIES: ReadonlyArray<{ value: AgentRunCategory; labe
     { value: 'voice-interview', label: '语音面试' },
     { value: 'resume-optimization', label: '简历优化' },
     { value: 'job-delivery', label: '岗位投递' },
+    { value: 'experience-collection', label: '面经采集' },
 ];
 
 /** Maps every supported backend task type to the product category shown to users. */
 export function getAgentRunCategory(taskType: AgentRunTaskType): AgentRunCategory {
     if (taskType === 'voice_interview_turn') return 'voice-interview';
     if (taskType === 'resume_optimize' || taskType === 'resume_workspace' || taskType === 'resume_generation') return 'resume-optimization';
-    if (taskType === 'job_assets') return 'job-delivery';
+    if (taskType === 'job_assets' || taskType === 'job_recommendation_capture') return 'job-delivery';
+    if (taskType === 'interview_experience_collect') return 'experience-collection';
     return 'text-interview';
 }
 
@@ -36,10 +38,21 @@ const GENERIC_STATUS_LABELS: Record<AgentRun['status'], string> = {
 
 /** Describes completion of one AgentRun without implying that its linked interview has ended. */
 export function getAgentRunStatusLabel(run: AgentRun): string {
+    if (run.task_type === 'job_recommendation_capture' && run.status === 'running') {
+        if (run.stage === 'validating_import') return '校验当前页导入';
+        if (run.stage === 'extracting_jobs') return '确认岗位卡片';
+        if (run.stage === 'ranking_jobs') return '匹配排序中';
+        if (run.stage === 'saving_jobs') return '保存岗位中';
+        if (run.stage === 'scheduling_assets') return '创建资产任务';
+        // Historical runs may still carry browser-era stages after the workflow upgrade.
+        if (run.stage === 'awaiting_login') return '等待用户扫码登录';
+        if (run.stage === 'awaiting_manual_verification') return '等待用户手动完成验证';
+    }
     if (run.status !== 'succeeded') return GENERIC_STATUS_LABELS[run.status];
     if (run.task_type === 'interview_start') return '首题已生成';
     if (run.task_type === 'interview_turn' || run.task_type === 'voice_interview_turn') return '本次回复已生成';
     if (run.task_type === 'interview_report') return '报告已生成';
+    if (run.task_type === 'interview_experience_collect') return '采集完成';
     return GENERIC_STATUS_LABELS.succeeded;
 }
 
@@ -49,6 +62,11 @@ export function getAgentRunGroupStatusLabel(category: AgentRunCategory, status: 
         return '生成任务已结束';
     }
     return GENERIC_STATUS_LABELS[status];
+}
+
+/** Returns the newest AgentRun status from a list sorted by descending creation time. */
+export function latestAgentRunStatus(runs: AgentRun[]): AgentRunStatus | null {
+    return runs[0]?.status || null;
 }
 
 function boundedQuestionProgress(run: AgentRun): { count: number; max: number } | null {
@@ -91,46 +109,47 @@ export interface AgentRunDisplayGroup {
     runs: AgentRun[];
 }
 
-/** Classifies a run's update time into local calendar buckets so nearby timestamps remain intuitive to the user. */
-function getDateLabel(updatedAt: string, now: Date): AgentRunDisplayGroup['dateLabel'] {
-    const updated = new Date(updatedAt);
-    if (Number.isNaN(updated.getTime())) return '更早';
+/** Classifies a run's creation time into local calendar buckets used by the task history. */
+function getDateLabel(createdAt: string, now: Date): AgentRunDisplayGroup['dateLabel'] {
+    const created = new Date(createdAt);
+    if (Number.isNaN(created.getTime())) return '更早';
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-    const updatedStart = new Date(updated.getFullYear(), updated.getMonth(), updated.getDate()).getTime();
-    const elapsedDays = Math.floor((todayStart - updatedStart) / 86_400_000);
+    const createdStart = new Date(created.getFullYear(), created.getMonth(), created.getDate()).getTime();
+    const elapsedDays = Math.floor((todayStart - createdStart) / 86_400_000);
     if (elapsedDays <= 0) return '今天';
     if (elapsedDays === 1) return '昨天';
     if (elapsedDays <= 7) return '过去7天';
     return '更早';
 }
 
-/** Sorts display groups in the fixed user-category and recency order used by the Run Center. */
+/** Sorts display groups by their newest task creation time, with stable keys for exact ties. */
 function compareDisplayGroups(left: AgentRunDisplayGroup, right: AgentRunDisplayGroup): number {
-    const categoryOrder: Record<AgentRunCategory, number> = {
-        'text-interview': 0,
-        'voice-interview': 1,
-        'resume-optimization': 2,
-        'job-delivery': 3,
-    };
-    const dateOrder: Record<AgentRunDisplayGroup['dateLabel'], number> = { 今天: 0, 昨天: 1, 过去7天: 2, 更早: 3 };
-    return categoryOrder[left.category] - categoryOrder[right.category]
-        || dateOrder[left.dateLabel] - dateOrder[right.dateLabel];
+    const leftCreatedAt = Date.parse(left.runs[0]?.created_at || '');
+    const rightCreatedAt = Date.parse(right.runs[0]?.created_at || '');
+    const leftTime = Number.isNaN(leftCreatedAt) ? Number.NEGATIVE_INFINITY : leftCreatedAt;
+    const rightTime = Number.isNaN(rightCreatedAt) ? Number.NEGATIVE_INFINITY : rightCreatedAt;
+    return rightTime - leftTime || left.key.localeCompare(right.key);
 }
 
-/** Flattens server groups into user-category-and-date sections while retaining every run for filters and SSE updates. */
+/** Flattens server groups into sections ordered globally and internally by newest creation time. */
 export function groupAgentRunsForDisplay(serverGroups: Array<{ runs: AgentRun[] }>, now = new Date()): AgentRunDisplayGroup[] {
     const groups = new Map<string, AgentRunDisplayGroup>();
     for (const serverGroup of serverGroups) {
         for (const run of serverGroup.runs) {
             const category = getAgentRunCategory(run.task_type);
-            const dateLabel = getDateLabel(run.updated_at, now);
+            const dateLabel = getDateLabel(run.created_at, now);
             const key = `${category}:${dateLabel}`;
             const group = groups.get(key);
             if (group) group.runs.push(run);
             else groups.set(key, { key, category, categoryLabel: getAgentRunCategoryLabel(category), dateLabel, runs: [run] });
         }
     }
-    for (const group of groups.values()) group.runs.sort((left, right) => right.updated_at.localeCompare(left.updated_at));
+    for (const group of groups.values()) {
+        group.runs.sort((left, right) => (
+            right.created_at.localeCompare(left.created_at)
+            || right.run_id.localeCompare(left.run_id)
+        ));
+    }
     return [...groups.values()].sort(compareDisplayGroups);
 }
 

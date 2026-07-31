@@ -1,7 +1,4 @@
-"""面经来源适配器。
-
-牛客仅访问固定平台接口；小红书只解析用户授权导出的内容，不接收或保存 Cookie。
-"""
+"""面经来源适配器；牛客仅访问固定平台接口或解析用户显式导入的内容。"""
 
 import asyncio
 import html
@@ -28,7 +25,7 @@ def _plain_text(value: str) -> str:
 
 
 class ExportedContentProvider:
-    """解析平台导出的 JSON；适用于小红书及后续新增来源。"""
+    """解析用户显式导入的面经 JSON，不读取浏览器凭据或任意外部 URL。"""
 
     def __init__(self, source: str):
         """初始化 `ExportedContentProvider` 的依赖和运行配置；构造阶段不执行业务写入，外部客户端仅在后续方法调用时承担对应的访问边界。
@@ -59,7 +56,7 @@ class ExportedContentProvider:
             content = _plain_text(str(item.get("content") or item.get("desc") or ""))
             if not content:
                 continue
-            source_id = str(item.get("id") or item.get("note_id") or f"export-{index + 1}")
+            source_id = str(item.get("id") or f"export-{index + 1}")
             documents.append(
                 ExperienceDocument(
                     source=self.source,

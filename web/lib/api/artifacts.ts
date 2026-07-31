@@ -1,7 +1,7 @@
 import { buildApiUrl, getUserId } from './config';
 
 /** Supported persisted report sources that can be privately exported by the backend. */
-export type ArtifactSourceType = 'generated_resume' | 'agent_run' | 'resume_result' | 'jd_analysis' | 'weakness_report';
+export type ArtifactSourceType = 'generated_resume' | 'agent_run' | 'resume_result' | 'jd_analysis' | 'weakness_report' | 'interview_report';
 /** Formats rendered on the server and stored in the private Docker volume. */
 export type ArtifactFormat = 'html' | 'pdf';
 

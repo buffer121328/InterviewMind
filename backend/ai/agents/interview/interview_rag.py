@@ -4,14 +4,22 @@
 """
 
 import asyncio
+import hashlib
 import logging
 import os
 from collections import Counter
 from dataclasses import replace
 from time import perf_counter
-from typing import List, Optional, Dict, Any
+from typing import Any, Dict, List, Optional
 
-from ai.agents.interview.interview_rag_models import RagEvidence, RagResult, RetrievalQuery
+from ai.agents.interview.interview_rag_models import (
+    RagEvidence,
+    RagResult,
+    RetrievalQuery,
+)
+from app.config import get_settings
+from observability import record_external_io_event
+from observability.runtime_events import ExternalIOObservationEvent, new_runtime_event_id
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +27,12 @@ logger = logging.getLogger(__name__)
 def _dedupe_preserve_order(values: List[str]) -> List[str]:
     """去重并保留来源优先级顺序。"""
     return list(dict.fromkeys(values))
+
+
+def _query_fingerprint(text: str) -> str:
+    """生成不可逆 query 指纹，供 RAG 观测对齐而不暴露原始查询。"""
+
+    return "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def _bounded_int_env(name: str, default: int, minimum: int, maximum: int) -> int:
@@ -273,9 +287,63 @@ async def _retrieve_queries(
     from ai.rag.embedding_service import generate_embedding
 
     all_evidences: List[RagEvidence] = []
+
+    async def timed_database_call(
+        awaitable: Any,
+        *,
+        timeout: float | None = None,
+        operation: str,
+        query_fingerprint: str | None = None,
+    ) -> Any:
+        """记录一次 RAG 仓储 IO；只保留调用 ID、指纹、计数、耗时和错误分类。"""
+        started_at = perf_counter()
+        call_id = new_runtime_event_id("rag_io")
+        record_external_io_event(
+            ExternalIOObservationEvent(
+                event_type="external_io.started",
+                operation=operation,
+                status="started",
+                call_id=call_id,
+                dependency="rag_repository",
+                query_fingerprint=query_fingerprint,
+            )
+        )
+        try:
+            result = await asyncio.wait_for(awaitable, timeout=timeout) if timeout else await awaitable
+            record_external_io_event(
+                ExternalIOObservationEvent(
+                    event_type="external_io.completed",
+                    operation=operation,
+                    status="completed",
+                    call_id=call_id,
+                    dependency="rag_repository",
+                    duration_ms=max(0, int((perf_counter() - started_at) * 1000)),
+                    result_count=len(result) if isinstance(result, list) else None,
+                    query_fingerprint=query_fingerprint,
+                )
+            )
+            return result
+        except Exception as exc:
+            record_external_io_event(
+                ExternalIOObservationEvent(
+                    event_type="external_io.failed",
+                    operation=operation,
+                    status="failed",
+                    call_id=call_id,
+                    dependency="rag_repository",
+                    duration_ms=max(0, int((perf_counter() - started_at) * 1000)),
+                    error_type=type(exc).__name__,
+                    error_category=(
+                        "external_io_timeout" if isinstance(exc, TimeoutError) else "external_io_error"
+                    ),
+                    query_fingerprint=query_fingerprint,
+                )
+            )
+            raise
+
     for q in queries:
         try:
-            structured = await repo.search_structured(
+            structured = await timed_database_call(repo.search_structured(
                 user_id=user_id,
                 namespace="user_private",
                 source_types=q.source_types,
@@ -283,6 +351,8 @@ async def _retrieve_queries(
                 target_skill=q.target_skills[0] if q.target_skills else None,
                 is_verified=q.is_verified,
                 limit=10,
+            ), operation="rag.search_structured",
+                query_fingerprint="sha256:" + hashlib.sha256(q.text.encode("utf-8")).hexdigest(),
             )
             for item in structured:
                 all_evidences.append(RagEvidence(
@@ -298,12 +368,14 @@ async def _retrieve_queries(
 
         if q.text and len(q.text.strip()) > 10:
             try:
-                text_results = await repo.search_by_text(
+                text_results = await timed_database_call(repo.search_by_text(
                     user_id=user_id,
                     namespace="user_private",
                     query=q.text[:200],
                     source_types=q.source_types,
                     limit=8,
+                ), operation="rag.search_text",
+                    query_fingerprint="sha256:" + hashlib.sha256(q.text.encode("utf-8")).hexdigest(),
                 )
                 for item in text_results:
                     all_evidences.append(RagEvidence(
@@ -320,13 +392,18 @@ async def _retrieve_queries(
         if VECTOR_ENABLED and q.text and len(q.text.strip()) > 10:
             try:
                 query_embedding = await generate_embedding(q.text[:300], api_config=api_config)
-                vector_results = await repo.search_by_vector(
-                    user_id=user_id,
-                    namespace="user_private",
-                    query_embedding=query_embedding,
-                    source_types=q.source_types,
-                    limit=8,
-                    min_score=0.3,
+                vector_results = await timed_database_call(
+                    repo.search_by_vector(
+                        user_id=user_id,
+                        namespace="user_private",
+                        query_embedding=query_embedding,
+                        source_types=q.source_types,
+                        limit=8,
+                        min_score=0.3,
+                    ),
+                    timeout=get_settings().vector_search_timeout_seconds,
+                    operation="rag.search_vector",
+                    query_fingerprint="sha256:" + hashlib.sha256(q.text.encode("utf-8")).hexdigest(),
                 )
                 for item in vector_results:
                     all_evidences.append(RagEvidence(
@@ -449,6 +526,59 @@ def _build_retrieval_trace(
     }
 
 
+def _record_rag_pipeline_started(*, call_id: str, query_fingerprint: str) -> None:
+    """记录 RAG pipeline 开始事件；不包含 query、JD、简历或证据正文。"""
+
+    record_external_io_event(
+        ExternalIOObservationEvent(
+            event_type="external_io.started",
+            operation="rag.retrieve",
+            status="started",
+            call_id=call_id,
+            dependency="rag_pipeline",
+            query_fingerprint=query_fingerprint,
+        )
+    )
+
+
+def _finalize_rag_pipeline_observation(
+    *,
+    call_id: str,
+    query_fingerprint: str,
+    trace: Dict[str, Any],
+    result_count: int,
+    adopted: bool,
+    strategy: str,
+    agentic_error_type: str | None,
+) -> None:
+    """记录带采用判断的 RAG 终态，并把安全关联字段写回 trace。"""
+
+    trace.update({
+        "retrieval_strategy": strategy,
+        "retrieval_adopted": adopted,
+        "runtime_call_id": call_id,
+        "query_fingerprint": query_fingerprint,
+    })
+    record_external_io_event(
+        ExternalIOObservationEvent(
+            event_type="external_io.completed",
+            operation="rag.retrieve",
+            status="completed",
+            call_id=call_id,
+            dependency="rag_pipeline",
+            duration_ms=int(trace["duration_ms"]),
+            item_count=int(trace["total_candidates"]),
+            result_count=result_count,
+            degraded=bool(agentic_error_type),
+            error_type=agentic_error_type,
+            error_category="rag_agentic_failure" if agentic_error_type else None,
+            query_fingerprint=query_fingerprint,
+            adopted=adopted,
+            strategy=strategy,
+        )
+    )
+
+
 # ── RAG 编排主流程 ────────────────────────────────────────
 
 
@@ -488,6 +618,12 @@ async def run_rag_pipeline(
         round_type=round_type,
     )
     primary_query = queries[0] if queries else RetrievalQuery()
+    retrieval_call_id = new_runtime_event_id("rag_retrieve")
+    retrieval_query_fingerprint = _query_fingerprint(primary_query.text)
+    _record_rag_pipeline_started(
+        call_id=retrieval_call_id,
+        query_fingerprint=retrieval_query_fingerprint,
+    )
 
     logger.info(f"[RAG] user={user_id}, queries={len(queries)}, vector={VECTOR_ENABLED}")
 
@@ -615,7 +751,6 @@ async def run_rag_pipeline(
         final_issues=final_issues,
         agentic_error_type=agentic_error_type,
     )
-
     # Step 5: Fact Guard
     guard_result = fact_guard(reranked, user_id)
 
@@ -623,6 +758,15 @@ async def run_rag_pipeline(
     if not guard_result["passed"]:
         fallback_reason = "; ".join(guard_result["issues"])
         logger.info(f"[RAG] fact_guard 未通过: {fallback_reason}")
+        _finalize_rag_pipeline_observation(
+            call_id=retrieval_call_id,
+            query_fingerprint=retrieval_query_fingerprint,
+            trace=trace,
+            result_count=0,
+            adopted=False,
+            strategy="fallback",
+            agentic_error_type=agentic_error_type,
+        )
         return RagResult(
             retrieval_mode="fallback",
             fallback_reason=fallback_reason,
@@ -633,6 +777,15 @@ async def run_rag_pipeline(
         )
 
     if not reranked:
+        _finalize_rag_pipeline_observation(
+            call_id=retrieval_call_id,
+            query_fingerprint=retrieval_query_fingerprint,
+            trace=trace,
+            result_count=0,
+            adopted=False,
+            strategy="fallback",
+            agentic_error_type=agentic_error_type,
+        )
         return RagResult(
             retrieval_mode="fallback",
             fallback_reason="no_evidence_found",
@@ -650,6 +803,15 @@ async def run_rag_pipeline(
         f"[RAG] 完成: mode={mode}, evidences={len(reranked)}, "
         f"candidates={len(all_evidences)}"
     )
+    _finalize_rag_pipeline_observation(
+        call_id=retrieval_call_id,
+        query_fingerprint=retrieval_query_fingerprint,
+        trace=trace,
+        result_count=len(reranked),
+        adopted=True,
+        strategy=mode,
+        agentic_error_type=agentic_error_type,
+    )
 
     return RagResult(
         retrieval_mode=mode,
@@ -659,34 +821,3 @@ async def run_rag_pipeline(
         total_candidates=len(all_evidences),
         retrieval_trace=trace,
     )
-
-
-# ── 便捷入口（供 interview_graph 调用）────────────────────
-
-
-async def rag_retrieve_for_interview(
-    user_id: str,
-    job_description: str,
-    resume: str = "",
-    session_id: Optional[str] = None,
-    weakness_report: Optional[Dict] = None,
-    target_skills: Optional[List[str]] = None,
-    round_type: str = "tech_initial",
-    api_config: Optional[dict] = None,
-) -> Dict[str, Any]:
-    """
-    面试场景 RAG 检索入口
-
-    返回旧格式 dict（兼容 interview_planner）+ rag_evidences 新字段
-    """
-    result = await run_rag_pipeline(
-        user_id=user_id,
-        job_description=job_description,
-        resume=resume,
-        session_id=session_id,
-        weakness_report=weakness_report,
-        target_skills=target_skills,
-        round_type=round_type,
-        api_config=api_config,
-    )
-    return result.to_legacy_context()

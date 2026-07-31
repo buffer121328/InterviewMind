@@ -18,7 +18,7 @@ export function InterviewProgressBar({ progress, messageCount, onSwitchToVoice }
 
     return (
         <div className="sticky top-0 z-10 border-b border-gray-100 bg-white/80 backdrop-blur-sm">
-            <div className="mx-auto max-w-3xl px-6 py-3">
+            <div className="mx-auto max-w-5xl px-6 py-3">
                 <div className="flex items-center justify-between text-sm">
                     <div className="flex items-center gap-2">
                         <div className="flex items-center gap-1.5">

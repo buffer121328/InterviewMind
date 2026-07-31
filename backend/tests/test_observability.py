@@ -46,6 +46,8 @@ def reset_observability(monkeypatch):
         "LANGFUSE_PROMPT_MANAGEMENT_ENABLED",
         "LANGFUSE_PROMPT_LABEL",
         "LANGFUSE_PROMPT_CACHE_TTL_SECONDS",
+        "LANGFUSE_PROMPT_FETCH_TIMEOUT_SECONDS",
+        "LANGFUSE_PROMPT_MAX_RETRIES",
     ):
         monkeypatch.delenv(key, raising=False)
     observability._reset_langfuse_for_tests()
@@ -565,6 +567,8 @@ def test_managed_prompt_uses_langfuse_with_local_fallback(monkeypatch):
     assert client.prompt_calls[0][0] == "interview.planner"
     assert client.prompt_calls[0][1]["label"] == "production"
     assert "fallback" in client.prompt_calls[0][1]
+    assert client.prompt_calls[0][1]["max_retries"] == 0
+    assert client.prompt_calls[0][1]["fetch_timeout_seconds"] == pytest.approx(0.05)
 
 
 def test_managed_prompt_is_opt_in_and_defaults_to_local(monkeypatch):

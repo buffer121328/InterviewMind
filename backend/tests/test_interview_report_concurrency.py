@@ -1,6 +1,6 @@
-"""Regression tests for interview-report latency and orchestration."""
+"""Regression tests for single-call interview-report orchestration."""
 
-import asyncio
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -8,43 +8,24 @@ from ai.workflows.interview import completion
 
 
 @pytest.mark.asyncio
-async def test_session_profile_and_weakness_start_concurrently(monkeypatch):
-    """The two session report model calls overlap instead of adding their latencies."""
-    started: set[str] = set()
-    both_started = asyncio.Event()
-    release = asyncio.Event()
-
-    async def fake_report(name, *_args, **_kwargs):
-        started.add(name)
-        if len(started) == 2:
-            both_started.set()
-        await release.wait()
-
-    async def fake_weakness(*_args, **_kwargs):
-        await fake_report("weakness")
-
-    async def fake_profile(*_args, **_kwargs):
-        await fake_report("profile")
-
+async def test_session_profile_and_weakness_share_one_analysis_call(monkeypatch):
+    """The report workflow invokes the combined analysis boundary exactly once."""
+    trigger = AsyncMock()
     monkeypatch.setattr(
-        "ai.agents.interview.interview_analysis.trigger_weakness_analysis",
-        fake_weakness,
-    )
-    monkeypatch.setattr(
-        "ai.agents.interview.interview_analysis.trigger_background_analysis",
-        fake_profile,
+        "ai.agents.interview.interview_analysis.trigger_session_report_analysis",
+        trigger,
     )
 
-    task = asyncio.create_task(
-        completion.generate_session_reports(
-            session_id="session-1",
-            user_id="user-1",
-            api_config={"smart": {"model": "demo"}},
-            raise_on_error=True,
-        )
+    await completion.generate_session_reports(
+        session_id="session-1",
+        user_id="user-1",
+        api_config={"smart": {"model": "demo"}},
+        raise_on_error=True,
     )
-    await asyncio.wait_for(both_started.wait(), timeout=1)
-    release.set()
 
-    assert await task is None
-    assert started == {"weakness", "profile"}
+    trigger.assert_awaited_once_with(
+        "session-1",
+        {"smart": {"model": "demo"}},
+        user_id="user-1",
+        raise_on_error=True,
+    )

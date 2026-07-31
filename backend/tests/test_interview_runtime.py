@@ -20,6 +20,7 @@ from app.schemas.interview import (
     EvaluatingOutput,
 )
 from ai.agents.interview.interview_runtime import InterviewRuntime, memo_hint
+from app.domain.interview_rounds import INTERVIEW_CLOSING_MESSAGE
 
 
 # ============================================================================
@@ -234,6 +235,7 @@ class TestInterviewRuntimeStateMachine:
 
         assert result["current_question_index"] == 3  # 标记为完成
         assert runtime.phase == InterviewPhase.END_ROUND
+        assert result["messages"][0]["content"] == INTERVIEW_CLOSING_MESSAGE
 
 
 class TestFollowUpLimits:

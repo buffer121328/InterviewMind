@@ -297,6 +297,10 @@ def record_runtime_event(
         from observability.tool_tracing import observe_tool_event
 
         observe_tool_event(bound_event)
+    elif isinstance(bound_event, ExternalIOObservationEvent):
+        from observability.io_tracing import observe_external_io_event
+
+        observe_external_io_event(bound_event)
     return bound_event
 
 
@@ -925,6 +929,10 @@ def render_managed_prompt(
         "type": prompt_type,
         "cache_ttl_seconds": config.prompt_cache_ttl_seconds,
         "fallback": fallback,
+        # Prompt Management is optional; the render path must not accumulate
+        # Langfuse retries before a model-call deadline even starts.
+        "max_retries": config.prompt_max_retries,
+        "fetch_timeout_seconds": config.prompt_fetch_timeout_seconds,
     }
     if config.prompt_label:
         prompt_kwargs["label"] = config.prompt_label
@@ -1084,6 +1092,8 @@ def _reset_langfuse_for_tests() -> None:
     _evaluation_runtime_sinks.set(None)
     _evaluation_model_sinks.set(None)
     _runtime_sink_errors.set(None)
+    from observability.io_tracing import reset_external_io_spans
     from observability.tool_tracing import reset_tool_spans
 
+    reset_external_io_spans()
     reset_tool_spans()

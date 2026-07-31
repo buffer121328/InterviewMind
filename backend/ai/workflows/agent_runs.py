@@ -19,7 +19,6 @@ from app.domain.agent_runs import (
     TERMINAL_STATUSES,
 )
 from app.domain.agent_definitions import get_agent_definition
-from app.security.payload_crypto import TaskPayloadConfigurationError
 from ai.runtime.agent_runs.dispatcher import enqueue_agent_run
 from ai.runtime.agent_runs.event_stream import replay_cursor
 from ai.workflows.agent_tasks.registry import execute_registered_task
@@ -27,6 +26,7 @@ from ai.workflows.agent_tasks.types import DeferredExecutionResult
 from ai.workflows.agent_tasks.interview_start import execute_interview_start
 from ai.runtime.agent_runs.outbox import dispatch_pending_outbox
 from app.db.repositories.session.session_repo import SessionRepo
+from app.security.payload_crypto import TaskPayloadConfigurationError
 from ai.runtime.agent_runs.service import (
     AgentRunService,
     first_running_stage,

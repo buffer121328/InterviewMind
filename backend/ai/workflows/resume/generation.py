@@ -2,8 +2,17 @@
 
 from dataclasses import dataclass
 
+from ai.agents.resume.result_mapper import pipeline_to_optimize_result
+from ai.agents.resume.resume_generation_sessions import (
+    get_session_status,
+    init_generation_session,
+    submit_user_answers,
+)
+from ai.agents.resume.resume_review import public_review_state
+from ai.runtime.agent_runs.service import AgentRunService
 from app.db.repositories.resume.resume_generation_repo import get_generation_repo
 from app.db.repositories.resume.resume_repo import get_resume_repo
+from app.domain.agent_runs import TASK_TYPE_RESUME_GENERATION
 from app.schemas.resume_schemas import (
     GeneratedResumeItem,
     GeneratedResumesResponse,
@@ -12,13 +21,8 @@ from app.schemas.resume_schemas import (
     ResumeGenerateSubmitRequest,
     ResumeGenerateSubmitResponse,
 )
-from ai.agents.resume.result_mapper import pipeline_to_optimize_result
-from ai.agents.resume.resume_generation_sessions import (
-    get_session_status,
-    init_generation_session,
-    submit_user_answers,
-)
-from ai.agents.resume.resume_review import public_review_state
+from app.security.security import safe_error_message
+from observability import agent_observation
 
 
 @dataclass(slots=True)
@@ -75,14 +79,29 @@ class ResumeGenerationUseCases:
         elif request.optimization_result.get("requires_user_review"):
             raise ResumeGenerationBadRequest(message="需要人工审阅的优化结果必须提供 optimization_result_id")
 
-        result = await init_generation_session(
-            resume_content=resume_content,
-            job_description=job_description,
-            optimization_result=optimization_result,
+        async with agent_observation(
+            name="resume-generation-init",
+            agent_type="resume_generation",
             user_id=user_id,
-            template_style=request.template_style,
-            api_config=request.api_config.model_dump() if request.api_config else None,
-        )
+            session_id=None,
+            input_payload={
+                "resume_length": len(resume_content),
+                "job_description_length": len(job_description),
+                "uses_saved_optimization": request.optimization_result_id is not None,
+            },
+        ) as observation:
+            result = await init_generation_session(
+                resume_content=resume_content,
+                job_description=job_description,
+                optimization_result=optimization_result,
+                user_id=user_id,
+                template_style=request.template_style,
+                api_config=request.api_config.model_dump() if request.api_config else None,
+            )
+            observation.set_output({
+                "needs_input": bool(result.get("needs_input")),
+                "question_count": len(result.get("questions") or []),
+            })
         return ResumeGenerateInitResponse(
             success=True,
             session_id=result["session_id"],
@@ -105,15 +124,56 @@ class ResumeGenerationUseCases:
         """
         if not request.api_config:
             raise ResumeGenerationBadRequest(message="请先配置 API Key")
+        run_service = AgentRunService()
+        run, _created = await run_service.create_inline_or_get(
+            user_id=user_id,
+            payload={"generation_session_id": request.session_id},
+            idempotency_key=request.session_id,
+            task_type=TASK_TYPE_RESUME_GENERATION,
+            initial_stage="draft_generation",
+        )
+
+        async def mark_stage(stage: str) -> None:
+            """Forward a real graph stage to the owner-scoped interactive AgentRun."""
+            await run_service.mark_stage(run.id, stage)
+
         try:
-            result = await submit_user_answers(
-                session_id=request.session_id,
-                answers=request.answers,
+            async with agent_observation(
+                name="resume-generation",
+                agent_type="resume_generation",
                 user_id=user_id,
-                api_config=request.api_config.model_dump() if request.api_config else None,
-            )
+                session_id=request.session_id,
+                run_id=run.id,
+                input_payload={
+                    "answer_count": len(request.answers),
+                },
+            ) as observation:
+                result = await submit_user_answers(
+                    session_id=request.session_id,
+                    answers=request.answers,
+                    user_id=user_id,
+                    api_config=request.api_config.model_dump() if request.api_config else None,
+                    agent_run_id=run.id,
+                    run_stage_callback=mark_stage,
+                )
+                observation.set_output({
+                    "generated": bool(result.get("resume_id")),
+                })
         except ValueError as exc:
+            await run_service.fail(run.id, safe_error_message(exc))
             raise ResumeGenerationNotFound(message=str(exc)) from exc
+        except Exception as exc:
+            await run_service.fail(run.id, safe_error_message(exc))
+            raise
+        if run.status != "succeeded":
+            await run_service.succeed(
+                run.id,
+                {
+                    "generated_resume_id": result.get("resume_id"),
+                    "generated_resume_title": result.get("title"),
+                    "generation_session_id": request.session_id,
+                },
+            )
         return ResumeGenerateSubmitResponse(
             success=True,
             resume_id=result.get("resume_id"),

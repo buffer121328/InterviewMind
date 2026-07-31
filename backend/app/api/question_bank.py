@@ -132,15 +132,21 @@ async def delete_question_item(
 async def search_question_items(
     q: str = Query(..., description="搜索关键词"),
     limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
     user_id: str = Depends(get_current_user_id),
 ):
     """全文检索题库条目。"""
     try:
-        items = await question_bank_use_cases.search_items(user_id=user_id, query=q, limit=limit)
+        items, total = await question_bank_use_cases.search_items(
+            user_id=user_id,
+            query=q,
+            limit=limit,
+            offset=offset,
+        )
         return QuestionBankListResponse(
             success=True,
             items=[QuestionBankItem(**item) for item in items],
-            total=len(items),
+            total=total,
         )
     except Exception as exc:
         logger.error("检索题库条目失败: %s", exc)

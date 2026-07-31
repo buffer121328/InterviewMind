@@ -6,11 +6,10 @@ L3 质量测试：简历优化质量
 import pytest
 
 deepeval = pytest.importorskip("deepeval")
-from deepeval import assert_test
-from deepeval.test_case import LLMTestCase
-from deepeval.test_case.llm_test_case import SingleTurnParams
-from deepeval.metrics import GEval
-
+from deepeval import assert_test  # noqa: E402
+from deepeval.metrics import GEval  # noqa: E402
+from deepeval.test_case import LLMTestCase  # noqa: E402
+from deepeval.test_case.llm_test_case import SingleTurnParams  # noqa: E402
 
 # ============================================================================
 # GEval 指标定义（lazy — 避免无 API key 时 collection 失败）
@@ -60,36 +59,35 @@ class TestResumeOptimizerPrompts:
 
     def test_node_match_analyst_prompt_includes_jd_and_resume(self):
         """匹配分析师 prompt 应包含 JD 和简历内容。"""
-        from ai.agents.resume.resume_orchestrator import stage1_jd_analysis
-
         import inspect
+
+        from ai.agents.resume.resume_orchestrator import stage1_jd_analysis
         source = inspect.getsource(stage1_jd_analysis)
         assert "job_description" in source
         assert "jd_analysis" in source
 
     def test_node_match_analyst_prompt_has_output_format(self):
         """匹配分析师 prompt 应指定 JSON 输出格式。"""
-        from ai.agents.resume.jd_matcher import SYSTEM_PROMPT
+        from ai.prompts.resume import build_jd_match_system_prompt
 
-        source = SYSTEM_PROMPT
+        source = build_jd_match_system_prompt()
         assert "matched_keywords" in source
         assert "missing_keywords" in source
         assert "score" in source
 
     def test_node_content_writer_prompt_includes_star(self):
         """内容优化师 prompt 应包含 STAR 法则引用。"""
-        from ai.agents.resume.resume_orchestrator import stage2_material_selection
-
         import inspect
+
+        from ai.agents.resume.resume_orchestrator import stage2_material_selection
         source = inspect.getsource(stage2_material_selection)
         assert "STAR" in source or "STAR法则" in source
 
     def test_node_content_writer_prompt_has_change_types(self):
         """内容优化师 prompt 应定义变更类型。"""
-        from ai.agents.resume.resume_orchestrator import stage3_custom_rewrite
+        from ai.prompts.resume import build_content_writer_prompt
 
-        import inspect
-        source = inspect.getsource(stage3_custom_rewrite)
+        source = build_content_writer_prompt("候选人简历", "目标岗位")
         assert "polish" in source
         assert "restructure" in source
         assert "suggest_addition" in source
@@ -97,9 +95,9 @@ class TestResumeOptimizerPrompts:
 
     def test_node_hr_reviewer_prompt_includes_screening_criteria(self):
         """HR 审核官 prompt 应包含筛选标准。"""
-        from ai.agents.resume.resume_orchestrator import stage5_quality_judge
-
         import inspect
+
+        from ai.agents.resume.resume_orchestrator import stage5_quality_judge
         source = inspect.getsource(stage5_quality_judge)
         assert "quality_judge" in source
         assert "judge_result" in source
@@ -107,9 +105,9 @@ class TestResumeOptimizerPrompts:
 
     def test_node_hr_reviewer_prompt_has_conciseness_check(self):
         """HR 审核官 prompt 应包含内容精炼度评估。"""
-        from ai.agents.resume.resume_orchestrator import stage5_quality_judge
-
         import inspect
+
+        from ai.agents.resume.resume_orchestrator import stage5_quality_judge
         source = inspect.getsource(stage5_quality_judge)
         assert "quality_judge" in source
         assert "passed" in source

@@ -3,24 +3,26 @@
 from __future__ import annotations
 
 from ai.prompts.langchain_templates import prompt_template, render_prompt
-from ai.prompts.shared import CONCISE_CHINESE_RULES, EVIDENCE_RULES, UNTRUSTED_INPUT_RULES
-
+from ai.prompts.shared import (
+    CONCISE_CHINESE_RULES,
+    EVIDENCE_RULES,
+    UNTRUSTED_INPUT_RULES,
+)
 
 INTERVIEW_VOICE_SYSTEM_PROMPT = prompt_template(
-    f"""你是专业、克制的语音面试官，必须按题目计划推进面试。
+    f"""你是专业、克制的语音面试官，必须按当前进度推进面试。
 
 {UNTRUSTED_INPUT_RULES}
 {EVIDENCE_RULES}
 {CONCISE_CHINESE_RULES}
-
-【完整题目计划】
-{{questions_text}}
 
 【当前状态】
 - 当前题号：{{current_question_number}}
 - 当前主问题：{{current_plan_q}}
 - 已追问次数：{{follow_up_count}}/{{max_follow_up}}
 - 下一主问题：{{next_plan_q}}
+- 剩余主问题数：{{remaining_questions}}
+- 已覆盖主题摘要：{{covered_topics_summary}}
 
 {{follow_up_advice}}
 
@@ -57,6 +59,21 @@ def get_opening_message(first_question: str | None = None, round_index: int = 1)
     return f"你好，我们继续第 {round_index} 轮面试。第一个问题是：{question}"
 
 
+def _covered_topics(interview_plan: list, current_q_idx: int) -> str:
+    """Return a bounded de-duplicated topic summary without exposing prior full questions."""
+    topics: list[str] = []
+    seen: set[str] = set()
+    for item in interview_plan[: max(0, current_q_idx)]:
+        topic = " ".join(str(item.get("topic") or "").split())
+        key = topic.casefold()
+        if topic and key not in seen:
+            seen.add(key)
+            topics.append(topic[:40])
+        if len(topics) >= 8:
+            break
+    return "、".join(topics) or "暂无"
+
+
 def build_interview_voice_system_prompt(
     interview_plan: list,
     current_q_idx: int = 0,
@@ -64,11 +81,7 @@ def build_interview_voice_system_prompt(
     last_q_text: str = "",
     max_follow_up: int = 1,
 ) -> str:
-    """Build the state-aware prompt used by the full voice interview runtime."""
-    questions_text = "\n".join(
-        f"{index + 1}. [{item.get('topic', '')}] {item.get('content', '')}"
-        for index, item in enumerate(interview_plan)
-    ) or "未提供题目计划"
+    """Build a compact prompt containing only current/next questions and progress summary."""
     current_plan_q = (
         interview_plan[current_q_idx].get("content", "")
         if 0 <= current_q_idx < len(interview_plan)
@@ -88,13 +101,14 @@ def build_interview_voice_system_prompt(
     return render_prompt(
         INTERVIEW_VOICE_SYSTEM_PROMPT,
         prompt_name="voice.interview_system",
-        prompt_version="1",
-        questions_text=questions_text,
+        prompt_version="2",
         current_question_number=current_q_idx + 1,
         current_plan_q=current_plan_q,
         follow_up_count=max(0, follow_up_count),
         max_follow_up=max(0, max_follow_up),
         next_plan_q=next_plan_q,
+        remaining_questions=max(0, len(interview_plan) - current_q_idx - 1),
+        covered_topics_summary=_covered_topics(interview_plan, current_q_idx),
         follow_up_advice=advice,
     )
 
@@ -108,23 +122,25 @@ def build_voice_system_prompt(
     max_follow_up: int,
     follow_up_advice: str = "",
 ) -> str:
-    """Build the compact state-aware voice prompt used by streaming callers."""
+    """Build the compact legacy preview prompt without re-injecting the full question plan."""
+    covered_summary = " ".join(str(questions_text or "").split())[:300] or "暂无"
     return render_prompt(
         VOICE_SYSTEM_PROMPT,
         prompt_name="voice.system",
-        prompt_version="1",
-        questions_text=questions_text,
+        prompt_version="2",
         current_question_number=current_q_idx + 1,
         current_plan_q=current_plan_q,
         next_plan_q=next_plan_q or "无，当前题完成后结束面试",
-        follow_up_count=max(0, follow_up_count),
-        max_follow_up=max(0, max_follow_up),
+        follow_up_count=follow_up_count,
+        max_follow_up=max_follow_up,
+        remaining_questions=1 if next_plan_q else 0,
+        covered_topics_summary=covered_summary,
         follow_up_advice=follow_up_advice,
     )
 
 
 def build_tts_system_prompt() -> str:
-    """Build the system prompt that treats TTS input strictly as text data."""
+    """Build the text-to-speech sanitization prompt."""
     return render_prompt(
         TTS_SYSTEM_PROMPT,
         prompt_name="voice.tts",

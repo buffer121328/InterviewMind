@@ -5,6 +5,7 @@ import importlib.util
 import json
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from cryptography.fernet import Fernet
@@ -33,6 +34,29 @@ def test_task_payload_is_encrypted_and_round_trips(monkeypatch):
     assert "test-key" not in encrypted
     assert "private resume" not in encrypted
     assert decrypt_payload(encrypted) == payload
+
+
+@pytest.mark.asyncio
+async def test_recommendation_capture_is_rate_limited_before_run_creation():
+    """过密的 BOSS 推荐采集请求不应进入队列等待执行。"""
+    from ai.workflows import agent_runs as workflow
+
+    use_cases = workflow.AgentRunUseCases()
+    create_queued_run = AsyncMock()
+    use_cases.create_queued_run = create_queued_run
+
+    with patch(
+        "integrations.browser_automation.rate_limiter.check_rate",
+        new=AsyncMock(return_value=(False, "推荐采集至少间隔 120 秒")),
+    ):
+        with pytest.raises(workflow.AgentRunConflict, match="间隔"):
+            await use_cases.create_job_recommendation_capture(
+                payload={"query": "Agent", "resume_content": "resume", "top_n": 3},
+                user_id="user-1",
+                idempotency_key="capture-1",
+            )
+
+    create_queued_run.assert_not_awaited()
 
 
 def test_queue_rejects_payload_when_encryption_key_missing(monkeypatch):
@@ -971,7 +995,7 @@ async def test_create_or_get_emits_prompt_version_in_created_event(monkeypatch):
     assert run.created_at is not None
     assert appended and appended[0][0] == "run.created"
     assert appended[0][1]["prompt_name"] == "interview.planner"
-    assert appended[0][1]["prompt_version"] == "1"
+    assert appended[0][1]["prompt_version"] == "2"
 
 
 @pytest.mark.asyncio

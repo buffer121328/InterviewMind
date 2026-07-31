@@ -45,10 +45,9 @@ async def test_no_gap_initialization_returns_before_draft_generation(monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_submit_creates_visible_resume_generation_agent_run(monkeypatch):
-    """Direct professional-resume generation owns a Run Center record linked to the generation session."""
+async def test_submit_uses_workflow_injected_resume_generation_run(monkeypatch):
+    """Agent session code consumes a run reference without importing AgentRun runtime."""
     from ai.agents.resume import resume_generation_sessions as sessions
-    from ai.runtime.agent_runs import service as run_service_module
 
     session = SimpleNamespace(
         status="ready_to_generate",
@@ -62,8 +61,8 @@ async def test_submit_creates_visible_resume_generation_agent_run(monkeypatch):
         questions=[],
     )
     updates: list[dict] = []
-    run_calls: list[dict] = []
     captured_state: dict = {}
+    captured_callback: dict = {}
 
     async def get(_session_id, user_id=None):
         assert user_id == "owner-1"
@@ -72,25 +71,99 @@ async def test_submit_creates_visible_resume_generation_agent_run(monkeypatch):
     async def update(*_args, **kwargs):
         updates.append(kwargs)
 
-    async def create_inline_or_get(_self, **kwargs):
-        run_calls.append(kwargs)
-        return SimpleNamespace(id="run-resume-1"), True
-
-    async def complete(_session_id, state, _api_config):
+    async def complete(_session_id, state, _api_config, **kwargs):
         captured_state.update(state)
+        captured_callback.update(kwargs)
         return {"resume_id": 7, "title": "新简历", "content": "# 新简历"}
 
     monkeypatch.setattr(sessions.session_store, "get", get)
     monkeypatch.setattr(sessions.session_store, "update", update)
-    monkeypatch.setattr(run_service_module.AgentRunService, "create_inline_or_get", create_inline_or_get)
     monkeypatch.setattr(sessions, "_complete_generation", complete)
 
-    result = await sessions.submit_user_answers("generation-1", {}, "owner-1")
+    async def mark_stage(_stage: str) -> None:
+        """Test stage callback."""
+
+    result = await sessions.submit_user_answers(
+        "generation-1",
+        {},
+        "owner-1",
+        agent_run_id="run-resume-1",
+        run_stage_callback=mark_stage,
+    )
 
     assert result["resume_id"] == 7
-    assert run_calls[0]["task_type"] == "resume_generation"
-    assert run_calls[0]["idempotency_key"] == "generation-1"
-    assert run_calls[0]["payload"] == {"generation_session_id": "generation-1"}
     assert updates[0]["agent_run_id"] == "run-resume-1"
     assert captured_state["agent_run_id"] == "run-resume-1"
-    assert captured_state["manage_agent_run"] is True
+    assert captured_callback["run_stage_callback"] is mark_stage
+
+
+@pytest.mark.asyncio
+async def test_generation_workflow_owns_agent_run_lifecycle(monkeypatch):
+    """Workflow creates, advances, and completes the visible resume-generation run."""
+    from contextlib import asynccontextmanager
+
+    from ai.workflows.resume import generation
+
+    run = SimpleNamespace(id="run-resume-1", status="running")
+    created: list[dict] = []
+    stages: list[tuple[str, str]] = []
+    succeeded: list[tuple[str, dict]] = []
+    submitted: dict = {}
+    observations: list[dict] = []
+
+    async def create_inline_or_get(_self, **kwargs):
+        created.append(kwargs)
+        return run, True
+
+    async def mark_stage(_self, run_id, stage):
+        stages.append((run_id, stage))
+
+    async def succeed(_self, run_id, result):
+        succeeded.append((run_id, result))
+
+    async def fail(_self, _run_id, _message):
+        raise AssertionError("successful workflow must not fail the run")
+
+    async def submit(**kwargs):
+        submitted.update(kwargs)
+        await kwargs["run_stage_callback"]("draft_optimization")
+        return {"resume_id": 7, "title": "新简历", "content": "# 新简历"}
+
+    @asynccontextmanager
+    async def observe(**kwargs):
+        observations.append(kwargs)
+        yield SimpleNamespace(set_output=lambda _output: None)
+
+    monkeypatch.setattr(generation.AgentRunService, "create_inline_or_get", create_inline_or_get)
+    monkeypatch.setattr(generation.AgentRunService, "mark_stage", mark_stage)
+    monkeypatch.setattr(generation.AgentRunService, "succeed", succeed)
+    monkeypatch.setattr(generation.AgentRunService, "fail", fail)
+    monkeypatch.setattr(generation, "submit_user_answers", submit)
+    monkeypatch.setattr(generation, "agent_observation", observe)
+
+    response = await generation.ResumeGenerationUseCases().submit_generation_answers(
+        request=SimpleNamespace(
+            session_id="generation-1",
+            answers={},
+            api_config=SimpleNamespace(model_dump=lambda: {"fast": {"model": "mock"}}),
+        ),
+        user_id="owner-1",
+    )
+
+    assert response.resume_id == 7
+    assert created[0]["task_type"] == "resume_generation"
+    assert created[0]["idempotency_key"] == "generation-1"
+    assert created[0]["payload"] == {"generation_session_id": "generation-1"}
+    assert submitted["agent_run_id"] == "run-resume-1"
+    assert stages == [("run-resume-1", "draft_optimization")]
+    assert succeeded[0][1]["generation_session_id"] == "generation-1"
+    assert observations == [
+        {
+            "name": "resume-generation",
+            "agent_type": "resume_generation",
+            "user_id": "owner-1",
+            "session_id": "generation-1",
+            "run_id": "run-resume-1",
+            "input_payload": {"answer_count": 0},
+        }
+    ]

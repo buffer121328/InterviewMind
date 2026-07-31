@@ -12,27 +12,29 @@ from pydantic import ValidationError
 
 # 被测模块 ─ 路由
 from ai.agents.interview.interview_graph import (
-    route_entry,
     route_after_responder,
+    route_entry,
 )
+
+# 被测模块 ─ 规划器
+from ai.agents.interview.interview_planner import (
+    ROUND_STRATEGIES,
+    build_planner_prompt,
+    parse_plan_response,
+)
+
+# 被测模块 ─ 简历优化图
+from ai.agents.resume.resume_orchestrator import build_resume_optimizer_graph
+
+# 被测模块 ─ LLM 工具
+from ai.llm.llm_utils import clean_json_response
 from app.schemas.interview import (
     EvaluatingOutput,
     InterviewerAction,
 )
-# 被测模块 ─ 规划器
-from ai.agents.interview.interview_planner import (
-    build_planner_prompt,
-    parse_plan_response,
-    ROUND_STRATEGIES,
-)
-# 被测模块 ─ LLM 工具
-from ai.llm.llm_utils import clean_json_response
-# 被测模块 ─ 简历优化图
-from ai.agents.resume.resume_orchestrator import build_resume_optimizer_graph
 
 # conftest helpers
 from .conftest import build_test_state
-
 
 # ============================================================================
 # route_entry
@@ -181,7 +183,8 @@ class TestBuildPlannerPrompt:
         )
         for q in prev:
             assert q in prompt
-        assert "上一轮已问过的问题" in prompt
+        assert "【history】" in prompt
+        assert "prohibited_exact_questions" in prompt
 
     def test_weakness_report_section_included(self):
         wr = {
@@ -198,7 +201,7 @@ class TestBuildPlannerPrompt:
             round_type="tech_deep",
             weakness_report=wr,
         )
-        assert "短板" in prompt
+        assert "unresolved_weaknesses" in prompt
         assert "算法" in prompt
 
     def test_no_previous_questions_section_when_empty(self):

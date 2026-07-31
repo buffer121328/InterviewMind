@@ -20,16 +20,26 @@
 - 追问/推进/结束由 InterviewerOutput.action 决定，不做自然语言猜测
 """
 
+import inspect
+import json
 import logging
 from datetime import datetime, timezone
-import time
-from typing import Dict, Any, List, Optional, Callable, Awaitable
+from typing import Any, Awaitable, Callable, Dict, List, Optional
 
+from ai.runtime.context_assembler import (
+    AssembledContext,
+    ContextAssembler,
+    ContextSource,
+)
+from ai.runtime.context import AgentContext
+from ai.runtime.deadlines import TaskDeadline
+from app.config import get_settings
 from app.schemas.interview import (
+    EvaluatingOutput,
     InterviewerAction,
     InterviewPhase,
-    EvaluatingOutput,
 )
+from ai.tools.executor import ToolExecutionGuard
 from observability import agent_observation
 
 logger = logging.getLogger(__name__)
@@ -76,6 +86,17 @@ class InterviewRuntime:
         self.trace: List[Dict[str, Any]] = list(state.get("trace", []))
         self.max_tool_rounds: int = 1
         self.tool_round_count: int = 0
+        explicit_deadline = state.get("task_deadline")
+        self.task_deadline = (
+            explicit_deadline
+            if isinstance(explicit_deadline, TaskDeadline)
+            else TaskDeadline(get_settings().llm_task_timeout_seconds)
+        )
+        signature = inspect.signature(llm_invoker)
+        self._invoker_accepts_context = any(
+            parameter.kind == inspect.Parameter.VAR_KEYWORD
+            for parameter in signature.parameters.values()
+        ) or {"deadline", "call_metadata"}.issubset(signature.parameters)
 
         # 当前阶段
         self.phase: InterviewPhase = (
@@ -83,8 +104,21 @@ class InterviewRuntime:
             else InterviewPhase.AWAITING_REPLY
         )
 
-        # 已执行的工具结果缓存
+        # 已执行的工具结果缓存；实际调用统一经过 Guard，兼容 trace 只由事件投影生成。
         self.tool_results: Dict[str, Any] = {}
+        self._tool_guard = ToolExecutionGuard()
+        self._tool_context = AgentContext(
+            user_id=str(self.state.get("user_id") or "interview-user"),
+            session_id=self.state.get("session_id"),
+            run_id=self.state.get("run_id"),
+            api_config=self.state.get("api_config") or {},
+            permissions=frozenset({
+                "question_bank.search",
+                "candidate.profile.read",
+                "interview.history.read",
+                "memory.search",
+            }),
+        )
 
     # ------------------------------------------------------------------
     # 状态机主循环
@@ -201,16 +235,23 @@ class InterviewRuntime:
 
         # 构建评估 prompt（注入工具结果）
         tool_context = self._format_tool_results()
-        prompt = self._build_evaluating_prompt(
+        prompt, assembled_context = self._build_evaluating_prompt_bundle(
             user_answer,
             current_q,
             next_q,
             tool_context,
-            allow_tool_request=bool(self.tool_executor and self.tool_round_count < self.max_tool_rounds and not self.tool_results),
+            allow_tool_request=bool(
+                self.tool_executor
+                and self.tool_round_count < self.max_tool_rounds
+                and not self.tool_results
+            ),
         )
 
         try:
-            output: EvaluatingOutput = await self.llm_invoker(prompt, EvaluatingOutput)
+            output: EvaluatingOutput = await self._invoke_evaluating_model(
+                prompt,
+                assembled_context,
+            )
         except Exception as e:
             logger.error(f"[Runtime] evaluating LLM 调用失败: {e}")
             return self._handle_fallback(user_answer, current_q, next_q)
@@ -222,7 +263,7 @@ class InterviewRuntime:
                 "tool_reason": output.tool_reason,
             }])
             tool_context = self._format_tool_results()
-            prompt = self._build_evaluating_prompt(
+            prompt, assembled_context = self._build_evaluating_prompt_bundle(
                 user_answer,
                 current_q,
                 next_q,
@@ -230,7 +271,10 @@ class InterviewRuntime:
                 allow_tool_request=False,
             )
             try:
-                output = await self.llm_invoker(prompt, EvaluatingOutput)
+                output = await self._invoke_evaluating_model(
+                    prompt,
+                    assembled_context,
+                )
             except Exception as e:
                 logger.error(f"[Runtime] evaluating 二次 LLM 调用失败: {e}")
                 return self._handle_fallback(user_answer, current_q, next_q)
@@ -309,11 +353,14 @@ class InterviewRuntime:
         })
 
     def _handle_end_round_action(self, output) -> Dict[str, Any]:
-        """处理本轮结束动作"""
+        """Finish the round with the single product-approved closing sentence."""
+        from app.domain.interview_rounds import INTERVIEW_CLOSING_MESSAGE
+
         self.phase = InterviewPhase.END_ROUND
         logger.info(f"[Runtime] 本轮面试结束, round={self.round_index}")
 
-        content = getattr(output, 'content', '本轮面试到此结束，感谢你的参与！')
+        _ = output
+        content = INTERVIEW_CLOSING_MESSAGE
         self._add_trace(
             step="decision",
             phase=InterviewPhase.END_ROUND.value,
@@ -405,35 +452,104 @@ class InterviewRuntime:
             return ""
         return "【历史追问候选】：\n" + "\n".join(lines) + "\n可优先参考这些已沉淀追问，但必须结合候选人当前回答改写，不要机械照搬。"
 
-    def _build_evaluating_prompt(
+    def _build_evaluating_prompt_bundle(
         self,
         user_answer: str,
         current_q: str,
         next_q: str,
         tool_context: str,
         allow_tool_request: bool = False,
-    ) -> str:
-        """Build the controlled answer-evaluation prompt."""
-
+    ) -> tuple[str, AssembledContext]:
+        """Build a bounded runtime prompt while preserving current turn state as required input."""
         from ai.prompts.interview import build_evaluating_prompt
+
         from .interview_planner import ROUND_STRATEGIES
+
         strategy = ROUND_STRATEGIES.get(self.round_type, ROUND_STRATEGIES["tech_initial"])
-        return build_evaluating_prompt(
-            round_index=self.round_index,
-            round_type=self.round_type,
-            strategy_focus=strategy["focus"],
-            current_index=self.current_idx,
-            total_questions=len(self.plan),
-            current_question=current_q,
-            next_question=next_q or "已是最后一题",
-            follow_up_count=self.follow_up_count,
-            max_follow_ups=self.max_follow_ups,
-            historical_followups=self._format_historical_followups(),
-            user_answer=user_answer,
-            tool_context=tool_context,
-            tool_instruction=self._build_tool_instruction(allow_tool_request),
-            memory_context=self.memory_context,
+        state_context = {
+            "round_index": self.round_index,
+            "round_type": self.round_type,
+            "strategy_focus": strategy["focus"],
+            "current_question_index": self.current_idx,
+            "total_questions": len(self.plan),
+            "current_question": current_q,
+            "next_question": next_q or "已是最后一题",
+            "follow_up_count": self.follow_up_count,
+            "max_follow_ups": self.max_follow_ups,
+        }
+        assembler = ContextAssembler(
+            agent_name="interview",
+            total_model_chars=6000,
+            source_budgets={
+                "runtime_state": 1600,
+                "answer": 2600,
+                "history": 900,
+                "tool_results": 1100,
+                "memory": 700,
+            },
+            cache_version="2026-07-29.phase2.runtime.v1",
         )
+        assembled = assembler.assemble([
+            ContextSource(
+                name="runtime_state",
+                content=state_context,
+                required=True,
+                trusted=True,
+                priority=100,
+                max_chars=1600,
+            ),
+            ContextSource(
+                name="answer",
+                content=user_answer,
+                required=True,
+                priority=90,
+                max_chars=2600,
+                truncation_strategy="head_tail",
+            ),
+            ContextSource(
+                name="history",
+                content=self._format_historical_followups(),
+                priority=60,
+                max_chars=900,
+                truncation_strategy="head_tail",
+            ),
+            ContextSource(
+                name="tool_results",
+                content=tool_context,
+                trusted=True,
+                priority=50,
+                max_chars=1100,
+                truncation_strategy="head_tail",
+            ),
+            ContextSource(
+                name="memory",
+                content=self.memory_context,
+                priority=40,
+                max_chars=700,
+                truncation_strategy="head_tail",
+            ),
+        ])
+        prompt = build_evaluating_prompt(
+            tool_instruction=self._build_tool_instruction(allow_tool_request),
+            runtime_context=assembled.model_context,
+        )
+        return prompt, assembled
+
+    async def _invoke_evaluating_model(
+        self,
+        prompt: str,
+        assembled_context: AssembledContext,
+    ) -> EvaluatingOutput:
+        """Invoke one evaluation attempt with the turn-wide deadline and safe context metadata."""
+        if self._invoker_accepts_context:
+            return await self.llm_invoker(
+                prompt,
+                EvaluatingOutput,
+                deadline=self.task_deadline,
+                call_metadata=assembled_context.model_event_fields(),
+            )
+        # 仅为现有测试/外部适配器保留；生产图调用器接受 deadline 与 metadata。
+        return await self.llm_invoker(prompt, EvaluatingOutput)
 
     # ------------------------------------------------------------------
     # 工具调用
@@ -463,58 +579,100 @@ class InterviewRuntime:
                 tool_args = request.get("tool_args", {}) or {}
                 tool_reason = request.get("tool_reason")
             try:
-                started = time.perf_counter()
-                self._add_trace(
-                    step="tool_call",
-                    phase=InterviewPhase.EVALUATING.value,
+                async def invoke_tool() -> Any:
+                    """调用 runtime 注入的业务工具；治理事件由外层 Guard 统一生成。"""
+
+                    return await self.tool_executor(name, **tool_args)
+
+                result = await self._tool_guard.execute(
+                    invoke_tool,
+                    context=self._tool_context,
+                    effect="read",
+                    required_permissions=(
+                        {
+                            "search_question_bank": "question_bank.search",
+                            "get_candidate_profile": "candidate.profile.read",
+                            "get_interview_history": "interview.history.read",
+                            "search_memory": "memory.search",
+                        }.get(name, "interview.tool.read"),
+                    ),
                     tool_name=name,
-                    status="started",
-                    input_summary=str(tool_args)[:200],
-                    event_type="tool.started",
+                    workflow_name="interview_runtime",
+                    stage=InterviewPhase.EVALUATING.value,
+                    audit_callback=self._record_tool_observation,
                 )
-                result = await self.tool_executor(name, **tool_args)
                 results[name] = result
                 self.tool_results[name] = result
                 self.tool_round_count += 1
-                logger.info(f"[Runtime] 工具 {name} 执行完成")
-                self._add_trace(
-                    step="tool_call",
-                    phase=InterviewPhase.EVALUATING.value,
-                    tool_name=name,
-                    status="completed",
-                    input_summary=(tool_reason or str(tool_args))[:200],
-                    output_summary=str(result)[:300],
-                    event_type="tool.completed",
-                    duration_ms=max(0, int((time.perf_counter() - started) * 1000)),
-                )
+                logger.info("[Runtime] 工具 %s 执行完成", name)
             except Exception as e:
-                logger.warning(f"[Runtime] 工具 {name} 执行失败: {e}")
+                logger.warning("[Runtime] 工具 %s 执行失败: %s", name, type(e).__name__)
                 results[name] = {"error": str(e)}
                 self.tool_results[name] = {"error": str(e)}
                 self.tool_round_count += 1
-                self._add_trace(
-                    step="tool_call",
-                    phase=InterviewPhase.EVALUATING.value,
-                    tool_name=name,
-                    status="failed",
-                    input_summary=str(tool_args)[:200],
-                    error=str(e),
-                    event_type="tool.failed",
-                    duration_ms=max(0, int((time.perf_counter() - started) * 1000)) if "started" in locals() else None,
-                )
 
         return results
 
+    def _record_tool_observation(self, event: Dict[str, Any]) -> None:
+        """把统一 Tool 事件投影为面试返回值仍需的短 trace，不重复生成工具事实。"""
+
+        status = str(event.get("status") or "")
+        if status not in {"started", "completed", "failed", "blocked", "skipped"}:
+            return
+        self._add_trace(
+            step="tool_call",
+            phase=str(event.get("stage") or InterviewPhase.EVALUATING.value),
+            tool_name=str(event.get("tool_name") or ""),
+            status=status,
+            input_summary=(event.get("input_summary") or "")[:200] or None,
+            output_summary=(event.get("output_summary") or "")[:300] or None,
+            error=(event.get("error_message") or event.get("error_category") or "")[:200] or None,
+            event_type=str(event.get("event_type") or "tool.event"),
+            duration_ms=event.get("duration_ms"),
+        )
+
+    @staticmethod
+    def _summarize_tool_result(result: Any, *, max_chars: int = 600) -> str:
+        """Prefer explicit success summaries and bounded fields over raw tool payload dumps."""
+        if isinstance(result, dict):
+            if result.get("error"):
+                return "工具执行失败，未提供可用参考信息"
+            preferred_keys = (
+                "summary",
+                "status",
+                "question",
+                "question_text",
+                "title",
+                "content",
+                "score",
+                "count",
+            )
+            compact = {key: result[key] for key in preferred_keys if key in result}
+            payload = compact or {"status": "success", "item_count": len(result)}
+        elif isinstance(result, list):
+            compact_items = []
+            for item in result[:5]:
+                if isinstance(item, dict):
+                    compact_items.append({
+                        key: item[key]
+                        for key in ("summary", "question", "question_text", "title", "score")
+                        if key in item
+                    })
+                else:
+                    compact_items.append(str(item)[:160])
+            payload = {"status": "success", "items": compact_items, "item_count": len(result)}
+        else:
+            payload = {"status": "success", "summary": str(result)}
+        return json.dumps(payload, ensure_ascii=False, default=str)[:max_chars]
+
     def _format_tool_results(self) -> str:
-        """格式化工具结果为上下文文本"""
+        """Format bounded successful tool summaries; ContextAssembler enforces the total limit."""
         if not self.tool_results:
             return ""
 
         parts = ["【可用参考信息】："]
         for name, result in self.tool_results.items():
-            summary = str(result)[:300]
-            parts.append(f"- {name}: {summary}")
-
+            parts.append(f"- {name}: {self._summarize_tool_result(result)}")
         return "\n".join(parts)
 
     # ------------------------------------------------------------------
@@ -564,11 +722,11 @@ class InterviewRuntime:
 - 请直接给出最终 action / content
 - need_tool 必须为 false"""
 
-        return f"""【可用参考工具】（如确实需要补充信息，只能请求 1 个）：
-- search_question_bank: 查询相关面试题，tool_args 示例 {{"query": "Java并发", "difficulty": "medium"}}
+        return """【可用参考工具】（如确实需要补充信息，只能请求 1 个）：
+- search_question_bank: 查询相关面试题，tool_args 示例 {"query": "Java并发", "difficulty": "medium"}
 - get_candidate_profile: 查询候选人综合画像，tool_args 为空对象
 - get_interview_history: 查询当前会话历史，tool_args 为空对象
-- search_memory: 查询长期记忆，tool_args 示例 {{"query": "项目经验/薄弱项"}}
+- search_memory: 查询长期记忆，tool_args 示例 {"query": "项目经验/薄弱项"}
 
 【工具请求规则】：
 - 如果当前回答已经足够判断，need_tool=false

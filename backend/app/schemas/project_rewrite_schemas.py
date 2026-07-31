@@ -8,7 +8,6 @@ from pydantic import BaseModel, Field
 
 from app.schemas.schemas import ApiConfig
 
-
 # ============================================================================
 # 请求模型
 # ============================================================================
@@ -38,6 +37,8 @@ class ProjectRewriteResult(BaseModel):
     possible_followup_questions: List[str] = Field(..., description="可能的追问问题")
     should_update_material: bool = Field(..., description="是否建议更新素材库")
     inferred_content: Optional[List[str]] = Field(default=None, description="推断/虚构内容，需标记")
+    requires_user_confirmation: bool = Field(default=False, description="推断内容是否必须由用户确认")
+    review_notes: List[str] = Field(default_factory=list, description="不得自动写回素材库的审阅提示")
 
 
 class ProjectRewriteResponse(BaseModel):

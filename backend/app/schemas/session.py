@@ -100,3 +100,13 @@ class SessionDetailResponse(BaseModel):
     """会话详情响应"""
     success: bool = Field(..., description="是否成功")
     session: InterviewSession = Field(..., description="会话详情")
+
+
+class SessionMarkdownReportResponse(BaseModel):
+    """单场面试的统一 Markdown 报告响应。"""
+
+    success: bool = Field(description="能力画像和短板数据是否均已生成")
+    session_id: str = Field(description="当前 owner 可见的面试会话 ID")
+    markdown: str = Field(default="", description="用于预览和导出的统一 Markdown")
+    generated_at: Optional[str] = Field(default=None, description="报告数据最近更新时间")
+    message: Optional[str] = Field(default=None, description="报告尚不可用时的稳定提示")

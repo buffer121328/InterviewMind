@@ -4,22 +4,26 @@
 支持 SSE 流式输出
 """
 
-import logging
 import json
-import asyncio
-from typing import Optional, List, Dict, Any, Literal, TypedDict, AsyncGenerator
+import logging
+from typing import Any, AsyncGenerator, Dict, List, Literal, Optional, TypedDict
 
-from app.config import get_settings
+from ai.agents.interview.voice_context import build_voice_history_context
 from ai.agents.interview.voice_progress import calculate_interview_progress
 from ai.agents.interview.voice_utils import normalize_voice_transcript
 from ai.llm import llms
-from observability import agent_observation
-from app.db.repositories.session.session_repo import SessionRepo
 from ai.prompts.voice import (
     build_interview_voice_system_prompt as _build_system_prompt,
+)
+from ai.prompts.voice import (
     build_tts_system_prompt,
+)
+from ai.prompts.voice import (
     get_opening_message as _get_opening_message,
 )
+from app.config import get_settings
+from app.db.repositories.session.session_repo import SessionRepo
+from observability import agent_observation
 
 logger = logging.getLogger(__name__)
 
@@ -120,6 +124,7 @@ async def node_planner(
     round_type = "voice_default"  # 语音面试默认策略
     previous_profile = None
     previous_questions = []
+    cache_scope = session_id or "voice-preview"
 
     if session_id:
         try:
@@ -128,6 +133,7 @@ async def node_planner(
             if session and session.metadata:
                 # 获取轮次信息
                 round_index = getattr(session.metadata, 'round_index', 1) or 1
+                cache_scope = getattr(session.metadata, "series_id", None) or session_id
                 stored_round_type = getattr(session.metadata, 'round_type', None)
 
                 # 语音面试使用特定的轮次策略映射
@@ -160,7 +166,9 @@ async def node_planner(
     bank_count = min(max(question_bank_count, 0), max_questions)
     if bank_count:
         try:
-            from app.db.repositories.interview.question_bank_repo import get_question_bank_repo
+            from app.db.repositories.interview.question_bank_repo import (
+                get_question_bank_repo,
+            )
 
             bank_items = await get_question_bank_repo().select_for_interview(user_id, bank_count)
         except Exception as exc:
@@ -183,6 +191,8 @@ async def node_planner(
             session_id=session_id,
             save_to_db=False,
             memory_context=memory_context,
+            owner_id=user_id,
+            cache_scope=cache_scope,
         )
     interview_plan = merge_question_plan(candidates, generated, max_questions)
     if session_id:
@@ -347,19 +357,19 @@ async def node_responder(state: VoiceInterviewState) -> AsyncGenerator[str, None
 
         logger.info(f"[Voice] 对话节点开始: session={session_id}, 进度=题{current_q_idx+1}/追问{follow_up_count}")
 
-        # 构建消息列表
+        # 历史只保留近期文本与更早滚动摘要；audio URL、内部 ID 和非文本内容不进入模型。
+        history_context = build_voice_history_context(history)
         messages = []
-
-        # System Prompt
         if system_prompt:
             messages.append({
                 "role": "system",
-                "content": system_prompt
+                "content": system_prompt,
             })
-
-        # 历史消息 (最近 15 条)
-        for msg in history[-15:]:
-            messages.append(msg)
+        if history_context.model_context:
+            messages.append({
+                "role": "system",
+                "content": "【已预算化对话历史】\n" + history_context.model_context,
+            })
 
         # 当前用户输入
         if audio_base64:
@@ -389,6 +399,7 @@ async def node_responder(state: VoiceInterviewState) -> AsyncGenerator[str, None
         completion = llms.model_gateway.stream_voice_chat_completions(
             api_config,
             messages=messages,
+            call_metadata=history_context.model_event_fields(),
         )
 
         # 处理流式响应
@@ -436,13 +447,15 @@ async def node_responder(state: VoiceInterviewState) -> AsyncGenerator[str, None
         # 如果面试已完成，发送对应标志并更新状态（画像分析在总结节点或手动调用时统一触发）
         if is_complete:
             from ai.workflows.interview.completion import handle_interview_complete
+            from app.domain.interview_rounds import INTERVIEW_CLOSING_MESSAGE
+            text_response = INTERVIEW_CLOSING_MESSAGE
             yield f"data: {json.dumps({'type': 'complete'}, ensure_ascii=False)}\n\n"
-            # 只更新状态，不触发画像分析（避免重复触发，由总结接口统一处理）
+            # 完成后直接触发统一结构化报告，不再依赖额外的文字总结入口。
             from ai.runtime.background_tasks import create_background_task
             create_background_task(handle_interview_complete(
                 session_id=session_id,
                 api_config=api_config,
-                trigger_analysis=False,  # 画像分析由 /api/voice/summary 统一触发
+                trigger_analysis=True,
                 user_id=user_id,
             ), name=f"voice-complete:{session_id}")
 
@@ -456,104 +469,6 @@ async def node_responder(state: VoiceInterviewState) -> AsyncGenerator[str, None
 
     except Exception as e:
         logger.error(f"[Voice] 对话节点失败: {e}", exc_info=True)
-        yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
-
-
-async def node_summary(state: VoiceInterviewState) -> AsyncGenerator[str, None]:
-    """
-    总结节点：在面试结束后生成面试反馈总结（SSE 流式输出）
-    """
-    from ai.workflows.interview.completion import process_interview_summary
-
-    session_id = state.get("session_id")
-    user_id = state.get("user_id", "default_user")
-    api_config = state.get("api_config", {})
-    history = state.get("history", [])
-
-    try:
-        logger.info(f"[Voice] 总结节点开始: session={session_id}")
-
-        # 使用统一处理流程
-        summary = await process_interview_summary(
-            session_id=session_id,
-            messages=history,
-            mode="mock",
-            api_config=api_config,
-            trigger_analysis=True,
-            user_id=user_id,
-        )
-
-        # 流式输出总结（模拟逐字输出效果）
-        chunk_size = 20
-        for i in range(0, len(summary), chunk_size):
-            chunk = summary[i:i+chunk_size]
-            yield f"data: {json.dumps({'type': 'summary_text', 'content': chunk}, ensure_ascii=False)}\n\n"
-
-        # 发送完成信号
-        yield f"data: {json.dumps({'type': 'summary_done', 'text': summary}, ensure_ascii=False)}\n\n"
-
-        # 保存总结到对话记录
-        await save_message_async(session_id, "assistant", f"【面试总结】\n\n{summary}", user_id=user_id)
-
-        logger.info(f"[Voice] 总结节点完成: session={session_id}")
-
-    except Exception as e:
-        logger.error(f"[Voice] 总结节点失败: {e}", exc_info=True)
-        yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
-
-
-async def generate_voice_summary(
-    session_id: str,
-    api_config: Dict[str, Any],
-    user_id: str = "default_user"
-) -> AsyncGenerator[str, None]:
-    """
-    生成语音面试总结（对外接口，SSE 流式输出）
-    """
-    from ai.workflows.interview.completion import process_interview_summary
-
-    try:
-        logger.info(f"[Voice] 开始生成面试总结: session={session_id}")
-
-        # 获取会话历史
-        service = SessionRepo()
-        session = await service.get_session(session_id, user_id=user_id)
-
-        if not session:
-            yield f"data: {json.dumps({'type': 'error', 'message': '会话不存在或无权访问'}, ensure_ascii=False)}\n\n"
-            return
-
-        # 构建消息列表
-        history = []
-        if session.messages:
-            for msg in session.messages:
-                if msg.role != "system" and msg.content:
-                    history.append({"role": msg.role, "content": msg.content})
-
-        # 使用统一处理流程
-        summary = await process_interview_summary(
-            session_id=session_id,
-            messages=history,
-            mode="mock",
-            api_config=api_config,
-            trigger_analysis=True,
-            user_id=user_id,
-        )
-
-        # 流式输出总结
-        chunk_size = 20
-        for i in range(0, len(summary), chunk_size):
-            chunk = summary[i:i+chunk_size]
-            yield f"data: {json.dumps({'type': 'summary_text', 'content': chunk}, ensure_ascii=False)}\n\n"
-
-        # 发送完成信号
-        yield f"data: {json.dumps({'type': 'summary_done', 'text': summary}, ensure_ascii=False)}\n\n"
-
-        # 保存
-        await save_message_async(session_id, "assistant", f"【面试总结】\n\n{summary}", user_id=user_id)
-
-    except Exception as e:
-        logger.error(f"[Voice] 生成面试总结失败: {e}", exc_info=True)
         yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
 
 
@@ -581,10 +496,6 @@ def route_voice_entry(state: VoiceInterviewState) -> str:
     # 如果是开场白阶段
     if current_phase == "greeting":
         return "greeting"
-
-    # 如果面试已完成
-    if current_phase == "complete":
-        return "summary"
 
     # 默认进入对话节点
     return "responder"
@@ -710,9 +621,6 @@ async def process_voice_chat(
 
         if node_name == "greeting" or is_greeting:
             async for event in node_greeting(state):
-                yield event
-        elif node_name == "summary":
-            async for event in node_summary(state):
                 yield event
         else:
             async for event in node_responder(state):

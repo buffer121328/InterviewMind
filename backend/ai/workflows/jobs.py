@@ -233,18 +233,18 @@ class JobsUseCases:
         items = [
             JobListItem(
                 id=job["id"],
-                company_name=job.get("company_name", ""),
-                job_title=job.get("job_title", ""),
-                platform=job.get("platform", ""),
-                company_size_text=job.get("company_size_text", ""),
-                city=job.get("city", ""),
-                salary_text=job.get("salary_text", ""),
-                source_url=job.get("source_url", ""),
+                company_name=job.get("company_name") or "",
+                job_title=job.get("job_title") or "",
+                platform=job.get("platform") or "",
+                company_size_text=job.get("company_size_text") or "",
+                city=job.get("city") or "",
+                salary_text=job.get("salary_text") or "",
+                source_url=job.get("source_url") or "",
                 match_score=job.get("match_score"),
                 asset_run_id=job.get("asset_run_id"),
                 asset_status=job.get("asset_status"),
-                status=job.get("status", "pending"),
-                tags=job.get("tags", []),
+                status=job.get("status") or "pending",
+                tags=job.get("tags") or [],
                 captured_at=job.get("captured_at"),
             )
             for job in jobs

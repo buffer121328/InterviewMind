@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import {
     Loader2, Plus, Search, Trash2, BookOpen,
     ChevronDown, ChevronUp, MessageCircle, ArrowLeft,
-    AlertTriangle, Calendar, Filter, Pencil, RefreshCw
+    AlertTriangle, ArrowRight, Calendar, Filter, Pencil, RefreshCw
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,10 +16,12 @@ import {
     listQuestionBank, createQuestionItem, deleteQuestionItem, searchQuestionBank, updateQuestionItem,
     type QuestionBankItem, type QuestionBankCreateRequest
 } from "@/lib/api/questionBank";
-import { fetchSessionList, getSessionDetail, type SessionListItem, type SessionDetail } from "@/lib/api/sessions";
-import { ChatMessage } from "@/components/ChatMessage";
+import { fetchSessionPage, type SessionListItem } from "@/lib/api/sessions";
 import { InterviewExperiencePanel } from "@/components/InterviewExperiencePanel";
 import { QuestionFileImportPanel } from "@/components/QuestionFileImportPanel";
+import { PaginationControls } from "@/components/PaginationControls";
+import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
+import { questionReferenceAnswer, questionSourceLabel } from "@/lib/questionBankPresentation";
 
 // =====================================================================
 // Types
@@ -28,6 +30,7 @@ import { QuestionFileImportPanel } from "@/components/QuestionFileImportPanel";
 interface QuestionBankPageProps {
     onBack?: () => void;
     onStartInterview: () => void;
+    onOpenSession: (sessionId: string) => void;
     embedded?: boolean;
 }
 
@@ -97,6 +100,8 @@ function QuestionCard({
 
     const diff = difficultyBadge[item.difficulty] ?? difficultyBadge.medium;
     const tp = typeBadge[item.question_type] ?? typeBadge.tech;
+    const sourceLabel = questionSourceLabel(item);
+    const referenceAnswer = questionReferenceAnswer(item);
 
     return (
         <div className="group rounded-2xl border border-stone-200 bg-white p-4 transition-shadow hover:shadow-md">
@@ -115,6 +120,9 @@ function QuestionCard({
                         </span>
                         <span className="text-xs text-stone-400">
                             已使用 {item.usage_count} 次
+                        </span>
+                        <span className="text-xs text-stone-400">
+                            来源：{sourceLabel}
                         </span>
                     </div>
                 </div>
@@ -156,15 +164,13 @@ function QuestionCard({
             )}
 
             {/* Expand toggle */}
-            {(item.reference_answer || item.tags.length > 0 || item.followups.length > 0) && (
-                <button
-                    className="mt-3 flex items-center gap-1 text-xs text-teal-600 hover:text-teal-700 transition-colors"
-                    onClick={() => setExpanded(!expanded)}
-                >
-                    {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-                    {expanded ? "收起" : "展开参考答案/追问"}
-                </button>
-            )}
+            <button
+                className="mt-3 flex items-center gap-1 text-xs text-teal-600 hover:text-teal-700 transition-colors"
+                onClick={() => setExpanded(!expanded)}
+            >
+                {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                {expanded ? "收起" : "展开题目详情"}
+            </button>
 
             {/* Expanded content */}
             <div
@@ -173,11 +179,10 @@ function QuestionCard({
                     expanded ? "max-h-96 opacity-100 mt-3" : "max-h-0 opacity-0"
                 )}
             >
-                {item.reference_answer && (
-                    <div className="rounded-xl bg-teal-50/60 p-3 text-sm text-stone-700 leading-relaxed whitespace-pre-wrap">
-                        {item.reference_answer}
-                    </div>
-                )}
+                <div className="rounded-xl bg-teal-50/60 p-3 text-sm text-stone-700 leading-relaxed whitespace-pre-wrap">
+                    <p className="mb-1 text-xs font-medium text-teal-700">参考答案</p>
+                    {referenceAnswer}
+                </div>
                 {item.followups.length > 0 && (
                     <div className="mt-2 rounded-xl border border-blue-100 bg-blue-50/50 p-3">
                         <p className="mb-2 text-xs font-medium text-blue-700">历史追问沉淀</p>
@@ -202,27 +207,11 @@ function QuestionCard({
     );
 }
 
-/** Session card inside the history tab */
-function SessionCard({ session }: { session: SessionListItem }) {
-    const [expanded, setExpanded] = useState(false);
-    const [detail, setDetail] = useState<SessionDetail | null>(null);
-    const [loading, setLoading] = useState(false);
-
-    /** Encapsulates toggle; returns typed data or state and keeps side effects within the owning module boundary. */
-    const toggle = async () => {
-        if (!expanded && !detail) {
-            setLoading(true);
-            const d = await getSessionDetail(session.session_id);
-            setDetail(d);
-            setLoading(false);
-        }
-        setExpanded(!expanded);
-    };
-
+/** Session history is a direct navigation affordance instead of a nested conversation disclosure. */
+function SessionCard({ session, onOpen }: { session: SessionListItem; onOpen: (sessionId: string) => void }) {
     return (
         <div className="rounded-2xl border border-stone-200 bg-white overflow-hidden transition-shadow hover:shadow-md">
-            {/* Header */}
-            <button className="w-full p-4 text-left" onClick={toggle}>
+            <button className="w-full p-4 text-left" onClick={() => onOpen(session.session_id)}>
                 <div className="flex items-start justify-between gap-3">
                     <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-stone-800 line-clamp-1">{session.title}</p>
@@ -247,41 +236,12 @@ function SessionCard({ session }: { session: SessionListItem }) {
                             </span>
                         </div>
                     </div>
-                    {expanded ? <ChevronUp className="h-4 w-4 text-stone-400 shrink-0" /> : <ChevronDown className="h-4 w-4 text-stone-400 shrink-0" />}
+                    <span className="flex shrink-0 items-center gap-1 text-xs font-medium text-teal-600">
+                        进入会话
+                        <ArrowRight className="h-4 w-4" />
+                    </span>
                 </div>
             </button>
-
-            {/* Expanded conversation */}
-            <div
-                className={cn(
-                    "overflow-hidden transition-all duration-300 ease-in-out",
-                    expanded ? "max-h-[600px] opacity-100" : "max-h-0 opacity-0"
-                )}
-            >
-                <div className="border-t border-stone-100 bg-stone-50/50">
-                    {loading ? (
-                        <div className="flex items-center justify-center py-8">
-                            <Loader2 className="h-5 w-5 animate-spin text-teal-500" />
-                            <span className="ml-2 text-sm text-stone-400">加载中…</span>
-                        </div>
-                    ) : detail && detail.messages.length > 0 ? (
-                        <ScrollArea className="max-h-[500px]">
-                            <div className="p-4 space-y-3">
-                                {detail.messages.map((msg, idx) => (
-                                    <ChatMessage
-                                        key={idx}
-                                        role={msg.role}
-                                        content={msg.content}
-                                        timestamp={msg.timestamp}
-                                    />
-                                ))}
-                            </div>
-                        </ScrollArea>
-                    ) : (
-                        <p className="py-8 text-center text-sm text-stone-400">暂无对话记录</p>
-                    )}
-                </div>
-            </div>
         </div>
     );
 }
@@ -291,11 +251,15 @@ function SessionCard({ session }: { session: SessionListItem }) {
 // =====================================================================
 
 /** Renders the question bank page UI and coordinates its typed props, local state, and approved backend interactions. */
-export default function QuestionBankPage({ onBack, onStartInterview, embedded = false }: QuestionBankPageProps) {
+export default function QuestionBankPage({ onBack, onStartInterview, onOpenSession, embedded = false }: QuestionBankPageProps) {
     // ---- state ----
     const [tab, setTab] = useState<TabKey>("bank");
     const [questions, setQuestions] = useState<QuestionBankItem[]>([]);
+    const [questionTotal, setQuestionTotal] = useState(0);
+    const [questionPage, setQuestionPage] = useState(1);
     const [sessions, setSessions] = useState<SessionListItem[]>([]);
+    const [sessionTotal, setSessionTotal] = useState(0);
+    const [sessionPage, setSessionPage] = useState(1);
     const [loading, setLoading] = useState(false);
     const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -326,12 +290,17 @@ export default function QuestionBankPage({ onBack, onStartInterview, embedded = 
         try {
             let res;
             if (searchQ.trim()) {
-                res = await searchQuestionBank(searchQ.trim(), 200);
+                res = await searchQuestionBank(
+                    searchQ.trim(),
+                    DEFAULT_PAGE_SIZE,
+                    (questionPage - 1) * DEFAULT_PAGE_SIZE,
+                );
             } else {
                 res = await listQuestionBank({
                     question_type: filterType || undefined,
                     difficulty: filterDifficulty || undefined,
-                    limit: 200,
+                    limit: DEFAULT_PAGE_SIZE,
+                    offset: (questionPage - 1) * DEFAULT_PAGE_SIZE,
                 });
             }
             if (!res.success) {
@@ -340,27 +309,35 @@ export default function QuestionBankPage({ onBack, onStartInterview, embedded = 
                 return;
             }
             setQuestions(res.items ?? []);
+            setQuestionTotal(res.total);
         } catch {
             setLoadError("暂时无法连接题库服务。请确认 FastAPI 后端已启动后重试。");
             toast.error("加载题库失败");
         } finally {
             setLoading(false);
         }
-    }, [searchQ, filterType, filterDifficulty]);
+    }, [filterDifficulty, filterType, questionPage, searchQ]);
 
     const loadSessions = useCallback(async () => {
         setLoading(true);
         setLoadError(null);
         try {
-            const list = await fetchSessionList("completed", undefined, 100);
-            setSessions(list);
+            const searchingHistory = Boolean(historySearch.trim());
+            const response = await fetchSessionPage(
+                "completed",
+                undefined,
+                searchingHistory ? 200 : DEFAULT_PAGE_SIZE,
+                searchingHistory ? 0 : (sessionPage - 1) * DEFAULT_PAGE_SIZE,
+            );
+            setSessions(response.sessions);
+            setSessionTotal(response.total);
         } catch {
             setLoadError("暂时无法连接面试历史服务。请确认 FastAPI 后端已启动后重试。");
             toast.error("加载历史失败");
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [historySearch, sessionPage]);
 
     useEffect(() => {
         void Promise.resolve().then(() => {
@@ -381,7 +358,11 @@ export default function QuestionBankPage({ onBack, onStartInterview, embedded = 
         const res = await deleteQuestionItem(id);
         if (res.success) {
             toast.success("已删除");
-            setQuestions((prev) => prev.filter((q) => q.id !== id));
+            if (questions.length === 1 && questionPage > 1) {
+                setQuestionPage((current) => current - 1);
+            } else {
+                await loadQuestions();
+            }
         } else {
             toast.error(res.message ?? "删除失败");
         }
@@ -444,11 +425,14 @@ export default function QuestionBankPage({ onBack, onStartInterview, embedded = 
     const filteredSessions = historySearch.trim()
         ? sessions.filter((s) => s.title.toLowerCase().includes(historySearch.trim().toLowerCase()))
         : sessions;
+    const displayedSessions = historySearch.trim()
+        ? filteredSessions.slice((sessionPage - 1) * DEFAULT_PAGE_SIZE, sessionPage * DEFAULT_PAGE_SIZE)
+        : filteredSessions;
 
     // ---- render ----
 
     return (
-        <div className="flex h-full flex-col bg-[#f7faf9]">
+        <div className="flex h-full min-h-0 flex-col overflow-hidden bg-[#f7faf9]">
             {/* =================== Header =================== */}
             {!embedded && (
                 <header className="sticky top-0 z-20 flex items-center gap-3 border-b border-stone-200 bg-white/80 backdrop-blur px-4 py-3">
@@ -467,7 +451,7 @@ export default function QuestionBankPage({ onBack, onStartInterview, embedded = 
             )}
 
             {/* =================== Tabs =================== */}
-            <div className="flex items-center gap-1 border-b border-stone-200 bg-white px-4">
+            <div className="flex shrink-0 items-center gap-1 border-b border-stone-200 bg-white px-4">
                 {([["bank", "我的题库"], ["experience", "面经采集"], ["history", "面试历史"]] as const).map(([key, label]) => (
                     <button
                         key={key}
@@ -486,10 +470,10 @@ export default function QuestionBankPage({ onBack, onStartInterview, embedded = 
             </div>
 
             {/* =================== Content =================== */}
-            <div className="flex-1 overflow-hidden">
+            <div className="min-h-0 flex-1 overflow-hidden">
                 {/* ---------- Question Bank Tab ---------- */}
                 {tab === "bank" && (
-                    <div className="flex flex-col h-full">
+                    <div className="flex h-full min-h-0 flex-col overflow-hidden">
                         {/* Search + Filters bar */}
                         <div className="shrink-0 space-y-3 px-4 pt-4 pb-2">
                             {/* Search */}
@@ -497,7 +481,10 @@ export default function QuestionBankPage({ onBack, onStartInterview, embedded = 
                                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-stone-400" />
                                 <Input
                                     value={searchQ}
-                                    onChange={(e) => setSearchQ(e.target.value)}
+                                    onChange={(e) => {
+                                        setSearchQ(e.target.value);
+                                        setQuestionPage(1);
+                                    }}
                                     placeholder="搜索题目…"
                                     className="pl-9 rounded-xl border-stone-200 bg-white focus-visible:ring-teal-500"
                                 />
@@ -508,7 +495,10 @@ export default function QuestionBankPage({ onBack, onStartInterview, embedded = 
                                 <Filter className="h-4 w-4 text-stone-400" />
                                 <select
                                     value={filterDifficulty}
-                                    onChange={(e) => setFilterDifficulty(e.target.value)}
+                                    onChange={(e) => {
+                                        setFilterDifficulty(e.target.value);
+                                        setQuestionPage(1);
+                                    }}
                                     aria-label="按难度筛选"
                                     className="rounded-lg border border-stone-200 bg-white px-2.5 py-1.5 text-xs text-stone-600 focus:outline-none focus:ring-2 focus:ring-teal-500"
                                 >
@@ -518,7 +508,10 @@ export default function QuestionBankPage({ onBack, onStartInterview, embedded = 
                                 </select>
                                 <select
                                     value={filterType}
-                                    onChange={(e) => setFilterType(e.target.value)}
+                                    onChange={(e) => {
+                                        setFilterType(e.target.value);
+                                        setQuestionPage(1);
+                                    }}
                                     aria-label="按题型筛选"
                                     className="rounded-lg border border-stone-200 bg-white px-2.5 py-1.5 text-xs text-stone-600 focus:outline-none focus:ring-2 focus:ring-teal-500"
                                 >
@@ -540,11 +533,13 @@ export default function QuestionBankPage({ onBack, onStartInterview, embedded = 
                             </div>
                         </div>
 
-                        <QuestionFileImportPanel onImported={() => void loadQuestions()} />
+                        <div className="shrink-0">
+                            <QuestionFileImportPanel onImported={() => void loadQuestions()} />
+                        </div>
 
                         {/* Add‑question form */}
                         {showForm && (
-                            <div className="mx-4 mb-3 animate-in space-y-3 rounded-2xl border border-teal-200 bg-teal-50/50 p-4 fade-in slide-in-from-top-2">
+                            <div className="mx-4 mb-3 shrink-0 animate-in space-y-3 rounded-2xl border border-teal-200 bg-teal-50/50 p-4 fade-in slide-in-from-top-2">
                                 <div className="text-xs font-semibold text-teal-900">
                                     {editingItemId === null ? "添加题目" : "编辑题目"}
                                 </div>
@@ -607,7 +602,7 @@ export default function QuestionBankPage({ onBack, onStartInterview, embedded = 
                         )}
 
                         {/* Question list */}
-                        <ScrollArea className="flex-1 px-4 pb-4">
+                        <ScrollArea aria-label="题目列表" className="min-h-0 flex-1 overflow-hidden px-4 pb-4">
                             {loading ? (
                                 <div className="flex items-center justify-center py-20">
                                     <Loader2 className="h-6 w-6 animate-spin text-teal-500" />
@@ -641,6 +636,13 @@ export default function QuestionBankPage({ onBack, onStartInterview, embedded = 
                                 </div>
                             )}
                         </ScrollArea>
+                        <PaginationControls
+                            className="shrink-0 border-t border-stone-200 bg-white px-4 py-3"
+                            page={questionPage}
+                            total={questionTotal}
+                            loading={loading}
+                            onPageChange={setQuestionPage}
+                        />
                     </div>
                 )}
 
@@ -653,14 +655,17 @@ export default function QuestionBankPage({ onBack, onStartInterview, embedded = 
 
                 {/* ---------- Interview History Tab ---------- */}
                 {tab === "history" && (
-                    <div className="flex flex-col h-full">
+                    <div className="flex h-full min-h-0 flex-col overflow-hidden">
                         {/* History search */}
                         <div className="shrink-0 px-4 pt-4 pb-2">
                             <div className="relative">
                                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-stone-400" />
                                 <Input
                                     value={historySearch}
-                                    onChange={(e) => setHistorySearch(e.target.value)}
+                                    onChange={(e) => {
+                                        setHistorySearch(e.target.value);
+                                        setSessionPage(1);
+                                    }}
                                     placeholder="搜索面试标题…"
                                     className="pl-9 rounded-xl border-stone-200 bg-white focus-visible:ring-teal-500"
                                 />
@@ -668,7 +673,7 @@ export default function QuestionBankPage({ onBack, onStartInterview, embedded = 
                         </div>
 
                         {/* Session list */}
-                        <ScrollArea className="flex-1 px-4 pb-4">
+                        <ScrollArea aria-label="面试历史列表" className="min-h-0 flex-1 overflow-hidden px-4 pb-4">
                             {loading ? (
                                 <div className="flex items-center justify-center py-20">
                                     <Loader2 className="h-6 w-6 animate-spin text-teal-500" />
@@ -696,12 +701,19 @@ export default function QuestionBankPage({ onBack, onStartInterview, embedded = 
                                 </div>
                             ) : (
                                 <div className="space-y-3">
-                                    {filteredSessions.map((s) => (
-                                        <SessionCard key={s.session_id} session={s} />
+                                    {displayedSessions.map((s) => (
+                                        <SessionCard key={s.session_id} session={s} onOpen={onOpenSession} />
                                     ))}
                                 </div>
                             )}
                         </ScrollArea>
+                        <PaginationControls
+                            className="shrink-0 border-t border-stone-200 bg-white px-4 py-3"
+                            page={sessionPage}
+                            total={historySearch.trim() ? filteredSessions.length : sessionTotal}
+                            loading={loading}
+                            onPageChange={setSessionPage}
+                        />
                     </div>
                 )}
             </div>

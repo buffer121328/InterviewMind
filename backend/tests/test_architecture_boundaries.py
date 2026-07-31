@@ -190,23 +190,65 @@ def test_api_routes_do_not_depend_on_agents_or_infrastructure():
 
 def test_observability_init_only_reexports_pure_helper_modules():
     """纯配置、usage、provider 和汇总逻辑不得重新堆回 observability.__init__。"""
+
     package_root = BACKEND_ROOT / "observability"
-    expected_modules = {"config.py", "langfuse_client.py", "providers.py", "summaries.py", "usage.py"}
+    expected_modules = {
+        "config.py",
+        "langfuse_client.py",
+        "providers.py",
+        "summaries.py",
+        "usage.py",
+    }
     assert expected_modules <= {path.name for path in package_root.iterdir() if path.is_file()}
+
     tree = ast.parse((package_root / "__init__.py").read_text())
-    top_level_names = {node.name for node in tree.body if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))}
-    moved_helpers = {"LangfuseConfig", "compare_governance_windows", "estimate_model_cost", "extract_token_usage", "infer_model_integration", "infer_model_provider", "measure_model_input", "provider_observability_metadata", "summarize_approval_events", "summarize_external_io_events", "summarize_governance_window", "summarize_model_events", "summarize_tool_events"}
+    top_level_names = {
+        node.name
+        for node in tree.body
+        if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    moved_helpers = {
+        "LangfuseConfig",
+        "compare_governance_windows",
+        "estimate_model_cost",
+        "extract_token_usage",
+        "infer_model_integration",
+        "infer_model_provider",
+        "measure_model_input",
+        "provider_observability_metadata",
+        "summarize_approval_events",
+        "summarize_external_io_events",
+        "summarize_governance_window",
+        "summarize_model_events",
+        "summarize_tool_events",
+    }
     assert top_level_names.isdisjoint(moved_helpers)
 
 
 def test_evaluation_repository_is_split_by_persistence_concern():
     """EvaluationRepository 聚合入口应保持轻量，具体持久化行为按关注点拆分。"""
+
     package_root = BACKEND_APP / "db" / "repositories" / "evaluation"
-    expected_modules = {"annotation_repository.py", "dataset_repository.py", "gate_repository.py", "helpers.py", "run_repository.py"}
+    expected_modules = {
+        "annotation_repository.py",
+        "dataset_repository.py",
+        "gate_repository.py",
+        "helpers.py",
+        "run_repository.py",
+    }
     assert expected_modules <= {path.name for path in package_root.iterdir() if path.is_file()}
+
     repository_path = package_root / "repository.py"
     tree = ast.parse(repository_path.read_text())
-    repository_class = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "EvaluationRepository")
-    method_names = {node.name for node in repository_class.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
+    repository_class = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "EvaluationRepository"
+    )
+    method_names = {
+        node.name
+        for node in repository_class.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
     assert method_names == {"_case_model", "create_candidate_dataset_from_case_run"}
     assert len(repository_path.read_text().splitlines()) < 160

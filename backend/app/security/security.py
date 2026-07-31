@@ -33,6 +33,10 @@ def redact_secret_text(text: str) -> str:
     patterns = [
         r"(api[_-]?key\s*[:=]\s*)([^\s,}]+)",
         r"(authorization\s*[:=]\s*bearer\s+)([^\s,}]+)",
+        r"((?:set-)?cookie\s*[:=]\s*)([^,}\n]+)",
+        r"((?:access[_-]?|refresh[_-]?)?token\s*[:=]\s*)([^\s,}]+)",
+        r"((?:client[_-]?)?secret\s*[:=]\s*)([^\s,}]+)",
+        r"(password\s*[:=]\s*)([^\s,}]+)",
         r"(sk-[A-Za-z0-9_-]{12,})",
     ]
     result = text

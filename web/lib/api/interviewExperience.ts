@@ -1,6 +1,6 @@
 import { API_BASE_URL, getUserId } from './config';
 
-export type ExperienceSource = 'nowcoder' | 'xiaohongshu';
+export type ExperienceSource = 'nowcoder';
 
 export interface ExperienceQuestionCandidate {
     question_text: string;
@@ -25,6 +25,7 @@ export interface ExperienceCollectResponse {
     }>;
     questions: ExperienceQuestionCandidate[];
     message?: string;
+    warnings?: string[];
 }
 
 /** Calls the backend for collect interview experiences; the shared API client supplies request identity and error normalization, and this helper returns the typed endpoint result. */
@@ -50,6 +51,7 @@ export async function importExperienceQuestions(questions: ExperienceQuestionCan
     success_count: number;
     total_count: number;
     message?: string;
+    warnings?: string[];
 }> {
     const response = await fetch(`${API_BASE_URL}/api/interview-experiences/import`, {
         method: 'POST',

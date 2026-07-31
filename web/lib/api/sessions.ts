@@ -58,18 +58,6 @@ export interface SessionListItem {
 // API 函数
 // ============================================================================
 
-/**
- * 获取用户的会话列表
- */
-export async function fetchSessionList(
-    status?: 'active' | 'completed' | 'archived',
-    mode?: 'mock' | 'voice',
-    limit: number = 50
-): Promise<SessionListItem[]> {
-    const page = await fetchSessionPage(status, mode, limit, 0);
-    return page.sessions;
-}
-
 /** Calls the backend for fetch session page; the shared API client supplies request identity and error normalization, and this helper returns the typed endpoint result. */
 export async function fetchSessionPage(
     status?: 'active' | 'completed' | 'archived',

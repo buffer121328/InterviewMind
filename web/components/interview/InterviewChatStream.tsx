@@ -37,7 +37,7 @@ export function InterviewChatStream({
 
     return (
         <ScrollArea className="flex-1 overflow-hidden px-4" viewportRef={viewportRef} onScroll={onScroll}>
-            <div className="mx-auto max-w-3xl space-y-6 pb-2 pt-6">
+            <div className="mx-auto max-w-5xl space-y-6 pb-2 pt-6">
                 {(isLoading || isStreaming) && messages.length === 0 && (
                     <PreparingInterview stage={initializationStage} plan={executionPlan} />
                 )}

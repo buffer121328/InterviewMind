@@ -11,6 +11,14 @@ from unittest.mock import MagicMock
 
 import pytest
 
+# Test collection may import optional evaluation/memory SDKs before an autouse
+# fixture can run.  Keep their vendor telemetry offline by default at process
+# startup; process env values win over any .env loaded later by those SDKs.
+os.environ.setdefault("MEM0_TELEMETRY", "False")
+os.environ.setdefault("DEEPEVAL_TELEMETRY_OPT_OUT", "true")
+os.environ.setdefault("DEEPEVAL_TELEMETRY_ENABLED", "false")
+os.environ.setdefault("ERROR_REPORTING", "false")
+
 # backend/ directory (where this conftest.py lives)
 _BACKEND_DIR = str(Path(__file__).resolve().parent)
 if _BACKEND_DIR not in sys.path:
@@ -71,6 +79,29 @@ _ensure_mock_module("asyncpg.pool")
 # langgraph-checkpoint-postgres
 _ensure_mock_module("langgraph_checkpoint_postgres")
 _ensure_mock_module("langgraph.checkpoint.postgres")
+
+
+@pytest.fixture(autouse=True)
+def disable_external_langfuse_by_default(monkeypatch):
+    """Keep offline tests from using real Langfuse credentials loaded from `.env`."""
+
+    monkeypatch.setenv("LANGFUSE_ENABLED", "false")
+    monkeypatch.setenv("LANGFUSE_PROMPT_MANAGEMENT_ENABLED", "false")
+    try:
+        import observability
+
+        observability._reset_langfuse_for_tests()
+    except Exception:
+        # Import-order edge cases should not fail collection; tests that need
+        # Langfuse explicitly configure a fake client in their own fixture/body.
+        pass
+    yield
+    try:
+        import observability
+
+        observability._reset_langfuse_for_tests()
+    except Exception:
+        pass
 
 
 def pytest_collection_modifyitems(items):

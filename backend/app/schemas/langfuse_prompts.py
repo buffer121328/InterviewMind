@@ -5,7 +5,6 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-
 PromptType = Literal["text", "chat"]
 _PROMPT_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _LABEL_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
@@ -145,6 +144,9 @@ class PromptVersionResponse(BaseModel):
     """Safe prompt-version representation returned by bounded operations."""
 
     name: str
+    display_name: str
+    functional_group: str
+    is_builtin: bool
     type: PromptType
     version: int
     labels: list[str] = Field(default_factory=list)
@@ -155,6 +157,9 @@ class PromptMetadataResponse(BaseModel):
     """Prompt metadata without template content for list responses."""
 
     name: str
+    display_name: str
+    functional_group: str
+    is_builtin: bool
     type: PromptType
     versions: list[int] = Field(default_factory=list)
     labels: list[str] = Field(default_factory=list)
@@ -165,6 +170,7 @@ class PromptListResponse(BaseModel):
     """Paginated list of safe prompt metadata."""
 
     items: list[PromptMetadataResponse]
+    total: int = Field(ge=0)
     page: int
     limit: int
 
@@ -174,3 +180,12 @@ class PromptPreviewResponse(PromptVersionResponse):
 
     compiled_prompt: str | list[PromptChatMessage]
     unresolved_variables: list[str] = Field(default_factory=list)
+
+
+class PromptBuiltinSyncResponse(BaseModel):
+    """Result of idempotently publishing missing built-in production prompts."""
+
+    discovered: int = Field(ge=0)
+    created: int = Field(ge=0)
+    skipped: int = Field(ge=0)
+    created_names: list[str] = Field(default_factory=list)

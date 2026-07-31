@@ -7,6 +7,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from app.api.deps import get_current_user_id
 from app.schemas.memory import (
     MemoryAccessRequest,
+    MemoryCreateRequest,
     MemoryDeleteAllRequest,
     MemoryDeleteResponse,
     MemoryHistoryResponse,
@@ -14,6 +15,8 @@ from app.schemas.memory import (
     MemoryListResponse,
     MemorySearchRequest,
     MemorySearchResponse,
+    MemoryUpdateRequest,
+    MemoryWriteResponse,
 )
 from ai.workflows.memory import memory_use_cases
 
@@ -101,6 +104,19 @@ async def search_memories_with_model_config(
         raise _internal_error("搜索记忆失败，请检查 mem0 模型与向量库配置") from exc
 
 
+@router.post("", response_model=MemoryWriteResponse)
+async def add_memory(
+    request: MemoryCreateRequest,
+    user_id: str = Depends(get_current_user_id),
+):
+    """Add one user-authored memory without automatic LLM extraction."""
+    try:
+        return await memory_use_cases.add_memory(user_id=user_id, request=request)
+    except Exception as exc:
+        logger.error("手动添加记忆失败: %s", type(exc).__name__)
+        raise _internal_error("添加记忆失败，请检查 mem0 配置") from exc
+
+
 @router.get("/{memory_id}/history", response_model=MemoryHistoryResponse)
 async def get_memory_history(
     memory_id: str,
@@ -150,6 +166,24 @@ async def delete_memory(
     except Exception as exc:
         logger.error("删除记忆失败: %s", type(exc).__name__)
         raise _internal_error("删除记忆失败，请检查 mem0 配置") from exc
+
+
+@router.patch("/{memory_id}", response_model=MemoryWriteResponse)
+async def update_memory(
+    memory_id: str,
+    request: MemoryUpdateRequest,
+    user_id: str = Depends(get_current_user_id),
+):
+    """Update one owner-scoped memory after validating its ownership."""
+    try:
+        return await memory_use_cases.update_memory(
+            user_id=user_id,
+            memory_id=memory_id,
+            request=request,
+        )
+    except Exception as exc:
+        logger.error("更新记忆失败: %s", type(exc).__name__)
+        raise _internal_error("更新记忆失败，请检查 mem0 配置") from exc
 
 
 @router.delete("", response_model=MemoryDeleteResponse)

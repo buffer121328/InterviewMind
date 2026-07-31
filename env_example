@@ -105,6 +105,17 @@ GUARDRAILS_FAIL_CLOSED=true
 GUARDRAILS_MAX_UNTRUSTED_CONTEXT_CHARS=20000
 
 # ----------------------------------------------------------------------------
+# 第三方 SDK 匿名遥测（默认关闭）
+# 本项目只把脱敏运行证据写入本地 AgentRun/Evaluation 和可选 Langfuse，
+# 不让 mem0 / DeepEval 直接向 PostHog、Sentry 或 Confident AI 上报。
+# 如确需调试第三方 SDK，可由部署环境显式覆盖这些值。
+# ----------------------------------------------------------------------------
+MEM0_TELEMETRY=False
+DEEPEVAL_TELEMETRY_OPT_OUT=true
+DEEPEVAL_TELEMETRY_ENABLED=false
+ERROR_REPORTING=false
+
+# ----------------------------------------------------------------------------
 # RAG Embedding（OpenAI-compatible）
 # 优先使用前端「设置 → RAG / 长期记忆模型」；以下仅作服务端兜底。
 # ----------------------------------------------------------------------------
@@ -167,6 +178,8 @@ LANGFUSE_SAMPLE_RATE=1.0
 LANGFUSE_PROMPT_MANAGEMENT_ENABLED=false
 LANGFUSE_PROMPT_LABEL=production
 LANGFUSE_PROMPT_CACHE_TTL_SECONDS=300
+LANGFUSE_PROMPT_FETCH_TIMEOUT_SECONDS=0.05
+LANGFUSE_PROMPT_MAX_RETRIES=0
 # 离线评估/DeepEval 结果写入 Langfuse Scores。
 LANGFUSE_EVAL_REPORTING_ENABLED=false
 

@@ -14,11 +14,14 @@ from ai.memory import get_agent_memory_service
 from app.schemas.memory import (
     MemoryDeleteAllRequest,
     MemoryDeleteResponse,
+    MemoryCreateRequest,
     MemoryHistoryItem,
     MemoryHistoryResponse,
     MemoryItem,
     MemoryListResponse,
     MemorySearchResponse,
+    MemoryUpdateRequest,
+    MemoryWriteResponse,
 )
 
 logger = logging.getLogger(__name__)
@@ -115,6 +118,48 @@ class MemoryUseCases:
         ]
         return MemoryHistoryResponse(success=True, history=history, memory_id=memory_id)
 
+    async def add_memory(
+        self,
+        *,
+        user_id: str,
+        request: MemoryCreateRequest,
+    ) -> MemoryWriteResponse:
+        """Create a raw user-authored memory without automatic extraction."""
+        api_config = request.api_config.model_dump() if request.api_config else None
+        memory_service = await get_agent_memory_service(api_config)
+        if not memory_service.is_enabled:
+            return MemoryWriteResponse(success=False, message=MEMORY_DISABLED_MESSAGE)
+        result = await memory_service.add_memory(
+            user_id=user_id,
+            content=request.content,
+            memory_type=request.memory_type,
+        )
+        memory_id = _memory_id_from_result(result)
+        if not memory_id:
+            return MemoryWriteResponse(success=False, message="添加记忆失败")
+        return MemoryWriteResponse(success=True, message="长期记忆已添加", memory_id=memory_id)
+
+    async def update_memory(
+        self,
+        *,
+        user_id: str,
+        memory_id: str,
+        request: MemoryUpdateRequest,
+    ) -> MemoryWriteResponse:
+        """Replace one owner-scoped memory after the service validates ownership."""
+        api_config = request.api_config.model_dump() if request.api_config else None
+        memory_service = await get_agent_memory_service(api_config)
+        if not memory_service.is_enabled:
+            return MemoryWriteResponse(success=False, message=MEMORY_DISABLED_MESSAGE)
+        result = await memory_service.update_memory(
+            user_id=user_id,
+            memory_id=memory_id,
+            content=request.content,
+        )
+        if result is None:
+            return MemoryWriteResponse(success=False, message="更新失败，记忆不存在或不属于当前用户")
+        return MemoryWriteResponse(success=True, message="长期记忆已更新", memory_id=memory_id)
+
     async def delete_memory(
         self,
         *,
@@ -161,3 +206,16 @@ class MemoryUseCases:
 
 
 memory_use_cases = MemoryUseCases()
+
+
+def _memory_id_from_result(result: object) -> str | None:
+    """Extract the first mem0 result id across its supported response shapes."""
+    if not isinstance(result, dict):
+        return None
+    if isinstance(result.get("id"), str):
+        return result["id"]
+    results = result.get("results")
+    if isinstance(results, list) and results and isinstance(results[0], dict):
+        memory_id = results[0].get("id")
+        return memory_id if isinstance(memory_id, str) else None
+    return None

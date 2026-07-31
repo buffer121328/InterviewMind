@@ -3,16 +3,17 @@
 直接多维度分析，无反思机制
 """
 
-import json
 import logging
-from typing import List, Optional, TypedDict, Dict, Any
+from typing import Any, List, Optional, TypedDict
 
-from langgraph.graph import StateGraph, END
+from langgraph.graph import END, StateGraph
 
-from app.schemas.llm_outputs import ResumeAnalysisOutput, DimensionScoreItem
 from ai.llm.llm_utils import invoke_structured
 from ai.prompts.resume import build_resume_analysis_prompt
+from ai.runtime.context_assembler import ContextAssembler, ContextSource
+from ai.runtime.deadlines import TaskDeadline
 from app.db.repositories.session.session_repo import SessionRepo
+from app.schemas.llm_outputs import ResumeAnalysisOutput
 from observability import langgraph_langfuse_scope, with_langgraph_langfuse_config
 
 logger = logging.getLogger(__name__)
@@ -30,6 +31,8 @@ class ResumeAnalyzerState(TypedDict):
     session_ids: List[str]
     api_config: Optional[dict]
     user_id: str
+    deadline: TaskDeadline | None
+    call_metadata: dict[str, Any] | None
 
     # 中间数据
     interview_conversations: List[dict]  # 面试对话内容
@@ -69,7 +72,7 @@ async def node_prepare(state: ResumeAnalyzerState) -> dict:
             if profile_data:
                 overall_profile = profile_data.get("profile")
         except Exception as e:
-            logger.warning(f"获取综合能力画像失败: {e}")
+            logger.warning("获取综合能力画像失败: %s", type(e).__name__)
 
     return {
         "interview_conversations": interview_conversations,
@@ -87,49 +90,82 @@ async def node_analyze(state: ResumeAnalyzerState) -> dict:
     overall_profile = state.get("overall_profile")
     api_config = state.get("api_config")
 
-    # 构建面试洞察部分
-    interview_section = ""
-    if interview_conversations:
-        # 取最多5个典型的 QA 对
-        sample_qa = interview_conversations[:5]
-        qa_text = "\n".join([
-            f"Q: {qa['question']}\nA: {qa['answer'][:200]}..."
-            if len(qa['answer']) > 200 else f"Q: {qa['question']}\nA: {qa['answer']}"
-            for qa in sample_qa
-        ])
-        interview_section = f"""
-
-【面试对话参考】（共 {len(interview_conversations)} 轮）：
-{qa_text}
-"""
-
-    # 构建能力画像部分
-    profile_section = ""
-    if overall_profile:
-        profile_section = f"""
-
-【综合能力画像】：
-{json.dumps(overall_profile, ensure_ascii=False, indent=2)[:500]}...
-"""
-
-    # 构建 JD 部分
-    jd_section = ""
-    if job_description:
-        jd_section = f"""
-
-【目标职位描述】：
-{job_description}
-"""
+    compact_conversations = [
+        {
+            "question": qa.get("question", ""),
+            "answer": qa.get("answer", ""),
+        }
+        for qa in interview_conversations[:5]
+        if isinstance(qa, dict)
+    ]
+    assembled = ContextAssembler(
+        agent_name="resume_analyzer",
+        total_model_chars=9000,
+        source_budgets={
+            "resume": 4000,
+            "job_description": 2500,
+            "interview_evidence": 1600,
+            "ability_profile": 900,
+        },
+        cache_version="2026-07-29.phase6.resume_analyzer.v1",
+    ).assemble([
+        ContextSource(
+            name="resume",
+            content=resume_content,
+            trusted=True,
+            required=True,
+            priority=100,
+            max_chars=4000,
+            truncation_strategy="head_tail",
+        ),
+        ContextSource(
+            name="job_description",
+            content=job_description or "",
+            required=bool(job_description),
+            priority=90,
+            max_chars=2500,
+            truncation_strategy="head_tail",
+        ),
+        ContextSource(
+            name="interview_evidence",
+            content={
+                "total_rounds": len(interview_conversations),
+                "sample": compact_conversations,
+            } if compact_conversations else {},
+            trusted=True,
+            priority=70,
+            max_chars=1600,
+            truncation_strategy="head_tail",
+        ),
+        ContextSource(
+            name="ability_profile",
+            content=overall_profile or {},
+            trusted=True,
+            priority=60,
+            max_chars=900,
+            truncation_strategy="head_tail",
+        ),
+    ])
 
     prompt = build_resume_analysis_prompt(
-        resume_content=resume_content,
-        job_description=job_description or "",
-        interview_section=interview_section,
-        profile_section=profile_section,
+        resume_content=assembled.model_context,
+        job_description="已包含在受预算约束的上下文中" if job_description else "",
+        interview_section="",
+        profile_section="",
     )
 
     try:
-        result = await invoke_structured(prompt, ResumeAnalysisOutput, api_config, channel="general")
+        result = await invoke_structured(
+            prompt,
+            ResumeAnalysisOutput,
+            api_config,
+            channel="general",
+            deadline=state.get("deadline"),
+            call_metadata={
+                **assembled.model_event_fields(),
+                "stage": "resume_analysis",
+            },
+        )
         analysis_result = result.model_dump()
 
         # 计算综合评分：取各维度评分的平均值
@@ -146,7 +182,7 @@ async def node_analyze(state: ResumeAnalyzerState) -> dict:
 
         return {"analysis_result": analysis_result}
     except Exception as e:
-        logger.error(f"简历分析失败: {e}")
+        logger.error("简历分析失败: %s", type(e).__name__)
         raise
 
 
@@ -174,7 +210,9 @@ async def analyze_resume(
     job_description: Optional[str] = None,
     session_ids: List[str] = [],
     user_id: str = "default_user",
-    api_config: Optional[dict] = None
+    api_config: Optional[dict] = None,
+    deadline: TaskDeadline | None = None,
+    call_metadata: dict[str, Any] | None = None,
 ) -> dict:
     """
     执行简历竞争力分析
@@ -185,6 +223,8 @@ async def analyze_resume(
         session_ids: 关联的面试 session_id 列表
         user_id: 用户ID
         api_config: API 配置
+        deadline: 与 Workspace 其他模型调用共享的任务总预算。
+        call_metadata: 不含原文的上下文来源审计。
 
     Returns:
         分析结果
@@ -196,6 +236,8 @@ async def analyze_resume(
         "session_ids": session_ids[:3],  # 限制最多3个
         "user_id": user_id,
         "api_config": api_config,
+        "deadline": deadline,
+        "call_metadata": call_metadata,
         "interview_conversations": [],
         "overall_profile": None,
         "analysis_result": None

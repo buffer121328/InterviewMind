@@ -18,8 +18,13 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
 
+from ai.agents.resume.resume_context import assemble_resume_context
 from ai.llm.llm_utils import invoke_structured
-from ai.prompts.resume import build_rewrite_executor_prompt, build_rewrite_planner_prompt
+from ai.prompts.resume import (
+    build_rewrite_executor_prompt,
+    build_rewrite_planner_prompt,
+)
+from ai.runtime.deadlines import TaskDeadline, get_current_task_deadline
 from app.schemas.llm_outputs import ContentSuggestionsOutput
 
 logger = logging.getLogger(__name__)
@@ -58,6 +63,7 @@ async def run_resume_rewrite_agent(
     api_config: Optional[dict] = None,
     user_id: str = "default_user",
     mode: str = "balanced",
+    deadline: TaskDeadline | None = None,
 ) -> dict[str, Any]:
     """执行有预算的简历改写 Agent。
 
@@ -65,6 +71,7 @@ async def run_resume_rewrite_agent(
     """
 
     current_mode = normalize_rewrite_mode(mode)
+    deadline = deadline or get_current_task_deadline()
     jd_analysis = jd_analysis or {}
     material_pool = material_pool or {}
     trace: list[dict[str, Any]] = []
@@ -77,16 +84,43 @@ async def run_resume_rewrite_agent(
             "requires_user_review": False,
         }
 
+    context_bundle = assemble_resume_context(
+        owner_id=user_id,
+        resume_content=resume_content,
+        job_description=job_description,
+        mode=current_mode,
+    )
+    compact_resume = json.dumps(
+        context_bundle.fact_sheet.model_dump(),
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+    compact_jd = json.dumps(
+        context_bundle.requirement_map.model_dump(),
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+    compact_analysis = _compact_jd_analysis(
+        jd_analysis,
+        context_bundle.match_map.model_dump(),
+    )
+    call_metadata = {
+        **context_bundle.assembled.model_event_fields(),
+        "stage": "resume_rewrite",
+    }
+
     plan: ResumeRewritePlanOutput | None = None
     if current_mode == "balanced":
         try:
             plan = await _plan_rewrite(
-                resume_content=resume_content,
-                job_description=job_description,
-                jd_analysis=jd_analysis,
+                resume_content=compact_resume,
+                job_description=compact_jd,
+                jd_analysis=compact_analysis,
                 material_pool=material_pool,
                 retry_guidance=retry_guidance,
                 api_config=api_config,
+                deadline=deadline,
+                call_metadata={**call_metadata, "stage": "resume_rewrite_plan"},
             )
             trace.append({
                 "step": "agent.plan",
@@ -94,19 +128,21 @@ async def run_resume_rewrite_agent(
                 "focus_sections": plan.focus_sections[:5],
             })
         except Exception as exc:  # 规划失败不阻断，直接进入最终改写
-            logger.warning("[ResumeRewriteAgent] 规划失败，继续直接改写: %s", exc)
+            logger.warning("[ResumeRewriteAgent] 规划失败，继续直接改写: %s", type(exc).__name__)
             trace.append({"step": "agent.plan", "status": "failed", "error": type(exc).__name__})
 
     try:
         output = await _rewrite(
-            resume_content=resume_content,
-            job_description=job_description,
-            jd_analysis=jd_analysis,
+            resume_content=compact_resume,
+            job_description=compact_jd,
+            jd_analysis=compact_analysis,
             material_pool=material_pool,
             retry_guidance=retry_guidance,
             plan=plan,
             api_config=api_config,
             mode=current_mode,
+            deadline=deadline,
+            call_metadata={**call_metadata, "stage": "resume_rewrite_execute"},
         )
         items = normalize_change_items([item.model_dump() for item in output.change_items])
         trace.append({"step": "agent.rewrite", "status": "completed", "change_items": len(items)})
@@ -117,14 +153,14 @@ async def run_resume_rewrite_agent(
             "requires_user_review": any(item.get("requires_user_confirmation") for item in items),
         }
     except Exception as exc:
-        logger.error("[ResumeRewriteAgent] 改写失败: %s", exc, exc_info=True)
+        logger.error("[ResumeRewriteAgent] 改写失败: %s", type(exc).__name__)
         trace.append({"step": "agent.rewrite", "status": "failed", "error": type(exc).__name__})
         return {
             "change_items": [],
             "agent_trace": trace,
             "confidence": 0.0,
             "requires_user_review": True,
-            "error": str(exc),
+            "error": type(exc).__name__,
         }
 
 
@@ -136,6 +172,8 @@ async def _plan_rewrite(
     material_pool: dict[str, Any],
     retry_guidance: str,
     api_config: Optional[dict],
+    deadline: TaskDeadline | None,
+    call_metadata: dict[str, Any],
 ) -> ResumeRewritePlanOutput:
     """根据简历事实和 JD 证据生成可审计的重写计划，不直接写入未确认产物。
 
@@ -146,10 +184,12 @@ async def _plan_rewrite(
         material_pool: 经过类型边界校验的 `material_pool`；其格式和可选值由参数类型及调用流程约束。
         retry_guidance: 经过类型边界校验的 `retry_guidance`；其格式和可选值由参数类型及调用流程约束。
         api_config: api 配置。
+        deadline: 跨规划和改写复用的任务总 deadline。
+        call_metadata: 不含原文的上下文预算审计字段。
     """
     prompt = build_rewrite_planner_prompt(
-        resume_content=resume_content[:3500],
-        job_description=job_description[:2400],
+        resume_content=resume_content,
+        job_description=job_description,
         jd_analysis=jd_analysis,
         material_pool={"summary": _material_summary(material_pool)},
         retry_guidance=retry_guidance,
@@ -160,6 +200,8 @@ async def _plan_rewrite(
         api_config=api_config,
         channel="fast",
         max_retries=1,
+        deadline=deadline,
+        call_metadata=call_metadata,
     )
 
 
@@ -173,6 +215,8 @@ async def _rewrite(
     plan: ResumeRewritePlanOutput | None,
     api_config: Optional[dict],
     mode: ResumeRewriteMode,
+    deadline: TaskDeadline | None,
+    call_metadata: dict[str, Any],
 ) -> ContentSuggestionsOutput:
     """根据评分反馈执行受边界约束的内容重写，不凭空增加简历事实。
 
@@ -185,12 +229,14 @@ async def _rewrite(
         plan: 经过类型边界校验的 `plan`；其格式和可选值由参数类型及调用流程约束。
         api_config: api 配置。
         mode: 经过类型边界校验的 `mode`；其格式和可选值由参数类型及调用流程约束。
+        deadline: 跨规划和改写复用的任务总 deadline。
+        call_metadata: 不含原文的上下文预算审计字段。
     """
     plan_section = plan.model_dump() if plan else {}
     max_items = 4 if mode == "fast" else 8
     prompt = build_rewrite_executor_prompt(
-        resume_content=resume_content[:5000],
-        job_description=job_description[:3000],
+        resume_content=resume_content,
+        job_description=job_description,
         jd_analysis=jd_analysis,
         material_pool={"summary": _material_summary(material_pool)},
         plan=plan_section,
@@ -206,7 +252,23 @@ async def _rewrite(
         api_config=api_config,
         channel=channel,
         max_retries=max_retries,
+        deadline=deadline,
+        call_metadata=call_metadata,
     )
+
+
+def _compact_jd_analysis(
+    jd_analysis: dict[str, Any],
+    deterministic_match: dict[str, Any],
+) -> dict[str, Any]:
+    """Keep bounded upstream scores while making deterministic evidence the source of truth."""
+    return {
+        "match_score": jd_analysis.get("match_score"),
+        "matched_keywords": list(jd_analysis.get("matched_keywords") or [])[:12],
+        "missing_keywords": list(jd_analysis.get("missing_keywords") or [])[:12],
+        "priority_actions": list(jd_analysis.get("priority_actions") or [])[:8],
+        "deterministic_match": deterministic_match,
+    }
 
 
 def normalize_change_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:

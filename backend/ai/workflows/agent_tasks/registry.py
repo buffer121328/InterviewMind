@@ -4,6 +4,12 @@
 启动时把所有 agent 图、LLM、浏览器编排一次性耦合进 runtime 基础设施。
 """
 
+from ai.workflows.agent_tasks.types import (
+    DeferredExecutionResult,
+    ExecutionResult,
+    ProgressCallback,
+    TaskExecutor,
+)
 from app.domain.agent_runs import (
     TASK_TYPE_EVALUATION_SUITE,
     TASK_TYPE_INTERVIEW_REPORT,
@@ -13,7 +19,7 @@ from app.domain.agent_runs import (
     TASK_TYPE_RESUME_OPTIMIZE,
     TASK_TYPE_RESUME_WORKSPACE,
 )
-from ai.workflows.agent_tasks.types import ExecutionResult, ProgressCallback, TaskExecutor
+from observability import agent_observation
 
 
 async def _execute_interview_start(payload: dict, user_id: str, progress: ProgressCallback) -> ExecutionResult:
@@ -87,9 +93,24 @@ EXECUTORS: dict[str, TaskExecutor] = {
 
 
 async def execute_registered_task(task_type: str, payload: dict, user_id: str, progress: ProgressCallback) -> ExecutionResult:
-    """根据任务类型从注册表查找并执行对应的业务任务。"""
+    """在统一根 trace 中执行已注册任务，并把 trace 关联回 AgentRun。"""
     try:
         executor = EXECUTORS[task_type]
     except KeyError as exc:
         raise ValueError(f"未知任务类型: {task_type}") from exc
-    return await executor(payload, user_id, progress)
+    raw_session_id = payload.get("session_id") or payload.get("thread_id")
+    session_id = str(raw_session_id)[:200] if raw_session_id else None
+    run_id = str(payload.get("_agent_run_id") or "") or None
+    async with agent_observation(
+        name=f"agent-run-{task_type}",
+        agent_type=task_type,
+        user_id=user_id,
+        session_id=session_id,
+        run_id=run_id,
+        input_payload={"task_type": task_type},
+    ) as observation:
+        result = await executor(payload, user_id, progress)
+        observation.set_output({
+            "deferred_persistence": isinstance(result, DeferredExecutionResult),
+        })
+        return result

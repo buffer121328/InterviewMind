@@ -69,6 +69,46 @@ async def test_list_jobs_exposes_clickable_library_asset_fields(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_list_jobs_normalizes_nullable_database_fields(monkeypatch):
+    """旧岗位记录中的数据库 NULL 不应让列表响应触发 Pydantic 500。"""
+    from ai.workflows import jobs
+
+    fake_repo = type("FakeRepo", (), {})()
+    fake_repo.list_jobs = AsyncMock(return_value=[{
+        "id": 8,
+        "company_name": None,
+        "company_size_text": None,
+        "job_title": None,
+        "platform": "boss",
+        "city": None,
+        "salary_text": None,
+        "source_url": None,
+        "status": None,
+        "tags": None,
+    }])
+    fake_repo.get_job_count = AsyncMock(return_value=1)
+    monkeypatch.setattr(jobs, "get_job_capture_repo", lambda: fake_repo)
+
+    response = await jobs.JobsUseCases().list_jobs(
+        user_id="user-1",
+        platform=None,
+        status=None,
+        limit=10,
+        offset=0,
+    )
+
+    item = response.jobs[0]
+    assert item.company_name == ""
+    assert item.company_size_text == ""
+    assert item.job_title == ""
+    assert item.city == ""
+    assert item.salary_text == ""
+    assert item.source_url == ""
+    assert item.status == "pending"
+    assert item.tags == []
+
+
+@pytest.mark.asyncio
 async def test_export_job_creates_pending_application_with_selected_greeting(monkeypatch):
     """一键导出应保留岗位链接、文案和定制简历，并统一使用待投递状态。"""
     from types import SimpleNamespace

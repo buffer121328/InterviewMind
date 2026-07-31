@@ -3,11 +3,18 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from typing import Any
 
 from evaluation.runners import EvaluationCaseSpec
 from evaluation.schemas import AgentEvalRecord
+
+# DeepEval/Confident AI optional integration must not emit vendor telemetry or
+# error reports by default.  Explicit process environment values still win.
+os.environ.setdefault("DEEPEVAL_TELEMETRY_OPT_OUT", "true")
+os.environ.setdefault("DEEPEVAL_TELEMETRY_ENABLED", "false")
+os.environ.setdefault("ERROR_REPORTING", "false")
 
 
 @dataclass(frozen=True, slots=True)

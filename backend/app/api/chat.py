@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Header, Body, Depends
 from fastapi.responses import StreamingResponse
 
 from app.schemas.schemas import ChatRequest, ChatStreamResponse, InterviewStartRequest, ErrorResponse, RollbackRequest, ProfileGenerateRequest
+from app.schemas.session import SessionMarkdownReportResponse
 from app.api.deps import get_current_user_id
 from ai.workflows.interview.session_actions import InterviewSessionNotFound, interview_session_use_cases
 from ai.workflows.interview.stream import (
@@ -149,37 +150,18 @@ async def get_overall_profile(
         ) from exc
 
 
-@router.get("/profile/session/{session_id}")
-async def get_session_profile(
+@router.get("/report/session/{session_id}", response_model=SessionMarkdownReportResponse)
+async def get_session_report(
     session_id: str,
     user_id: str = Depends(get_current_user_id)):
-    """获取单个会话的能力画像。"""
+    """获取单场面试的统一 Markdown 报告。"""
     try:
-        return await interview_report_use_cases.get_session_profile(session_id=session_id, user_id=user_id)
+        return await interview_report_use_cases.get_session_report(session_id=session_id, user_id=user_id)
     except InterviewReportNotFound as exc:
         raise HTTPException(status_code=404, detail=exc.message) from exc
     except Exception as exc:
-        logger.error("获取会话画像失败: %s", exc)
+        logger.error("获取面试报告失败: %s", exc)
         raise HTTPException(
             status_code=500,
-            detail={"error": "InternalServerError", "message": "获取会话画像失败"},
-        ) from exc
-
-
-# ============================================================================
-# 短板地图接口
-# ============================================================================
-
-@router.get("/weakness/session/{session_id}")
-async def get_weakness_by_session(
-    session_id: str,
-    user_id: str = Depends(get_current_user_id)):
-    """获取指定会话的短板地图报告。"""
-    try:
-        return await interview_report_use_cases.get_weakness_by_session(session_id=session_id, user_id=user_id)
-    except Exception as exc:
-        logger.error("获取短板地图失败: %s", exc)
-        raise HTTPException(
-            status_code=500,
-            detail={"error": "InternalServerError", "message": "获取短板地图失败"},
+            detail={"error": "InternalServerError", "message": "获取面试报告失败"},
         ) from exc

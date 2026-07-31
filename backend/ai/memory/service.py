@@ -8,16 +8,77 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
 from datetime import datetime, timedelta, timezone
+from time import perf_counter
 from typing import Any, Optional
 
-from .config import get_mem0_config, get_mem0_retention_days, get_mem0_search_limit, is_mem0_background_write
+from app.config import get_settings
+from observability import record_external_io_event
+from observability.runtime_events import ExternalIOObservationEvent, new_runtime_event_id
+
+from .config import (
+    get_mem0_config,
+    get_mem0_retention_days,
+    get_mem0_search_limit,
+)
 
 logger = logging.getLogger(__name__)
+
+# mem0 upstream enables anonymous PostHog telemetry by default.  Keep this
+# product's memory runtime private/offline unless an operator explicitly opts in
+# before importing this module.
+os.environ.setdefault("MEM0_TELEMETRY", "False")
 
 # 全局单例
 _agent_memory_service: Optional["AgentMemoryService"] = None
 _agent_memory_services: dict[str, "AgentMemoryService"] = {}
+
+
+async def _run_mem0_call(
+    function: Any,
+    *args: Any,
+    timeout: float,
+    **kwargs: Any,
+) -> Any:
+    """Run one synchronous mem0 operation with an independent external-I/O timeout."""
+    return await asyncio.wait_for(
+        asyncio.to_thread(function, *args, **kwargs),
+        timeout=timeout,
+    )
+
+
+def _external_error_category(exc: BaseException) -> str:
+    """Distinguish external dependency timeout from other degraded I/O failures."""
+    return "external_io_timeout" if isinstance(exc, TimeoutError) else "external_io_error"
+
+
+def _record_mem0_event(
+    *,
+    operation: str,
+    call_id: str,
+    status: str,
+    started_at: float,
+    item_count: int | None = None,
+    result_count: int | None = None,
+    error: BaseException | None = None,
+) -> None:
+    """记录 mem0 的安全外部 IO 摘要，不上传记忆正文、用户 ID 或过滤器。"""
+
+    record_external_io_event(
+        ExternalIOObservationEvent(
+            event_type=f"external_io.{status}",
+            operation=operation,
+            status=status,
+            call_id=call_id,
+            dependency="mem0",
+            duration_ms=max(0, int((perf_counter() - started_at) * 1000)),
+            item_count=item_count,
+            result_count=result_count,
+            error_type=type(error).__name__ if error else None,
+            error_category=_external_error_category(error) if error else None,
+        )
+    )
 
 
 
@@ -64,6 +125,8 @@ class AgentMemoryService:
     - search_memories: 语义检索长期记忆
     - add_interaction: 添加对话交互记忆
     - add_summary_memory: 添加面试总结记忆
+    - add_memory: 用户主动添加原始记忆
+    - update_memory: 用户主动修改记忆
     - get_all: 获取用户全部记忆
     - history: 获取记忆变更历史
     - delete: 删除记忆
@@ -140,15 +203,21 @@ class AgentMemoryService:
         if not self.is_enabled:
             return []
 
+        started_at = perf_counter()
+        call_id = new_runtime_event_id("mem0_search")
+        _record_mem0_event(
+            operation="mem0.search", call_id=call_id, status="started", started_at=started_at
+        )
         try:
             search_limit = limit or get_mem0_search_limit()
 
             # mem0 的 search 是同步的，放到线程池执行
-            result = await asyncio.to_thread(
+            result = await _run_mem0_call(
                 self._memory.search,
                 query=query,
                 top_k=search_limit,
                 filters={"user_id": user_id},
+                timeout=get_settings().mem0_search_timeout_seconds,
             )
 
             # mem0 返回格式可能是 {"results": [...]} 或直接是列表
@@ -165,10 +234,24 @@ class AgentMemoryService:
                     if m.get("metadata", {}).get("memory_type") in memory_types
                 ]
 
+            _record_mem0_event(
+                operation="mem0.search",
+                call_id=call_id,
+                status="completed",
+                started_at=started_at,
+                result_count=len(memories),
+            )
             return memories
 
         except Exception as e:
-            logger.error(f"搜索记忆失败: {e}")
+            _record_mem0_event(
+                operation="mem0.search",
+                call_id=call_id,
+                status="failed",
+                started_at=started_at,
+                error=e,
+            )
+            logger.error("搜索记忆失败: %s", type(e).__name__)
             return []
 
     async def add_interaction(
@@ -196,6 +279,11 @@ class AgentMemoryService:
         if not self.is_enabled:
             return None
 
+        started_at = perf_counter()
+        call_id = new_runtime_event_id("mem0_interaction")
+        _record_mem0_event(
+            operation="mem0.add_interaction", call_id=call_id, status="started", started_at=started_at
+        )
         try:
             # 构造消息格式
             messages = [
@@ -214,18 +302,29 @@ class AgentMemoryService:
                 meta.update(metadata)
 
             # mem0 的 add 是同步的
-            result = await asyncio.to_thread(
+            result = await _run_mem0_call(
                 self._memory.add,
                 messages=messages,
                 user_id=user_id,
+                agent_id="interview-agent",
+                run_id=session_id,
                 metadata=meta,
+                timeout=get_settings().mem0_add_timeout_seconds,
             )
 
             logger.debug(f"添加交互记忆成功: user_id={user_id}")
+            _record_mem0_event(
+                operation="mem0.add_interaction", call_id=call_id, status="completed",
+                started_at=started_at, item_count=2,
+            )
             return result
 
         except Exception as e:
-            logger.error(f"添加交互记忆失败: {e}")
+            _record_mem0_event(
+                operation="mem0.add_interaction", call_id=call_id, status="failed",
+                started_at=started_at, item_count=2, error=e,
+            )
+            logger.error("添加交互记忆失败: %s", type(e).__name__)
             return None
 
     async def add_summary_memory(
@@ -237,22 +336,15 @@ class AgentMemoryService:
         memory_type: str,
         metadata: Optional[dict] = None,
     ) -> Optional[dict]:
-        """
-        添加面试总结记忆（短板、练习目标等）
-
-        Args:
-            user_id: 用户 ID
-            session_id: 会话 ID
-            content: 记忆内容
-            memory_type: 记忆类型 (weakness, practice_goal, etc.)
-            metadata: 额外元数据
-
-        Returns:
-            dict: mem0 返回的结果，失败返回 None
-        """
+        """添加面试总结记忆（短板、练习目标等）。"""
         if not self.is_enabled:
             return None
 
+        started_at = perf_counter()
+        call_id = new_runtime_event_id("mem0_summary")
+        _record_mem0_event(
+            operation="mem0.add_summary", call_id=call_id, status="started", started_at=started_at
+        )
         try:
             meta = {
                 "project": "agent_interview",
@@ -264,18 +356,78 @@ class AgentMemoryService:
             if metadata:
                 meta.update(metadata)
 
-            result = await asyncio.to_thread(
+            result = await _run_mem0_call(
                 self._memory.add,
                 content,
                 user_id=user_id,
+                agent_id="interview-agent",
+                run_id=session_id,
                 metadata=meta,
+                timeout=get_settings().mem0_add_timeout_seconds,
             )
-
-            logger.info(f"添加总结记忆成功: user_id={user_id}, type={memory_type}")
+            logger.info("添加总结记忆成功: user_id=%s, type=%s", user_id, memory_type)
+            _record_mem0_event(
+                operation="mem0.add_summary", call_id=call_id, status="completed",
+                started_at=started_at, item_count=1,
+            )
             return result
+        except Exception as exc:
+            _record_mem0_event(
+                operation="mem0.add_summary", call_id=call_id, status="failed",
+                started_at=started_at, item_count=1, error=exc,
+            )
+            logger.error("添加总结记忆失败: %s", type(exc).__name__)
+            return None
 
-        except Exception as e:
-            logger.error(f"添加总结记忆失败: {e}")
+    async def add_memory(
+        self,
+        *,
+        user_id: str,
+        content: str,
+        memory_type: str | None = None,
+        metadata: Optional[dict] = None,
+    ) -> Optional[dict]:
+        """Store one user-authored memory without asking mem0 to infer or rewrite it."""
+        if not self.is_enabled:
+            return None
+
+        started_at = perf_counter()
+        call_id = new_runtime_event_id("mem0_manual_add")
+        _record_mem0_event(
+            operation="mem0.add_manual", call_id=call_id, status="started", started_at=started_at
+        )
+        try:
+            meta = {
+                "project": "agent_interview",
+                "source": "manual",
+                **_retention_metadata(),
+            }
+            if memory_type:
+                meta["memory_type"] = memory_type
+            if metadata:
+                meta.update(metadata)
+
+            result = await _run_mem0_call(
+                self._memory.add,
+                content,
+                user_id=user_id,
+                agent_id="interview-agent",
+                run_id="manual-memory",
+                metadata=meta,
+                infer=False,
+                timeout=get_settings().mem0_add_timeout_seconds,
+            )
+            _record_mem0_event(
+                operation="mem0.add_manual", call_id=call_id, status="completed",
+                started_at=started_at, item_count=1,
+            )
+            return result
+        except Exception as exc:
+            _record_mem0_event(
+                operation="mem0.add_manual", call_id=call_id, status="failed",
+                started_at=started_at, item_count=1, error=exc,
+            )
+            logger.error("手动添加记忆失败: %s", type(exc).__name__)
             return None
 
     async def get_all(
@@ -312,7 +464,7 @@ class AgentMemoryService:
             return []
 
         except Exception as e:
-            logger.error(f"获取全部记忆失败: {e}")
+            logger.error("获取全部记忆失败: %s", type(e).__name__)
             return []
 
     async def history(
@@ -321,40 +473,48 @@ class AgentMemoryService:
         user_id: str,
         memory_id: str,
     ) -> list[dict]:
-        """
-        获取记忆变更历史
-
-        Args:
-            user_id: 用户 ID（用于校验归属）
-            memory_id: 记忆 ID
-
-        Returns:
-            list[dict]: 变更历史列表
-        """
+        """获取一条属于当前用户的记忆变更历史。"""
         if not self.is_enabled:
             return []
 
         try:
-            # 先校验记忆归属
             all_memories = await self.get_all(user_id=user_id)
-            memory_ids = [m.get("id") for m in all_memories]
-
+            memory_ids = [memory.get("id") for memory in all_memories]
             if memory_id not in memory_ids:
-                logger.warning(f"记忆 {memory_id} 不属于用户 {user_id}")
+                logger.warning("记忆 %s 不属于用户 %s", memory_id, user_id)
                 return []
 
-            result = await asyncio.to_thread(
-                self._memory.history,
+            result = await asyncio.to_thread(self._memory.history, memory_id=memory_id)
+            return result if isinstance(result, list) else []
+        except Exception as exc:
+            logger.error("获取记忆历史失败: %s", type(exc).__name__)
+            return []
+
+    async def update_memory(
+        self,
+        *,
+        user_id: str,
+        memory_id: str,
+        content: str,
+    ) -> Optional[dict]:
+        """Update one memory after verifying that it belongs to the current user."""
+        if not self.is_enabled:
+            return None
+
+        try:
+            memories = await self.get_all(user_id=user_id)
+            if memory_id not in {item.get("id") for item in memories}:
+                logger.warning("记忆 %s 不属于用户 %s", memory_id, user_id)
+                return None
+            return await _run_mem0_call(
+                self._memory.update,
                 memory_id=memory_id,
+                data=content,
+                timeout=get_settings().mem0_add_timeout_seconds,
             )
-
-            if isinstance(result, list):
-                return result
-            return []
-
-        except Exception as e:
-            logger.error(f"获取记忆历史失败: {e}")
-            return []
+        except Exception as exc:
+            logger.error("更新记忆失败: %s", type(exc).__name__)
+            return None
 
     async def delete(
         self,
@@ -393,7 +553,7 @@ class AgentMemoryService:
             return True
 
         except Exception as e:
-            logger.error(f"删除记忆失败: {e}")
+            logger.error("删除记忆失败: %s", type(e).__name__)
             return False
 
     async def delete_all(
@@ -429,7 +589,7 @@ class AgentMemoryService:
             return True
 
         except Exception as e:
-            logger.error(f"清空用户记忆失败: {e}")
+            logger.error("清空用户记忆失败: %s", type(e).__name__)
             return False
 
 

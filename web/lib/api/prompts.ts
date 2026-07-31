@@ -3,11 +3,13 @@ import { buildApiUrl, getUserId } from './config';
 export type PromptType = 'text' | 'chat';
 export type PromptBody = string | PromptChatMessage[];
 export interface PromptChatMessage { role: 'system' | 'developer' | 'user' | 'assistant' | 'tool'; content: string; }
-export interface PromptMetadata { name: string; type: PromptType; versions: number[]; labels: string[]; last_updated_at?: string | null; }
-export interface PromptListResponse { items: PromptMetadata[]; page: number; limit: number; }
-export interface PromptVersion { name: string; type: PromptType; version: number; labels: string[]; prompt: PromptBody; }
+export interface PromptPresentation { name: string; display_name: string; functional_group: string; is_builtin: boolean; }
+export interface PromptMetadata extends PromptPresentation { type: PromptType; versions: number[]; labels: string[]; last_updated_at?: string | null; }
+export interface PromptListResponse { items: PromptMetadata[]; total: number; page: number; limit: number; }
+export interface PromptVersion extends PromptPresentation { type: PromptType; version: number; labels: string[]; prompt: PromptBody; }
 export interface PromptPreviewResponse extends PromptVersion { compiled_prompt: PromptBody; unresolved_variables: string[]; }
 export interface PromptCreateRequest { name: string; type: PromptType; prompt: PromptBody; labels?: string[]; commit_message?: string; }
+export interface PromptBuiltinSyncResponse { discovered: number; created: number; skipped: number; created_names: string[]; }
 
 export class PromptManagementError extends Error {
     constructor(message: string, public readonly status?: number) { super(message); this.name = 'PromptManagementError'; }
@@ -43,3 +45,5 @@ export function updatePromptLabels(name: string, version: number, labels: string
 export function promotePromptToProduction(name: string, version: number, evaluationRunId?: string): Promise<PromptVersion> { return request('/api/langfuse/prompts/production', { method: 'PUT', body: JSON.stringify({ name, version, evaluation_run_id: evaluationRunId || null }) }); }
 /** Requests safe substitution preview without model execution. */
 export function previewPrompt(input: { name: string; version?: number; label?: string; values: Record<string, string> }): Promise<PromptPreviewResponse> { return request('/api/langfuse/prompts/preview', { method: 'POST', body: JSON.stringify(input) }); }
+/** Idempotently publishes missing local registry templates to Langfuse Cloud with the production label. */
+export function syncBuiltinPrompts(): Promise<PromptBuiltinSyncResponse> { return request('/api/langfuse/prompts/sync-builtins', { method: 'POST' }); }

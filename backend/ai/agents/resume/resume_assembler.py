@@ -5,17 +5,27 @@
 
 import json
 import logging
-from typing import List, Optional, Dict, Any
+import re
 from datetime import datetime
+from typing import Any, Dict, List, Optional
 
 from langchain_core.messages import HumanMessage
 from sqlalchemy import delete, select
 
+from ai.llm import llms
+from ai.prompts.resume import (
+    build_assembler_assemble_prompt,
+    build_assembler_system_prompt,
+    build_assembler_user_prompt,
+)
+from ai.runtime.context_assembler import ContextAssembler, ContextSource
+from ai.runtime.deadlines import TaskDeadline, get_current_task_deadline
+from app.config import get_settings
 from app.db.models import async_session
 from app.db.models.resume import ResumeAssemblyResultModel
-from ai.llm import llms
-from ai.prompts.resume import build_assembler_assemble_prompt, build_assembler_system_prompt, build_assembler_user_prompt
-from app.db.repositories.resume.candidate_material_repo import get_candidate_material_repo
+from app.db.repositories.resume.candidate_material_repo import (
+    get_candidate_material_repo,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +62,95 @@ class MaterialSelectionResult:
 SYSTEM_PROMPT = build_assembler_system_prompt()
 
 
+def _material_tokens(value: str) -> set[str]:
+    """Tokenize Chinese/Latin material text deterministically for local JD ranking."""
+    lowered = str(value or "").casefold()
+    tokens = set(re.findall(r"[a-z][a-z0-9.+#_-]{1,}|\d+(?:\.\d+)?", lowered))
+    for chunk in re.findall(r"[\u4e00-\u9fff]{2,}", lowered):
+        tokens.update(chunk[index:index + 2] for index in range(len(chunk) - 1))
+    return tokens
+
+
+def rank_materials_for_jd(
+    job_description: str,
+    materials: List[Dict[str, Any]],
+    *,
+    limit: int | None = None,
+    item_max_chars: int | None = None,
+) -> List[Dict[str, Any]]:
+    """Filter, rank, and clip owner-scoped materials before any model call.
+
+    Args:
+        job_description: Target JD used only for deterministic token overlap.
+        materials: Already owner-filtered repository rows.
+        limit: Optional Top-K override, capped by the configured policy.
+        item_max_chars: Optional per-item character override.
+    """
+    settings = get_settings()
+    top_k = min(limit or settings.resume_material_max_items, settings.resume_material_max_items)
+    max_chars = item_max_chars or settings.resume_material_item_max_chars
+    jd_tokens = _material_tokens(job_description)
+    ranked: list[tuple[float, int, Dict[str, Any]]] = []
+    for material in materials:
+        content = str(material.get("content") or "").strip()
+        if not content:
+            continue
+        tags = material.get("tags") or []
+        searchable = " ".join([
+            str(material.get("material_type") or ""),
+            str(material.get("title") or ""),
+            " ".join(str(tag) for tag in tags),
+            content,
+        ])
+        overlap = len(jd_tokens & _material_tokens(searchable))
+        importance = max(0.0, min(1.0, float(material.get("importance_score") or 0.0)))
+        confidence = max(0.0, min(1.0, float(material.get("confidence_score") or 0.0)))
+        verified = 1.0 if material.get("is_verified") else 0.0
+        score = overlap * 2.0 + importance + confidence + verified
+        clipped = dict(material)
+        clipped["content"] = content[:max_chars]
+        clipped["tags"] = list(tags)[:12]
+        ranked.append((score, int(material.get("id") or 0), clipped))
+    ranked.sort(key=lambda item: (-item[0], -int(bool(item[2].get("is_verified"))), item[1]))
+    return [item[2] for item in ranked[:top_k]]
+
+
+def _assemble_material_context(
+    *,
+    stage: str,
+    job_description: str,
+    materials: List[Dict[str, Any]],
+) -> tuple[str, dict[str, Any]]:
+    """Assemble bounded JD/material model text and safe source audit metadata."""
+    settings = get_settings()
+    material_budget = settings.resume_material_max_items * settings.resume_material_item_max_chars
+    assembled = ContextAssembler(
+        agent_name="resume_generator",
+        total_model_chars=3500 + material_budget,
+        source_budgets={"job_description": 3500, "materials": material_budget},
+    ).assemble([
+        ContextSource(
+            name="job_description",
+            content=job_description,
+            trusted=False,
+            required=True,
+            priority=100,
+            max_chars=3500,
+            truncation_strategy="head_tail",
+        ),
+        ContextSource(
+            name="materials",
+            content=materials,
+            trusted=True,
+            required=True,
+            priority=90,
+            max_chars=material_budget,
+            truncation_strategy="head_tail",
+        ),
+    ])
+    return assembled.model_context, {**assembled.model_event_fields(), "stage": stage}
+
+
 def build_user_prompt(job_description: str, materials: List[Dict[str, Any]]) -> str:
     """Build the material-selection payload through the central prompt policy."""
     materials_text = []
@@ -61,7 +160,7 @@ def build_user_prompt(job_description: str, materials: List[Dict[str, Any]]) -> 
                 f"素材 ID: {material['id']}",
                 f"类型: {material['material_type']}",
                 f"标题: {material['title']}",
-                f"内容: {material['content'][:500]}",
+                f"内容: {str(material['content'])[:get_settings().resume_material_item_max_chars]}",
                 f"标签: {', '.join(material['tags']) if material['tags'] else '无'}",
                 f"重要性: {material['importance_score']}",
                 f"可信度: {material['confidence_score']}",
@@ -83,7 +182,8 @@ async def select_materials_for_jd(
     job_description: str,
     api_config: Optional[dict] = None,
     material_type_filter: Optional[str] = None,
-    max_materials: int = 50
+    max_materials: int = 50,
+    deadline: TaskDeadline | None = None,
 ) -> MaterialSelectionResult:
     """
     根据 JD 筛选素材
@@ -94,6 +194,7 @@ async def select_materials_for_jd(
         api_config: API 配置
         material_type_filter: 素材类型过滤（可选）
         max_materials: 最大素材数量
+        deadline: 与后续组装复用的任务总 deadline。
 
     Returns:
         素材筛选结果
@@ -116,14 +217,36 @@ async def select_materials_for_jd(
             assembled_outline={}
         )
 
-    # 构建消息
-    messages = [
-        HumanMessage(content=build_user_prompt(job_description, materials))
-    ]
+    ranked_materials = rank_materials_for_jd(
+        job_description,
+        materials,
+        limit=max_materials,
+    )
+    context_text, call_metadata = _assemble_material_context(
+        stage="resume_material_selection",
+        job_description=job_description,
+        materials=ranked_materials,
+    )
+    messages = [HumanMessage(content=f"{SYSTEM_PROMPT}\n\n{context_text}")]
 
     # 调用 LLM
-    logger.info(f"开始素材筛选: user={user_id}, materials_count={len(materials)}")
-    response = await llms.invoke_text(messages, api_config, channel="smart")
+    logger.info("开始素材筛选: user=%s, candidate_count=%s", user_id, len(ranked_materials))
+    deadline = deadline or get_current_task_deadline()
+    try:
+        response = await llms.invoke_text(
+            messages,
+            api_config,
+            channel="smart",
+            deadline=deadline,
+            call_metadata=call_metadata,
+        )
+    except Exception as exc:
+        logger.warning("素材筛选模型不可用，使用本地 Top-K: %s", type(exc).__name__)
+        return MaterialSelectionResult(
+            selected_material_ids=[int(item["id"]) for item in ranked_materials],
+            selection_reason="模型筛选不可用，已按 JD 相关度、可信度和重要性使用本地 Top-K",
+            assembled_outline={},
+        )
 
     # 解析响应
     try:
@@ -146,17 +269,23 @@ async def select_materials_for_jd(
 
         result = json.loads(result_text)
     except json.JSONDecodeError as e:
-        logger.error(f"LLM 输出 JSON 解析失败: {e}\n原始输出: {response.content}")
-        raise ValueError(f"AI 筛选结果格式异常，请重试。错误详情: {str(e)}")
+        logger.warning("素材筛选输出格式异常，使用本地 Top-K: %s", type(e).__name__)
+        return MaterialSelectionResult(
+            selected_material_ids=[int(item["id"]) for item in ranked_materials],
+            selection_reason="模型输出格式异常，已按 JD 相关度、可信度和重要性使用本地 Top-K",
+            assembled_outline={},
+        )
 
     # 验证选中的素材 ID 是否有效
-    valid_material_ids = {m['id'] for m in materials}
+    valid_material_ids = {m['id'] for m in ranked_materials}
     selected_ids = [
         mid for mid in result.get("selected_material_ids", [])
         if mid in valid_material_ids
     ]
 
-    logger.info(f"素材筛选完成: selected={len(selected_ids)}, total={len(materials)}")
+    if not selected_ids:
+        selected_ids = [int(item["id"]) for item in ranked_materials]
+    logger.info("素材筛选完成: selected=%s, candidates=%s", len(selected_ids), len(ranked_materials))
 
     return MaterialSelectionResult(
         selected_material_ids=selected_ids,
@@ -169,7 +298,8 @@ async def assemble_resume_from_materials(
     user_id: str,
     job_description: str,
     selected_material_ids: List[int],
-    api_config: Optional[dict] = None
+    api_config: Optional[dict] = None,
+    deadline: TaskDeadline | None = None,
 ) -> Dict[str, Any]:
     """
     根据选中的素材组装简历
@@ -179,6 +309,7 @@ async def assemble_resume_from_materials(
         job_description: 目标职位描述
         selected_material_ids: 选中的素材 ID 列表
         api_config: API 配置
+        deadline: 与素材筛选复用的任务总 deadline。
 
     Returns:
         组装结果，包含 assembled_content
@@ -195,24 +326,30 @@ async def assemble_resume_from_materials(
     if not materials:
         raise ValueError("未找到选中的素材")
 
-    # 构建组装 prompt
-    materials_text = []
-    for m in materials:
-        material_info = f"""【{m['material_type']}】{m['title']}
-{m['content']}"""
-        materials_text.append(material_info)
-
-    materials_str = "\n\n".join(materials_text)
+    materials = rank_materials_for_jd(job_description, materials)
+    if not materials:
+        raise ValueError("选中的素材为空或不包含有效内容")
+    context_text, call_metadata = _assemble_material_context(
+        stage="resume_material_assembly",
+        job_description=job_description,
+        materials=materials,
+    )
 
     prompt = build_assembler_assemble_prompt(
-        job_description=job_description,
-        materials_str=materials_str,
+        job_description="",
+        materials_str=context_text,
     )
 
     # 调用 LLM
     logger.info(f"开始组装简历: user={user_id}, materials_count={len(materials)}")
     messages = [HumanMessage(content=prompt)]
-    response = await llms.invoke_text(messages, api_config, channel="smart")
+    response = await llms.invoke_text(
+        messages,
+        api_config,
+        channel="smart",
+        deadline=deadline or get_current_task_deadline(),
+        call_metadata=call_metadata,
+    )
 
     assembled_content = response.content.strip()
 
@@ -220,7 +357,7 @@ async def assemble_resume_from_materials(
 
     return {
         "assembled_content": assembled_content,
-        "selected_material_ids": selected_material_ids,
+        "selected_material_ids": [int(material["id"]) for material in materials],
         "materials_used": [
             {
                 "id": m['id'],
@@ -277,7 +414,7 @@ async def save_assembly_result(
             return result_id
 
         except Exception as e:
-            logger.error(f"保存组装结果失败: {e}")
+            logger.error("保存组装结果失败: %s", type(e).__name__)
             raise
 
 
@@ -386,5 +523,5 @@ async def delete_assembly_result(
             return deleted
 
         except Exception as e:
-            logger.error(f"删除组装结果失败: {e}")
+            logger.error("删除组装结果失败: %s", type(e).__name__)
             return False

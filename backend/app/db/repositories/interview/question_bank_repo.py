@@ -7,7 +7,7 @@ import logging
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 
-from sqlalchemy import select, update, delete, text
+from sqlalchemy import delete, func, select, text, update
 
 from app.db.models import async_session
 from app.db.models.interview import QuestionBankItemModel, QuestionBankImportModel, QuestionBankFollowupModel
@@ -83,29 +83,37 @@ class QuestionBankRepo:
         tags: Optional[List[str]] = None,
         limit: int = 50,
         offset: int = 0
-    ) -> List[Dict[str, Any]]:
-        """列出题库条目（支持筛选）"""
+    ) -> tuple[List[Dict[str, Any]], int]:
+        """列出一页题库条目并返回相同筛选条件下的总数。"""
         async with async_session() as db:
             stmt = select(QuestionBankItemModel).where(QuestionBankItemModel.user_id == user_id)
+            count_stmt = select(func.count()).select_from(QuestionBankItemModel).where(
+                QuestionBankItemModel.user_id == user_id
+            )
             if question_type:
                 stmt = stmt.where(QuestionBankItemModel.question_type == question_type)
+                count_stmt = count_stmt.where(QuestionBankItemModel.question_type == question_type)
             if difficulty:
                 stmt = stmt.where(QuestionBankItemModel.difficulty == difficulty)
+                count_stmt = count_stmt.where(QuestionBankItemModel.difficulty == difficulty)
             if is_verified is not None:
                 stmt = stmt.where(QuestionBankItemModel.is_verified == is_verified)
+                count_stmt = count_stmt.where(QuestionBankItemModel.is_verified == is_verified)
             stmt = stmt.order_by(QuestionBankItemModel.created_at.desc()).limit(limit).offset(offset)
             rows = (await db.execute(stmt)).scalars().all()
+            total = int(await db.scalar(count_stmt) or 0)
             items = [self._row_to_dict(row) for row in rows]
             await self._attach_followups(db, items)
-            return items
+            return items, total
 
     async def search_items(
         self,
         user_id: str,
         query: str,
-        limit: int = 20
-    ) -> List[Dict[str, Any]]:
-        """检索题库条目。
+        limit: int = 20,
+        offset: int = 0,
+    ) -> tuple[List[Dict[str, Any]], int]:
+        """检索一页题库条目并返回完整命中数。
 
         使用 ILIKE + pg_trgm similarity，兼容中文题目；避免 PostgreSQL english tokenizer 对中文无效。
         """
@@ -116,7 +124,8 @@ class QuestionBankRepo:
                            similarity(question_text, :query),
                            similarity(COALESCE(reference_answer, ''), :query),
                            similarity(COALESCE(tags::text, ''), :query)
-                       ) AS rank
+                       ) AS rank,
+                       COUNT(*) OVER() AS total_count
                 FROM question_bank_items
                 WHERE user_id = :user_id
                   AND (
@@ -127,16 +136,19 @@ class QuestionBankRepo:
                   )
                 ORDER BY rank DESC
                 LIMIT :limit
+                OFFSET :offset
             """)
             rows = (await db.execute(stmt, {
                 "user_id": user_id,
                 "query": query,
                 "pattern": f"%{query}%",
                 "limit": limit,
+                "offset": offset,
             })).mappings().all()
+            total = int(rows[0]["total_count"]) if rows else 0
             items = [self._row_to_dict(row) for row in rows]
             await self._attach_followups(db, items)
-            return items
+            return items, total
 
     async def update_item(
         self,

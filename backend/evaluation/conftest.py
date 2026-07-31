@@ -11,6 +11,12 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+# Evaluation tests import DeepEval during collection.  Disable its PostHog and
+# Sentry telemetry before that import path can run.
+os.environ.setdefault("DEEPEVAL_TELEMETRY_OPT_OUT", "true")
+os.environ.setdefault("DEEPEVAL_TELEMETRY_ENABLED", "false")
+os.environ.setdefault("ERROR_REPORTING", "false")
+
 # ---------------------------------------------------------------------------
 # DeepEval assert_test 默认使用异步执行路径，会在 pytest-asyncio 的
 # 混合测试集中触发 asyncio.get_event_loop() 的弃用告警，甚至遗留未关闭

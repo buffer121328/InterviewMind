@@ -118,7 +118,7 @@ class QuestionBankUseCases:
             limit: 返回数量上限。
             offset: 分页偏移量。
         """
-        items = await self._question_bank_repo.list_items(
+        return await self._question_bank_repo.list_items(
             user_id=user_id,
             question_type=question_type,
             difficulty=difficulty,
@@ -126,7 +126,6 @@ class QuestionBankUseCases:
             limit=limit,
             offset=offset,
         )
-        return items, len(items)
 
     async def get_item(self, *, item_id: int, user_id: str):
         """读取 item，并通过 owner 校验限制可见范围；资源不存在或状态不合法时返回稳定的业务结果或异常。
@@ -174,15 +173,21 @@ class QuestionBankUseCases:
         if not deleted:
             raise QuestionBankNotFound(message="条目不存在或无权删除")
 
-    async def search_items(self, *, user_id: str, query: str, limit: int):
+    async def search_items(self, *, user_id: str, query: str, limit: int, offset: int):
         """在当前用户范围内检索 items，并把查询结果限制在调用方声明的数量和过滤条件内。
 
         Args:
             user_id: 当前用户标识。
             query: 查询条件。
             limit: 返回数量上限。
+            offset: 分页偏移量。
         """
-        return await self._question_bank_repo.search_items(user_id=user_id, query=query, limit=limit)
+        return await self._question_bank_repo.search_items(
+            user_id=user_id,
+            query=query,
+            limit=limit,
+            offset=offset,
+        )
 
     async def import_questions(self, *, request: QuestionBankImportRequest, user_id: str):
         """导入用户确认的题目并写入导入记录，单条失败不会泄露原文或阻断其余条目。
@@ -240,7 +245,7 @@ class QuestionBankUseCases:
         return await self._question_bank_repo.create_item(
             user_id=user_id,
             question_text=question.get("content", ""),
-            reference_answer=question.get("hint"),
+            reference_answer=None,
             tags=[question.get("topic", "")],
             difficulty="medium",
             target_skill=question.get("topic"),

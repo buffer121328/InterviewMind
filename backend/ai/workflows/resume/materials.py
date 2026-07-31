@@ -5,9 +5,14 @@ from dataclasses import dataclass
 
 from langchain_core.messages import HumanMessage
 
-from app.db.repositories.resume.candidate_material_repo import get_candidate_material_repo
 from ai.llm import llms
 from ai.prompts.resume import build_material_extraction_prompt
+from ai.runtime.context_assembler import ContextAssembler, ContextSource
+from ai.runtime.deadlines import TaskDeadline
+from app.config import get_settings
+from app.db.repositories.resume.candidate_material_repo import (
+    get_candidate_material_repo,
+)
 
 VALID_MATERIAL_TYPES = [
     "tech_stack",
@@ -86,8 +91,33 @@ class ResumeMaterialUseCases:
         if not api_config:
             raise ResumeMaterialBadRequest(message="请先配置 API Key")
 
-        prompt = build_material_extraction_prompt(resume_content)
-        response = await llms.invoke_text([HumanMessage(content=prompt)], api_config, channel="smart")
+        assembled = ContextAssembler(
+            agent_name="resume_generator",
+            total_model_chars=10_000,
+            source_budgets={"resume": 10_000},
+        ).assemble([
+            ContextSource(
+                name="resume",
+                content=resume_content,
+                trusted=True,
+                required=True,
+                max_chars=10_000,
+                truncation_strategy="sections",
+            )
+        ])
+        if not assembled.model_context:
+            raise ResumeMaterialBadRequest(message="简历内容未通过上下文安全筛选")
+        prompt = build_material_extraction_prompt(assembled.model_context)
+        response = await llms.invoke_text(
+            [HumanMessage(content=prompt)],
+            api_config,
+            channel="smart",
+            deadline=TaskDeadline(get_settings().llm_task_timeout_seconds),
+            call_metadata={
+                **assembled.model_event_fields(),
+                "stage": "resume_material_extraction",
+            },
+        )
         result_text = self._strip_json_markdown(response.content.strip())
         try:
             parsed = json.loads(result_text)
@@ -97,13 +127,16 @@ class ResumeMaterialUseCases:
 
         material_repo = get_candidate_material_repo()
         created_ids = []
-        for material in materials_data:
+        max_import_items = get_settings().resume_material_max_items * 2
+        for material in list(materials_data)[:max_import_items]:
+            if not isinstance(material, dict) or not str(material.get("content") or "").strip():
+                continue
             material_id = await material_repo.create_material(
                 user_id=user_id,
                 material_type=material.get("material_type", "highlight"),
                 title=material.get("title", "未命名"),
-                content=material.get("content", ""),
-                tags=material.get("tags", []),
+                content=str(material.get("content") or "")[:get_settings().resume_material_item_max_chars],
+                tags=list(material.get("tags") or [])[:12],
                 source_type="ai_extract",
                 confidence_score=0.7,
                 is_verified=False,

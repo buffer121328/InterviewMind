@@ -43,14 +43,14 @@ async def test_import_questions_keeps_source_fields_and_records_summary():
     success_count, total_count, import_id = await use_cases.import_questions(
         request=QuestionBankImportRequest(
             import_source="manual",
-            questions=[{"question_text": "Redis 为什么快？", "source_type": "experience:xhs", "source_id": "note-1"}],
+            questions=[{"question_text": "Redis 为什么快？", "source_type": "experience:nowcoder", "source_id": "post-1"}],
         ),
         user_id="user-1",
     )
 
     assert (success_count, total_count, import_id) == (1, 1, 99)
-    assert repo.created[0]["source_type"] == "experience:xhs"
-    assert repo.created[0]["source_id"] == "note-1"
+    assert repo.created[0]["source_type"] == "experience:nowcoder"
+    assert repo.created[0]["source_id"] == "post-1"
     assert repo.import_records[0]["summary"] == "成功导入 1/1 道题目"
 
 
@@ -70,6 +70,8 @@ async def test_save_question_from_session_uses_plan_question():
     assert item_id == 1
     assert repo.created[0]["question_text"] == "解释 Redis"
     assert repo.created[0]["origin_session_id"] == "session-1"
+    assert repo.created[0]["source_type"] == "generated"
+    assert repo.created[0]["reference_answer"] is None
 
 
 @pytest.mark.asyncio

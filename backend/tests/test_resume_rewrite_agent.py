@@ -10,7 +10,15 @@ from app.schemas.llm_outputs import ChangeItem, ContentSuggestionsOutput
 async def test_rewrite_agent_normalizes_fact_inference_confirmation(monkeypatch):
     calls = []
 
-    async def fake_invoke(prompt, output_model, api_config=None, channel="smart", max_retries=2, temperature=0.7):
+    async def fake_invoke(
+        prompt,
+        output_model,
+        api_config=None,
+        channel="smart",
+        max_retries=2,
+        temperature=0.7,
+        **_kwargs,
+    ):
         calls.append((output_model, channel))
         if output_model is agent.ResumeRewritePlanOutput:
             return agent.ResumeRewritePlanOutput(
@@ -56,7 +64,15 @@ async def test_rewrite_agent_normalizes_fact_inference_confirmation(monkeypatch)
 async def test_fast_mode_skips_planning(monkeypatch):
     calls = []
 
-    async def fake_invoke(prompt, output_model, api_config=None, channel="smart", max_retries=2, temperature=0.7):
+    async def fake_invoke(
+        prompt,
+        output_model,
+        api_config=None,
+        channel="smart",
+        max_retries=2,
+        temperature=0.7,
+        **_kwargs,
+    ):
         calls.append((output_model, channel, max_retries))
         return ContentSuggestionsOutput(
             change_items=[

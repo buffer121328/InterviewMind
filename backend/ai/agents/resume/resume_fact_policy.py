@@ -6,8 +6,7 @@
 """
 
 import re
-from typing import Dict, Any, List, Optional
-
+from typing import Any, Dict, List
 
 # ============================================================================
 # 高风险关键词（需要用户确认）
@@ -107,7 +106,8 @@ def validate_change_items(
     change_items: List[Dict[str, Any]],
     original_resume: str,
     assembled_resume: str,
-    job_description: str,
+    *,
+    jd_keywords: List[str] | None = None,
 ) -> Dict[str, Any]:
     """
     对改写项进行综合事实核验。
@@ -116,7 +116,7 @@ def validate_change_items(
         change_items: 阶段3产出的改写项列表
         original_resume: 原始简历
         assembled_resume: 组装后的简历
-        job_description: 目标岗位 JD
+        jd_keywords: 上游 JDRequirementMap/JD 分析提取的有界关键词。
 
     Returns:
         核验结果 dict:
@@ -157,8 +157,12 @@ def validate_change_items(
                     })
 
     # 3. JD 关键词检测
-    jd_keywords = _extract_jd_keywords(job_description)
-    keyword_risks = detect_keyword_stuffing(assembled_resume, jd_keywords, original_resume)
+    selected_jd_keywords = list(jd_keywords or ())[:50]
+    keyword_risks = detect_keyword_stuffing(
+        assembled_resume,
+        selected_jd_keywords,
+        original_resume,
+    )
 
     # 汇总风险级别
     risk_flags = fact_inference_items + exaggeration_items + keyword_risks
@@ -178,21 +182,3 @@ def validate_change_items(
         "exaggeration_items": exaggeration_items,
         "total_risks": len(risk_flags),
     }
-
-
-def _extract_jd_keywords(job_description: str) -> List[str]:
-    """从 JD 中提取关键词（简化版，完整版由 JD 分析阶段产出）"""
-    tech_keywords = [
-        "Python", "Java", "Go", "Rust", "TypeScript", "JavaScript",
-        "React", "Vue", "Angular", "Node.js", "Spring", "Django", "FastAPI",
-        "Kubernetes", "Docker", "AWS", "Azure", "GCP",
-        "MySQL", "PostgreSQL", "MongoDB", "Redis", "Elasticsearch",
-        "Kafka", "RabbitMQ", "gRPC", "GraphQL", "REST",
-        "CI/CD", "DevOps", "Agile", "Scrum",
-        "微服务", "分布式", "高并发", "大数据", "机器学习",
-        "AI", "LLM", "NLP", "计算机视觉",
-    ]
-
-    jd_lower = job_description.lower()
-    found = [kw for kw in tech_keywords if kw.lower() in jd_lower]
-    return found

@@ -6,7 +6,14 @@ from pydantic import BaseModel, Field
 
 
 ArtifactFormat = Literal["html", "pdf"]
-ArtifactSourceType = Literal["generated_resume", "agent_run", "resume_result", "jd_analysis", "weakness_report"]
+ArtifactSourceType = Literal[
+    "generated_resume",
+    "agent_run",
+    "resume_result",
+    "jd_analysis",
+    "weakness_report",
+    "interview_report",
+]
 
 
 class ArtifactExportRequest(BaseModel):

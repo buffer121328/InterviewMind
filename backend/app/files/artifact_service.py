@@ -20,10 +20,12 @@ from app.db.models import (
     ArtifactModel,
     JdAnalysisResultModel,
     ResumeResultModel,
+    SessionModel,
     WeaknessReportModel,
     GeneratedResumeModel,
     async_session,
 )
+from app.domain.interview_reports import build_interview_report_markdown
 from app.schemas.artifacts import ArtifactExportRequest
 
 _SAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
@@ -75,6 +77,30 @@ class ArtifactService:
                 row = await session.scalar(select(WeaknessReportModel).where(WeaknessReportModel.id == int(request.source_id), WeaknessReportModel.user_id == user_id))
                 if row:
                     return "面试复盘报告", row.report_data, None
+            elif request.source_type == "interview_report":
+                interview = await session.scalar(
+                    select(SessionModel).where(
+                        SessionModel.session_id == request.source_id,
+                        SessionModel.user_id == user_id,
+                    )
+                )
+                weakness = await session.scalar(
+                    select(WeaknessReportModel).where(
+                        WeaknessReportModel.session_id == request.source_id,
+                        WeaknessReportModel.user_id == user_id,
+                    )
+                )
+                if interview and interview.candidate_profile and weakness:
+                    markdown = build_interview_report_markdown(
+                        title=interview.title,
+                        mode=interview.mode,
+                        round_index=interview.round_index,
+                        max_questions=interview.max_questions,
+                        profile=interview.candidate_profile,
+                        weakness_report=weakness.report_data,
+                        generated_at=weakness.updated_at.isoformat(),
+                    )
+                    return f"{interview.title}-面试报告", {"markdown": markdown}, None
         raise ArtifactNotFound()
 
     @staticmethod
@@ -337,8 +363,13 @@ class ArtifactService:
     async def export(self, request: ArtifactExportRequest, user_id: str) -> ArtifactModel:
         """Regenerate a format-specific private export after owner-scoping its source record."""
         title, report, agent_run_id = await self._source(request, user_id)
-        if request.source_type == "generated_resume":
-            markdown = str(report.get("最终简历") or "")
+        if request.source_type in {"generated_resume", "interview_report"}:
+            markdown = str(
+                report.get("最终简历")
+                if request.source_type == "generated_resume"
+                else report.get("markdown")
+                or ""
+            )
             content = (
                 self._resume_html_document(title, markdown).encode("utf-8")
                 if request.format == "html"

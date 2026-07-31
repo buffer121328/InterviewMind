@@ -44,11 +44,14 @@ import {
     getAgentRunStatusLabel,
     getInterviewSessionProgressLabel,
     groupAgentRunsForDisplay,
+    latestAgentRunStatus,
     summarizeResumeRunResult,
     type AgentRunCategory,
 } from '@/lib/agentRunDisplayGroups';
 import { getGeneratedResume } from '@/lib/api/resume';
 import { ResumePreviewDialog } from '@/components/ResumePreviewDialog';
+import { PaginationControls } from '@/components/PaginationControls';
+import { DEFAULT_PAGE_SIZE } from '@/lib/pagination';
 import { toast } from 'sonner';
 
 const ACTIVE_STATUSES = new Set<AgentRunStatus>(['queued', 'retrying', 'running', 'cancel_requested']);
@@ -96,10 +99,10 @@ function generatedResumeId(run: AgentRun): number | null {
     return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
-/** Returns the highest-priority status represented by a group for its concise summary badge. */
-function aggregateGroupStatus(runs: AgentRun[]): AgentRunStatus | null {
-    const precedence: AgentRunStatus[] = ['failed', 'cancel_requested', 'running', 'retrying', 'queued', 'cancelled', 'succeeded'];
-    return precedence.find(status => runs.some(run => run.status === status)) || null;
+/** Returns whether a run belongs to a session-backed text or voice interview workflow. */
+function isInterviewRun(run: AgentRun): boolean {
+    const category = getAgentRunCategory(run.task_type);
+    return category === 'text-interview' || category === 'voice-interview';
 }
 
 /** Encapsulates payload string; returns typed data or state and keeps side effects within the owning module boundary. */
@@ -176,10 +179,12 @@ interface RunCenterProps {
     onOpenResumeWorkspace?: () => void;
     /** Opens an ownership-scoped linked interview session when the run exposes one. */
     onOpenSession?: (sessionId: string) => void;
+    /** Opens the unified Markdown report for a linked interview session. */
+    onOpenReport?: (sessionId: string) => void;
 }
 
 /** Renders the run center UI and coordinates its typed props, local state, and approved backend interactions. */
-export function RunCenter({ onOpenResumeWorkspace, onOpenSession }: RunCenterProps) {
+export function RunCenter({ onOpenResumeWorkspace, onOpenSession, onOpenReport }: RunCenterProps) {
     const [groups, setGroups] = useState<GroupedAgentRun[]>([]);
     const [summary, setSummary] = useState({ active: 0, history: 0, succeeded: 0, failed: 0 });
     const [loading, setLoading] = useState(true);
@@ -187,6 +192,7 @@ export function RunCenter({ onOpenResumeWorkspace, onOpenSession }: RunCenterPro
     const [actingId, setActingId] = useState<string | null>(null);
     const [statusFilter, setStatusFilter] = useState<'all' | 'active' | AgentRunStatus>('all');
     const [taskFilter, setTaskFilter] = useState<'all' | AgentRunCategory>('all');
+    const [page, setPage] = useState(1);
     const [expandedRunId, setExpandedRunId] = useState<string | null>(null);
     const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
     const [eventsByRun, setEventsByRun] = useState<Record<string, AgentRunEvent[]>>({});
@@ -201,7 +207,7 @@ export function RunCenter({ onOpenResumeWorkspace, onOpenSession }: RunCenterPro
         try {
             const [response, runSummary] = await Promise.all([listGroupedAgentRuns({
                 status: statusFilter !== 'all' && statusFilter !== 'active' ? statusFilter : undefined,
-                limit: 100,
+                limit: 200,
             }), getAgentRunSummary()]);
             setGroups(response.groups
                 .map(group => ({
@@ -277,11 +283,15 @@ export function RunCenter({ onOpenResumeWorkspace, onOpenSession }: RunCenterPro
     }, []);
 
     // The API owns persistence and SSE updates; the browser only maps internal run types to stable product categories.
-    const displayGroups = useMemo(() => groupAgentRunsForDisplay(groups), [groups]);
-    const categoryTotals = useMemo(() => displayGroups.reduce((counts, group) => {
+    const allDisplayGroups = useMemo(() => groupAgentRunsForDisplay(groups), [groups]);
+    const displayGroups = useMemo(
+        () => allDisplayGroups.slice((page - 1) * DEFAULT_PAGE_SIZE, page * DEFAULT_PAGE_SIZE),
+        [allDisplayGroups, page],
+    );
+    const categoryTotals = useMemo(() => allDisplayGroups.reduce((counts, group) => {
         counts[group.category] += group.runs.length;
         return counts;
-    }, { 'text-interview': 0, 'voice-interview': 0, 'resume-optimization': 0, 'job-delivery': 0 } as Record<AgentRunCategory, number>), [displayGroups]);
+    }, { 'text-interview': 0, 'voice-interview': 0, 'resume-optimization': 0, 'job-delivery': 0 } as Record<AgentRunCategory, number>), [allDisplayGroups]);
 
     /** Toggles one local business-and-date section; child run detail disclosure remains independent. */
     const toggleGroup = (groupKey: string) => {
@@ -395,14 +405,14 @@ export function RunCenter({ onOpenResumeWorkspace, onOpenSession }: RunCenterPro
                     <p className="mt-1 text-xs text-slate-500">仅整理可确认加密会话引用归属当前用户的历史面试任务，不会暴露任务载荷。</p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                    <select aria-label="状态筛选" value={statusFilter} onChange={event => setStatusFilter(event.target.value as typeof statusFilter)} className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs">
+                    <select aria-label="状态筛选" value={statusFilter} onChange={event => { setStatusFilter(event.target.value as typeof statusFilter); setPage(1); }} className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs">
                         <option value="all">全部状态</option>
                         <option value="active">活跃任务</option>
                         <option value="succeeded">任务已完成</option>
                         <option value="failed">失败</option>
                         <option value="cancelled">已取消</option>
                     </select>
-                    <select aria-label="任务类型筛选" value={taskFilter} onChange={event => setTaskFilter(event.target.value as typeof taskFilter)} className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs">
+                    <select aria-label="任务类型筛选" value={taskFilter} onChange={event => { setTaskFilter(event.target.value as typeof taskFilter); setPage(1); }} className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs">
                         <option value="all">全部类型</option>
                         {AGENT_RUN_CATEGORIES.map(({ value, label }) => <option key={value} value={value}>{label}</option>)}
                     </select>
@@ -429,7 +439,7 @@ export function RunCenter({ onOpenResumeWorkspace, onOpenSession }: RunCenterPro
                     const activeCount = group.runs.filter(run => ACTIVE_STATUSES.has(run.status)).length;
                     // New groups are compact unless work is active; explicit user choices survive polling.
                     const isGroupExpanded = expandedGroups[groupKey] ?? activeCount > 0;
-                    const aggregateStatus = aggregateGroupStatus(group.runs);
+                    const aggregateStatus = latestAgentRunStatus(group.runs);
                     const latestRun = group.runs[0];
                     return (
                     <div key={groupKey} className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white/70 shadow-sm shadow-slate-200/40">
@@ -453,7 +463,7 @@ export function RunCenter({ onOpenResumeWorkspace, onOpenSession }: RunCenterPro
                                         {activeCount > 0 && <span className="rounded-full bg-teal-50 px-2 py-0.5 text-[10px] font-medium text-teal-700">{activeCount} 活跃</span>}
                                     </span>
                                     <span className="mt-1 block truncate text-[10px] text-slate-400">
-                                        按单次 Agent 任务与更新时间整理{group.category === 'text-interview' || group.category === 'voice-interview' ? '，不代表整场面试完成' : ''}{latestRun ? ` · 最近更新 ${formatDate(latestRun.updated_at)}` : ''}
+                                        按创建时间排列{latestRun ? ` · 最近创建 ${formatDate(latestRun.created_at)}` : ''}
                                     </span>
                                 </span>
                             </span>
@@ -493,6 +503,11 @@ export function RunCenter({ onOpenResumeWorkspace, onOpenSession }: RunCenterPro
                                 {run.session_id && onOpenSession && (
                                     <Button variant="outline" size="sm" onClick={() => onOpenSession(run.session_id!)}>
                                         <ArrowLeft className="h-3.5 w-3.5" />返回会话
+                                    </Button>
+                                )}
+                                {run.session_id && isInterviewRun(run) && onOpenReport && (
+                                    <Button variant="outline" size="sm" onClick={() => onOpenReport(run.session_id!)}>
+                                        <Eye className="h-3.5 w-3.5" />查看报告
                                     </Button>
                                 )}
                                 {isResumeRun(run) && onOpenResumeWorkspace && (
@@ -620,6 +635,13 @@ export function RunCenter({ onOpenResumeWorkspace, onOpenSession }: RunCenterPro
                     );
                 })}
             </section>
+            <PaginationControls
+                className="mt-5"
+                page={page}
+                total={allDisplayGroups.length}
+                loading={loading}
+                onPageChange={setPage}
+            />
             {previewResume && (
                 <ResumePreviewDialog
                     isOpen={true}

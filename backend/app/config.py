@@ -15,7 +15,28 @@ class AppSettings(BaseSettings):
     model_config = SettingsConfigDict(extra="ignore")
 
     llm_request_timeout_seconds: int = Field(default=45, ge=1, le=600)
+    llm_task_timeout_seconds: int = Field(default=90, ge=1, le=1800)
+    llm_min_attempt_timeout_seconds: float = Field(default=2.0, ge=0.0, le=60.0)
     llm_max_tokens: int = Field(default=8000, ge=1)
+    llm_estimated_chars_per_token: float = Field(default=4.0, ge=0.1, le=20.0)
+    task_deadline_enabled: bool = False
+    agent_context_budget_flags: dict[str, bool] = Field(default_factory=dict)
+    interview_plan_timeout_seconds: float = Field(default=20.0, ge=1.0, le=120.0)
+    interview_report_qa_char_budget: int = Field(default=12_000, ge=2_000, le=100_000)
+    interview_report_chunk_size: int = Field(default=5, ge=2, le=10)
+    interview_report_task_timeout_seconds: int = Field(default=180, ge=10, le=1800)
+    resume_workspace_task_timeout_seconds: int = Field(default=240, ge=30, le=1800)
+    resume_generation_task_timeout_seconds: int = Field(default=240, ge=30, le=1800)
+    job_assets_task_timeout_seconds: int = Field(default=240, ge=30, le=1800)
+    ability_profile_task_timeout_seconds: int = Field(default=60, ge=5, le=600)
+    resume_material_max_items: int = Field(default=8, ge=1, le=20)
+    resume_material_item_max_chars: int = Field(default=1200, ge=200, le=5000)
+    project_rewrite_project_max_chars: int = Field(default=5000, ge=500, le=20000)
+    project_rewrite_jd_max_chars: int = Field(default=2500, ge=500, le=10000)
+    embedding_timeout_seconds: float = Field(default=8.0, ge=0.5, le=120.0)
+    vector_search_timeout_seconds: float = Field(default=5.0, ge=0.5, le=120.0)
+    mem0_search_timeout_seconds: float = Field(default=5.0, ge=0.5, le=120.0)
+    mem0_add_timeout_seconds: float = Field(default=5.0, ge=0.5, le=120.0)
     llm_pool_failure_threshold: int = Field(default=2, ge=1, le=20)
     llm_pool_cooldown_seconds: int = Field(default=60, ge=1, le=3600)
     llm_pool_redis_enabled: bool = True
@@ -49,6 +70,11 @@ class AppSettings(BaseSettings):
     voice_input_format: str = "wav"
     voice_output_format: str = "wav"
     voice_transcript_term_fixes: dict[str, str] = Field(default_factory=dict)
+    voice_history_max_chars: int = Field(default=5_000, ge=1_000, le=30_000)
+    voice_recent_message_count: int = Field(default=8, ge=2, le=30)
+    voice_audio_max_bytes: int = Field(default=8_000_000, ge=100_000, le=50_000_000)
+    voice_audio_max_duration_seconds: int = Field(default=120, ge=5, le=600)
+    voice_first_chunk_timeout_seconds: float = Field(default=12.0, ge=1.0, le=120.0)
 
 
 @lru_cache(maxsize=1)

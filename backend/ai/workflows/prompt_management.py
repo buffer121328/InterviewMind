@@ -1,4 +1,9 @@
-"""Database-backed prompt management and runtime resolution for user-owned templates."""
+"""Deprecated database-backed Prompt Management retained for stored-data compatibility.
+
+Production Prompt Management now reads and writes Langfuse Cloud through
+``LangfusePromptManagementService``. Existing rows remain untouched so a later
+data-retention decision can be made explicitly.
+"""
 
 from __future__ import annotations
 
@@ -8,16 +13,17 @@ from typing import Any
 
 from sqlalchemy import func, select
 
+from ai.prompts.management_catalog import prompt_presentation
+from ai.prompts.registry import prompt_registry
 from app.db.models import PromptVersionModel, async_session
 from app.schemas.langfuse_prompts import (
     PromptChatMessage,
     PromptCreateRequest,
     PromptMetadataResponse,
     PromptPreviewResponse,
-    PromptVersionResponse,
     PromptType,
+    PromptVersionResponse,
 )
-from ai.prompts.registry import prompt_registry
 
 _VARIABLE = re.compile(r"{{\s*([A-Za-z_][A-Za-z0-9_]*)\s*}}")
 
@@ -33,6 +39,7 @@ class DatabasePromptManagementService:
     @staticmethod
     def _response(row: PromptVersionModel) -> PromptVersionResponse:
         """Map a database row to the bounded prompt API contract."""
+        presentation = prompt_presentation(row.name)
         prompt: str | list[PromptChatMessage]
         if row.prompt_type == "chat":
             prompt = [PromptChatMessage.model_validate(item) for item in row.prompt["messages"]]
@@ -42,7 +49,16 @@ class DatabasePromptManagementService:
         if row.is_production:
             labels.append("production")
         prompt_type: PromptType = "chat" if row.prompt_type == "chat" else "text"
-        return PromptVersionResponse(name=row.name, type=prompt_type, version=row.version, labels=labels, prompt=prompt)
+        return PromptVersionResponse(
+            name=row.name,
+            display_name=presentation.display_name,
+            functional_group=presentation.functional_group,
+            is_builtin=presentation.is_builtin,
+            type=prompt_type,
+            version=row.version,
+            labels=labels,
+            prompt=prompt,
+        )
 
     @staticmethod
     def _to_mustache(template: str) -> str:
@@ -52,6 +68,7 @@ class DatabasePromptManagementService:
     @classmethod
     def _builtin_prompt(cls, name: str) -> PromptVersionResponse | None:
         """Return a read-only v0 view of a registered backend prompt without rendering user data."""
+        presentation = prompt_presentation(name)
         try:
             spec = prompt_registry.get(name, "1")
         except KeyError:
@@ -59,7 +76,16 @@ class DatabasePromptManagementService:
         template = spec.template
         raw_template = getattr(template, "template", None)
         if isinstance(raw_template, str):
-            return PromptVersionResponse(name=name, type="text", version=0, labels=["builtin"], prompt=cls._to_mustache(raw_template))
+            return PromptVersionResponse(
+                name=name,
+                display_name=presentation.display_name,
+                functional_group=presentation.functional_group,
+                is_builtin=presentation.is_builtin,
+                type="text",
+                version=0,
+                labels=["builtin"],
+                prompt=cls._to_mustache(raw_template),
+            )
         messages: list[PromptChatMessage] = []
         for message in getattr(template, "messages", []):
             content = getattr(getattr(message, "prompt", None), "template", None)
@@ -67,11 +93,26 @@ class DatabasePromptManagementService:
             if isinstance(content, str) and isinstance(role, str) and role in {"system", "developer", "user", "assistant", "tool"}:
                 messages.append(PromptChatMessage.model_validate({"role": role, "content": cls._to_mustache(content)}))
         if messages:
-            return PromptVersionResponse(name=name, type="chat", version=0, labels=["builtin"], prompt=messages)
+            return PromptVersionResponse(
+                name=name,
+                display_name=presentation.display_name,
+                functional_group=presentation.functional_group,
+                is_builtin=presentation.is_builtin,
+                type="chat",
+                version=0,
+                labels=["builtin"],
+                prompt=messages,
+            )
         return None
 
-    async def list_prompts(self, *, user_id: str, page: int, limit: int) -> list[PromptMetadataResponse]:
-        """List every registered backend prompt plus this user's immutable override versions."""
+    async def list_prompts(
+        self,
+        *,
+        user_id: str,
+        page: int,
+        limit: int,
+    ) -> tuple[list[PromptMetadataResponse], int]:
+        """List one page of registered prompts and return the full owner-scoped total."""
         async with async_session() as session:
             rows = (await session.execute(
                 select(PromptVersionModel.name, PromptVersionModel.prompt_type, PromptVersionModel.version,
@@ -88,8 +129,22 @@ class DatabasePromptManagementService:
             item = grouped.setdefault(name, {"type": prompt_type, "versions": [], "labels": [], "updated_at": updated_at})
             item["versions"].append(version)
             item["labels"] = sorted(set(item["labels"]) | set(labels or []) | ({"production"} if is_production else set()))
-        values = list(grouped.items())[(page - 1) * limit:page * limit]
-        return [PromptMetadataResponse(name=name, type=item["type"], versions=item["versions"], labels=item["labels"], last_updated_at=item["updated_at"].isoformat() if item["updated_at"] else None) for name, item in values]
+        all_values = list(grouped.items())
+        values = all_values[(page - 1) * limit:page * limit]
+        items: list[PromptMetadataResponse] = []
+        for name, item in values:
+            presentation = prompt_presentation(name)
+            items.append(PromptMetadataResponse(
+                name=name,
+                display_name=presentation.display_name,
+                functional_group=presentation.functional_group,
+                is_builtin=presentation.is_builtin,
+                type=item["type"],
+                versions=item["versions"],
+                labels=item["labels"],
+                last_updated_at=item["updated_at"].isoformat() if item["updated_at"] else None,
+            ))
+        return items, len(all_values)
 
     async def fetch_prompt(self, *, user_id: str, name: str, version: int | None, label: str | None) -> PromptVersionResponse | None:
         """Fetch one explicit version or production label under the owner boundary."""

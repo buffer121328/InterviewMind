@@ -9,6 +9,7 @@ from pydantic import ValidationError
 
 from ai.workflows.langfuse_prompt_management import (
     LangfusePromptManagementService,
+    PromptListPage,
     PromptManagementUnavailable,
 )
 from app.api.langfuse_prompts import router
@@ -22,6 +23,7 @@ class _FakePromptsApi:
         self.prompt = prompt
         self.get_calls: list[dict[str, object]] = []
         self.list_calls: list[dict[str, object]] = []
+        self.production_names: set[str] = {"resume-summary"}
 
     def get(self, name: str, **kwargs: object) -> object:
         """Return a canned prompt while recording the bounded selector call."""
@@ -31,15 +33,20 @@ class _FakePromptsApi:
     def list(self, **kwargs: object) -> object:
         """Return metadata-only canned data while recording pagination arguments."""
         self.list_calls.append(kwargs)
-        return SimpleNamespace(data=[
+        data = [
             SimpleNamespace(
-                name="resume-summary",
+                name=name,
                 type="text",
-                versions=[1, 2],
+                versions=[1, 2] if name == "resume-summary" else [1],
                 labels=["production"],
                 last_updated_at=None,
             )
-        ])
+            for name in sorted(self.production_names)
+        ]
+        return SimpleNamespace(
+            data=data,
+            meta=SimpleNamespace(total_items=len(data), total_pages=1),
+        )
 
 
 class _FakeClient:
@@ -54,6 +61,8 @@ class _FakeClient:
     def create_prompt(self, **kwargs: object) -> object:
         """Record immutable-version payloads without contacting Langfuse."""
         self.create_calls.append(kwargs)
+        if "production" in (kwargs.get("labels") or []):
+            self.api.prompts.production_names.add(str(kwargs["name"]))
         return self.prompt
 
     def update_prompt(self, **kwargs: object) -> object:
@@ -94,6 +103,9 @@ def test_service_lists_metadata_without_prompt_content(configured_client):
 
     assert result.items[0].model_dump() == {
         "name": "resume-summary",
+        "display_name": "resume-summary",
+        "functional_group": "自定义提示词",
+        "is_builtin": False,
         "type": "text",
         "versions": [1, 2],
         "labels": ["production"],
@@ -102,6 +114,24 @@ def test_service_lists_metadata_without_prompt_content(configured_client):
     assert configured_client.api.prompts.list_calls == [
         {"page": 2, "limit": 10, "label": "production"}
     ]
+    assert result.total == 1
+
+
+def test_service_enriches_builtin_metadata_with_chinese_presentation():
+    """List responses must expose registry-owned Chinese names and functional groups."""
+    metadata = LangfusePromptManagementService._metadata(
+        SimpleNamespace(
+            name="resume.rewrite_planner",
+            type="text",
+            versions=[1],
+            labels=["production"],
+            last_updated_at=None,
+        )
+    )
+
+    assert metadata.display_name == "简历改写规划"
+    assert metadata.functional_group == "简历处理"
+    assert metadata.is_builtin is True
 
 
 def test_service_creates_version_and_promotes_labels(configured_client):
@@ -116,7 +146,7 @@ def test_service_creates_version_and_promotes_labels(configured_client):
     )
 
     created = service.create_version(request)
-    promoted = service.update_labels(name="resume-summary", version=2, labels=["production"])
+    service.update_labels(name="resume-summary", version=2, labels=["production"])
 
     assert created.version == 2
     assert configured_client.create_calls == [{
@@ -145,6 +175,9 @@ def test_service_maps_sdk_prompt_client_without_a_type_attribute(configured_clie
 
     assert result.model_dump() == {
         "name": "resume-summary",
+        "display_name": "resume-summary",
+        "functional_group": "自定义提示词",
+        "is_builtin": False,
         "type": "text",
         "version": 3,
         "labels": ["staging"],
@@ -163,6 +196,75 @@ def test_preview_is_local_substitution_without_sdk_compile(configured_client):
     assert configured_client.api.prompts.get_calls == [{
         "name": "resume-summary", "version": 2, "label": None, "resolve": False
     }]
+
+
+def test_sync_builtin_prompts_is_idempotent_and_publishes_production(configured_client):
+    """Missing latest local templates are created once and existing cloud versions remain untouched."""
+    service = LangfusePromptManagementService()
+
+    first = service.sync_builtin_production_prompts()
+    second = service.sync_builtin_production_prompts()
+
+    assert first.created == first.discovered
+    assert "jobs.extraction" in first.created_names
+    extraction = next(
+        call for call in configured_client.create_calls
+        if call["name"] == "jobs.extraction"
+    )
+    assert extraction["labels"] == ["production"]
+    assert extraction["type"] == "text"
+    assert "{{page_text}}" in str(extraction["prompt"])
+    assert second.created == 0
+    assert second.skipped == second.discovered
+
+
+def test_builtin_catalog_serializes_chat_roles_and_latest_versions():
+    """The cloud seed catalog preserves mustache variables and Langfuse chat roles."""
+    from ai.prompts.management_catalog import latest_builtin_managed_prompts
+
+    prompts = {prompt.name: prompt for prompt in latest_builtin_managed_prompts()}
+
+    assert prompts["interview.planner"].version == "2"
+    assert "{{planning_context}}" in str(prompts["interview.planner"].prompt)
+    jd_match = prompts["resume.jd_match.user"]
+    assert jd_match.prompt_type == "chat"
+    assert isinstance(jd_match.prompt, list)
+    assert [message["role"] for message in jd_match.prompt] == ["system", "user"]
+    assert "{{job_description}}" in jd_match.prompt[1]["content"]
+
+
+def test_all_registered_prompts_have_chinese_presentation_and_content():
+    """Every built-in prompt must avoid technical-name and custom-group fallbacks."""
+    import re
+
+    from ai.prompts.management_catalog import (
+        latest_builtin_managed_prompts,
+        prompt_presentation,
+    )
+    from ai.prompts.registry import prompt_registry
+
+    prompts = {prompt.name: prompt for prompt in latest_builtin_managed_prompts()}
+    assert set(prompts) == set(prompt_registry.names())
+    for name in prompt_registry.names():
+        presentation = prompt_presentation(name)
+        assert presentation.is_builtin is True
+        assert presentation.display_name != name
+        assert presentation.functional_group not in {
+            "自定义提示词",
+            "其他内置提示词",
+        }
+        assert re.search(r"[\u4e00-\u9fff]", presentation.display_name)
+        assert re.search(r"[\u4e00-\u9fff]", str(prompts[name].prompt))
+
+
+def test_historical_prompt_names_keep_chinese_groups_without_becoming_builtin():
+    """Known cloud-only historical prompts must not fall back to custom English UI."""
+    from ai.prompts.management_catalog import prompt_presentation
+
+    presentation = prompt_presentation("analysis.candidate_profile")
+    assert presentation.display_name == "单场能力画像"
+    assert presentation.functional_group == "能力分析"
+    assert presentation.is_builtin is False
 
 
 @pytest.mark.parametrize(
@@ -202,15 +304,15 @@ def test_database_prompt_service_exposes_builtin_registered_templates_as_readonl
     assert "{{round_index}}" in builtin.prompt
 
 
-def test_router_lists_database_backed_prompts_without_langfuse_configuration(monkeypatch):
-    """Prompt management remains available from the application database without Langfuse."""
+def test_router_lists_langfuse_cloud_prompts(monkeypatch):
+    """Prompt management returns bounded metadata from the configured Langfuse project."""
     class FakeService:
-        """Provide the bounded database list contract without a live database."""
+        """Provide the bounded cloud list contract without a live network."""
 
-        async def list_prompts(self, *, user_id, page, limit):
-            """Return one owner-scoped metadata item for router verification."""
-            assert (user_id, page, limit) == ("default_user", 1, 20)
-            return []
+        def list_prompts(self, *, page, limit, label):
+            """Return one cloud metadata page for router verification."""
+            assert (page, limit, label) == (1, 20, None)
+            return PromptListPage(items=[], total=0, page=page, limit=limit)
 
     monkeypatch.setattr("app.api.langfuse_prompts._service", lambda: FakeService())
     app = FastAPI()
@@ -219,7 +321,7 @@ def test_router_lists_database_backed_prompts_without_langfuse_configuration(mon
     response = TestClient(app).get("/api/langfuse/prompts")
 
     assert response.status_code == 200
-    assert response.json() == {"items": [], "page": 1, "limit": 20}
+    assert response.json() == {"items": [], "total": 0, "page": 1, "limit": 20}
 
 
 def test_service_is_unavailable_when_management_flag_is_disabled(monkeypatch):
@@ -233,8 +335,8 @@ def test_service_is_unavailable_when_management_flag_is_disabled(monkeypatch):
         LangfusePromptManagementService()._client()
 
 
-def test_router_creates_versions_and_uses_an_explicit_production_action(monkeypatch):
-    """The route delegates immutable creation and production promotion to the database service."""
+def test_router_creates_cloud_versions_and_uses_an_explicit_production_action(monkeypatch):
+    """The route delegates immutable creation and production promotion to Langfuse."""
     from app.schemas.langfuse_prompts import PromptVersionResponse
 
     calls: list[tuple[str, dict]] = []
@@ -242,15 +344,33 @@ def test_router_creates_versions_and_uses_an_explicit_production_action(monkeypa
     class FakeService:
         """Record owner-scoped database mutations without a live database."""
 
-        async def create_version(self, *, user_id, request):
-            """Return the first immutable version created by the owner."""
-            calls.append(("create", {"user_id": user_id, "request": request}))
-            return PromptVersionResponse(name=request.name, type=request.type, version=1, labels=["draft"], prompt=request.prompt)
+        def create_version(self, request):
+            """Return the first immutable cloud version."""
+            calls.append(("create", {"request": request}))
+            return PromptVersionResponse(
+                name=request.name,
+                display_name=request.name,
+                functional_group="自定义提示词",
+                is_builtin=False,
+                type=request.type,
+                version=1,
+                labels=["draft"],
+                prompt=request.prompt,
+            )
 
-        async def update_labels(self, **kwargs):
+        def update_labels(self, **kwargs):
             """Record explicit production movement and return the promoted version."""
             calls.append(("update", kwargs))
-            return PromptVersionResponse(name=kwargs["name"], type="text", version=kwargs["version"], labels=["draft", "production"], prompt="Draft {{candidate}}.")
+            return PromptVersionResponse(
+                name=kwargs["name"],
+                display_name=kwargs["name"],
+                functional_group="自定义提示词",
+                is_builtin=False,
+                type="text",
+                version=kwargs["version"],
+                labels=["draft", "production"],
+                prompt="Draft {{candidate}}.",
+            )
 
     monkeypatch.setattr("app.api.langfuse_prompts._service", lambda: FakeService())
     app = FastAPI()
@@ -268,4 +388,4 @@ def test_router_creates_versions_and_uses_an_explicit_production_action(monkeypa
     assert create.status_code == 201
     assert promotion.status_code == 200
     assert calls[0][0] == "create"
-    assert calls[1] == ("update", {"user_id": "default_user", "name": "resume-summary", "version": 1, "labels": [], "production": True})
+    assert calls[1] == ("update", {"name": "resume-summary", "version": 1, "labels": ["production"]})

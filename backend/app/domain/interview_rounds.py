@@ -19,6 +19,10 @@ ROUND_INDEX_DEFAULT_TYPES: Final[dict[int, str]] = {
 DEFAULT_ROUND_TYPE: Final[str] = "tech_initial"
 MIN_QUESTIONS: Final[int] = 1
 MAX_QUESTIONS: Final[int] = 20
+SYSTEM_FALLBACK_QUESTION_SOURCE_TYPE: Final[str] = "system_fallback"
+INTERVIEW_CLOSING_MESSAGE: Final[str] = (
+    "感谢你的分享，你的规划很有条理。本次面试到此结束，后续我们会尽快联系你。"
+)
 
 
 def valid_round_types() -> tuple[str, ...]:

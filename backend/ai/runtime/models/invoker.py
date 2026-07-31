@@ -5,6 +5,8 @@ from typing import Any, TypeVar
 from pydantic import BaseModel
 
 from ai.runtime.context import AgentContext
+from observability import measure_model_input
+
 from .resolver import ModelRequest
 
 T = TypeVar("T", bound=BaseModel)
@@ -39,6 +41,19 @@ class ModelInvoker:
             "channel": current.channel,
             "max_retries": max_retries,
         }
+        call_metadata = {
+            **measure_model_input(input_value),
+            "stage": "runtime_model_invoker",
+        }
         if isinstance(input_value, str):
-            return await invoke_structured(input_value, temperature=current.temperature, **kwargs)
-        return await invoke_structured_with_messages(input_value, **kwargs)
+            return await invoke_structured(
+                input_value,
+                temperature=current.temperature,
+                call_metadata=call_metadata,
+                **kwargs,
+            )
+        return await invoke_structured_with_messages(
+            input_value,
+            call_metadata=call_metadata,
+            **kwargs,
+        )

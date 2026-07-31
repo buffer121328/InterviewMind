@@ -7,6 +7,7 @@ import {
     getAgentRunStatusLabel,
     getInterviewSessionProgressLabel,
     groupAgentRunsForDisplay,
+    latestAgentRunStatus,
     summarizeResumeRunResult,
 } from './agentRunDisplayGroups.ts';
 import type { AgentRun } from './api/agentRunTypes.ts';
@@ -30,18 +31,39 @@ test('getAgentRunCategory maps every internal task type to one user-facing categ
         getAgentRunCategory('resume_workspace'),
         getAgentRunCategory('resume_generation'),
         getAgentRunCategory('job_assets'),
-    ], ['text-interview', 'text-interview', 'text-interview', 'voice-interview', 'resume-optimization', 'resume-optimization', 'resume-optimization', 'job-delivery']);
+        getAgentRunCategory('job_recommendation_capture'),
+        getAgentRunCategory('interview_experience_collect'),
+    ], ['text-interview', 'text-interview', 'text-interview', 'voice-interview', 'resume-optimization', 'resume-optimization', 'resume-optimization', 'job-delivery', 'job-delivery', 'experience-collection']);
 });
 
 test('groupAgentRunsForDisplay separates user categories and dates', () => {
     const groups = groupAgentRunsForDisplay([{ runs: [
-        run({ task_type: 'resume_optimize', updated_at: '2026-07-27T04:00:00Z' }),
-        run({ run_id: 'interview', task_type: 'interview_turn', updated_at: '2026-07-26T04:00:00Z' }),
-        run({ run_id: 'voice', task_type: 'voice_interview_turn', updated_at: '2026-07-26T04:00:00Z' }),
-        run({ run_id: 'assets', task_type: 'job_assets', updated_at: '2026-07-20T04:00:00Z' }),
+        run({ task_type: 'resume_optimize', created_at: '2026-07-27T04:00:00Z', updated_at: '2026-07-27T04:00:00Z' }),
+        run({ run_id: 'interview', task_type: 'interview_turn', created_at: '2026-07-26T04:00:00Z', updated_at: '2026-07-26T04:00:00Z' }),
+        run({ run_id: 'voice', task_type: 'voice_interview_turn', created_at: '2026-07-26T03:00:00Z', updated_at: '2026-07-26T04:00:00Z' }),
+        run({ run_id: 'assets', task_type: 'job_assets', created_at: '2026-07-20T04:00:00Z', updated_at: '2026-07-20T04:00:00Z' }),
     ] }], new Date('2026-07-27T12:00:00Z'));
 
-    assert.deepEqual(groups.map(group => `${group.categoryLabel}:${group.dateLabel}`), ['文本面试:昨天', '语音面试:昨天', '简历优化:今天', '岗位投递:过去7天']);
+    assert.deepEqual(groups.map(group => `${group.categoryLabel}:${group.dateLabel}`), ['简历优化:今天', '文本面试:昨天', '语音面试:昨天', '岗位投递:过去7天']);
+});
+
+test('groupAgentRunsForDisplay uses creation time instead of later status updates', () => {
+    const groups = groupAgentRunsForDisplay([{ runs: [
+        run({
+            run_id: 'newer-created',
+            task_type: 'job_assets',
+            created_at: '2026-07-27T09:00:00Z',
+            updated_at: '2026-07-27T09:00:00Z',
+        }),
+        run({
+            run_id: 'older-created-newer-update',
+            task_type: 'resume_workspace',
+            created_at: '2026-07-27T08:00:00Z',
+            updated_at: '2026-07-27T11:00:00Z',
+        }),
+    ] }], new Date('2026-07-27T12:00:00Z'));
+
+    assert.deepEqual(groups.map(group => group.runs[0]?.run_id), ['newer-created', 'older-created-newer-update']);
 });
 
 test('interview run labels distinguish one generated response from the whole interview lifecycle', () => {
@@ -59,6 +81,36 @@ test('interview run labels distinguish one generated response from the whole int
     assert.equal(getAgentRunGroupStatusLabel('text-interview', 'succeeded'), '生成任务已结束');
 });
 
+test('BOSS capture reports the QR login stage as the current status', () => {
+    const capture = run({
+        task_type: 'job_recommendation_capture',
+        status: 'running',
+        stage: 'awaiting_login',
+    });
+
+    assert.equal(getAgentRunStatusLabel(capture), '等待用户扫码登录');
+});
+
+test('BOSS capture reports the manual verification stage as the current status', () => {
+    const capture = run({
+        task_type: 'job_recommendation_capture',
+        status: 'running',
+        stage: 'awaiting_manual_verification',
+    });
+
+    assert.equal(getAgentRunStatusLabel(capture), '等待用户手动完成验证');
+});
+
+test('BOSS current-page import reports its server-side validation stage', () => {
+    const capture = run({
+        task_type: 'job_recommendation_capture',
+        status: 'running',
+        stage: 'validating_import',
+    });
+
+    assert.equal(getAgentRunStatusLabel(capture), '校验当前页导入');
+});
+
 test('interview session progress reports completion only from the linked session status', () => {
     const completedTurn = run({
         task_type: 'interview_turn',
@@ -71,6 +123,15 @@ test('interview session progress reports completion only from the linked session
 
     assert.equal(getInterviewSessionProgressLabel(completedTurn), '整场面试已完成 · 5/5 题');
     assert.equal(getInterviewSessionProgressLabel(legacyTurn), '本状态仅表示本次生成任务，不代表整场面试完成');
+});
+
+test('latestAgentRunStatus ignores an older failure after a newer task succeeds', () => {
+    const runs = [
+        run({ run_id: 'latest', status: 'succeeded', updated_at: '2026-07-28T10:00:00Z' }),
+        run({ run_id: 'older', status: 'failed', updated_at: '2026-07-28T09:00:00Z' }),
+    ];
+
+    assert.equal(latestAgentRunStatus(runs), 'succeeded');
 });
 
 test('summarizeResumeRunResult exposes bounded stage metadata without raw resume passages', () => {

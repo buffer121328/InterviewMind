@@ -9,8 +9,15 @@ from collections.abc import Collection, Sequence
 from typing import Any
 
 from .context import AgentContext
+from .deadlines import TaskDeadline, TaskDeadlineExceeded, task_deadline_scope
 
-__all__ = ["AgentContext", "create_guarded_agent"]
+__all__ = [
+    "AgentContext",
+    "TaskDeadline",
+    "TaskDeadlineExceeded",
+    "create_guarded_agent",
+    "task_deadline_scope",
+]
 
 
 def _create_guarded_agent_fallback(

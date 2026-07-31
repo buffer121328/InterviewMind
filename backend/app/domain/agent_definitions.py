@@ -12,10 +12,12 @@ from typing import Literal
 
 from app.domain.agent_runs import (
     TASK_TYPE_EVALUATION_SUITE,
+    TASK_TYPE_INTERVIEW_EXPERIENCE_COLLECT,
     TASK_TYPE_INTERVIEW_REPORT,
     TASK_TYPE_INTERVIEW_START,
     TASK_TYPE_INTERVIEW_TURN,
     TASK_TYPE_JOB_ASSETS,
+    TASK_TYPE_JOB_RECOMMENDATION_CAPTURE,
     TASK_TYPE_RESUME_GENERATION,
     TASK_TYPE_RESUME_OPTIMIZE,
     TASK_TYPE_RESUME_WORKSPACE,
@@ -40,6 +42,7 @@ class AgentDefinition:
     graph_name: str | None = None
     prompt_name: str | None = None
     prompt_version: str | None = None
+    deprecated: bool = False
 
 
 class AgentDefinitionRegistry:
@@ -98,7 +101,7 @@ _DEFINITIONS = (
         checkpoint_policy="durable",
         graph_name="interview",
         prompt_name="interview.planner",
-        prompt_version="1",
+        prompt_version="2",
     ),
     AgentDefinition(
         name="interview_turn",
@@ -115,7 +118,7 @@ _DEFINITIONS = (
         checkpoint_policy="durable",
         graph_name="interview",
         prompt_name="interview.evaluating",
-        prompt_version="1",
+        prompt_version="2",
     ),
     AgentDefinition(
         name="voice_interview_turn",
@@ -131,7 +134,7 @@ _DEFINITIONS = (
         checkpoint_policy="durable",
         graph_name="interview",
         prompt_name="voice.system",
-        prompt_version="1",
+        prompt_version="2",
     ),
     AgentDefinition(
         name="resume_optimizer",
@@ -187,11 +190,46 @@ _DEFINITIONS = (
         steps=(
             ("queued", "等待执行资源"),
             ("loading_session", "读取面试问答"),
-            ("generating_reports", "并行生成能力画像与短板地图"),
+            ("generating_reports", "生成能力画像与短板地图"),
             ("saving_report", "保存报告"),
         ),
+        checkpoint_policy="durable",
         graph_name="interview",
-        prompt_name="analysis.weakness_report",
+        prompt_name="analysis.session_report",
+        prompt_version="2",
+    ),
+    AgentDefinition(
+        name="interview_experience_collector",
+        version="1",
+        task_type=TASK_TYPE_INTERVIEW_EXPERIENCE_COLLECT,
+        title="小红书面经采集（已废弃）",
+        steps=(
+            ("queued", "等待执行资源"),
+            ("opening_browser", "历史浏览器采集步骤"),
+            ("waiting_for_user", "历史人工验证步骤"),
+            ("collecting_notes", "历史内容采集步骤"),
+            ("extracting_questions", "历史候选题抽取步骤"),
+            ("saving_result", "历史结果保存步骤"),
+        ),
+        checkpoint_policy="durable",
+        deprecated=True,
+    ),
+    AgentDefinition(
+        name="job_recommendation_collector",
+        version="2",
+        task_type=TASK_TYPE_JOB_RECOMMENDATION_CAPTURE,
+        title="导入 BOSS 当前页岗位",
+        steps=(
+            ("queued", "等待执行资源"),
+            ("validating_import", "校验当前页 DOM 导入"),
+            ("extracting_jobs", "确认有效岗位卡片"),
+            ("ranking_jobs", "按简历匹配度排序"),
+            ("saving_jobs", "标准化并保存岗位"),
+            ("scheduling_assets", "创建投递资产任务"),
+        ),
+        checkpoint_policy="durable",
+        graph_name=None,
+        prompt_name="jobs.extraction",
         prompt_version="1",
     ),
     AgentDefinition(

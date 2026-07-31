@@ -3,9 +3,9 @@ LLM 结构化输出模型集中定义
 所有 LLM 调用的 Pydantic 输出模型统一管理，配合 with_structured_output 使用
 """
 
-from pydantic import BaseModel, Field, field_validator
-from typing import List, Optional, Dict, Any
+from typing import Any, Dict, List, Optional
 
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 # ============================================================================
 # 面试规划相关输出
@@ -299,38 +299,75 @@ class CandidateProfileOutput(BaseModel):
 
 
 # ============================================================================
-# 短板地图分析相关输出
+# 逐题证据与短板地图分析相关输出
 # ============================================================================
+
+class QuestionEvidence(BaseModel):
+    """一条可追溯到具体题号的面试证据，不保存模型内部推理过程。"""
+
+    question_id: str = Field(description="稳定题号，例如 Q1")
+    topic: str = Field(default="", description="考察主题")
+    question_summary: str = Field(default="", description="题目摘要")
+    candidate_claims: List[str] = Field(default_factory=list, description="候选人明确陈述的事实或主张")
+    demonstrated_skills: List[str] = Field(default_factory=list, description="回答中有直接证据的技能")
+    missing_evidence: List[str] = Field(default_factory=list, description="回答仍缺少的可验证证据")
+    communication_observations: List[str] = Field(default_factory=list, description="可由原回答支持的表达观察")
+    score_or_signal: Optional[str] = Field(default=None, description="定性信号，不替代最终维度评分")
+
+
+class EvidenceChunkOutput(BaseModel):
+    """一个 4-5 题证据块的结构化输出，用于可恢复分块报告。"""
+
+    items: List[QuestionEvidence] = Field(default_factory=list, description="按题号排序的逐题证据")
+
 
 class WeaknessCategory(BaseModel):
     """短板类别"""
     category: str = Field(description="类别名称")
-    description: str = Field(description="具体描述")
-    severity: str = Field(description="严重程度: high/medium/low")
+    description: str = Field(default="", description="具体描述")
+    severity: str = Field(default="medium", description="严重程度: high/medium/low")
+
+    @model_validator(mode="after")
+    def fill_missing_description(self) -> "WeaknessCategory":
+        """Use the category label as a bounded fallback when the model omits its explanation."""
+        if not self.description.strip():
+            self.description = f"{self.category}表现仍有提升空间"
+        if self.severity not in {"high", "medium", "low"}:
+            self.severity = "medium"
+        return self
 
 
 class QuestionFailure(BaseModel):
     """问题失败分析"""
-    question: str = Field(description="问题摘要")
-    user_answer: str = Field(description="回答摘要")
-    issue: str = Field(description="核心问题")
-    better_example: str = Field(description="更好的回答方向")
+    question: str = Field(default="", description="问题摘要")
+    user_answer: str = Field(default="", description="回答摘要")
+    issue: str = Field(default="回答缺少足够的岗位相关证据", description="核心问题")
+    better_example: str = Field(default="补充真实背景、行动和结果，并说明与岗位要求的关联", description="更好的回答方向")
 
 
 class ImprovementAction(BaseModel):
     """改进行动项"""
-    action: str = Field(description="具体行动")
-    priority: int = Field(description="优先级 (1-5)")
-    estimated_effort: str = Field(description="估算投入时间")
+    action: str = Field(default="", description="具体行动")
+    priority: int = Field(default=3, ge=1, le=5, description="优先级 (1-5)")
+    estimated_effort: str = Field(default="1周", description="估算投入时间")
 
 
 class WeaknessReportOutput(BaseModel):
     """短板地图报告输出"""
+    question_evidence: List[QuestionEvidence] = Field(default_factory=list, description="逐题证据索引")
     weakness_categories: List[WeaknessCategory] = Field(default_factory=list, description="短板类别")
     question_failures: List[QuestionFailure] = Field(default_factory=list, description="问题失败分析")
     improvement_actions: List[ImprovementAction] = Field(default_factory=list, description="改进行动项")
     recommended_questions: List[str] = Field(default_factory=list, description="推荐练习题")
     priority_order: List[str] = Field(default_factory=list, description="优先级排序")
+
+
+class SessionInterviewReportOutput(BaseModel):
+    """一次模型调用生成的单场能力画像、短板地图和逐题证据。"""
+
+    question_evidence: List[QuestionEvidence] = Field(default_factory=list, description="本场逐题证据")
+    candidate_profile: CandidateProfileOutput = Field(description="本场面试能力画像")
+    weakness_report: WeaknessReportOutput = Field(description="本场面试短板地图")
 
 
 # ============================================================================

@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, BookOpen, Check, ChevronLeft, ChevronRight, Code2, Eye, FilePlus2, FolderOpen, Loader2, Pencil, Rocket, Search, ShieldCheck, Sparkles } from 'lucide-react';
+import { ArrowLeft, BookOpen, Check, CloudUpload, Code2, Eye, FilePlus2, FolderOpen, Loader2, Pencil, Rocket, Search, ShieldCheck, Sparkles } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import rehypeHighlight from 'rehype-highlight';
 import 'highlight.js/styles/atom-one-dark.css';
@@ -10,10 +10,11 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
-import { createPromptVersion, getPrompt, listPrompts, previewPrompt, promotePromptToProduction, PromptManagementError, type PromptBody, type PromptChatMessage, type PromptMetadata, type PromptPreviewResponse, type PromptVersion } from '@/lib/api/prompts';
+import { createPromptVersion, getPrompt, listPrompts, previewPrompt, promotePromptToProduction, PromptManagementError, syncBuiltinPrompts, type PromptBody, type PromptChatMessage, type PromptMetadata, type PromptPreviewResponse, type PromptVersion } from '@/lib/api/prompts';
 import { getPromptDisplayName, getPromptFunctionalGroup, getPromptLabelDisplayName } from '@/lib/promptCatalog';
+import { PaginationControls } from '@/components/PaginationControls';
+import { DEFAULT_PAGE_SIZE } from '@/lib/pagination';
 
-const pageSize = 50;
 const badge = 'rounded-full border px-2 py-0.5 text-[11px] font-medium';
 const roleNames: Record<PromptChatMessage['role'], string> = {
     system: '系统',
@@ -59,13 +60,13 @@ function MarkdownEditor({ value, type, mode, onChange, onModeChange }: { value: 
     return (
         <div className="mt-2 overflow-hidden rounded-xl border border-slate-200 bg-white">
             <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50 px-2 py-2">
-                <div className="flex gap-1" role="tablist" aria-label="Prompt 内容模式">
+                <div className="flex gap-1" role="tablist" aria-label="提示词内容模式">
                     <button className={cn('rounded-md px-3 py-1.5 text-xs font-medium transition-colors', mode === 'write' ? 'bg-white text-teal-700 shadow-sm' : 'text-slate-500 hover:bg-white/70')} onClick={() => onModeChange('write')} role="tab" aria-selected={mode === 'write'} type="button"><Code2 className="mr-1.5 inline h-3.5 w-3.5" />编辑</button>
                     <button className={cn('rounded-md px-3 py-1.5 text-xs font-medium transition-colors', mode === 'preview' ? 'bg-white text-teal-700 shadow-sm' : 'text-slate-500 hover:bg-white/70')} onClick={() => onModeChange('preview')} role="tab" aria-selected={mode === 'preview'} type="button"><Eye className="mr-1.5 inline h-3.5 w-3.5" />Markdown 预览</button>
                 </div>
                 <span className="hidden text-[11px] text-slate-400 sm:inline">支持标题、列表、引用、代码块</span>
             </div>
-            {mode === 'write' ? <Textarea className="min-h-56 resize-y rounded-none border-0 font-mono text-sm shadow-none focus-visible:ring-0" value={value} onChange={event => onChange(event.target.value)} placeholder={type === 'text' ? '你是一个面试官…\n\n## 任务\n请分析 {{candidate_name}}' : '[{"role":"system","content":"你是一个…"}]'} /> : previewBody ? <div className="max-h-[32rem] min-h-56 overflow-auto p-4"><PromptBodyMarkdown value={previewBody} /></div> : <div className="min-h-56 p-4 text-sm text-slate-500">{type === 'text' ? '填写内容后即可查看 Markdown 预览。' : 'Chat Prompt 需要先填写有效的 JSON 数组，才能预览。'}</div>}
+            {mode === 'write' ? <Textarea className="min-h-56 resize-y rounded-none border-0 font-mono text-sm shadow-none focus-visible:ring-0" value={value} onChange={event => onChange(event.target.value)} placeholder={type === 'text' ? '你是一个面试官…\n\n## 任务\n请分析 {{candidate_name}}' : '[{"role":"system","content":"你是一个…"}]'} /> : previewBody ? <div className="max-h-[32rem] min-h-56 overflow-auto p-4"><PromptBodyMarkdown value={previewBody} /></div> : <div className="min-h-56 p-4 text-sm text-slate-500">{type === 'text' ? '填写内容后即可查看 Markdown 预览。' : '对话提示词需要先填写有效的 JSON 数组，才能预览。'}</div>}
         </div>
     );
 }
@@ -98,13 +99,14 @@ function PromptLabel({ label }: { label: string }) {
 }
 
 /** Displays the read-only functional group derived from the backend prompt namespace. */
-function PromptGroupBadge({ name }: { name: string }) {
-    return <span className={cn(badge, 'border-violet-200 bg-violet-50 text-violet-700')}><FolderOpen className="mr-1 inline h-3 w-3" />{getPromptFunctionalGroup(name)}</span>;
+function PromptGroupBadge({ name, functionalGroup }: { name: string; functionalGroup?: string }) {
+    return <span className={cn(badge, 'border-violet-200 bg-violet-50 text-violet-700')}><FolderOpen className="mr-1 inline h-3 w-3" />{getPromptFunctionalGroup(name, functionalGroup)}</span>;
 }
 
 /** Renders the prompt registry with group filtering, Markdown preview, and immutable version actions. */
 export function PromptManagementPage() {
     const [items, setItems] = useState<PromptMetadata[]>([]);
+    const [total, setTotal] = useState(0);
     const [page, setPage] = useState(1);
     const [selected, setSelected] = useState<PromptVersion | null>(null);
     const [loading, setLoading] = useState(true);
@@ -124,15 +126,18 @@ export function PromptManagementPage() {
     const [search, setSearch] = useState('');
     const [groupFilter, setGroupFilter] = useState('all');
     const [acting, setActing] = useState(false);
+    const [syncing, setSyncing] = useState(false);
     const [evaluationRunId, setEvaluationRunId] = useState('');
 
     const load = useCallback(async () => {
         setLoading(true);
         setError(null);
         try {
-            setItems((await listPrompts(page, pageSize)).items);
+            const response = await listPrompts(page, DEFAULT_PAGE_SIZE);
+            setItems(response.items);
+            setTotal(response.total);
         } catch (cause) {
-            setError(cause instanceof PromptManagementError ? cause : new PromptManagementError('暂时无法加载 Prompt'));
+            setError(cause instanceof PromptManagementError ? cause : new PromptManagementError('暂时无法加载提示词'));
         } finally {
             setLoading(false);
         }
@@ -145,15 +150,15 @@ export function PromptManagementPage() {
     }, [load]);
 
     const groupOptions = useMemo(() => {
-        const groups = new Set(items.map(item => getPromptFunctionalGroup(item.name)));
+        const groups = new Set(items.map(item => getPromptFunctionalGroup(item.name, item.functional_group)));
         return [...groups].sort((left, right) => left.localeCompare(right, 'zh-CN'));
     }, [items]);
 
     const filteredItems = useMemo(() => {
         const query = search.trim().toLowerCase();
         return items.filter(item => {
-            const matchesGroup = groupFilter === 'all' || getPromptFunctionalGroup(item.name) === groupFilter;
-            const displayName = getPromptDisplayName(item.name).toLowerCase();
+            const matchesGroup = groupFilter === 'all' || getPromptFunctionalGroup(item.name, item.functional_group) === groupFilter;
+            const displayName = getPromptDisplayName(item.name, item.display_name).toLowerCase();
             const matchesSearch = !query || item.name.toLowerCase().includes(query) || displayName.includes(query) || item.labels.some(label => getPromptLabelDisplayName(label).toLowerCase().includes(query));
             return matchesGroup && matchesSearch;
         });
@@ -167,7 +172,6 @@ export function PromptManagementPage() {
         setEditMode('write');
         setEditing(false);
         setVariables({});
-        setEvaluationRunId('');
     };
 
     /** Loads the requested immutable version and resets its local-only editor state. */
@@ -187,7 +191,7 @@ export function PromptManagementPage() {
     const parsePromptBody = (value: string, promptType: 'text' | 'chat'): PromptBody | null => {
         const parsed = parsePromptBodyForPreview(value, promptType);
         if (parsed === null || (promptType === 'text' && !value.trim())) {
-            toast.error(promptType === 'chat' ? 'Chat Prompt 必须是有效 JSON 数组' : 'Prompt 内容不能为空');
+            toast.error(promptType === 'chat' ? '对话提示词必须是有效 JSON 数组' : '提示词内容不能为空');
             return null;
         }
         return parsed;
@@ -196,7 +200,7 @@ export function PromptManagementPage() {
     /** Creates a new immutable prompt record; its functional group is derived from the backend namespace. */
     const handleCreate = async () => {
         if (!name.trim() || !body.trim()) {
-            toast.error('请填写名称和 Prompt 内容');
+            toast.error('请填写名称和提示词内容');
             return;
         }
         const prompt = parsePromptBody(body, type);
@@ -221,7 +225,7 @@ export function PromptManagementPage() {
     /** Saves the local detail copy as a new immutable version, leaving the opened version—including v0—untouched. */
     const saveNewVersion = async () => {
         if (!selected || !editBody.trim()) {
-            toast.error('请填写 Prompt 内容');
+            toast.error('请填写提示词内容');
             return;
         }
         const prompt = parsePromptBody(editBody, selected.type);
@@ -251,7 +255,7 @@ export function PromptManagementPage() {
 
     /** Promotes a version only after a native confirmation that explains the immutable-label behavior. */
     const promote = async () => {
-        if (!selected || !window.confirm(`确认将「${getPromptDisplayName(selected.name)}」v${selected.version} 标记为生产版本？这会替换该版本的标签，版本内容仍不可变。`)) return;
+        if (!selected || !window.confirm(`确认将「${getPromptDisplayName(selected.name, selected.display_name)}」v${selected.version} 标记为生产版本？这会替换该版本的标签，版本内容仍不可变。`)) return;
         setActing(true);
         try {
             setSelected(await promotePromptToProduction(selected.name, selected.version, evaluationRunId.trim() || undefined));
@@ -282,28 +286,44 @@ export function PromptManagementPage() {
         }
     };
 
+    /** Publishes only missing built-in production prompts, preserving cloud-owned versions. */
+    const syncBuiltins = async () => {
+        setSyncing(true);
+        try {
+            const result = await syncBuiltinPrompts();
+            toast.success(
+                result.created > 0
+                    ? `已同步 ${result.created} 个生产提示词，跳过 ${result.skipped} 个已有版本`
+                    : `云端 ${result.discovered} 个内置提示词已全部就绪`,
+            );
+            setPage(1);
+            await load();
+        } catch (cause) {
+            toast.error(cause instanceof Error ? cause.message : '同步 Langfuse 提示词失败');
+        } finally {
+            setSyncing(false);
+        }
+    };
+
     if (error?.status === 503) {
-        return <div className="flex h-full items-center justify-center p-6"><div className="surface-panel max-w-lg p-8 text-center"><ShieldCheck className="mx-auto mb-4 h-10 w-10 text-amber-600" /><h2 className="text-xl font-semibold">Prompt 管理暂不可用</h2><p className="mt-3 text-sm leading-6 text-slate-600">服务器暂时无法访问 Prompt 数据库。请确认后端服务和数据库迁移已完成；模板内容不会保存在浏览器中。</p><Button className="mt-6" onClick={() => void load()}>重新检查</Button></div></div>;
+        return <div className="flex h-full items-center justify-center p-6"><div className="surface-panel max-w-lg p-8 text-center"><ShieldCheck className="mx-auto mb-4 h-10 w-10 text-amber-600" /><h2 className="text-xl font-semibold">Langfuse 提示词管理暂不可用</h2><p className="mt-3 text-sm leading-6 text-slate-600">请确认已启用 Langfuse 提示词管理，并配置当前项目的 Public Key、Secret Key 和 Base URL。</p><Button className="mt-6" onClick={() => void load()}>重新检查</Button></div></div>;
     }
 
     if (selected) {
         return (
             <div className="min-h-0 flex-1 overflow-y-auto bg-[radial-gradient(circle_at_top_right,_rgba(20,184,166,.12),transparent_32rem)] p-4 sm:p-8">
                 <div className="mx-auto max-w-6xl">
-                    <Button variant="ghost" onClick={() => setSelected(null)}><ArrowLeft />返回 Prompt 列表</Button>
+                    <Button variant="ghost" onClick={() => setSelected(null)}><ArrowLeft />返回提示词列表</Button>
                     <div className="mt-5 grid gap-5 lg:grid-cols-[1.1fr_.9fr]">
                         <section className="surface-panel overflow-hidden">
                             <div className="border-b border-slate-100 p-6">
                                 <div className="flex flex-wrap items-start justify-between gap-4">
                                     <div>
-                                        <p className="font-mono text-xs text-teal-700">{selected.type.toUpperCase()} · VERSION {selected.version}</p>
-                                        <h2 className="mt-2 text-2xl font-semibold tracking-tight">{getPromptDisplayName(selected.name)}</h2>
-                                        <div className="mt-3 flex flex-wrap gap-2"><PromptGroupBadge name={selected.name} />{selected.labels.map(label => <PromptLabel key={label} label={label} />)}</div>
+                                        <p className="text-xs font-medium text-teal-700">{selected.type === 'chat' ? '对话提示词' : '文本提示词'} · 版本 {selected.version}</p>
+                                        <h2 className="mt-2 text-2xl font-semibold tracking-tight">{getPromptDisplayName(selected.name, selected.display_name)}</h2>
+                                        <div className="mt-3 flex flex-wrap gap-2"><PromptGroupBadge name={selected.name} functionalGroup={selected.functional_group} />{selected.is_builtin && !selected.labels.includes('builtin') && <PromptLabel label="builtin" />}{selected.labels.map(label => <PromptLabel key={label} label={label} />)}</div>
                                     </div>
-                                    <div className="w-full max-w-sm space-y-2">
-                                        <label className="block text-xs font-medium text-slate-600">Gate 评测 Run ID（enforce 模式必填）<Input className="mt-1.5" value={evaluationRunId} onChange={event => setEvaluationRunId(event.target.value)} placeholder="例如 eval-run-..." /></label>
-                                        <Button className="w-full" disabled={acting || selected.version === 0 || selected.labels.includes('production')} onClick={() => void promote()}><Rocket />{selected.labels.includes('production') ? '已是生产版本' : selected.version === 0 ? '内置版本' : '发布为生产版本'}</Button>
-                                    </div>
+                                    <Button disabled={acting || selected.version === 0 || selected.labels.includes('production')} onClick={() => void promote()}><Rocket />{selected.labels.includes('production') ? '已是生产版本' : selected.version === 0 ? '内置版本' : '发布为生产版本'}</Button>
                                 </div>
                             </div>
                             <div className="border-b border-slate-100 p-6">
@@ -316,9 +336,18 @@ export function PromptManagementPage() {
                         </section>
                         <section className="space-y-5">
                             <div className="surface-panel p-6">
+                                <div className="flex items-center gap-2"><ShieldCheck className="h-5 w-5 text-emerald-700" /><h3 className="font-semibold">评测与发布门禁</h3></div>
+                                <p className="mt-2 text-sm leading-6 text-slate-500">先在 Agent 评测中心运行当前版本并与 Production 基线比较。门禁为 enforce 时，后端只接受通过 Gate Result 的版本。</p>
+                                <Input className="mt-4" value={evaluationRunId} onChange={event => setEvaluationRunId(event.target.value)} placeholder="Evaluation Run ID（发布时可选/强制模式必填）" />
+                                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                                    <Button variant="outline" onClick={() => { localStorage.setItem('evaluationPromptCandidate', JSON.stringify({ name: selected.name, version: selected.version, compareProduction: false })); localStorage.setItem('activeMainTab', 'evaluations'); window.location.reload(); }}>运行评测</Button>
+                                    <Button variant="outline" onClick={() => { localStorage.setItem('evaluationPromptCandidate', JSON.stringify({ name: selected.name, version: selected.version, compareProduction: true })); localStorage.setItem('activeMainTab', 'evaluations'); window.location.reload(); }}>与 Production 对比</Button>
+                                </div>
+                            </div>
+                            <div className="surface-panel p-6">
                                 <div className="flex items-center gap-2"><FolderOpen className="h-5 w-5 text-violet-700" /><h3 className="font-semibold">功能分组</h3></div>
-                                <p className="mt-2 text-sm leading-6 text-slate-500">分组来自后端 Prompt 命名空间，按功能自动归类，无需手动维护。</p>
-                                <div className="mt-4"><PromptGroupBadge name={selected.name} /></div>
+                                <p className="mt-2 text-sm leading-6 text-slate-500">分组来自后端提示词注册表，按功能自动归类，无需手动维护。</p>
+                                <div className="mt-4"><PromptGroupBadge name={selected.name} functionalGroup={selected.functional_group} /></div>
                             </div>
                             <div className="surface-panel p-6">
                                 <div className="flex items-center gap-2"><Eye className="h-5 w-5 text-teal-700" /><h3 className="font-semibold">安全变量预览</h3></div>
@@ -337,29 +366,38 @@ export function PromptManagementPage() {
         <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-8">
             <div className="mx-auto max-w-6xl">
                 <div className="mb-7 flex flex-wrap items-end justify-between gap-4">
-                    <div><p className="text-xs font-semibold uppercase tracking-[.22em] text-teal-700">提示词注册表</p><h2 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">Prompt 管理</h2><p className="mt-2 max-w-xl text-sm leading-6 text-slate-500">按后端功能分组并使用中文名称展示提示词。内容不可变，发布操作仍需要明确确认。</p></div>
-                    <Button onClick={() => setCreating(true)}><FilePlus2 />新建版本</Button>
+                    <div><p className="text-xs font-semibold uppercase tracking-[.22em] text-teal-700">Langfuse Cloud</p><h2 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">提示词管理</h2><p className="mt-2 max-w-xl text-sm leading-6 text-slate-500">直接读取和管理当前 Langfuse 项目的提示词；运行时使用标记为“生产”的云端版本。</p></div>
+                    <div className="flex flex-wrap gap-2">
+                        <Button variant="outline" disabled={syncing || acting} onClick={() => void syncBuiltins()}>{syncing ? <Loader2 className="animate-spin" /> : <CloudUpload />}同步内置提示词</Button>
+                        <Button onClick={() => setCreating(true)}><FilePlus2 />新建版本</Button>
+                    </div>
                 </div>
                 {creating && <div className="surface-panel mb-6 p-6">
                     <div className="mb-5 flex items-center justify-between gap-3"><div><h3 className="text-lg font-semibold">创建不可变版本</h3><p className="mt-1 text-xs text-slate-500">默认标签：草稿 · 内容支持 Markdown</p></div><button className="text-sm text-slate-500 hover:text-slate-900" onClick={() => setCreating(false)} type="button">关闭</button></div>
                     <div className="grid gap-4 sm:grid-cols-2">
                         <label className="text-sm font-medium">名称<Input className="mt-1.5" value={name} onChange={event => setName(event.target.value)} placeholder="例如 interview.system" /></label>
-                        <label className="text-sm font-medium">类型<select className="mt-1.5 h-9 w-full rounded-md border border-input bg-white px-3 text-sm" value={type} onChange={event => setType(event.target.value as 'text' | 'chat')}><option value="text">文本 Prompt</option><option value="chat">Chat（JSON 数组）</option></select></label>
+                        <label className="text-sm font-medium">类型<select className="mt-1.5 h-9 w-full rounded-md border border-input bg-white px-3 text-sm" value={type} onChange={event => setType(event.target.value as 'text' | 'chat')}><option value="text">文本提示词</option><option value="chat">对话提示词（JSON 数组）</option></select></label>
                     </div>
-                    <label className="mt-4 block text-sm font-medium">Prompt 内容<MarkdownEditor value={body} type={type} mode={createMode} onChange={setBody} onModeChange={setCreateMode} /></label>
+                    <label className="mt-4 block text-sm font-medium">提示词内容<MarkdownEditor value={body} type={type} mode={createMode} onChange={setBody} onModeChange={setCreateMode} /></label>
                     <label className="mt-4 block text-sm font-medium">提交说明（可选）<Input className="mt-1.5" value={commit} onChange={event => setCommit(event.target.value)} placeholder="说明这次版本的变化" /></label>
                     <div className="mt-5 flex justify-end gap-2"><Button variant="outline" disabled={acting} onClick={() => setCreating(false)}>取消</Button><Button disabled={acting} onClick={() => void handleCreate()}>{acting ? <Loader2 className="animate-spin" /> : <Check />}创建版本</Button></div>
                 </div>}
                 <div className="surface-panel overflow-hidden">
                     <div className="flex flex-col gap-3 border-b border-slate-100 bg-slate-50 p-4 sm:flex-row sm:items-center">
-                        <div className="relative min-w-0 flex-1"><Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" /><Input className="pl-9" value={search} onChange={event => setSearch(event.target.value)} placeholder="搜索提示词名称或标签" aria-label="搜索提示词" /></div>
-                        <div className="flex items-center gap-2"><FolderOpen className="h-4 w-4 text-violet-600" /><select className="h-9 min-w-44 rounded-md border border-input bg-white px-3 text-sm" value={groupFilter} onChange={event => setGroupFilter(event.target.value)} aria-label="按功能分组筛选"><option value="all">全部功能</option>{groupOptions.map(group => <option key={group} value={group}>{group}</option>)}</select></div>
+                        <div className="relative min-w-0 flex-1"><Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" /><Input className="pl-9" value={search} onChange={event => { setSearch(event.target.value); setPage(1); }} placeholder="搜索提示词名称或标签" aria-label="搜索提示词" /></div>
+                        <div className="flex items-center gap-2"><FolderOpen className="h-4 w-4 text-violet-600" /><select className="h-9 min-w-44 rounded-md border border-input bg-white px-3 text-sm" value={groupFilter} onChange={event => { setGroupFilter(event.target.value); setPage(1); }} aria-label="按功能分组筛选"><option value="all">全部功能</option>{groupOptions.map(group => <option key={group} value={group}>{group}</option>)}</select></div>
                     </div>
                     {error && <div className="border-b border-amber-100 bg-amber-50 px-5 py-3 text-sm text-amber-800">{error.message}<button className="ml-3 font-medium underline" onClick={() => void load()} type="button">重试</button></div>}
                     <div className="hidden grid-cols-[minmax(0,1fr)_auto_auto] gap-3 border-b border-slate-100 bg-slate-50 px-5 py-3 text-xs font-semibold tracking-wide text-slate-500 sm:grid"><span>提示词</span><span>版本</span><span>功能 / 状态</span></div>
-                    {loading ? <div className="flex justify-center p-12"><Loader2 className="animate-spin text-teal-700" /></div> : filteredItems.length === 0 ? <div className="p-10 text-center"><BookOpen className="mx-auto h-8 w-8 text-slate-300" /><p className="mt-3 text-sm text-slate-500">{items.length === 0 ? '尚无 Prompt 版本。' : '当前筛选条件下没有匹配的 Prompt。'}</p></div> : filteredItems.map(item => <button className="grid w-full grid-cols-1 gap-3 border-b border-slate-100 px-5 py-4 text-left transition-colors hover:bg-teal-50/40 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center" key={item.name} onClick={() => void openPrompt(item, { version: Math.max(...item.versions) })}><span><span className="block font-medium text-slate-900">{getPromptDisplayName(item.name)}</span><span className="mt-1 block text-xs text-slate-500">{item.type === 'chat' ? 'Chat 对话提示词' : 'Markdown 文本提示词'} · {getPromptFunctionalGroup(item.name)}</span></span><span className="font-mono text-sm text-slate-600">v{Math.max(...item.versions)}</span><span className="flex flex-wrap justify-start gap-1 sm:justify-end"><PromptGroupBadge name={item.name} />{item.labels.map(label => <PromptLabel key={label} label={label} />)}</span></button>)}
+                    {loading ? <div className="flex justify-center p-12"><Loader2 className="animate-spin text-teal-700" /></div> : filteredItems.length === 0 ? <div className="p-10 text-center"><BookOpen className="mx-auto h-8 w-8 text-slate-300" /><p className="mt-3 text-sm text-slate-500">{items.length === 0 ? '当前 Langfuse 项目尚无提示词。可同步后端内置模板并自动标记为生产版本。' : '当前筛选条件下没有匹配的提示词。'}</p>{items.length === 0 && <Button className="mt-5" disabled={syncing} onClick={() => void syncBuiltins()}>{syncing ? <Loader2 className="animate-spin" /> : <CloudUpload />}同步内置提示词</Button>}</div> : filteredItems.map(item => <button className="grid w-full grid-cols-1 gap-3 border-b border-slate-100 px-5 py-4 text-left transition-colors hover:bg-teal-50/40 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center" key={item.name} onClick={() => void openPrompt(item, { version: Math.max(...item.versions) })}><span><span className="block font-medium text-slate-900">{getPromptDisplayName(item.name, item.display_name)}</span><span className="mt-1 block text-xs text-slate-500">{item.type === 'chat' ? '对话提示词' : '文本提示词'} · {getPromptFunctionalGroup(item.name, item.functional_group)}</span></span><span className="font-mono text-sm text-slate-600">v{Math.max(...item.versions)}</span><span className="flex flex-wrap justify-start gap-1 sm:justify-end"><PromptGroupBadge name={item.name} functionalGroup={item.functional_group} />{item.is_builtin && !item.labels.includes('builtin') && <PromptLabel label="builtin" />}{item.labels.map(label => <PromptLabel key={label} label={label} />)}</span></button>)}
                 </div>
-                <div className="mt-5 flex items-center justify-end gap-2"><Button variant="outline" size="icon" disabled={loading || page === 1} onClick={() => setPage(current => current - 1)} aria-label="上一页"><ChevronLeft /></Button><span className="text-sm text-slate-500">第 {page} 页</span><Button variant="outline" size="icon" disabled={loading || items.length < pageSize} onClick={() => setPage(current => current + 1)} aria-label="下一页"><ChevronRight /></Button></div>
+                <PaginationControls
+                    className="mt-5"
+                    page={page}
+                    total={total}
+                    loading={loading}
+                    onPageChange={setPage}
+                />
             </div>
         </div>
     );
