@@ -581,7 +581,7 @@ def build_draft_optimization_prompt(resume_content: str, draft_content: str, job
 
 def build_fact_check_prompt(resume_content: str, draft_content: str, user_inputs: str = "") -> str:
     """Build a strict source-to-draft factual comparison prompt."""
-    return render_prompt(FACT_CHECK_PROMPT, prompt_name="resume.fact_check", prompt_version="1", resume_content=resume_content, draft_content=draft_content, user_inputs=user_inputs or "无", output_schema='{"is_excessive":false,"risk_details":[{"type":"unsupported_fact","location":"","original":"","fabricated":"","reason":""}]}')
+    return render_prompt(FACT_CHECK_PROMPT, prompt_name="resume.fact_check", prompt_version="2", resume_content=resume_content, draft_content=draft_content, user_inputs=user_inputs or "无", output_schema='{"is_excessive":false,"risk_details":[{"type":"unsupported_fact","location":"","original":"","fabricated":"","reason":""}]}')
 
 
 def build_finalize_review_prompt(draft_content: str, jd_keywords_json: str = "[]", warning_text: str = "") -> str:

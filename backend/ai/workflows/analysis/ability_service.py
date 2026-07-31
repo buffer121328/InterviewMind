@@ -3,16 +3,30 @@
 负责分析用户最近的面试表现，生成综合能力雷达图和技能标签
 """
 
-import logging
-import json
 import asyncio
+import logging
+from collections import Counter
 from datetime import datetime
-from typing import List, Dict, Any, Optional
+from typing import Any, Dict, List, Optional
 
+from ai.runtime.context_assembler import ContextAssembler, ContextSource
+from ai.runtime.deadlines import TaskDeadline
+from app.config import get_settings
 from app.db.repositories.session.session_repo import SessionRepo
 from app.schemas.candidate_profile import CandidateProfile, DimensionScore
 
 logger = logging.getLogger(__name__)
+
+
+_DIMENSIONS = (
+    "professional_competence",
+    "execution_results",
+    "logic_problem_solving",
+    "communication",
+    "growth_potential",
+    "collaboration",
+)
+
 
 class AbilityAnalysisService:
     """能力画像聚合服务 - 基于数据库存储"""
@@ -35,7 +49,7 @@ class AbilityAnalysisService:
             result = await self.session_repo.get_user_profile(user_id)
             return result  # 返回 {"profile": {...}, "updated_at": "..."}
         except Exception as e:
-            logger.error(f"获取综合能力画像失败: {str(e)}", exc_info=True)
+            logger.error("获取综合能力画像失败: %s", type(e).__name__)
             return None
 
     async def generate_overall_profile(self, user_id: str, api_config: Optional[Dict] = None) -> Dict[str, Any]:
@@ -81,7 +95,7 @@ class AbilityAnalysisService:
                 # 更新最后生成时间
                 self._last_generate_time[user_id] = now
 
-                logger.info(f"综合能力画像已生成并保存")
+                logger.info("综合能力画像已生成并保存")
 
                 result = {"profile": profile}
 
@@ -92,7 +106,7 @@ class AbilityAnalysisService:
                 return result
 
             except Exception as e:
-                logger.error(f"生成综合能力画像失败: {str(e)}", exc_info=True)
+                logger.error("生成综合能力画像失败: %s", type(e).__name__)
                 # 降级方案：返回最近一次的画像
                 fallback_profile = await self._fallback_to_latest(recent_profiles)
                 return {
@@ -100,64 +114,150 @@ class AbilityAnalysisService:
                     "warning": "生成失败，已显示最近一次面试结果。请稍后重试。"
                 }
 
-    async def _aggregate_profiles_with_weights(self, profiles: List[Dict[str, Any]], api_config: Optional[Dict] = None) -> CandidateProfile:
-        """
-        使用时间权重聚合分析多个画像
+    async def _aggregate_profiles_with_weights(
+        self,
+        profiles: List[Dict[str, Any]],
+        api_config: Optional[Dict] = None,
+    ) -> CandidateProfile:
+        """Compute scores/trends locally and let the model write narrative fields only."""
+        selected = [dict(profile) for profile in profiles[:5]]
+        weights = [max(0.4, 1.0 - index * 0.15) for index in range(len(selected))]
+        dimensions: dict[str, DimensionScore] = {}
 
-        策略：最近的面试权重更高
-        - 第1次（最新）：权重 1.0
-        - 第2次：权重 0.85
-        - 第3次：权重 0.70
-        - 第4次：权重 0.55
-        - 第5次：权重 0.40
-        """
-        from ai.llm import llms
+        for dimension in _DIMENSIONS:
+            values: list[tuple[float, float, dict[str, Any]]] = []
+            for profile, weight in zip(selected, weights):
+                raw = profile.get(dimension) or {}
+                if not isinstance(raw, dict):
+                    continue
+                try:
+                    score = float(raw.get("score", 0))
+                except (TypeError, ValueError):
+                    continue
+                values.append((max(0.0, min(10.0, score)), weight, raw))
+            if not values:
+                dimensions[dimension] = DimensionScore(score=0, evidence="暂无该维度数据", trend="stable")
+                continue
+            weighted_score = sum(score * weight for score, weight, _raw in values) / sum(
+                weight for _score, weight, _raw in values
+            )
+            latest = values[0][0]
+            older = sum(score for score, _weight, _raw in values[1:]) / max(1, len(values) - 1)
+            if len(values) <= 1 or abs(latest - older) < 0.5:
+                trend = "stable"
+            elif latest > older:
+                trend = "improving"
+            else:
+                trend = "declining"
+            evidence = next(
+                (str(raw.get("evidence") or "")[:220] for _score, _weight, raw in values if raw.get("evidence")),
+                f"基于 {len(values)} 次面试的时间加权结果",
+            )
+            dimensions[dimension] = DimensionScore(
+                score=round(weighted_score, 2),
+                evidence=evidence,
+                trend=trend,
+                reason=f"确定性时间加权，样本数 {len(values)}",
+            )
 
-        # 为每个画像添加权重信息
-        weighted_profiles = []
-        for i, profile in enumerate(profiles):
-            weight = 1.0 - (i * 0.15)
-            weighted_profiles.append({
-                "index": i + 1,
-                "weight": round(weight, 2),
-                "profile": profile
+        skill_counter: Counter[str] = Counter()
+        strengths: list[str] = []
+        weaknesses: list[str] = []
+        total_questions = 0
+        compact_profiles: list[dict[str, Any]] = []
+        for index, profile in enumerate(selected):
+            skills = [str(item)[:80] for item in profile.get("skill_tags") or [] if str(item).strip()]
+            skill_counter.update(skills)
+            strengths.extend(str(item)[:160] for item in profile.get("key_strengths") or [])
+            weaknesses.extend(str(item)[:160] for item in profile.get("key_weaknesses") or [])
+            total_questions += int(profile.get("total_questions_analyzed") or 0)
+            compact_profiles.append({
+                "index": index + 1,
+                "weight": round(weights[index], 2),
+                "scores": {
+                    dimension: dimensions_source.get("score", 0)
+                    for dimension in _DIMENSIONS
+                    if isinstance((dimensions_source := profile.get(dimension)), dict)
+                },
+                "skills": skills[:12],
             })
 
-        # 构建带权重的上下文
-        profiles_context = json.dumps(weighted_profiles, ensure_ascii=False, indent=2)
+        sorted_dimensions = sorted(
+            dimensions.items(),
+            key=lambda item: item[1].score,
+            reverse=True,
+        )
+        local_strengths = list(dict.fromkeys([
+            *strengths,
+            *(name for name, score in sorted_dimensions[:2] if score.score >= 6),
+        ]))[:5]
+        local_weaknesses = list(dict.fromkeys([
+            *weaknesses,
+            *(name for name, score in sorted_dimensions[-2:] if score.score < 6),
+        ]))[:5]
+        average_score = sum(item.score for item in dimensions.values()) / len(_DIMENSIONS)
+        from ai.workflows.analysis.multi_reviewer import AbilityConsensusOutput
 
-        from ai.prompts.analysis import build_aggregate_profile_prompt
-
-        prompt = build_aggregate_profile_prompt(
-            profiles_count=len(profiles),
-            profiles_context=profiles_context,
+        narrative = AbilityConsensusOutput(
+            overall_assessment=f"综合能力时间加权均分 {average_score:.1f}/10。",
+            key_strengths=local_strengths,
+            key_weaknesses=local_weaknesses,
+            recommendation="hire" if average_score >= 8 else ("maybe" if average_score >= 6 else "no_hire"),
+            confidence=min(1.0, 0.35 + len(selected) * 0.13),
         )
 
+        assembler = ContextAssembler(
+            agent_name="ability_profile",
+            total_model_chars=4500,
+            source_budgets={"profile_summary": 4500},
+        )
+        assembled = assembler.assemble([
+            ContextSource(
+                name="profile_summary",
+                content={
+                    "sample_count": len(selected),
+                    "weighted_dimensions": {
+                        name: {"score": score.score, "trend": score.trend}
+                        for name, score in dimensions.items()
+                    },
+                    "skill_frequency": skill_counter.most_common(15),
+                    "profiles": compact_profiles,
+                },
+                trusted=True,
+                required=True,
+                max_chars=4500,
+            )
+        ])
         try:
-            response = await llms.invoke_text(prompt, api_config, channel="smart")
-            content = response.content.strip()
+            from ai.workflows.analysis.multi_reviewer import run_multi_reviewer_map_reduce
 
-            # 清理 markdown 标记
-            if content.startswith("```json"):
-                content = content[7:]
-            if content.startswith("```"):
-                content = content[3:]
-            if content.endswith("```"):
-                content = content[:-3]
+            consensus = await run_multi_reviewer_map_reduce(
+                mode="ability_profile",
+                review_context=assembled.model_context,
+                api_config=api_config,
+                deadline=TaskDeadline(float(get_settings().ability_profile_task_timeout_seconds)),
+                call_metadata=assembled.model_event_fields(),
+            )
+            narrative = AbilityConsensusOutput.model_validate(consensus.output)
+            logger.info(
+                "能力画像多评审汇总完成: reviewer_count=%s successful=%s",
+                len(consensus.assessments),
+                sum(item.status == "success" for item in consensus.assessments),
+            )
+        except Exception as exc:
+            logger.warning("能力画像多评审汇总降级: error_type=%s", type(exc).__name__)
 
-            data = json.loads(content.strip())
-            profile = CandidateProfile(**data)
-
-            logger.info("LLM 聚合分析成功")
-            return profile
-
-        except json.JSONDecodeError as e:
-            logger.error(f"LLM 返回的 JSON 格式错误: {e}")
-            logger.error(f"原始内容: {content[:500] if 'content' in locals() else 'N/A'}")
-            raise
-        except Exception as e:
-            logger.error(f"LLM 聚合分析失败: {e}")
-            raise
+        return CandidateProfile(
+            **dimensions,
+            skill_tags=[item for item, _count in skill_counter.most_common(20)],
+            total_questions_analyzed=total_questions,
+            last_updated=datetime.now().isoformat(),
+            overall_assessment=narrative.overall_assessment,
+            key_strengths=narrative.key_strengths or local_strengths,
+            key_weaknesses=narrative.key_weaknesses or local_weaknesses,
+            recommendation=narrative.recommendation,
+            confidence=narrative.confidence,
+        )
 
     async def _fallback_to_latest(self, profiles: List[Dict[str, Any]]) -> CandidateProfile:
         """降级方案：返回最近一次的画像"""
@@ -169,7 +269,7 @@ class AbilityAnalysisService:
             logger.warning("使用降级方案：返回最近一次的面试画像")
             return CandidateProfile(**latest_profile)
         except Exception as e:
-            logger.error(f"降级方案也失败: {e}")
+            logger.error("降级方案也失败: %s", type(e).__name__)
             return self._get_empty_profile()
 
     def _get_empty_profile(self) -> CandidateProfile:

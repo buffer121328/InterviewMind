@@ -250,7 +250,13 @@ class ModelGateway:
                     seen.add(identity)
         return ordered, reserved_identity
 
-    def get_chat_candidates(self, api_config: Optional[dict], channel: str = "smart") -> list[BaseChatModel]:
+    def get_chat_candidates(
+        self,
+        api_config: Optional[dict],
+        channel: str = "smart",
+        *,
+        temperature: float = 0.7,
+    ) -> list[BaseChatModel]:
         """读取 chat candidates，并保持调用方的错误和生命周期边界；资源不存在或状态不合法时返回稳定的业务结果或异常。
 
         Args:
@@ -272,6 +278,7 @@ class ModelGateway:
                 api_key=config["api_key"],
                 base_url=config["base_url"],
                 model=config["model"],
+                temperature=temperature,
                 max_tokens=output_token_limit,
                 provider=config.get("provider"),
                 integration=config.get("integration"),

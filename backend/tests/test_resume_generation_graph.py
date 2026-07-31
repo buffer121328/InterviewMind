@@ -42,3 +42,33 @@ async def test_draft_generation_accepts_null_keyword_analysis(monkeypatch):
     })
 
     assert result == {"draft_content": "# 可投递简历"}
+
+
+@pytest.mark.asyncio
+async def test_final_resume_is_rechecked_by_independent_zero_temperature_verifier(monkeypatch):
+    """The final editor output cannot pass until the reflector validates trusted facts again."""
+    from ai.agents.resume import resume_generation_review as review
+    from app.schemas.llm_outputs import FactCheckOutput
+
+    captured: dict[str, object] = {}
+
+    async def invoke(prompt, output_model, _api_config=None, **kwargs):
+        captured["prompt"] = prompt
+        captured["channel"] = kwargs["channel"]
+        captured["temperature"] = kwargs["temperature"]
+        captured["metadata"] = kwargs["call_metadata"]
+        return FactCheckOutput(is_excessive=False, risk_details=[])
+
+    monkeypatch.setattr(review, "invoke_structured", invoke)
+    result = await review.node_verify_final({
+        "resume_content": "Python 后端项目",
+        "final_markdown": "# 简历\nPython 后端项目",
+        "user_answers": {},
+        "review_result": {"passed": True, "editor_passed": True},
+        "api_config": None,
+    })
+
+    assert result["review_result"]["passed"] is True
+    assert captured["channel"] == "reflector"
+    assert captured["temperature"] == 0.0
+    assert captured["metadata"]["verification_phase"] == "final_resume"

@@ -6,21 +6,38 @@
 import json
 import logging
 from collections.abc import Awaitable, Callable
-from typing import List, Optional, Dict, Any, TypedDict
-from langchain_core.messages import HumanMessage
-from langgraph.graph import StateGraph, END
+from typing import Any, Dict, List, Optional, TypedDict
 
-from app.schemas.llm_outputs import (
-    NeedsAnalysisOutput, DraftOptimizationOutput, FactCheckOutput, FinalReviewOutput
+from langchain_core.messages import HumanMessage
+from langgraph.graph import END, StateGraph
+
+from ai.agents.resume.resume_context import (
+    build_jd_requirement_map,
+    build_resume_fact_sheet,
+    build_resume_jd_match_map,
 )
-from ai.llm.llm_utils import invoke_structured, clean_markdown_response
+from ai.agents.resume.resume_generation_review import (
+    node_fact_check,
+    node_finalize_and_review,
+    node_verify_final,
+)
+from ai.agents.resume.resume_generation_support import (
+    bounded_generation_sources as _bounded_generation_sources,
+    compact_optimization_result as _compact_optimization_result,
+    current_generation_deadline as _current_deadline,
+    get_keyword_analysis as _keyword_analysis,
+    safe_json_mapping as _safe_json_mapping,
+)
 from ai.llm import llms
+from ai.llm.llm_utils import clean_markdown_response, invoke_structured
 from ai.prompts.resume import (
     build_draft_generation_prompt,
     build_draft_optimization_prompt,
-    build_fact_check_prompt,
-    build_finalize_review_prompt,
     build_needs_analysis_prompt,
+)
+from app.schemas.llm_outputs import (
+    DraftOptimizationOutput,
+    NeedsAnalysisOutput,
 )
 
 logger = logging.getLogger(__name__)
@@ -63,17 +80,6 @@ class ResumeGenerationState(TypedDict):
 # ============================================================================
 
 
-def _keyword_analysis(optimization_result: dict[str, Any]) -> dict[str, Any]:
-    """Return a mapping for optional keyword analysis from legacy or workspace results.
-
-    Persisted optimization records may explicitly contain ``keyword_analysis: null``.
-    Treating that value as an empty mapping keeps generation available without
-    inventing keywords or weakening the existing human-review gate.
-    """
-    value = optimization_result.get("keyword_analysis")
-    return value if isinstance(value, dict) else {}
-
-
 async def node_analyze_needs(state: ResumeGenerationState) -> dict:
     """
     需求分析节点：分析优化结果，识别需要用户确认的信息
@@ -83,14 +89,29 @@ async def node_analyze_needs(state: ResumeGenerationState) -> dict:
     optimization_result = state.get("optimization_result") or {}
     api_config = state.get("api_config")
 
+    stage_context = _bounded_generation_sources(
+        stage="needs_analysis",
+        sources=[
+            ("resume", resume_content, 6000, "sections"),
+            ("job_description", job_description, 3200, "head_tail"),
+            ("optimization", _compact_optimization_result(optimization_result), 2600, "head_tail"),
+        ],
+    )
     prompt = build_needs_analysis_prompt(
-        resume_content=resume_content,
-        job_description=job_description,
-        optimization_result=optimization_result,
+        resume_content=stage_context.values["resume"],
+        job_description=stage_context.values["job_description"],
+        optimization_result=_safe_json_mapping(stage_context.values["optimization"]),
     )
 
     try:
-        result = await invoke_structured(prompt, NeedsAnalysisOutput, api_config, channel="general")
+        result = await invoke_structured(
+            prompt,
+            NeedsAnalysisOutput,
+            api_config,
+            channel="general",
+            deadline=_current_deadline(),
+            call_metadata=stage_context.call_metadata,
+        )
         questions = result.questions[:3]
         has_gaps = result.has_gaps and len(questions) > 0
 
@@ -101,9 +122,9 @@ async def node_analyze_needs(state: ResumeGenerationState) -> dict:
             "questions": questions
         }
     except Exception as e:
-        logger.error(f"需求分析节点失败: {e}")
+        logger.error("需求分析节点失败: %s", type(e).__name__)
         return {
-            "missing_info_analysis": {"has_gaps": False, "error": str(e)},
+            "missing_info_analysis": {"has_gaps": False, "error": type(e).__name__},
             "questions": []
         }
 
@@ -121,34 +142,22 @@ async def node_generate_draft(state: ResumeGenerationState) -> dict:
     template_style = state.get("template_style", "professional")
     api_config = state.get("api_config")
 
-    # 构建用户补充信息
-    user_info_section = ""
-    if user_answers:
-        answers_text = "\n".join([f"- {q}: {a}" for q, a in user_answers.items()])
-        user_info_section = f"\n\n【用户补充信息】：\n{answers_text}"
-
     # 如果有审查反馈，加入改进指导
     review_guidance = ""
     if review_result and not review_result.get("passed", True):
         issues = review_result.get("issues", [])
         factual_notes = []
-        for i in issues:
+        for i in issues[:8]:
             if i.get('type') == 'excessive_fabrication':
                 # 适配新的结构化字段
-                loc = i.get('location', '未知位置')
-                fab = i.get('fabricated', '未知内容')
-                reason = i.get('reason', '')
+                loc = str(i.get('location', '未知位置'))[:160]
+                fab = str(i.get('fabricated', '未知内容'))[:300]
+                reason = str(i.get('reason', ''))[:300]
                 note = f"- 【{loc}】检测到造假：{fab}（原因：{reason}）"
                 factual_notes.append(note)
 
         if factual_notes:
-            review_guidance = f"\n\n【重要修正要求】上次生成存在过度包装或逻辑漏洞，请修正：\n" + "\n".join(factual_notes)
-
-    style_guide = {
-        "professional": "专业简洁，突出真实成就和数据，适合企业应聘",
-        "academic": "学术风格，强调研究成果和发表，适合学术岗位",
-        "creative": "创意设计，可以有个性化表达，适合创意行业"
-    }
+            review_guidance = "\n\n【重要修正要求】上次生成存在过度包装或逻辑漏洞，请修正：\n" + "\n".join(factual_notes)
 
     # 提取关键词分析
     keyword_analysis = _keyword_analysis(optimization_result)
@@ -169,10 +178,25 @@ async def node_generate_draft(state: ResumeGenerationState) -> dict:
 请务必在简历中自然地融入上述关键词，特别是缺失的关键词！
 """
 
+    stage_context = _bounded_generation_sources(
+        stage="draft_generation",
+        sources=[
+            ("resume", resume_content, 8000, "sections"),
+            ("job_description", job_description, 3600, "head_tail"),
+            ("optimization", _compact_optimization_result(optimization_result), 2800, "head_tail"),
+            ("user_answers", user_answers, 1200, "head_tail"),
+        ],
+    )
+    user_info_section = ""
+    if stage_context.values["user_answers"]:
+        user_info_section = (
+            "\n\n【用户补充信息（JSON，已按预算裁剪）】：\n"
+            + stage_context.values["user_answers"]
+        )
     prompt = build_draft_generation_prompt(
-        resume_content=resume_content,
-        job_description=job_description,
-        optimization_result=optimization_result,
+        resume_content=stage_context.values["resume"],
+        job_description=stage_context.values["job_description"],
+        optimization_result=_safe_json_mapping(stage_context.values["optimization"]),
         user_info_section=user_info_section,
         keyword_section=keyword_section,
         review_guidance=review_guidance,
@@ -181,7 +205,11 @@ async def node_generate_draft(state: ResumeGenerationState) -> dict:
 
     try:
         response = await llms.invoke_text(
-            [HumanMessage(content=prompt)], api_config, channel="content_writer"
+            [HumanMessage(content=prompt)],
+            api_config,
+            channel="content_writer",
+            deadline=_current_deadline(),
+            call_metadata=stage_context.call_metadata,
         )
         draft = response.content.strip()
 
@@ -191,8 +219,8 @@ async def node_generate_draft(state: ResumeGenerationState) -> dict:
         logger.info(f"初稿生成完成 (含适度包装): {len(draft)} 字符")
         return {"draft_content": draft}
     except Exception as e:
-        logger.error(f"初稿生成节点失败: {e}")
-        return {"draft_content": f"生成失败: {str(e)}"}
+        logger.error("初稿生成节点失败: %s", type(e).__name__)
+        return {"draft_content": f"生成失败: {type(e).__name__}"}
 
 
 async def node_optimize_draft(state: ResumeGenerationState) -> dict:
@@ -214,18 +242,37 @@ async def node_optimize_draft(state: ResumeGenerationState) -> dict:
     jd_keywords = keyword_analysis.get('jd_keywords', [])
     missing_keywords = keyword_analysis.get('missing', [])
 
+    fact_sheet = build_resume_fact_sheet(resume_content)
+    requirement_map = build_jd_requirement_map(job_description)
+    match_map = build_resume_jd_match_map(fact_sheet, requirement_map)
+    stage_context = _bounded_generation_sources(
+        stage="draft_optimization",
+        sources=[
+            ("resume_facts", fact_sheet.model_dump(), 5200, "head_tail"),
+            ("draft", draft_content, 8500, "sections"),
+            ("jd_match", match_map.model_dump(), 2200, "head_tail"),
+            ("user_answers", user_answers, 1100, "head_tail"),
+        ],
+    )
     prompt = build_draft_optimization_prompt(
-        resume_content=resume_content,
-        draft_content=draft_content,
-        job_description=job_description,
-        user_inputs=user_inputs,
+        resume_content=stage_context.values["resume_facts"],
+        draft_content=stage_context.values["draft"],
+        job_description=stage_context.values["jd_match"],
+        user_inputs=stage_context.values["user_answers"] or user_inputs,
         key_improvements=key_improvements,
         jd_keywords=jd_keywords,
         missing_keywords=missing_keywords,
     )
 
     try:
-        result = await invoke_structured(prompt, DraftOptimizationOutput, api_config, channel="content_writer")
+        result = await invoke_structured(
+            prompt,
+            DraftOptimizationOutput,
+            api_config,
+            channel="content_writer",
+            deadline=_current_deadline(),
+            call_metadata=stage_context.call_metadata,
+        )
         optimized_draft = clean_markdown_response(result.optimized_content)
         optimization_summary = result.optimization_summary.model_dump()
         quality_scores = result.quality_scores.model_dump()
@@ -240,114 +287,11 @@ async def node_optimize_draft(state: ResumeGenerationState) -> dict:
             }
         }
     except Exception as e:
-        logger.error(f"初稿优化节点失败: {e}")
+        logger.error("初稿优化节点失败: %s", type(e).__name__)
         # 失败时使用原初稿
         return {
             "optimized_draft": draft_content,
-            "optimization_notes": {"error": str(e)}
-        }
-
-
-async def node_fact_check(state: ResumeGenerationState) -> dict:
-    """
-    包装适度性核查节点：区分"适度包装"和"过度造假"
-    """
-    resume_content = state.get("resume_content", "")
-    # 使用优化后的初稿进行核查
-    draft_content = state.get("optimized_draft", "") or state.get("draft_content", "")
-    user_answers = state.get("user_answers", {})
-    api_config = state.get("api_config")
-
-    user_inputs = json.dumps(user_answers, ensure_ascii=False) if user_answers else "无"
-
-    prompt = build_fact_check_prompt(
-        resume_content=resume_content,
-        draft_content=draft_content,
-        user_inputs=user_inputs,
-    )
-
-    try:
-        result = await invoke_structured(prompt, FactCheckOutput, api_config, channel="general")
-        result = result.model_dump()
-        is_excessive = result.get("is_excessive", False)
-        logger.info(f"风控核查完成: is_excessive={is_excessive}")
-        return {"fact_check_result": result}
-    except Exception as e:
-        logger.error(f"风控核查节点失败: {e}")
-        return {"fact_check_result": {"is_excessive": False, "risk_details": []}}
-
-
-async def node_finalize_and_review(state: ResumeGenerationState) -> dict:
-    """
-    润色与审查节点：基于适度包装原则进行最终确认
-    """
-    # 使用优化后的初稿
-    draft_content = state.get("optimized_draft", "") or state.get("draft_content", "")
-    fact_check_result = state.get("fact_check_result") or {}
-    optimization_result = state.get("optimization_result") or {}
-    api_config = state.get("api_config")
-
-    # 获取 JD 关键词
-    jd_keywords = _keyword_analysis(optimization_result).get("jd_keywords", [])[:10]
-
-    # 构建警告
-    warning = ""
-    if fact_check_result.get("is_excessive"):
-        details = fact_check_result.get("risk_details", [])
-        # 构建更清晰的修正指导
-        fix_instructions = []
-        for i, detail in enumerate(details, 1):
-            location = detail.get("location", "未知位置")
-            original = detail.get("original", "无相关描述")
-            fabricated = detail.get("fabricated", "未知内容")
-            reason = detail.get("reason", "未说明")
-            fix_instructions.append(
-                f"  {i}. 【{location}】\n"
-                f"     - 原始内容：{original}\n"
-                f"     - 造假内容：{fabricated}\n"
-                f"     - 造假原因：{reason}"
-            )
-
-        warning = f"""
-**风控警告：检测到过度造假，必须修正以下内容**：
-
-{chr(10).join(fix_instructions)}
-
-**修正原则**：
-- 对于【造假内容】部分，请根据【原始内容】进行修正或弱化表述
-- 将"过于夸张的数据"修改为"合理估算的数据"
-- 将"无中生有"的技能修改为"了解/熟悉"或删除该具体技能点（保留其他真实技能）
-- **不要删除整段经历，也不要大幅缩减简历篇幅**
-"""
-
-    prompt = build_finalize_review_prompt(
-        draft_content=draft_content,
-        jd_keywords_json=json.dumps(jd_keywords, ensure_ascii=False),
-        warning_text=warning,
-    )
-
-    try:
-        result = await invoke_structured(prompt, FinalReviewOutput, api_config, channel="hr_reviewer")
-        final_markdown = clean_markdown_response(result.final_content)
-        passed = result.review_passed
-        title = result.title
-
-        logger.info(f"润色审查完成: passed={passed}")
-
-        return {
-            "final_markdown": final_markdown,
-            "review_result": {
-                "passed": passed,
-                "issues": fact_check_result.get("risk_details", [])
-            },
-            "title": title
-        }
-    except Exception as e:
-        logger.error(f"润色审查节点失败: {e}")
-        return {
-            "final_markdown": draft_content,
-            "review_result": {"passed": True, "error": str(e)},
-            "title": "新简历"
+            "optimization_notes": {"error": type(e).__name__}
         }
 
 
@@ -400,6 +344,7 @@ def build_resume_generation_graph(
     workflow.add_node("optimize_draft", tracked_node("draft_optimization", node_optimize_draft))
     workflow.add_node("fact_check", tracked_node("fact_check", node_fact_check))
     workflow.add_node("finalize_review", tracked_node("final_review", node_finalize_and_review))
+    workflow.add_node("verify_final", node_verify_final)
     workflow.add_node("increment_iteration", node_increment_iteration)
 
     # 设置入口
@@ -409,10 +354,11 @@ def build_resume_generation_graph(
     workflow.add_edge("generate_draft", "optimize_draft")
     workflow.add_edge("optimize_draft", "fact_check")
     workflow.add_edge("fact_check", "finalize_review")
+    workflow.add_edge("finalize_review", "verify_final")
 
-    # 条件路由：审查后决定是否循环
+    # 条件路由：独立验证者复核最终版本后决定是否循环
     workflow.add_conditional_edges(
-        "finalize_review",
+        "verify_final",
         route_after_review,
         {
             END: END,

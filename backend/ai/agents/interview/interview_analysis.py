@@ -1,88 +1,14 @@
 """
 面试分析统一模块
 将 graph.py 中的后台分析逻辑抽离复用
-支持文字面试和语音面试共用
+支持文字面试和语音面试共用；报告生成委托给四视角并行 map-reduce 评审服务。
 """
 
 import logging
-from typing import Dict, Any, List, Optional
-
-from ai.llm import llms
+from collections.abc import Awaitable, Callable, Mapping
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
-
-
-# ============================================================================
-# 后台画像分析
-# ============================================================================
-
-async def trigger_background_analysis(
-    session_id: str,
-    api_config: Optional[Dict[str, Any]] = None,
-    *,
-    user_id: str,
-    raise_on_error: bool = False,
-):
-    """
-    触发后台画像分析（异步任务）
-
-    从数据库获取会话信息，构建 QA 历史，调用分析服务生成候选人画像。
-
-    Args:
-        session_id: 会话 ID
-        api_config: API 配置（可选，用于 LLM 调用）
-        user_id: 用户 ID（用于数据隔离，从 API 层传入）
-    """
-    try:
-        from ai.workflows.analysis.analysis_service import get_analysis_service
-        from app.db.repositories.session.session_repo import SessionRepo
-
-        if not session_id:
-            logger.warning("[AnalysisService] session_id 缺失，跳过分析")
-            return
-
-        logger.info(f"[AnalysisService] 开始触发后台分析，session_id: {session_id} user_id={user_id}")
-
-        # 从数据库获取完整会话信息（包括消息和简历内容）
-        session_repo = SessionRepo()
-        session = await session_repo.get_session(session_id, include_resume_content=True, user_id=user_id)
-
-        if not session:
-            logger.warning(f"[AnalysisService] 无法从数据库获取会话 {session_id}")
-            return
-
-        # 提取必要信息
-        resume = session.metadata.resume_content or ""
-        job_desc = session.metadata.job_description or ""
-        company_info = session.metadata.company_info or "未知"
-        messages = session.messages
-
-        logger.info(f"[AnalysisService] 从数据库获取到 {len(messages)} 条消息")
-
-        # 构建 QA 历史
-        qa_history = build_qa_history(messages)
-
-        logger.info(f"[AnalysisService] 解析出 {len(qa_history)} 个有效的 QA 对")
-
-        # 如果没有 QA 历史，不触发分析
-        if not qa_history:
-            logger.warning("[AnalysisService] QA 历史为空，跳过分析")
-            if messages:
-                logger.warning(f"[AnalysisService] 消息详情: {[(m.role, len(m.content) if m.content else 0) for m in messages[:10]]}")
-            return
-
-        logger.info(f"[AnalysisService] 开始异步分析会话 {session_id}，共 {len(qa_history)} 轮对话")
-
-        # 调用分析服务（传入用户的 API 配置）
-        service = get_analysis_service()
-        await service.analyze_candidate(session_id, resume, job_desc, company_info, qa_history, api_config, user_id=user_id)
-
-        logger.info(f"[AnalysisService] 会话 {session_id} 的画像分析已完成 (user_id={user_id})")
-
-    except Exception as e:
-        logger.error(f"[AnalysisService] 后台分析触发失败: {str(e)}", exc_info=True)
-        if raise_on_error:
-            raise
 
 
 def build_qa_history(messages: List[Any]) -> List[Dict[str, str]]:
@@ -148,170 +74,93 @@ def _message_role(message: Any) -> str:
     return ""
 
 
-# ============================================================================
-# 面试总结生成
-# ============================================================================
-
-async def generate_interview_summary(
-    messages: List[Any],
-    mode: str = "mock",
-    api_config: Optional[Dict[str, Any]] = None,
-    memory_context: Optional[str] = None
-) -> str:
-    """
-    生成面试总结
-
-    使用 LLM 根据对话历史生成面试反馈总结。
-
-    Args:
-        messages: 对话消息列表
-        mode: 面试模式（mock, real 等）
-        api_config: API 配置
-        memory_context: 长期记忆上下文（可选，来自 mem0）
-
-    Returns:
-        面试总结文本
-    """
-    try:
-        from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
-        from ai.prompts.interview import build_feedback_prompt, memo_hint
-
-        # 模式仍由上游校验；反馈规则统一由中央 Prompt 管理。
-        _ = mode
-        system_prompt = build_feedback_prompt()
-        if memory_context:
-            system_prompt = f"{system_prompt}\n{memo_hint(memory_context)}"
-
-        llm_messages = [SystemMessage(content=system_prompt)]
-
-        for msg in messages:
-            # 兼容多种消息类型：
-            # 1. 普通字典: {"role": "user", "content": "..."}
-            # 2. Pydantic 模型: 有 role 和 content 属性
-            # 3. LangChain 消息: HumanMessage/AIMessage 有 type 属性而非 role
-
-            # 获取 role
-            if hasattr(msg, 'role'):
-                role = msg.role
-            elif hasattr(msg, 'type'):
-                # LangChain 消息类型映射
-                type_to_role = {"human": "user", "ai": "assistant", "system": "system"}
-                role = type_to_role.get(msg.type, "")
-            elif isinstance(msg, dict):
-                role = msg.get('role', '')
-            else:
-                role = ""
-
-            # 获取 content
-            if hasattr(msg, 'content'):
-                content = msg.content
-            elif isinstance(msg, dict):
-                content = msg.get('content', '')
-            else:
-                content = ""
-
-            if role == "user":
-                llm_messages.append(HumanMessage(content=content))
-            elif role == "assistant":
-                llm_messages.append(AIMessage(content=content))
-
-        # 调用 LLM 生成总结
-        response = await llms.invoke_text(llm_messages, api_config, channel="smart")
-
-        summary = response.content if hasattr(response, 'content') else str(response)
-        logger.info(f"[Summary] 成功生成面试总结，长度: {len(summary)} 字符")
-
-        return summary
-
-    except Exception as e:
-        logger.error(f"[Summary] 生成面试总结失败: {e}", exc_info=True)
-        return "面试总结生成失败，请稍后重试。"
-
-
-# ============================================================================
-# 短板地图分析
-# ============================================================================
-
-async def trigger_weakness_analysis(
+async def trigger_session_report_analysis(
     session_id: str,
     api_config: Optional[Dict[str, Any]] = None,
     *,
     user_id: str,
     raise_on_error: bool = False,
-):
-    """
-    触发后台短板地图分析（异步任务）
+    report_checkpoint: Mapping[str, Any] | None = None,
+    checkpoint_callback: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
+) -> None:
+    """Generate and persist both report artifacts from one validated model response.
 
-    从数据库获取会话信息，构建 QA 历史，调用短板分析服务生成报告并落库。
-
-    Args:
-        session_id: 会话 ID
-        api_config: API 配置（可选，用于 LLM 调用）
-        user_id: 用户 ID（从 API 层传入，用于数据隔离）
+    The session, profile, and weakness report all remain owner-scoped. Failures are
+    re-raised only for recoverable AgentRun execution; background completion keeps
+    its existing non-blocking boundary.
     """
     try:
-        from ai.workflows.analysis.analysis_service import get_weakness_analysis_service
+        from ai.workflows.analysis.analysis_service import (
+            get_session_report_analysis_service,
+        )
+        from app.db.repositories.interview.weakness_report_repo import (
+            get_weakness_report_repo,
+        )
         from app.db.repositories.session.session_repo import SessionRepo
-        from app.db.repositories.interview.weakness_report_repo import get_weakness_report_repo
 
         if not session_id:
-            logger.warning("[WeaknessAnalysis] session_id 缺失，跳过分析")
-            return
-
-        logger.info(f"[WeaknessAnalysis] 开始触发短板地图分析，session_id: {session_id} user_id={user_id}")
+            raise ValueError("session_id 缺失")
 
         session_repo = SessionRepo()
-        session = await session_repo.get_session(session_id, include_resume_content=True, user_id=user_id)
-
-        if not session:
-            logger.warning(f"[WeaknessAnalysis] 无法从数据库获取会话 {session_id}")
-            return
-
-        resume = session.metadata.resume_content or ""
-        job_desc = session.metadata.job_description or ""
-        company_info = session.metadata.company_info or "未知"
-        messages = session.messages
-
-        logger.info(f"[WeaknessAnalysis] 从数据库获取到 {len(messages)} 条消息")
-
-        qa_history = build_qa_history(messages)
-
-        logger.info(f"[WeaknessAnalysis] 解析出 {len(qa_history)} 个有效的 QA 对")
-
-        if not qa_history:
-            logger.warning("[WeaknessAnalysis] QA 历史为空，跳过分析")
-            return
-
-        candidate_profile = None
-        profile_data = await session_repo.get_profile(session_id, user_id=user_id)
-        if profile_data:
-            candidate_profile = profile_data
-
-        logger.info(f"[WeaknessAnalysis] 开始异步生成短板地图，session={session_id}，共 {len(qa_history)} 轮对话")
-
-        weakness_service = get_weakness_analysis_service()
-        report_data = await weakness_service.generate_weakness_report(
-            session_id=session_id,
-            resume=resume,
-            job_description=job_desc,
-            company_info=company_info,
-            qa_history=qa_history,
-            candidate_profile=candidate_profile,
-            api_config=api_config,
+        session = await session_repo.get_session(
+            session_id,
+            include_resume_content=True,
+            user_id=user_id,
         )
+        if not session:
+            raise ValueError("会话不存在或无权访问")
 
-        report_service = get_weakness_report_repo()
+        qa_history = build_qa_history(session.messages)
+        if not qa_history:
+            raise ValueError("该面试还没有可用于生成报告的有效问答")
+
+        profile, weakness_report = await get_session_report_analysis_service().generate_session_report(
+            session_id=session_id,
+            resume=session.metadata.resume_content or "",
+            job_description=session.metadata.job_description or "",
+            company_info=session.metadata.company_info or "未知",
+            qa_history=qa_history,
+            api_config=api_config,
+            report_checkpoint=report_checkpoint,
+            checkpoint_callback=checkpoint_callback,
+        )
+        saved = await session_repo.save_profile(
+            session_id,
+            profile.model_dump(),
+            user_id=user_id,
+        )
+        if not saved:
+            raise ValueError("会话不存在或无权保存能力画像")
+
         series_id = session.metadata.series_id if hasattr(session.metadata, "series_id") else None
-        await report_service.save_report(
+        await get_weakness_report_repo().save_report(
             user_id=user_id,
             session_id=session_id,
-            report_data=report_data,
+            report_data=weakness_report,
             series_id=series_id,
         )
+        from ai.workflows.interview.report_memory import (
+            schedule_interview_report_memories,
+        )
 
-        logger.info(f"[WeaknessAnalysis] 会话 {session_id} 的短板地图已生成并落库 (user_id={user_id})")
-
-    except Exception as e:
-        logger.error(f"[WeaknessAnalysis] 短板地图分析触发失败: {str(e)}", exc_info=True)
+        schedule_interview_report_memories(
+            user_id=user_id,
+            session_id=session_id,
+            profile=profile,
+            weakness_report=weakness_report,
+            api_config=api_config,
+        )
+        logger.info(
+            "[SessionReportAnalysis] 能力画像、短板地图与可用长期记忆已完成落库: session=%s user=%s",
+            session_id,
+            user_id,
+        )
+    except Exception as exc:
+        logger.error(
+            "[SessionReportAnalysis] 面试评估生成失败: session=%s error=%s",
+            session_id,
+            type(exc).__name__,
+            exc_info=True,
+        )
         if raise_on_error:
             raise

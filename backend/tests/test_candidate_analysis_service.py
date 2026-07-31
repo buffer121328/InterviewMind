@@ -1,97 +1,179 @@
-"""Regression tests for owner-scoped session report analysis."""
+"""Regression tests for parallel multi-reviewer session report analysis."""
 
-from unittest.mock import AsyncMock
+import asyncio
 
 import pytest
 
-from ai.workflows.analysis.analysis_service import (
-    CandidateAnalysisService,
-    WeaknessAnalysisService,
-)
-from app.schemas.candidate_profile import CandidateProfile, DimensionScore
+from ai.workflows.analysis.analysis_service import SessionReportAnalysisService
+from app.schemas.llm_outputs import SessionInterviewReportOutput, WeaknessReportOutput
 
 
-def _profile() -> CandidateProfile:
-    """Build a compact valid profile fixture for service-boundary tests."""
-    dimension = DimensionScore(score=8, evidence="回答证据")
-    return CandidateProfile(
-        professional_competence=dimension,
-        execution_results=dimension,
-        logic_problem_solving=dimension,
-        communication=dimension,
-        growth_potential=dimension,
-        collaboration=dimension,
-        skill_tags=["FastAPI"],
-        last_updated="2026-07-28T10:00:00",
-    )
-
-
-@pytest.mark.asyncio
-async def test_candidate_analysis_accepts_user_id_and_owner_scopes_persistence():
-    """The AgentRun caller may pass user_id and every profile read/write keeps it."""
-    service = CandidateAnalysisService()
-    service.session_repo = AsyncMock()
-    service.session_repo.get_profile.return_value = None
-    service.session_repo.save_profile.return_value = True
-    service._perform_analysis = AsyncMock(return_value=_profile())
-
-    result = await service.analyze_candidate(
-        "session-1",
-        "resume",
-        "jd",
-        "company",
-        [{"question": "Q", "answer": "A"}],
-        {"smart": {"model": "demo"}},
-        user_id="user-1",
-    )
-
-    assert result.skill_tags == ["FastAPI"]
-    service.session_repo.get_profile.assert_awaited_once_with(
-        "session-1",
-        user_id="user-1",
-    )
-    saved_args = service.session_repo.save_profile.await_args
-    assert saved_args.args[0] == "session-1"
-    assert saved_args.kwargs["user_id"] == "user-1"
+def _combined_output() -> SessionInterviewReportOutput:
+    """Build a compact valid consensus-output fixture."""
+    dimension = {
+        "score": 8,
+        "evidence": "回答证据 [Q1]",
+        "reason": "能够说明关键取舍 [Q1]",
+        "better_answer_example": "补充真实指标和复盘",
+        "improvement_tip": "使用 STAR 结构",
+    }
+    return SessionInterviewReportOutput.model_validate({
+        "candidate_profile": {
+            "professional_competence": dimension,
+            "execution_results": dimension,
+            "logic_problem_solving": dimension,
+            "communication": dimension,
+            "growth_potential": dimension,
+            "collaboration": dimension,
+            "skill_tags": ["FastAPI"],
+            "key_strengths": ["技术取舍清晰 [Q1]"],
+            "key_weaknesses": ["结果量化不足 [Q1]"],
+        },
+        "weakness_report": {
+            "weakness_categories": [
+                {"category": "项目表达", "description": "结果证据不足 [Q1]", "severity": "medium"},
+            ],
+            "question_failures": [],
+            "improvement_actions": [],
+            "recommended_questions": [],
+            "priority_order": ["项目表达"],
+        },
+    })
 
 
 @pytest.mark.asyncio
-async def test_candidate_analysis_propagates_model_failure_to_agent_run():
-    """A failed model call must fail the AgentRun instead of persisting an '分析中' placeholder."""
-    service = CandidateAnalysisService()
-    service.session_repo = AsyncMock()
-    service.session_repo.get_profile.return_value = None
-    service._perform_analysis = AsyncMock(side_effect=RuntimeError("model failed"))
+async def test_session_analysis_runs_four_parallel_reviewers_then_reduces(monkeypatch):
+    """All four Send branches start independently before the consensus reducer runs."""
+    from ai.workflows.analysis.multi_reviewer import ReviewerAssessment
 
-    with pytest.raises(RuntimeError, match="model failed"):
-        await service.analyze_candidate(
-            "session-1",
-            "resume",
-            "jd",
-            "company",
-            [{"question": "Q", "answer": "A"}],
-            user_id="user-1",
-        )
+    reviewer_started: list[str] = []
+    all_started = asyncio.Event()
+    channels: dict[str, tuple[str, float]] = {}
+    reducer_calls = 0
 
-    service.session_repo.save_profile.assert_not_awaited()
+    async def invoke(*, output_model, call_metadata, channel, temperature, **_kwargs):
+        nonlocal reducer_calls
+        if output_model is ReviewerAssessment:
+            perspective = call_metadata["review_perspective"]
+            reviewer_started.append(perspective)
+            channels[perspective] = (channel, temperature)
+            if len(reviewer_started) == 4:
+                all_started.set()
+            await asyncio.wait_for(all_started.wait(), timeout=1)
+            return ReviewerAssessment(
+                perspective=perspective,
+                score=8,
+                dimension_scores={"communication": 8},
+                strengths=[f"{perspective} 优势"],
+                concerns=[],
+                evidence_refs=["Q1"],
+                confidence=0.8,
+            )
+        reducer_calls += 1
+        assert len(reviewer_started) == 4
+        return _combined_output()
+
+    monkeypatch.setattr("ai.llm.llm_utils.invoke_structured", invoke)
+    profile, weakness = await SessionReportAnalysisService().generate_session_report(
+        session_id="session-1",
+        resume="resume",
+        job_description="jd",
+        company_info="company",
+        qa_history=[{"question": "Q", "answer": "A"}],
+        api_config={"smart": {"model": "demo"}},
+    )
+
+    assert set(reviewer_started) == {
+        "technical_depth",
+        "communication",
+        "job_fit",
+        "factual_risk",
+    }
+    assert channels["technical_depth"] == ("smart", 0.2)
+    assert channels["communication"] == ("fast", 0.3)
+    assert channels["job_fit"] == ("match_analyst", 0.2)
+    assert channels["factual_risk"] == ("reflector", 0.0)
+    assert reducer_calls == 1
+    assert profile.skill_tags == ["FastAPI"]
+    assert profile.total_questions_analyzed == 1
+    assert weakness["consensus_method"] == "parallel_map_reduce"
+    assert len(weakness["reviewer_assessments"]) == 4
 
 
 @pytest.mark.asyncio
-async def test_weakness_analysis_propagates_model_failure(monkeypatch):
-    """An empty success report must not hide a failed weakness-model request."""
+async def test_session_analysis_propagates_when_all_reviewers_fail(monkeypatch):
+    """The report task fails rather than fabricating consensus when every reviewer is unavailable."""
+
     async def fail_invoke(*_args, **_kwargs):
         raise RuntimeError("model failed")
 
-    monkeypatch.setattr(
-        "ai.workflows.analysis.analysis_service.invoke_structured",
-        fail_invoke,
-    )
-
-    with pytest.raises(RuntimeError, match="model failed"):
-        await WeaknessAnalysisService().generate_weakness_report(
+    monkeypatch.setattr("ai.llm.llm_utils.invoke_structured", fail_invoke)
+    with pytest.raises(RuntimeError, match="all parallel reviewers failed"):
+        await SessionReportAnalysisService().generate_session_report(
             session_id="session-1",
             resume="resume",
             job_description="jd",
             company_info="company",
             qa_history=[{"question": "Q", "answer": "A"}],
         )
+
+
+def test_weakness_output_accepts_missing_optional_model_fields():
+    """Production payload validation remains tolerant of omitted explanatory fields."""
+    report = WeaknessReportOutput.model_validate({
+        "weakness_categories": [
+            {"category": "行为面试", "severity": "medium"},
+            {"category": "沟通表达", "severity": "low"},
+        ],
+        "question_failures": [{"question": "请介绍一次冲突处理经历"}],
+    })
+
+    assert report.weakness_categories[0].description == "行为面试表现仍有提升空间"
+    assert report.question_failures[0].issue
+    assert report.question_failures[0].better_example
+
+
+@pytest.mark.asyncio
+async def test_ability_profile_uses_same_parallel_reviewer_consensus(monkeypatch):
+    """Cross-session ability narrative uses four perspective scores while local dimensions stay deterministic."""
+    from ai.workflows.analysis.ability_service import AbilityAnalysisService
+    from ai.workflows.analysis.multi_reviewer import AbilityConsensusOutput, ReviewerAssessment
+
+    reviewer_calls: list[str] = []
+
+    async def invoke(*, output_model, call_metadata, **_kwargs):
+        if output_model is ReviewerAssessment:
+            perspective = call_metadata["review_perspective"]
+            reviewer_calls.append(perspective)
+            return ReviewerAssessment(
+                perspective=perspective,
+                score=7,
+                dimension_scores={"professional_competence": 7},
+                evidence_refs=["历史1"],
+                confidence=0.7,
+            )
+        return AbilityConsensusOutput(
+            overall_assessment="多视角共识：能力稳定。",
+            key_strengths=["专业能力"],
+            key_weaknesses=["沟通表达"],
+            recommendation="hire",
+            confidence=0.75,
+        )
+
+    monkeypatch.setattr("ai.llm.llm_utils.invoke_structured", invoke)
+    dimension = {"score": 8, "evidence": "历史证据"}
+    profile = await AbilityAnalysisService()._aggregate_profiles_with_weights([{
+        "professional_competence": dimension,
+        "execution_results": dimension,
+        "logic_problem_solving": dimension,
+        "communication": dimension,
+        "growth_potential": dimension,
+        "collaboration": dimension,
+        "skill_tags": ["FastAPI"],
+        "total_questions_analyzed": 3,
+    }])
+
+    assert len(reviewer_calls) == 4
+    assert profile.professional_competence.score == 8
+    assert profile.overall_assessment == "多视角共识：能力稳定。"
+    assert profile.confidence == 0.75

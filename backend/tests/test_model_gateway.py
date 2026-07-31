@@ -547,3 +547,22 @@ def test_api_config_channel_preserves_provider_observability_fields():
     assert config.smart.provider == "deepseek"
     assert config.smart.integration == "deepseek"
     assert config.smart.pricing_key == "deepseek-chat"
+
+
+def test_structured_temperature_reaches_selected_model(monkeypatch, local_model_pool):
+    """Independent validators may force low temperature through the shared model gateway."""
+    gateway = llms.ModelGateway()
+    captured: list[dict] = []
+
+    def create(**config):
+        captured.append(config)
+        return type("FakeLLM", (), {"model_name": config["model"]})()
+
+    monkeypatch.setattr(llms, "create_llm_from_config", create)
+    gateway.get_chat_candidates(
+        {"smart": _channel("smart-model"), "fast": _channel("fast-model")},
+        "smart",
+        temperature=0.0,
+    )
+
+    assert captured[0]["temperature"] == 0.0
