@@ -192,7 +192,7 @@ class EvalRetrieval(_EvalModel):
     source_id_hash: str | None = Field(default=None, max_length=256)
     score: float | None = None
     rank: int | None = Field(default=None, ge=1)
-    adopted: bool = False
+    adopted: bool | None = None
     strategy: str | None = Field(default=None, max_length=120)
     call_id: str | None = Field(default=None, max_length=160)
     sequence: int | None = Field(default=None, ge=0)
@@ -203,7 +203,7 @@ class EvalRetrieval(_EvalModel):
 
 
 class EvalExternalIO(_EvalModel):
-    """外部依赖的可用性、耗时和结果计数；不承载请求或响应正文。"""
+    """外部依赖的可用性、耗时、结果计数和明确采用证据。"""
 
     call_id: str = Field(min_length=1, max_length=160)
     sequence: int = Field(ge=0)
@@ -218,6 +218,7 @@ class EvalExternalIO(_EvalModel):
     result_count: int | None = Field(default=None, ge=0)
     query_fingerprint: str | None = Field(default=None, max_length=256)
     adopted: bool | None = None
+    strategy: str | None = Field(default=None, max_length=120)
     error_type: str | None = Field(default=None, max_length=160)
     error_category: str | None = Field(default=None, max_length=160)
 
@@ -236,6 +237,8 @@ class EvalModelCall(_EvalModel):
     latency_ms: int = Field(default=0, ge=0)
     status: str = Field(default="completed", min_length=1, max_length=64)
     error_classification: str | None = Field(default=None, max_length=160)
+    estimated_cost_usd: float | None = Field(default=None, ge=0)
+    estimated_cost_cny: float | None = Field(default=None, ge=0)
 
 
 class EvalApproval(_EvalModel):
@@ -364,6 +367,18 @@ class EvalObservabilitySummary(_EvalModel):
     trace_completeness: EvalTraceCompleteness = Field(default_factory=EvalTraceCompleteness)
 
 
+class EvalCaseOutcome(_EvalModel):
+    """单案例运行、语义、硬门禁和人工复核结论的安全摘要。"""
+
+    runtime_success: bool = False
+    semantic_evaluated: bool = False
+    semantic_success: bool = False
+    hard_gate_passed: bool = False
+    complete_success: bool = False
+    review_required: bool = True
+    review_reasons: tuple[str, ...] = ()
+
+
 class AgentEvalRecord(_EvalModel):
     """Eval Harness 与 DeepEval、Langfuse、人工标注之间的中间记录。"""
 
@@ -401,6 +416,7 @@ class AgentEvalRecord(_EvalModel):
     token_usage: EvalTokenUsage = Field(default_factory=EvalTokenUsage)
     error: EvalError | None = None
     observability: EvalObservabilitySummary = Field(default_factory=EvalObservabilitySummary)
+    outcome: EvalCaseOutcome | None = None
 
     @field_validator("input_summary", "final_output")
     @classmethod

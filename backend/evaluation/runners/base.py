@@ -42,6 +42,7 @@ class EvaluationCaseSpec(BaseModel):
     allowed_tool_calls: tuple[str, ...] = ()
     required_state_transitions: tuple[str, ...] = ()
     forbidden_state_transitions: tuple[str, ...] = ()
+    quality_rubric: dict[str, JsonValue] = Field(default_factory=dict)
     retrieval_context: tuple[str, ...] = ()
     tags: tuple[str, ...] = ()
     severity: str = Field(default="medium", pattern=r"^(low|medium|high|critical)$")
@@ -221,9 +222,16 @@ class AgentEvalRunner:
         try:
             # 统一运行时事件在一次事实生成后直接投影到 Eval Collector；
             # Collector 失败由 trace_completeness 记录，不改变 Agent 业务终态。
-            from observability import evaluation_runtime_sink, get_runtime_sink_errors
+            from observability import (
+                evaluation_model_sink,
+                evaluation_runtime_sink,
+                get_runtime_sink_errors,
+            )
 
-            with evaluation_runtime_sink(trace.record_runtime_event):
+            with (
+                evaluation_runtime_sink(trace.record_runtime_event),
+                evaluation_model_sink(trace.record_model_event),
+            ):
                 try:
                     raw_output = await adapter.run(dict(case.input_payload), context, trace)
                     output, findings = sanitize_evaluation_value(
@@ -301,12 +309,34 @@ class AgentEvalRunner:
             output_char_count=len(json_safe_dump(output)),
             checkpoint_write_count=sum(step.checkpoint_written for step in trace.steps),
             recovery_count=sum(step.recovery_source is not None for step in trace.steps),
+            estimated_cost_usd=sum(
+                call.estimated_cost_usd or 0 for call in trace.model_calls
+            )
+            or None,
             token_usage=_aggregate_tokens(trace),
             error=error,
             observability=trace.observability_summary(completeness),
         )
+        from evaluation.evaluators.deterministic.case_contracts import (
+            DeterministicCaseContractEvaluator,
+        )
+        from evaluation.outcomes import classify_case_outcome
+        from evaluation.runtime_metrics import build_runtime_metric_scores
+
         scores = tuple(
-            self.evaluator_registry.evaluate(record, include_judges=include_judges)
+            [
+                *self.evaluator_registry.evaluate(
+                    record, include_judges=include_judges
+                ),
+                *DeterministicCaseContractEvaluator().evaluate(
+                    case=case,
+                    record=record,
+                ),
+                *build_runtime_metric_scores(record),
+            ]
+        )
+        record = record.model_copy(
+            update={"outcome": classify_case_outcome(record, scores)}
         )
         return EvaluationCaseResult(record=record, scores=scores)
 

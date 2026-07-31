@@ -65,6 +65,7 @@ class EvaluationTraceCollector:
         self._open_steps: dict[str, _OpenStep] = {}
         self._tool_by_call_id: dict[str, EvalToolCall] = {}
         self._external_io_by_call_id: dict[str, EvalExternalIO] = {}
+        self._retrieval_by_id: dict[str, EvalRetrieval] = {}
         self._approval_by_id: dict[str, EvalApproval] = {}
         self._runtime_payloads: list[dict[str, Any]] = []
         self._runtime_sink_errors: set[str] = set()
@@ -116,126 +117,6 @@ class EvaluationTraceCollector:
         self.steps.append(step)
         return step
 
-    def record_tool_call(
-        self,
-        *,
-        call_id: str,
-        tool_name: str,
-        effect: EvalToolEffect,
-        status: EvalToolStatus,
-        approval_status: EvalApprovalStatus,
-        arguments_summary: dict[str, Any] | None = None,
-        result_summary: dict[str, Any] | None = None,
-        required_permissions: tuple[str, ...] = (),
-        granted_permissions: tuple[str, ...] = (),
-        requires_confirmation: bool = False,
-        resource_owner_hash: str | None = None,
-        idempotency_key_hash: str | None = None,
-        simulated: bool | None = None,
-        target_namespace: str | None = None,
-        latency_ms: int | None = None,
-        error_type: str | None = None,
-    ) -> EvalToolCall:
-        """记录工具治理事实；external 调用在评测环境中默认标记为 simulated。"""
-
-        safe_arguments, argument_findings = sanitize_evaluation_value(
-            arguments_summary or {}, location=f"tool:{call_id}:arguments"
-        )
-        safe_result, result_findings = sanitize_evaluation_value(
-            result_summary or {}, location=f"tool:{call_id}:result"
-        )
-        self.sensitive_data_findings.extend(argument_findings + result_findings)
-        call = EvalToolCall(
-            call_id=call_id,
-            sequence=self.next_sequence(),
-            tool_name=tool_name,
-            effect=effect,
-            status=status,
-            arguments_summary=safe_arguments if isinstance(safe_arguments, dict) else {},
-            result_summary=safe_result if isinstance(safe_result, dict) else {},
-            required_permissions=required_permissions,
-            granted_permissions=granted_permissions,
-            requires_confirmation=requires_confirmation,
-            approval_status=approval_status,
-            resource_owner_hash=resource_owner_hash,
-            idempotency_key_hash=idempotency_key_hash,
-            simulated=(effect is EvalToolEffect.EXTERNAL) if simulated is None else simulated,
-            target_namespace=target_namespace or self.evaluation_namespace,
-            latency_ms=latency_ms,
-            error_type=error_type,
-        )
-        self.tool_calls.append(call)
-        return call
-
-    def record_retrieval(
-        self,
-        *,
-        retrieval_id: str,
-        query: str,
-        source_type: str,
-        source_id: str | None = None,
-        score: float | None = None,
-        rank: int | None = None,
-        adopted: bool = False,
-        strategy: str | None = None,
-        call_id: str | None = None,
-        result_count: int | None = None,
-        duration_ms: int | None = None,
-        error_category: str | None = None,
-    ) -> EvalRetrieval:
-        """记录检索 query 和 source 的单向哈希，不保存原始候选人文本。"""
-
-        retrieval = EvalRetrieval(
-            retrieval_id=retrieval_id,
-            query_fingerprint=_fingerprint(query),
-            source_type=source_type,
-            source_id_hash=_fingerprint(source_id) if source_id else None,
-            score=score,
-            rank=rank,
-            adopted=adopted,
-            strategy=strategy,
-            call_id=call_id,
-            sequence=self.next_sequence(),
-            result_count=result_count,
-            empty_result=result_count == 0 if result_count is not None else None,
-            duration_ms=duration_ms,
-            error_category=error_category,
-        )
-        self.retrievals.append(retrieval)
-        return retrieval
-
-    def record_model_call(
-        self,
-        *,
-        call_id: str,
-        model_channel: str,
-        model_member: str,
-        fallback_index: int = 0,
-        input_char_count: int = 0,
-        output_char_count: int = 0,
-        token_usage: EvalTokenUsage | None = None,
-        latency_ms: int = 0,
-        status: str = "completed",
-        error_classification: str | None = None,
-    ) -> EvalModelCall:
-        """记录模型路由、fallback 和用量，不保存模型请求或响应正文。"""
-
-        call = EvalModelCall(
-            call_id=call_id,
-            sequence=self.next_sequence(),
-            model_channel=model_channel,
-            model_member_hash=_fingerprint(model_member),
-            fallback_index=fallback_index,
-            input_char_count=input_char_count,
-            output_char_count=output_char_count,
-            token_usage=token_usage or EvalTokenUsage(),
-            latency_ms=latency_ms,
-            status=status,
-            error_classification=error_classification,
-        )
-        self.model_calls.append(call)
-        return call
-
     def record_runtime_event(self, event: RuntimeObservationEvent) -> None:
         """把统一运行时事实映射为 Eval Tool、External IO、Approval 和事件序列。
 
@@ -284,6 +165,101 @@ class EvaluationTraceCollector:
             self._record_runtime_external_io(event, sequence)
         elif isinstance(event, ApprovalObservationEvent):
             self._record_runtime_approval(event, sequence)
+
+    def record_model_event(self, event: dict[str, Any]) -> None:
+        """把脱敏模型事件映射为 EvalModelCall 和统一 sequence，不接收模型正文。"""
+
+        if event.get("trace_id") and self.trace_id is None:
+            self.trace_id = str(event["trace_id"])
+        sequence = self.next_sequence()
+        event_type = str(event.get("event_type") or "model.request.completed")
+        status = (
+            "failed"
+            if event_type.endswith(".failed") or event.get("error_type")
+            else "skipped"
+            if event_type.endswith(".skipped")
+            else "completed"
+        )
+        member = str(
+            event.get("model_member") or event.get("model_name") or "unknown-model"
+        )
+        identity = json.dumps(
+            {
+                "sequence": sequence,
+                "event_type": event_type,
+                "channel": event.get("channel"),
+                "member": member,
+                "fallback": event.get("fallback_index"),
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        input_tokens = max(0, int(event.get("input_tokens") or 0))
+        output_tokens = max(0, int(event.get("output_tokens") or 0))
+        reported_total = max(0, int(event.get("total_tokens") or 0))
+        call = EvalModelCall(
+            call_id=f"model:{hashlib.sha256(identity.encode()).hexdigest()[:24]}",
+            sequence=sequence,
+            model_channel=str(event.get("channel") or event.get("operation") or "model"),
+            model_member_hash=_fingerprint(member),
+            fallback_index=max(0, int(event.get("fallback_index") or 0)),
+            input_char_count=max(0, int(event.get("input_chars") or 0)),
+            output_char_count=0,
+            token_usage=EvalTokenUsage(
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                total_tokens=max(reported_total, input_tokens + output_tokens) or None,
+            ),
+            latency_ms=max(
+                0,
+                int(
+                    event.get("total_duration_ms")
+                    or event.get("duration_ms")
+                    or 0
+                ),
+            ),
+            status=status,
+            error_classification=(
+                str(event.get("error_category") or event.get("error_type"))
+                if event.get("error_category") or event.get("error_type")
+                else None
+            ),
+            estimated_cost_usd=(
+                float(event["estimated_cost_usd"])
+                if event.get("estimated_cost_usd") is not None
+                else None
+            ),
+            estimated_cost_cny=(
+                float(event["estimated_cost_cny"])
+                if event.get("estimated_cost_cny") is not None
+                else None
+            ),
+        )
+        self.model_calls.append(call)
+        self.events.append(
+            EvalRunEvent(
+                sequence=sequence,
+                stage=str(event.get("stage") or "model"),
+                event_type=event_type,
+                status=status,
+                payload_summary={
+                    key: value
+                    for key, value in event.items()
+                    if key
+                    in {
+                        "channel",
+                        "fallback_index",
+                        "duration_ms",
+                        "total_duration_ms",
+                        "input_tokens",
+                        "output_tokens",
+                        "total_tokens",
+                        "error_type",
+                        "error_category",
+                    }
+                },
+            )
+        )
 
     def mark_runtime_sink_error(self, error_type: str) -> None:
         """记录 Collector 失败，最终让案例进入 trace incomplete 而非静默通过。"""
@@ -340,7 +316,7 @@ class EvaluationTraceCollector:
     def _record_runtime_external_io(
         self, event: ExternalIOObservationEvent, sequence: int
     ) -> None:
-        """更新一个 external IO 调用的最新状态，保留父 Tool 关联。"""
+        """更新 external IO 最新状态，并仅透传明确的检索采用证据。"""
 
         current = self._external_io_by_call_id.get(event.call_id)
         io = EvalExternalIO(
@@ -356,6 +332,8 @@ class EvaluationTraceCollector:
             item_count=event.item_count,
             result_count=event.result_count,
             query_fingerprint=event.query_fingerprint,
+            adopted=event.adopted,
+            strategy=event.strategy,
             error_type=event.error_type,
             error_category=event.error_category,
         )
@@ -364,6 +342,30 @@ class EvaluationTraceCollector:
         else:
             self.external_ios[self.external_ios.index(current)] = io
         self._external_io_by_call_id[event.call_id] = io
+        if event.query_fingerprint is not None:
+            current_retrieval = self._retrieval_by_id.get(event.call_id)
+            retrieval = EvalRetrieval(
+                retrieval_id=event.call_id,
+                query_fingerprint=event.query_fingerprint,
+                source_type=str(event.dependency or event.operation)[:80],
+                adopted=event.adopted,
+                strategy=event.strategy or event.operation,
+                call_id=event.call_id,
+                sequence=current_retrieval.sequence if current_retrieval else sequence,
+                result_count=event.result_count,
+                empty_result=(
+                    event.result_count == 0
+                    if event.status == "completed" and event.result_count is not None
+                    else None
+                ),
+                duration_ms=event.duration_ms,
+                error_category=event.error_category,
+            )
+            if current_retrieval is None:
+                self.retrievals.append(retrieval)
+            else:
+                self.retrievals[self.retrievals.index(current_retrieval)] = retrieval
+            self._retrieval_by_id[event.call_id] = retrieval
 
     def _record_runtime_approval(
         self, event: ApprovalObservationEvent, sequence: int

@@ -52,6 +52,9 @@ _model_call_metadata: ContextVar[dict[str, Any] | None] = ContextVar(
 _evaluation_runtime_sinks: ContextVar[list[Any] | None] = ContextVar(
     "evaluation_runtime_sinks", default=None
 )
+_evaluation_model_sinks: ContextVar[list[Any] | None] = ContextVar(
+    "evaluation_model_sinks", default=None
+)
 _runtime_sink_errors: ContextVar[list[str] | None] = ContextVar(
     "runtime_sink_errors", default=None
 )
@@ -411,6 +414,7 @@ _SAFE_MODEL_EVENT_FIELDS = {
     "stage",
     "status",
     "total_duration_ms",
+    "trace_id",
     "truncated_sources",
 }
 
@@ -552,16 +556,30 @@ def record_model_event(**event: Any) -> None:
         **event: 事件对象。
     """
     events = _model_events.get()
-    if events is None:
+    sinks = tuple(_evaluation_model_sinks.get() or ())
+    if events is None and not sinks:
         return
-    enriched_event = {"agent_name": _agent_name.get(), **event}
+    enriched_event = {
+        "agent_name": _agent_name.get(),
+        "trace_id": _active_trace_id.get(),
+        **event,
+    }
     safe_event = {
         key: safe_value
         for key, value in enriched_event.items()
         if key in _SAFE_MODEL_EVENT_FIELDS
         and (safe_value := _safe_model_event_value(value)) is not None
     }
-    events.append(safe_event)
+    if events is not None:
+        events.append(safe_event)
+    for sink in sinks:
+        try:
+            sink(dict(safe_event))
+        except Exception as exc:  # noqa: BLE001 - 评测观测不得阻断模型调用。
+            errors = _runtime_sink_errors.get()
+            if errors is not None:
+                errors.append(type(exc).__name__)
+            logger.warning("评测 Model Sink 写入失败: %s", type(exc).__name__)
 
 
 def bind_runtime_event_context(
@@ -669,6 +687,19 @@ def evaluation_runtime_sink(sink: Any):
     finally:
         _evaluation_runtime_sinks.reset(token_sinks)
         _runtime_sink_errors.reset(token_errors)
+
+
+@contextmanager
+def evaluation_model_sink(sink: Any):
+    """把脱敏模型事件绑定到一次评测 Collector，不改变模型路由或重试。"""
+
+    sinks = list(_evaluation_model_sinks.get() or [])
+    sinks.append(sink)
+    token_sinks = _evaluation_model_sinks.set(sinks)
+    try:
+        yield
+    finally:
+        _evaluation_model_sinks.reset(token_sinks)
 
 
 def get_runtime_sink_errors() -> tuple[str, ...]:
@@ -1698,6 +1729,7 @@ def _reset_langfuse_for_tests() -> None:
     _suppress_direct_llm_callbacks.set(False)
     _model_call_metadata.set(None)
     _evaluation_runtime_sinks.set(None)
+    _evaluation_model_sinks.set(None)
     _runtime_sink_errors.set(None)
     from observability.tool_tracing import reset_tool_spans
 

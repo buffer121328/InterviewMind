@@ -54,6 +54,7 @@ export interface EvaluationQuickRunRequest {
 export interface EvaluationOverview {
     run_count: number;
     runtime_success_rate: number | null;
+    semantic_evaluated_rate: number | null;
     semantic_success_rate: number | null;
     complete_success_rate: number | null;
     hard_gate_pass_rate: number | null;
@@ -68,10 +69,17 @@ export interface EvaluationOverview {
     trace_incomplete_count: number;
     tool_failure_rate: number | null;
     tool_execution_success_rate: number | null;
+    tool_blocked_rate: number | null;
+    tool_retry_rate: number | null;
     tool_p95_duration_ms: number | null;
     dependency_failure_rate: number | null;
     external_io_timeout_rate: number | null;
     retrieval_empty_rate: number | null;
+    retrieval_success_rate: number | null;
+    retrieval_adopted_rate: number | null;
+    memory_search_hit_rate: number | null;
+    memory_adopted_rate: number | null;
+    memory_write_duplication_rate: number | null;
     external_effect_count: number;
     external_effect_blocked_count: number;
     approval_event_count: number;
@@ -122,7 +130,14 @@ export interface EvaluationRunSummary {
     failed_count?: number;
     hard_gate_failure_count?: number;
     needs_review_count?: number;
+    runtime_success_count?: number;
+    semantic_evaluated_count?: number;
+    semantic_success_count?: number;
+    complete_success_count?: number;
     progress?: number;
+    runtime_success_rate?: number | null;
+    semantic_evaluated_rate?: number | null;
+    semantic_success_rate?: number | null;
     complete_success_rate?: number | null;
     p95_latency_ms?: number | null;
     token_total?: number | null;
@@ -130,10 +145,15 @@ export interface EvaluationRunSummary {
     trace_incomplete_count?: number;
     trace_completeness_rate?: number | null;
     tool_call_total?: number;
+    tool_execution_attempt_count?: number;
     tool_call_completed_count?: number;
     tool_call_failed_count?: number;
+    tool_call_blocked_count?: number;
+    tool_call_retry_count?: number;
     tool_failure_rate?: number | null;
     tool_execution_success_rate?: number | null;
+    tool_blocked_rate?: number | null;
+    tool_retry_rate?: number | null;
     tool_p95_duration_ms?: number | null;
     external_effect_total?: number;
     external_effect_blocked_count?: number;
@@ -146,7 +166,24 @@ export interface EvaluationRunSummary {
     approval_event_total?: number;
     retrieval_observed_case_count?: number;
     retrieval_empty_case_count?: number;
+    retrieval_total?: number;
+    retrieval_success_count?: number;
+    retrieval_empty_count?: number;
+    retrieval_adopted_observed_count?: number;
+    retrieval_adopted_count?: number;
+    retrieval_success_rate?: number | null;
     retrieval_empty_rate?: number | null;
+    retrieval_adopted_rate?: number | null;
+    memory_search_total?: number;
+    memory_search_hit_count?: number;
+    memory_search_hit_rate?: number | null;
+    memory_adopted_observed_count?: number;
+    memory_adopted_count?: number;
+    memory_adopted_rate?: number | null;
+    memory_write_observed_count?: number;
+    memory_write_duplicate_count?: number;
+    memory_write_duplication_rate?: number | null;
+    pending_review_rate?: number | null;
     langfuse_reported_case_count?: number;
     langfuse_failed_case_count?: number;
     [key: string]: unknown;
@@ -201,6 +238,11 @@ export interface EvaluationCaseRun {
     overall_score: number | null;
     error_category: string | null;
     needs_review: boolean;
+    runtime_success?: boolean | null;
+    semantic_evaluated?: boolean | null;
+    semantic_success?: boolean | null;
+    complete_success?: boolean | null;
+    review_reasons: string[];
 }
 
 export type EvaluationToolEffect = 'none' | 'read' | 'write' | 'external';
@@ -232,7 +274,7 @@ export interface EvaluationRetrieval {
     strategy?: string | null;
     result_count?: number | null;
     empty_result?: boolean | null;
-    adopted: boolean;
+    adopted?: boolean | null;
     duration_ms?: number | null;
     error_category?: string | null;
 }
@@ -250,6 +292,7 @@ export interface EvaluationExternalIo {
     item_count?: number | null;
     result_count?: number | null;
     adopted?: boolean | null;
+    strategy?: string | null;
     error_type?: string | null;
     error_category?: string | null;
 }
@@ -317,6 +360,15 @@ export interface EvaluationRecord {
     approvals?: EvaluationApproval[];
     events?: EvaluationRunEvent[];
     observability?: EvaluationObservabilitySummary;
+    outcome?: {
+        runtime_success: boolean;
+        semantic_evaluated: boolean;
+        semantic_success: boolean;
+        hard_gate_passed: boolean;
+        complete_success: boolean;
+        review_required: boolean;
+        review_reasons: string[];
+    } | null;
     recovery_count?: number;
     estimated_cost_usd?: number | null;
     error?: { classification?: string; message?: string; retryable?: boolean } | null;

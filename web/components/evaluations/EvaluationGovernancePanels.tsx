@@ -192,8 +192,11 @@ export function GatesPanel({ gates, runs, onRefresh }: { gates: EvaluationGatePo
         version: 'v1',
         hard_gates: HARD_GATE_CATALOG.map(([name]) => name),
         metric_thresholds: {
-            'quality.score': { value: 0.8, comparison: 'gte' },
-            'factuality.mae': { value: 0.1, comparison: 'lte' },
+            'quality.complete_success_rate': { value: 0.99, comparison: 'gte' },
+            'governance.pending_review_rate': { value: 0, comparison: 'eq' },
+            'observability.critical_trace_completeness': { value: 0.99, comparison: 'gte' },
+            'runtime.tool_failure_rate': { value: 0.01, comparison: 'lte' },
+            'runtime.external_io_timeout_rate': { value: 0.01, comparison: 'lte' },
         },
         regression_tolerances: {},
         minimum_sample_size: 20,

@@ -32,7 +32,7 @@ def build_run_report(run: dict[str, Any], cases: Iterable[dict[str, Any]]) -> di
         grouped[str(row.get("case_id"))].append(row)
     all_pass_groups = [
         all(
-            item.get("status") == "succeeded" and item.get("hard_gate_passed") is True
+            _case_complete_success(item)
             for item in group
         )
         for group in grouped.values()
@@ -56,6 +56,7 @@ def build_run_report(run: dict[str, Any], cases: Iterable[dict[str, Any]]) -> di
     hard_gate_failure_count = sum(
         row.get("hard_gate_passed") is False for row in rows
     )
+    run_summary = run.get("summary") if isinstance(run.get("summary"), dict) else {}
     return {
         "schema_version": "1",
         "run": run,
@@ -77,9 +78,44 @@ def build_run_report(run: dict[str, Any], cases: Iterable[dict[str, Any]]) -> di
             "recovery_count": recovery_count,
             "fallback_count": fallback_count,
             "needs_review_count": sum(bool(row.get("needs_review")) for row in rows),
+            "runtime_success_rate": run_summary.get("runtime_success_rate"),
+            "semantic_evaluated_rate": run_summary.get("semantic_evaluated_rate"),
+            "semantic_success_rate": run_summary.get("semantic_success_rate"),
+            "complete_success_rate": run_summary.get("complete_success_rate"),
+            "trace_completeness_rate": run_summary.get("trace_completeness_rate"),
+            "tool_execution_success_rate": run_summary.get(
+                "tool_execution_success_rate"
+            ),
+            "tool_failure_rate": run_summary.get("tool_failure_rate"),
+            "tool_blocked_rate": run_summary.get("tool_blocked_rate"),
+            "tool_retry_rate": run_summary.get("tool_retry_rate"),
+            "tool_p95_duration_ms": run_summary.get("tool_p95_duration_ms"),
+            "dependency_failure_rate": run_summary.get("dependency_failure_rate"),
+            "external_io_timeout_rate": run_summary.get(
+                "external_io_timeout_rate"
+            ),
+            "retrieval_success_rate": run_summary.get("retrieval_success_rate"),
+            "retrieval_empty_rate": run_summary.get("retrieval_empty_rate"),
+            "retrieval_adopted_rate": run_summary.get("retrieval_adopted_rate"),
+            "memory_search_hit_rate": run_summary.get("memory_search_hit_rate"),
+            "memory_adopted_rate": run_summary.get("memory_adopted_rate"),
+            "memory_write_duplication_rate": run_summary.get(
+                "memory_write_duplication_rate"
+            ),
         },
         "cases": rows,
     }
+
+
+def _case_complete_success(row: dict[str, Any]) -> bool:
+    """优先读取新 outcome；历史记录退回业务终态与硬门禁兼容判断。"""
+
+    record = row.get("record")
+    if isinstance(record, dict):
+        outcome = record.get("outcome")
+        if isinstance(outcome, dict) and isinstance(outcome.get("complete_success"), bool):
+            return bool(outcome["complete_success"])
+    return row.get("status") == "succeeded" and row.get("hard_gate_passed") is True
 
 
 def render_run_report_html(report: dict[str, Any]) -> str:

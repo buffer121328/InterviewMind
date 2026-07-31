@@ -181,6 +181,7 @@ async def test_nested_agent_observation_reuses_root_trace_and_persists_once(monk
     assert root.model_events == [
         {
             "agent_name": "resume",
+            "trace_id": root.trace_id,
             "event_type": "llm.request.completed",
             "model_name": "model-test",
         }
@@ -290,6 +291,7 @@ async def test_agent_observation_collects_model_events_without_langfuse():
     assert observation.model_events == [
         {
             "agent_name": "voice",
+            "trace_id": observation.trace_id,
             "event_type": "llm.request.completed",
             "model_name": "gpt-test",
             "model_member": "member-1",
@@ -746,7 +748,12 @@ async def test_record_model_event_drops_raw_payload_fields():
         )
 
     assert observation.model_events == [
-        {"agent_name": "test", "event_type": "llm.request.started", "input_chars": 14}
+        {
+            "agent_name": "test",
+            "trace_id": observation.trace_id,
+            "event_type": "llm.request.started",
+            "input_chars": 14,
+        }
     ]
 
 

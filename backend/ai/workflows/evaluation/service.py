@@ -866,12 +866,45 @@ class EvaluationUseCases:
             complete = [row for row in succeeded if row.summary.get("complete_success")]
             hard_passed = [row for row in succeeded if row.summary.get("hard_gate_passed")]
             latest = succeeded[0] if succeeded else None
+            runtime_success_rate = _weighted_ratio(
+                rows, "runtime_success_count", "completed_count"
+            )
+            semantic_success_rate = _weighted_ratio(
+                rows, "semantic_success_count", "completed_count"
+            )
+            complete_success_rate = _weighted_ratio(
+                rows, "complete_success_count", "completed_count"
+            )
+            hard_gate_pass_rate = _weighted_success_rate(
+                rows,
+                failure_key="hard_gate_failure_count",
+                total_key="completed_count",
+            )
             return {
                 "run_count": total,
-                "runtime_success_rate": len(runtime) / total if total else None,
-                "semantic_success_rate": len(semantic) / total if total else None,
-                "complete_success_rate": len(complete) / total if total else None,
-                "hard_gate_pass_rate": len(hard_passed) / len(succeeded) if succeeded else None,
+                "runtime_success_rate": (
+                    runtime_success_rate
+                    if runtime_success_rate is not None
+                    else len(runtime) / total if total else None
+                ),
+                "semantic_success_rate": (
+                    semantic_success_rate
+                    if semantic_success_rate is not None
+                    else len(semantic) / total if total else None
+                ),
+                "semantic_evaluated_rate": _weighted_ratio(
+                    rows, "semantic_evaluated_count", "completed_count"
+                ),
+                "complete_success_rate": (
+                    complete_success_rate
+                    if complete_success_rate is not None
+                    else len(complete) / total if total else None
+                ),
+                "hard_gate_pass_rate": (
+                    hard_gate_pass_rate
+                    if hard_gate_pass_rate is not None
+                    else len(hard_passed) / len(succeeded) if succeeded else None
+                ),
                 "factual_support_rate": _metric_average(
                     succeeded, ("factual", "support", "faithful")
                 ),
@@ -902,10 +935,24 @@ class EvaluationUseCases:
                     int(row.summary.get("trace_incomplete_count") or 0) for row in rows
                 ),
                 "tool_failure_rate": _weighted_ratio(
-                    rows, "tool_call_failed_count", "tool_call_total"
+                    rows,
+                    "tool_call_failed_count",
+                    "tool_execution_attempt_count",
+                    fallback_denominator_key="tool_call_total",
                 ),
                 "tool_execution_success_rate": _weighted_ratio(
-                    rows, "tool_call_completed_count", "tool_call_total"
+                    rows,
+                    "tool_call_completed_count",
+                    "tool_execution_attempt_count",
+                    fallback_denominator_key="tool_call_total",
+                ),
+                "tool_blocked_rate": _weighted_ratio(
+                    rows, "tool_call_blocked_count", "tool_call_total"
+                ),
+                "tool_retry_rate": _weighted_ratio(
+                    rows,
+                    "tool_call_retry_count",
+                    "tool_execution_attempt_count",
                 ),
                 "tool_p95_duration_ms": (
                     latest.summary.get("tool_p95_duration_ms") if latest else None
@@ -918,8 +965,31 @@ class EvaluationUseCases:
                 ),
                 "retrieval_empty_rate": _weighted_ratio(
                     rows,
-                    "retrieval_empty_case_count",
-                    "retrieval_observed_case_count",
+                    "retrieval_empty_count",
+                    "retrieval_total",
+                    fallback_numerator_key="retrieval_empty_case_count",
+                    fallback_denominator_key="retrieval_observed_case_count",
+                ),
+                "retrieval_success_rate": _weighted_ratio(
+                    rows, "retrieval_success_count", "retrieval_total"
+                ),
+                "retrieval_adopted_rate": _weighted_ratio(
+                    rows,
+                    "retrieval_adopted_count",
+                    "retrieval_adopted_observed_count",
+                ),
+                "memory_search_hit_rate": _weighted_ratio(
+                    rows, "memory_search_hit_count", "memory_search_total"
+                ),
+                "memory_adopted_rate": _weighted_ratio(
+                    rows,
+                    "memory_adopted_count",
+                    "memory_adopted_observed_count",
+                ),
+                "memory_write_duplication_rate": _weighted_ratio(
+                    rows,
+                    "memory_write_duplicate_count",
+                    "memory_write_observed_count",
                 ),
                 "external_effect_count": sum(
                     int(row.summary.get("external_effect_total") or 0) for row in rows
@@ -1150,6 +1220,12 @@ class EvaluationUseCases:
             if policy is None:
                 self._not_found("Gate Policy 不存在或无权访问")
             blocked: set[str] = set()
+            if getattr(run, "status", "succeeded") != "succeeded" or not bool(
+                run.summary.get("complete_success")
+            ):
+                blocked.add("evaluation_run_incomplete")
+            if bool(run.summary.get("budget_exhausted")):
+                blocked.add("evaluation_budget_exhausted")
             if int(run.summary.get("hard_gate_failure_count") or 0) > 0:
                 blocked.add("hard_gates")
             sample_size = int(run.summary.get("completed_count") or 0)
@@ -1342,6 +1418,8 @@ def _run(row: Any, *, agent_run: dict[str, Any] | None = None) -> dict[str, Any]
 def _case_run(row: Any) -> dict[str, Any]:
     """序列化案例运行安全摘要。"""
 
+    record = row.record_sanitized if isinstance(row.record_sanitized, dict) else {}
+    outcome = record.get("outcome") if isinstance(record.get("outcome"), dict) else {}
     return {
         "id": row.id,
         "evaluation_run_id": row.evaluation_run_id,
@@ -1355,6 +1433,11 @@ def _case_run(row: Any) -> dict[str, Any]:
         "overall_score": row.overall_score,
         "error_category": row.error_category,
         "needs_review": row.needs_review,
+        "runtime_success": outcome.get("runtime_success"),
+        "semantic_evaluated": outcome.get("semantic_evaluated"),
+        "semantic_success": outcome.get("semantic_success"),
+        "complete_success": outcome.get("complete_success"),
+        "review_reasons": list(outcome.get("review_reasons") or []),
     }
 
 
@@ -1431,12 +1514,54 @@ def _gate(row: Any) -> dict[str, Any]:
     }
 
 
-def _weighted_ratio(rows: list[Any], numerator_key: str, denominator_key: str) -> float | None:
-    """按运行摘要中的计数加权计算治理指标，避免小运行放大平均值。"""
+def _weighted_ratio(
+    rows: list[Any],
+    numerator_key: str,
+    denominator_key: str,
+    *,
+    fallback_numerator_key: str | None = None,
+    fallback_denominator_key: str | None = None,
+) -> float | None:
+    """按运行计数加权计算比率，并仅对缺少新字段的历史摘要使用兼容键。"""
 
-    numerator = sum(int(row.summary.get(numerator_key) or 0) for row in rows)
-    denominator = sum(int(row.summary.get(denominator_key) or 0) for row in rows)
-    return numerator / denominator if denominator else None
+    numerator = 0
+    denominator = 0
+    observed = False
+    for row in rows:
+        summary = row.summary
+        if numerator_key in summary:
+            row_numerator_key = numerator_key
+        elif fallback_numerator_key and fallback_numerator_key in summary:
+            row_numerator_key = fallback_numerator_key
+        else:
+            continue
+        row_denominator_key = (
+            denominator_key
+            if denominator_key in summary
+            else fallback_denominator_key or denominator_key
+        )
+        observed = True
+        numerator += int(summary.get(row_numerator_key) or 0)
+        denominator += int(summary.get(row_denominator_key) or 0)
+    return numerator / denominator if observed and denominator else None
+
+
+def _weighted_success_rate(
+    rows: list[Any], *, failure_key: str, total_key: str
+) -> float | None:
+    """仅用同时具有新失败计数和总数的运行计算加权成功率。"""
+
+    failures = 0
+    total = 0
+    observed = False
+    for row in rows:
+        summary = row.summary
+        if failure_key not in summary or total_key not in summary:
+            continue
+        observed = True
+        failures += int(summary.get(failure_key) or 0)
+        total += int(summary.get(total_key) or 0)
+    return (total - failures) / total if observed and total else None
 
 
 def _record_has_tool(record: Any, tool_name: str) -> bool:

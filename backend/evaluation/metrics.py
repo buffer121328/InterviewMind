@@ -55,6 +55,43 @@ class ReleaseDecision:
 
 DEFAULT_METRIC_CATALOG: tuple[MetricDefinition, ...] = (
     MetricDefinition(
+        name="quality.runtime_success_rate",
+        dimension="runtime_reliability",
+        agent_scope=("all",),
+        description="案例运行成功且关键 Trace 完整的比例。",
+        comparison=MetricComparison.GREATER_THAN_OR_EQUAL,
+    ),
+    MetricDefinition(
+        name="quality.semantic_evaluated_rate",
+        dimension="final_output_quality",
+        agent_scope=("all",),
+        description="至少存在一个适用语义指标的案例比例。",
+        comparison=MetricComparison.GREATER_THAN_OR_EQUAL,
+    ),
+    MetricDefinition(
+        name="quality.semantic_success_rate",
+        dimension="final_output_quality",
+        agent_scope=("all",),
+        description="适用语义指标全部通过的案例比例。",
+        comparison=MetricComparison.GREATER_THAN_OR_EQUAL,
+    ),
+    MetricDefinition(
+        name="quality.complete_success_rate",
+        dimension="final_output_quality",
+        agent_scope=("all",),
+        description="运行、语义和全部硬门禁同时通过的案例比例。",
+        threshold=0.99,
+        comparison=MetricComparison.GREATER_THAN_OR_EQUAL,
+    ),
+    MetricDefinition(
+        name="governance.pending_review_rate",
+        dimension="human_acceptance",
+        agent_scope=("all",),
+        description="完成案例中仍需人工复核的比例。",
+        threshold=0.0,
+        comparison=MetricComparison.LESS_THAN_OR_EQUAL,
+    ),
+    MetricDefinition(
         name="interview.max_follow_ups_compliance",
         dimension="planning_and_execution",
         agent_scope=("interview",),
@@ -128,6 +165,102 @@ DEFAULT_METRIC_CATALOG: tuple[MetricDefinition, ...] = (
         comparison=MetricComparison.GREATER_THAN_OR_EQUAL,
     ),
     MetricDefinition(
+        name="runtime.tool_execution_success_rate",
+        dimension="runtime_reliability",
+        agent_scope=("all",),
+        description="已实际执行的 Tool 中完成调用的比例；blocked/skipped 不进入分母。",
+        threshold=0.99,
+        comparison=MetricComparison.GREATER_THAN_OR_EQUAL,
+    ),
+    MetricDefinition(
+        name="runtime.tool_failure_rate",
+        dimension="runtime_reliability",
+        agent_scope=("all",),
+        description="已实际执行的 Tool 中失败调用的比例；blocked/skipped 不进入分母。",
+        threshold=0.01,
+        comparison=MetricComparison.LESS_THAN_OR_EQUAL,
+    ),
+    MetricDefinition(
+        name="runtime.tool_blocked_rate",
+        dimension="security_and_permissions",
+        agent_scope=("all",),
+        description="被权限、审批或策略正确阻断的 Tool 占全部逻辑调用比例。",
+    ),
+    MetricDefinition(
+        name="runtime.tool_p95_duration_ms",
+        dimension="model_routing_cost_latency",
+        agent_scope=("all",),
+        description="已实际执行 Tool 的 P95 耗时；阈值由具体 Gate Policy 设置。",
+        comparison=MetricComparison.LESS_THAN_OR_EQUAL,
+    ),
+    MetricDefinition(
+        name="runtime.tool_retry_rate",
+        dimension="runtime_reliability",
+        agent_scope=("all",),
+        description="已实际执行 Tool 中 attempt 大于 1 的逻辑调用比例。",
+        comparison=MetricComparison.LESS_THAN_OR_EQUAL,
+    ),
+    MetricDefinition(
+        name="runtime.dependency_failure_rate",
+        dimension="runtime_reliability",
+        agent_scope=("all",),
+        description="外部 IO 最终失败比例。",
+        threshold=0.01,
+        comparison=MetricComparison.LESS_THAN_OR_EQUAL,
+    ),
+    MetricDefinition(
+        name="runtime.external_io_timeout_rate",
+        dimension="runtime_reliability",
+        agent_scope=("all",),
+        description="外部 IO 中稳定分类为 external_io_timeout 的比例。",
+        threshold=0.01,
+        comparison=MetricComparison.LESS_THAN_OR_EQUAL,
+    ),
+    MetricDefinition(
+        name="rag.retrieval_success_rate",
+        dimension="rag_and_memory",
+        agent_scope=("rag", "agentic_retrieval", "all"),
+        description="带 query fingerprint 的检索调用成功返回终态的比例。",
+        threshold=0.99,
+        comparison=MetricComparison.GREATER_THAN_OR_EQUAL,
+    ),
+    MetricDefinition(
+        name="rag.empty_result_rate",
+        dimension="rag_and_memory",
+        agent_scope=("rag", "agentic_retrieval", "all"),
+        description="检索调用成功但结果数为零的比例，只用于解释质量与覆盖率。",
+        comparison=MetricComparison.LESS_THAN_OR_EQUAL,
+    ),
+    MetricDefinition(
+        name="rag.adopted_rate",
+        dimension="rag_and_memory",
+        agent_scope=("rag", "agentic_retrieval", "all"),
+        description="具有明确 adopted 证据的检索结果中被 Agent 采用的比例。",
+        comparison=MetricComparison.GREATER_THAN_OR_EQUAL,
+    ),
+    MetricDefinition(
+        name="memory.search_hit_rate",
+        dimension="rag_and_memory",
+        agent_scope=("memory", "all"),
+        description="mem0 搜索成功且返回至少一条结果的比例。",
+        comparison=MetricComparison.GREATER_THAN_OR_EQUAL,
+    ),
+    MetricDefinition(
+        name="memory.adopted_rate",
+        dimension="rag_and_memory",
+        agent_scope=("memory", "all"),
+        description="具有明确 adopted 证据的 memory 检索中被采用的比例。",
+        comparison=MetricComparison.GREATER_THAN_OR_EQUAL,
+    ),
+    MetricDefinition(
+        name="memory.write_duplication_rate",
+        dimension="rag_and_memory",
+        agent_scope=("memory", "all"),
+        description="具有 idempotency_key_hash 的 memory 写入中重复键所占比例。",
+        threshold=0.0,
+        comparison=MetricComparison.LESS_THAN_OR_EQUAL,
+    ),
+    MetricDefinition(
         name="observability.critical_trace_completeness",
         dimension="observability_and_reproducibility",
         agent_scope=("all",),
@@ -152,6 +285,31 @@ DEFAULT_METRIC_CATALOG: tuple[MetricDefinition, ...] = (
         comparison=MetricComparison.GREATER_THAN_OR_EQUAL,
     ),
 )
+
+_METRIC_BY_NAME = {definition.name: definition for definition in DEFAULT_METRIC_CATALOG}
+
+
+def metric_definition(name: str) -> MetricDefinition | None:
+    """按稳定名称返回指标定义；未知的自定义指标由 Gate Policy 自己给出方向。"""
+
+    return _METRIC_BY_NAME.get(name)
+
+
+def metric_delta_is_regression(name: str, delta: float) -> bool:
+    """按指标方向判断相对基线的变化是否恶化，未知指标保持越大越好兼容语义。"""
+
+    definition = metric_definition(name)
+    if definition is None:
+        comparison = MetricComparison.GREATER_THAN_OR_EQUAL
+    elif definition.comparison is None:
+        return False
+    else:
+        comparison = definition.comparison
+    if comparison is MetricComparison.LESS_THAN_OR_EQUAL:
+        return delta > 0
+    if comparison is MetricComparison.EQUAL:
+        return delta != 0
+    return delta < 0
 
 
 def build_release_decision(

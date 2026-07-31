@@ -18,11 +18,11 @@ from ai.workflows.evaluation.service import (
     _is_unacceptable_regression,
     _passes_threshold,
     _trend_point,
+    _weighted_success_rate,
 )
 from app.db.repositories.evaluation.repository import (
     EvaluationRepository,
     _candidate_governance_metadata,
-    _case_requires_review,
 )
 from app.db.models.evaluation import EvaluationAnnotationModel
 from app.schemas.evaluations import (
@@ -32,7 +32,10 @@ from app.schemas.evaluations import (
     EvaluationGatePolicyCreateRequest,
 )
 from evaluation.online import sampling_decision, sanitize_production_trace
+from evaluation.outcomes import classify_case_outcome
 from evaluation.reporting import build_run_report, render_run_report_html
+from evaluation.runners import AgentEvalRunner, EvaluationCaseSpec
+from evaluation.schemas import EvalObservabilitySummary, EvalTraceCompleteness, ScoreSource
 
 
 @pytest.mark.fast
@@ -44,6 +47,24 @@ def test_directional_gate_thresholds_cover_mae_and_zero_tolerance() -> None:
     assert _passes_threshold(0, {"value": 0, "comparison": "eq"})
     assert _is_unacceptable_regression(-0.03, {"value": 0.02, "comparison": "gte"})
     assert _is_unacceptable_regression(0.03, {"value": 0.02, "comparison": "lte"})
+
+
+@pytest.mark.fast
+def test_weighted_success_rate_ignores_legacy_rows_without_failure_counts() -> None:
+    """历史摘要缺少新失败计数时应回退旧口径，不能被误算为零失败样本。"""
+
+    rows = [
+        SimpleNamespace(
+            summary={"completed_count": 2, "hard_gate_failure_count": 1}
+        ),
+        SimpleNamespace(summary={"completed_count": 10, "hard_gate_passed": True}),
+    ]
+
+    assert _weighted_success_rate(
+        rows,
+        failure_key="hard_gate_failure_count",
+        total_key="completed_count",
+    ) == pytest.approx(0.5)
 
 
 @pytest.mark.fast
@@ -93,16 +114,33 @@ def test_overview_and_trend_helpers_keep_quality_sources_observable() -> None:
 def test_trace_incomplete_case_requires_manual_review() -> None:
     """即使业务成功且硬门禁通过，关键 Trace 缺失也不能静默离开复核队列。"""
 
-    assert _case_requires_review(
-        final_status="succeeded",
-        hard_gate_passed=True,
-        trace_complete=False,
+    case = EvaluationCaseSpec(
+        case_id="case-trace",
+        dataset_version="v1",
+        input_payload={"safe": True},
     )
-    assert not _case_requires_review(
-        final_status="succeeded",
-        hard_gate_passed=True,
-        trace_complete=True,
+    record = AgentEvalRunner.minimal_record_for_test(
+        case=case, actual_output={"answer": "ok"}
     )
+    semantic_score = AgentEvalRunner.passing_score_for_test(
+        source=ScoreSource.DETERMINISTIC
+    )
+    incomplete = classify_case_outcome(record, [semantic_score])
+    complete_record = record.model_copy(
+        update={
+            "observability": EvalObservabilitySummary(
+                trace_completeness=EvalTraceCompleteness(
+                    complete=True,
+                    score=1.0,
+                )
+            )
+        }
+    )
+    complete = classify_case_outcome(complete_record, [semantic_score])
+
+    assert incomplete.review_required
+    assert "trace_incomplete" in incomplete.review_reasons
+    assert not complete.review_required
 
 
 @pytest.mark.fast

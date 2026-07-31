@@ -32,7 +32,7 @@ from app.schemas.evaluations import (
 )
 from app.security.security import redact_secret_text
 from evaluation.runners import EvaluationCaseSpec, EvaluationCaseResult
-from evaluation.schemas import EvalScoreStatus
+from evaluation.outcomes import classify_case_outcome, semantic_score_average
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -41,17 +41,6 @@ def _now() -> datetime:
     """返回便于测试替换的本地时间。"""
 
     return datetime.now()
-
-
-def _case_requires_review(
-    *,
-    final_status: str,
-    hard_gate_passed: bool,
-    trace_complete: bool,
-) -> bool:
-    """判断案例是否必须进入人工复核，覆盖业务失败、硬门禁和观测缺失。"""
-
-    return final_status != "succeeded" or not hard_gate_passed or not trace_complete
 
 
 def _safe_candidate_label(value: Any) -> str | None:
@@ -618,6 +607,7 @@ class EvaluationRepository:
                         forbidden_state_transitions=tuple(
                             expected.get("forbidden_state_transitions") or []
                         ),
+                        quality_rubric=dict(expected.get("quality_rubric") or {}),
                         retrieval_context=tuple(expected.get("retrieval_context") or []),
                         tags=tuple(row.tags or []),
                         severity=row.severity,
@@ -654,17 +644,9 @@ class EvaluationRepository:
             and existing.hard_gate_passed
         ):
             return existing
-        hard_gate_passed = all(
-            score.status is EvalScoreStatus.PASSED
-            for score in result.scores
-            if score.hard_gate
+        outcome = result.record.outcome or classify_case_outcome(
+            result.record, result.scores
         )
-        soft_values = [
-            score.value
-            for score in result.scores
-            if not score.hard_gate and score.value is not None
-        ]
-        trace_complete = result.record.observability.trace_completeness.complete
         record_payload = result.record.model_dump(mode="json")
         actual_output = record_payload.pop("final_output", None)
         values = {
@@ -676,18 +658,12 @@ class EvaluationRepository:
             "trace_id": trace_id,
             "latency_ms": result.record.latency_ms,
             "token_usage": result.record.token_usage.model_dump(mode="json"),
-            "hard_gate_passed": hard_gate_passed,
-            "overall_score": (
-                sum(soft_values) / len(soft_values) if soft_values else None
-            ),
+            "hard_gate_passed": outcome.hard_gate_passed,
+            "overall_score": semantic_score_average(result.scores),
             "error_category": (
                 result.record.error.classification if result.record.error else None
             ),
-            "needs_review": _case_requires_review(
-                final_status=result.record.final_status,
-                hard_gate_passed=hard_gate_passed,
-                trace_complete=trace_complete,
-            ),
+            "needs_review": outcome.review_required,
             "finished_at": _now(),
         }
         if existing is None:

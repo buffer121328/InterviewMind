@@ -332,6 +332,8 @@ class ExternalIOObservationEvent:
     error_type: str | None = None
     error_category: str | None = None
     query_fingerprint: str | None = None
+    adopted: bool | None = None
+    strategy: str | None = None
     emitted_at: str = field(default_factory=_utc_now_iso)
     schema_version: int = RUNTIME_EVENT_SCHEMA_VERSION
 
@@ -366,6 +368,7 @@ class ExternalIOObservationEvent:
             ("error_type", self.error_type),
             ("error_category", self.error_category),
             ("query_fingerprint", self.query_fingerprint),
+            ("strategy", self.strategy),
             ("emitted_at", self.emitted_at),
         ):
             _validate_optional_text(name, value)

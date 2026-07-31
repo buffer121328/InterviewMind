@@ -21,6 +21,7 @@ from evaluation.domain import (
     validate_dataset_transition,
 )
 from evaluation.extractors.runtime import EvaluationTraceCollector
+from evaluation.runtime_metrics import summarize_record_governance
 from evaluation.runners import (
     AgentAdapterRegistry,
     AgentEvalRunner,
@@ -41,12 +42,18 @@ from evaluation.schemas import (
     EvalToolStatus,
     ScoreSource,
 )
+from observability import record_tool_event
+from observability.runtime_events import ToolObservationEvent
 
 
 @pytest.mark.asyncio
 @pytest.mark.fast
-async def test_runner_calls_registered_production_adapter_in_isolated_context() -> None:
+async def test_runner_calls_registered_production_adapter_in_isolated_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Runner 必须调用注册入口、强制评测隔离并采集真实 actual_output。"""
+
+    monkeypatch.setattr("observability.get_langfuse_client", lambda: None)
 
     async def production_entry(
         payload: dict[str, Any],
@@ -57,12 +64,16 @@ async def test_runner_calls_registered_production_adapter_in_isolated_context() 
         assert context.side_effect_mode == "mock"
         assert context.external_tools_enabled is False
         trace.start_step("planning")
-        trace.record_tool_call(
-            call_id="tool-1",
-            tool_name="question_bank_search",
-            effect=EvalToolEffect.READ,
-            status=EvalToolStatus.COMPLETED,
-            approval_status=EvalApprovalStatus.NOT_REQUIRED,
+        record_tool_event(
+            ToolObservationEvent(
+                event_type="tool.completed",
+                call_id="tool-1",
+                tool_name="question_bank_search",
+                effect="read",
+                status="completed",
+                approval_status="not_required",
+                simulated=True,
+            )
         )
         trace.finish_step("planning")
         return {"questions": [{"content": payload["question"]}]}
@@ -95,7 +106,10 @@ async def test_runner_calls_registered_production_adapter_in_isolated_context() 
     assert result.record.final_output["questions"][0]["content"] == "解释事件循环"
     assert result.record.evaluation_namespace == "eval:run-1"
     assert result.record.tool_calls[0].tool_name == "question_bank_search"
-    assert all(score.status is EvalScoreStatus.PASSED for score in result.scores)
+    assert all(
+        score.status in {EvalScoreStatus.PASSED, EvalScoreStatus.NOT_APPLICABLE}
+        for score in result.scores
+    )
 
 
 @pytest.mark.asyncio
@@ -213,8 +227,6 @@ def test_langfuse_adapter_is_best_effort_and_preserves_score_sources() -> None:
 def test_worker_governance_counts_cover_tool_dependency_approval_and_retrieval() -> None:
     """Worker 汇总必须区分 blocked 外部调用和真正的未审批外部执行。"""
 
-    from ai.workflows.agent_tasks.evaluation_suite import _case_governance_counts
-
     record = AgentEvalRunner.minimal_record_for_test(
         case=EvaluationCaseSpec(
             case_id="case-governance",
@@ -284,14 +296,18 @@ def test_worker_governance_counts_cover_tool_dependency_approval_and_retrieval()
         }
     )
 
-    counts = _case_governance_counts(record)
+    counts = summarize_record_governance(record).as_counts()
 
     assert counts == {
         "trace_complete": False,
+        "trace_completeness_score": 0.0,
         "tool_call_total": 3,
+        "tool_execution_attempt_count": 2,
         "tool_call_completed_count": 1,
         "tool_call_failed_count": 1,
-        "tool_durations": [10, 20, 30],
+        "tool_call_blocked_count": 1,
+        "tool_call_retry_count": 0,
+        "tool_durations": [20, 30],
         "external_effect_total": 2,
         "external_effect_blocked_count": 1,
         "approval_violation_count": 1,
@@ -301,6 +317,17 @@ def test_worker_governance_counts_cover_tool_dependency_approval_and_retrieval()
         "approval_event_total": 1,
         "retrieval_observed_case_count": 1,
         "retrieval_empty_case_count": 1,
+        "retrieval_total": 1,
+        "retrieval_success_count": 1,
+        "retrieval_empty_count": 1,
+        "retrieval_adopted_observed_count": 0,
+        "retrieval_adopted_count": 0,
+        "memory_search_total": 0,
+        "memory_search_hit_count": 0,
+        "memory_adopted_observed_count": 0,
+        "memory_adopted_count": 0,
+        "memory_write_observed_count": 0,
+        "memory_write_duplicate_count": 0,
     }
 
 

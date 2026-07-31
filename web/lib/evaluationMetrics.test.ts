@@ -27,6 +27,7 @@ test('overview exposes trace, tool, dependency and approval governance metrics',
     const cards = overviewCards({
         run_count: 2,
         runtime_success_rate: 1,
+        semantic_evaluated_rate: 0.75,
         semantic_success_rate: 0.5,
         complete_success_rate: 0.5,
         hard_gate_pass_rate: 1,
@@ -41,10 +42,17 @@ test('overview exposes trace, tool, dependency and approval governance metrics',
         trace_incomplete_count: 1,
         tool_failure_rate: 0.25,
         tool_execution_success_rate: 0.75,
+        tool_blocked_rate: 0.2,
+        tool_retry_rate: 0.1,
         tool_p95_duration_ms: 80,
         dependency_failure_rate: 0.5,
         external_io_timeout_rate: 0.25,
         retrieval_empty_rate: 0.5,
+        retrieval_success_rate: 0.75,
+        retrieval_adopted_rate: 0.6,
+        memory_search_hit_rate: 0.5,
+        memory_adopted_rate: null,
+        memory_write_duplication_rate: 0,
         external_effect_count: 2,
         external_effect_blocked_count: 1,
         approval_event_count: 3,
@@ -55,12 +63,19 @@ test('overview exposes trace, tool, dependency and approval governance metrics',
     const values = Object.fromEntries(cards.map((card) => [card.key, card.value]));
 
     assert.equal(values.trace, '75.0%');
+    assert.equal(values['semantic-evaluated'], '75.0%');
     assert.equal(values['trace-missing'], '1');
     assert.equal(values['tool-failure'], '25.0%');
     assert.equal(values['tool-success'], '75.0%');
+    assert.equal(values['tool-blocked'], '20.0%');
+    assert.equal(values['tool-retry'], '10.0%');
     assert.equal(values['dependency-failure'], '50.0%');
     assert.equal(values['dependency-timeout'], '25.0%');
     assert.equal(values['retrieval-empty'], '50.0%');
+    assert.equal(values['retrieval-success'], '75.0%');
+    assert.equal(values['retrieval-adopted'], '60.0%');
+    assert.equal(values['memory-hit'], '50.0%');
+    assert.equal(values['memory-duplicate'], '0.0%');
     assert.equal(values.approval, '3');
     assert.equal(values['approval-violations'], '1');
     assert.equal(values['langfuse-failed'], '1');

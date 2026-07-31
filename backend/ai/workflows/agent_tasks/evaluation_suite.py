@@ -18,11 +18,14 @@ from evaluation.adapters.langfuse_adapter import (
     LangfuseReportSummary,
     LangfuseScoreAdapter,
 )
+from evaluation.metrics import metric_delta_is_regression
+from evaluation.outcomes import classify_case_outcome
 from evaluation.runners import (
     AgentEvalRunner,
     EvaluationCaseResult,
     build_production_agent_registry,
 )
+from evaluation.runtime_metrics import summarize_record_governance
 from evaluation.schemas import AgentEvalRecord
 
 
@@ -50,51 +53,6 @@ def _apply_langfuse_report_status(
         ),
         report_failed,
     )
-
-
-def _case_governance_counts(record: AgentEvalRecord) -> dict[str, Any]:
-    """计算单案例治理计数，供 Worker 汇总和离线回归测试共用。"""
-
-    external_calls = [
-        call for call in record.tool_calls if call.effect.value == "external"
-    ]
-    return {
-        "trace_complete": record.observability.trace_completeness.complete,
-        "tool_call_total": len(record.tool_calls),
-        "tool_call_completed_count": sum(
-            call.status.value == "completed" for call in record.tool_calls
-        ),
-        "tool_call_failed_count": sum(
-            call.status.value == "failed" for call in record.tool_calls
-        ),
-        "tool_durations": [
-            int(call.duration_ms)
-            for call in record.tool_calls
-            if call.duration_ms is not None
-        ],
-        "external_effect_total": len(external_calls),
-        "external_effect_blocked_count": sum(
-            call.status.value == "blocked" for call in external_calls
-        ),
-        "approval_violation_count": sum(
-            call.status.value == "completed"
-            and call.approval_status.value != "approved"
-            for call in external_calls
-        ),
-        "external_io_total": len(record.external_ios),
-        "external_io_failed_count": sum(
-            item.status.value == "failed" for item in record.external_ios
-        ),
-        "external_io_timeout_count": sum(
-            item.error_category == "external_io_timeout"
-            for item in record.external_ios
-        ),
-        "approval_event_total": len(record.approvals),
-        "retrieval_observed_case_count": int(bool(record.retrievals)),
-        "retrieval_empty_case_count": int(
-            any(item.empty_result is True for item in record.retrievals)
-        ),
-    }
 
 
 async def execute_evaluation_suite(
@@ -147,6 +105,9 @@ async def execute_evaluation_suite(
     failed = 0
     hard_gate_failures = 0
     needs_review = 0
+    runtime_successes = 0
+    semantic_evaluated = 0
+    semantic_successes = 0
     complete_successes = 0
     latencies: list[int] = []
     token_totals: list[int] = []
@@ -158,8 +119,11 @@ async def execute_evaluation_suite(
     trace_complete_count = 0
     trace_incomplete_count = 0
     tool_call_total = 0
+    tool_execution_attempt_count = 0
     tool_call_completed_count = 0
     tool_call_failed_count = 0
+    tool_call_blocked_count = 0
+    tool_call_retry_count = 0
     tool_durations: list[int] = []
     external_effect_total = 0
     external_effect_blocked_count = 0
@@ -170,6 +134,17 @@ async def execute_evaluation_suite(
     approval_event_total = 0
     retrieval_observed_case_count = 0
     retrieval_empty_case_count = 0
+    retrieval_total = 0
+    retrieval_success_count = 0
+    retrieval_empty_count = 0
+    retrieval_adopted_observed_count = 0
+    retrieval_adopted_count = 0
+    memory_search_total = 0
+    memory_search_hit_count = 0
+    memory_adopted_observed_count = 0
+    memory_adopted_count = 0
+    memory_write_observed_count = 0
+    memory_write_duplicate_count = 0
     langfuse_reported_case_count = 0
     langfuse_failed_case_count = 0
     estimated_cost_usd = 0.0
@@ -225,9 +200,6 @@ async def execute_evaluation_suite(
                 )
                 langfuse_reported_case_count += int(not report_failed)
                 langfuse_failed_case_count += int(report_failed)
-            hard_passed = all(score.status.value == "passed" for score in result.scores if score.hard_gate)
-            failed += result.record.final_status != "succeeded"
-            hard_gate_failures += not hard_passed
             sample_bucket = int(
                 hashlib.sha256(
                     f"{evaluation_run_id}:{case_model.id}:{repetition_index}".encode()
@@ -250,16 +222,30 @@ async def execute_evaluation_suite(
                 len(values) > 1 and max(values) - min(values) >= 0.2
                 for values in judge_values.values()
             )
-            governance = _case_governance_counts(result.record)
-            trace_complete = bool(governance["trace_complete"])
-            needs_review += (
-                result.record.final_status != "succeeded"
-                or not hard_passed
-                or sampled_for_review
-                or judge_review
-                or not trace_complete
+            extra_review_reasons = []
+            if sampled_for_review:
+                extra_review_reasons.append("sampled_review")
+            if judge_review:
+                extra_review_reasons.append("judge_disagreement")
+            outcome = classify_case_outcome(
+                result.record,
+                result.scores,
+                extra_review_reasons=extra_review_reasons,
             )
-            complete_successes += result.record.final_status == "succeeded" and hard_passed
+            result = replace(
+                result,
+                record=result.record.model_copy(update={"outcome": outcome}),
+            )
+            hard_passed = outcome.hard_gate_passed
+            failed += result.record.final_status != "succeeded"
+            hard_gate_failures += not hard_passed
+            governance = summarize_record_governance(result.record).as_counts()
+            trace_complete = bool(governance["trace_complete"])
+            needs_review += int(outcome.review_required)
+            runtime_successes += int(outcome.runtime_success)
+            semantic_evaluated += int(outcome.semantic_evaluated)
+            semantic_successes += int(outcome.semantic_success)
+            complete_successes += int(outcome.complete_success)
             completed += 1
             latencies.append(result.record.latency_ms)
             token_totals.append(
@@ -276,10 +262,15 @@ async def execute_evaluation_suite(
             trace_complete_count += int(trace_complete)
             trace_incomplete_count += int(not trace_complete)
             tool_call_total += int(governance["tool_call_total"])
+            tool_execution_attempt_count += int(
+                governance["tool_execution_attempt_count"]
+            )
             tool_call_completed_count += int(
                 governance["tool_call_completed_count"]
             )
             tool_call_failed_count += int(governance["tool_call_failed_count"])
+            tool_call_blocked_count += int(governance["tool_call_blocked_count"])
+            tool_call_retry_count += int(governance["tool_call_retry_count"])
             tool_durations.extend(governance["tool_durations"])
             external_effect_total += int(governance["external_effect_total"])
             external_effect_blocked_count += int(
@@ -301,6 +292,27 @@ async def execute_evaluation_suite(
             )
             retrieval_empty_case_count += int(
                 governance["retrieval_empty_case_count"]
+            )
+            retrieval_total += int(governance["retrieval_total"])
+            retrieval_success_count += int(governance["retrieval_success_count"])
+            retrieval_empty_count += int(governance["retrieval_empty_count"])
+            retrieval_adopted_observed_count += int(
+                governance["retrieval_adopted_observed_count"]
+            )
+            retrieval_adopted_count += int(
+                governance["retrieval_adopted_count"]
+            )
+            memory_search_total += int(governance["memory_search_total"])
+            memory_search_hit_count += int(governance["memory_search_hit_count"])
+            memory_adopted_observed_count += int(
+                governance["memory_adopted_observed_count"]
+            )
+            memory_adopted_count += int(governance["memory_adopted_count"])
+            memory_write_observed_count += int(
+                governance["memory_write_observed_count"]
+            )
+            memory_write_duplicate_count += int(
+                governance["memory_write_duplicate_count"]
             )
             for score in result.scores:
                 if score.value is not None:
@@ -324,8 +336,7 @@ async def execute_evaluation_suite(
                     repetition_index=repetition_index,
                     result=result,
                 )
-                if sampled_for_review or judge_review or not trace_complete:
-                    saved.needs_review = True
+                saved.needs_review = outcome.review_required
                 current.summary = {
                     "case_total": total,
                     "completed_count": completed,
@@ -344,26 +355,85 @@ async def execute_evaluation_suite(
 
     await progress("scoring")
     await progress("aggregating")
+    runtime_success_rate = _ratio(runtime_successes, completed)
+    semantic_evaluated_rate = _ratio(semantic_evaluated, completed)
+    semantic_success_rate = _ratio(semantic_successes, completed)
+    complete_success_rate = _ratio(complete_successes, completed)
+    trace_completeness_rate = _ratio(trace_complete_count, completed)
+    tool_execution_success_rate = _ratio(
+        tool_call_completed_count, tool_execution_attempt_count
+    )
+    tool_failure_rate = _ratio(
+        tool_call_failed_count, tool_execution_attempt_count
+    )
+    tool_blocked_rate = _ratio(tool_call_blocked_count, tool_call_total)
+    tool_retry_rate = _ratio(tool_call_retry_count, tool_execution_attempt_count)
+    dependency_failure_rate = _ratio(external_io_failed_count, external_io_total)
+    external_io_timeout_rate = _ratio(external_io_timeout_count, external_io_total)
+    retrieval_success_rate = _ratio(retrieval_success_count, retrieval_total)
+    retrieval_empty_rate = _ratio(retrieval_empty_count, retrieval_total)
+    retrieval_adopted_rate = _ratio(
+        retrieval_adopted_count, retrieval_adopted_observed_count
+    )
+    memory_search_hit_rate = _ratio(memory_search_hit_count, memory_search_total)
+    memory_adopted_rate = _ratio(
+        memory_adopted_count, memory_adopted_observed_count
+    )
+    memory_write_duplication_rate = _ratio(
+        memory_write_duplicate_count, memory_write_observed_count
+    )
+    pending_review_rate = _ratio(needs_review, completed)
+    aggregate_metrics = {
+        name: sum(values) / len(values)
+        for name, values in metric_values.items()
+        if values
+    }
+    aggregate_metrics.update(
+        {
+            "quality.runtime_success_rate": runtime_success_rate,
+            "quality.semantic_evaluated_rate": semantic_evaluated_rate,
+            "quality.semantic_success_rate": semantic_success_rate,
+            "quality.complete_success_rate": complete_success_rate,
+            "governance.pending_review_rate": pending_review_rate,
+            "observability.critical_trace_completeness": trace_completeness_rate,
+            "runtime.tool_execution_success_rate": tool_execution_success_rate,
+            "runtime.tool_failure_rate": tool_failure_rate,
+            "runtime.tool_blocked_rate": tool_blocked_rate,
+            "runtime.tool_p95_duration_ms": _percentile(tool_durations, 0.95),
+            "runtime.tool_retry_rate": tool_retry_rate,
+            "runtime.dependency_failure_rate": dependency_failure_rate,
+            "runtime.external_io_timeout_rate": external_io_timeout_rate,
+            "rag.retrieval_success_rate": retrieval_success_rate,
+            "rag.empty_result_rate": retrieval_empty_rate,
+            "rag.adopted_rate": retrieval_adopted_rate,
+            "memory.search_hit_rate": memory_search_hit_rate,
+            "memory.adopted_rate": memory_adopted_rate,
+            "memory.write_duplication_rate": memory_write_duplication_rate,
+        }
+    )
+    aggregate_metrics = {
+        name: value for name, value in aggregate_metrics.items() if value is not None
+    }
     summary = {
         "case_total": total,
         "completed_count": completed,
         "failed_count": failed,
         "hard_gate_failure_count": hard_gate_failures,
         "needs_review_count": needs_review,
-        "runtime_success": failed == 0 and completed == total,
-        "semantic_success": (
-            failed == 0 and completed == total and hard_gate_failures == 0
-        ),
-        "complete_success": (
-            failed == 0 and completed == total and hard_gate_failures == 0
-        ),
+        "runtime_success_count": runtime_successes,
+        "semantic_evaluated_count": semantic_evaluated,
+        "semantic_success_count": semantic_successes,
+        "complete_success_count": complete_successes,
+        "runtime_success": completed == total and runtime_successes == completed,
+        "semantic_evaluated": completed == total and semantic_evaluated == completed,
+        "semantic_success": completed == total and semantic_successes == completed,
+        "complete_success": completed == total and complete_successes == completed,
         "hard_gate_passed": hard_gate_failures == 0,
-        "complete_success_rate": complete_successes / completed if completed else None,
-        "metrics": {
-            name: sum(values) / len(values)
-            for name, values in metric_values.items()
-            if values
-        },
+        "runtime_success_rate": runtime_success_rate,
+        "semantic_evaluated_rate": semantic_evaluated_rate,
+        "semantic_success_rate": semantic_success_rate,
+        "complete_success_rate": complete_success_rate,
+        "metrics": aggregate_metrics,
         "hard_gates": hard_gate_status,
         "hard_gate_evidence": {
             name: sorted(evidence_refs)
@@ -378,14 +448,17 @@ async def execute_evaluation_suite(
         "recovery_count": recovery_count,
         "trace_complete_count": trace_complete_count,
         "trace_incomplete_count": trace_incomplete_count,
-        "trace_completeness_rate": trace_complete_count / completed if completed else None,
+        "trace_completeness_rate": trace_completeness_rate,
         "tool_call_total": tool_call_total,
+        "tool_execution_attempt_count": tool_execution_attempt_count,
         "tool_call_completed_count": tool_call_completed_count,
         "tool_call_failed_count": tool_call_failed_count,
-        "tool_failure_rate": tool_call_failed_count / tool_call_total if tool_call_total else None,
-        "tool_execution_success_rate": (
-            tool_call_completed_count / tool_call_total if tool_call_total else None
-        ),
+        "tool_call_blocked_count": tool_call_blocked_count,
+        "tool_call_retry_count": tool_call_retry_count,
+        "tool_failure_rate": tool_failure_rate,
+        "tool_execution_success_rate": tool_execution_success_rate,
+        "tool_blocked_rate": tool_blocked_rate,
+        "tool_retry_rate": tool_retry_rate,
         "tool_p95_duration_ms": _percentile(tool_durations, 0.95),
         "external_effect_total": external_effect_total,
         "external_effect_blocked_count": external_effect_blocked_count,
@@ -393,18 +466,29 @@ async def execute_evaluation_suite(
         "external_io_total": external_io_total,
         "external_io_failed_count": external_io_failed_count,
         "external_io_timeout_count": external_io_timeout_count,
-        "dependency_failure_rate": external_io_failed_count / external_io_total if external_io_total else None,
-        "external_io_timeout_rate": (
-            external_io_timeout_count / external_io_total if external_io_total else None
-        ),
+        "dependency_failure_rate": dependency_failure_rate,
+        "external_io_timeout_rate": external_io_timeout_rate,
         "approval_event_total": approval_event_total,
         "retrieval_observed_case_count": retrieval_observed_case_count,
         "retrieval_empty_case_count": retrieval_empty_case_count,
-        "retrieval_empty_rate": (
-            retrieval_empty_case_count / retrieval_observed_case_count
-            if retrieval_observed_case_count
-            else None
-        ),
+        "retrieval_total": retrieval_total,
+        "retrieval_success_count": retrieval_success_count,
+        "retrieval_empty_count": retrieval_empty_count,
+        "retrieval_adopted_observed_count": retrieval_adopted_observed_count,
+        "retrieval_adopted_count": retrieval_adopted_count,
+        "retrieval_success_rate": retrieval_success_rate,
+        "retrieval_empty_rate": retrieval_empty_rate,
+        "retrieval_adopted_rate": retrieval_adopted_rate,
+        "memory_search_total": memory_search_total,
+        "memory_search_hit_count": memory_search_hit_count,
+        "memory_search_hit_rate": memory_search_hit_rate,
+        "memory_adopted_observed_count": memory_adopted_observed_count,
+        "memory_adopted_count": memory_adopted_count,
+        "memory_adopted_rate": memory_adopted_rate,
+        "memory_write_observed_count": memory_write_observed_count,
+        "memory_write_duplicate_count": memory_write_duplicate_count,
+        "memory_write_duplication_rate": memory_write_duplication_rate,
+        "pending_review_rate": pending_review_rate,
         "langfuse_reported_case_count": langfuse_reported_case_count,
         "langfuse_failed_case_count": langfuse_failed_case_count,
         "estimated_cost_usd": estimated_cost_usd,
@@ -439,7 +523,10 @@ async def execute_evaluation_suite(
             if baseline_token_total > 0
             else None
         )
-        regression_count = sum(delta < 0 for delta in metric_deltas.values())
+        regression_count = sum(
+            metric_delta_is_regression(name, delta)
+            for name, delta in metric_deltas.items()
+        )
         regression_count += complete_delta is not None and complete_delta < 0
         summary["regression_count"] = int(regression_count)
         summary["baseline_comparison"] = {
@@ -477,6 +564,12 @@ def _percentile(values: list[int], percentile: float) -> float | None:
     upper = min(lower + 1, len(ordered) - 1)
     fraction = position - lower
     return ordered[lower] + (ordered[upper] - ordered[lower]) * fraction
+
+
+def _ratio(numerator: int, denominator: int) -> float | None:
+    """返回保留无样本语义的运行级比率。"""
+
+    return numerator / denominator if denominator else None
 
 
 async def _cancel_requested(payload: dict[str, Any], user_id: str) -> bool:
