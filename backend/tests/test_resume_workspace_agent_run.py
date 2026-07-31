@@ -221,7 +221,7 @@ async def test_resume_workspace_executor_persists_parent_and_reuses_after_crash(
     analyzer_module = ModuleType("ai.agents.resume.resume_analyzer_graph")
     setattr(analyzer_module, "analyze_resume", lambda **_kwargs: _async_result(_competition_analysis()))
     matcher_module = ModuleType("ai.agents.resume.jd_matcher")
-    setattr(matcher_module, "analyze_jd_match", lambda **_kwargs: _async_result(_jd_match()))
+    setattr(matcher_module, "match_jd", lambda **_kwargs: _async_result(_jd_match()))
     orchestrator_module = ModuleType("ai.agents.resume.resume_orchestrator")
     setattr(orchestrator_module, "run_pipeline", lambda **_kwargs: _async_result(_pipeline_result()))
     monkeypatch.setitem(sys.modules, analyzer_module.__name__, analyzer_module)

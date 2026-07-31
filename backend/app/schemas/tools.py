@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any, Literal
 
-ToolEffect = Literal["read", "write", "external"]
+ToolEffect = Literal["none", "read", "write", "external"]
 ResultRetention = Literal["summary", "reference", "none"]
 
 

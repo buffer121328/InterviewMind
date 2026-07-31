@@ -55,14 +55,6 @@ def _assemble_job_model_context(
 
 
 _INTERNSHIP_MARKERS = ("实习", "实习生", "internship")
-_MATCH_KEYWORDS = (
-    "python", "django", "fastapi", "flask", "java", "spring", "go", "golang",
-    "typescript", "javascript", "react", "vue", "node", "sql", "mysql", "postgresql",
-    "redis", "docker", "kubernetes", "k8s", "linux", "aws", "agent", "langchain",
-    "langgraph", "dify", "mcp", "rag", "大模型", "后端", "算法", "微服务", "分布式",
-)
-
-
 def _is_internship_card(card: dict[str, Any]) -> bool:
     """Reject internship roles before ranking, persistence, or model calls."""
     text = " ".join(str(card.get(key) or "") for key in (
@@ -71,36 +63,6 @@ def _is_internship_card(card: dict[str, Any]) -> bool:
     return any(marker in text for marker in _INTERNSHIP_MARKERS) or bool(
         re.search(r"\bintern\b", text, flags=re.IGNORECASE)
     )
-
-
-def _match_terms(text: str) -> set[str]:
-    """Extract compact deterministic terms used as a transparent ranking fallback."""
-    lowered = str(text or "").casefold()
-    terms = {
-        token
-        for token in re.findall(r"[a-z][a-z0-9+#.-]{1,30}", lowered)
-        if len(token) > 1
-    }
-    terms.update(keyword for keyword in _MATCH_KEYWORDS if keyword in lowered)
-    return terms
-
-
-def _keyword_match_score(card: dict[str, Any], resume_content: str, query: str) -> float:
-    """Compute a bounded resume/JD keyword-overlap score without trusting search keywords as facts."""
-    resume_terms = _match_terms(resume_content)
-    job_text = " ".join(str(card.get(key) or "") for key in (
-        "job_title", "title_summary", "job_description",
-    ))
-    job_terms = _match_terms(job_text)
-    if not resume_terms or not job_terms:
-        return 35.0
-    overlap = resume_terms & job_terms
-    denominator = max(3, min(len(job_terms), 12))
-    score = 30.0 + min(60.0, len(overlap) / denominator * 60.0)
-    query_terms = _match_terms(query)
-    if query_terms and query_terms <= resume_terms and query_terms & job_terms:
-        score += 10.0
-    return round(max(0.0, min(score, 100.0)), 1)
 
 
 async def _score_job_cards_by_match(
@@ -132,10 +94,18 @@ async def _score_job_cards_by_match(
     if not cards or not resume_content:
         return cards
 
-    deterministic_scores = {
-        idx: _keyword_match_score(card, resume_content, query)
-        for idx, card in enumerate(cards)
-    }
+    from ai.agents.resume.jd_matcher import score_jd_match_fast
+
+    deterministic_scores = {}
+    for idx, card in enumerate(cards):
+        job_text = " ".join(str(card.get(key) or "") for key in (
+            "job_title", "title_summary", "job_description",
+        ))
+        deterministic_scores[idx] = float(score_jd_match_fast(
+            resume_content=resume_content,
+            job_description=job_text,
+            query=query,
+        )["ranking_score"])
 
     # 构造紧凑的卡片列表（截断 prompt 大小）
     cards_brief = []

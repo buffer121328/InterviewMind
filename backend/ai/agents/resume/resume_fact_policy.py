@@ -8,6 +8,8 @@
 import re
 from typing import Any, Dict, List
 
+from ai.runtime.evidence import claim_has_evidence
+
 # ============================================================================
 # 高风险关键词（需要用户确认）
 # ============================================================================
@@ -149,7 +151,7 @@ def validate_change_items(
             for match in matches:
                 # 检查原简历是否也有类似描述
                 value = match if isinstance(match, str) else str(match)
-                if value not in original_resume:
+                if not claim_has_evidence(value, original_resume):
                     exaggeration_items.append({
                         "pattern": pattern,
                         "matched_value": value,

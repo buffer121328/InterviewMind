@@ -30,6 +30,17 @@ def _extract_host_error_message(response: httpx.Response) -> str:
     return safe_error_message(message) if isinstance(message, str) else ""
 
 
+def _host_request_may_have_run(response: httpx.Response) -> bool:
+    """读取宿主机明确返回的歧义标记；缺失或非法时采用安全默认 false。"""
+
+    try:
+        body = response.json()
+    except ValueError:
+        return False
+    detail = body.get("detail") if isinstance(body, dict) else None
+    return bool(detail.get("request_may_have_run")) if isinstance(detail, dict) else False
+
+
 class BrowserAutomationError(RuntimeError):
     """宿主机浏览器服务不可用、响应非法或执行状态不明确。"""
 
@@ -150,7 +161,9 @@ class BrowserAutomationClient:
             message = detail or f"宿主机浏览器服务请求失败 (HTTP {status_code})"
             raise BrowserAutomationError(
                 message,
-                request_may_have_run=status_code >= 500,
+                request_may_have_run=(
+                    status_code >= 500 or _host_request_may_have_run(exc.response)
+                ),
                 status_code=status_code,
             ) from exc
         except (httpx.ConnectError, httpx.ConnectTimeout) as exc:

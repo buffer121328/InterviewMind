@@ -184,7 +184,7 @@ async def execute_resume_workspace(
     Completed business stages are encrypted by AgentRun and reused only when owner and
     source fingerprints match. High-risk changes remain pending user confirmation.
     """
-    from ai.agents.resume.jd_matcher import analyze_jd_match
+    from ai.agents.resume.jd_matcher import match_jd
     from ai.agents.resume.resume_analyzer_graph import analyze_resume
     from ai.agents.resume.resume_context import assemble_resume_context
     from ai.agents.resume.resume_orchestrator import run_pipeline
@@ -288,7 +288,8 @@ async def execute_resume_workspace(
 
         async def match_call() -> dict[str, Any]:
             """Run JD matching on the same IR without retransmitting full source documents."""
-            return await analyze_jd_match(
+            return await match_jd(
+                mode="smart",
                 resume_content=compact_resume,
                 job_description=compact_jd,
                 api_config=api_config,

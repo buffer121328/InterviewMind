@@ -10,7 +10,7 @@ MIGRATED_FUNCTIONS = {
     "get_jd_match_result",
     "delete_jd_match_result",
 }
-FORBIDDEN_NAMES = {"get_jd_analysis_repo", "analyze_jd_match"}
+FORBIDDEN_NAMES = {"get_jd_analysis_repo", "match_jd", "analyze_jd_match"}
 
 
 def test_resume_jd_match_routes_delegate_to_application_layer():

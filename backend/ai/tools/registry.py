@@ -1,38 +1,35 @@
-"""带权限和副作用元数据的工具注册表。"""
+"""按能力组集中构建业务工具；副作用治理由工具级契约负责。"""
 
 from dataclasses import dataclass, field
 from threading import RLock
-from typing import Any, Callable, Literal
+from typing import Any, Callable
 
 from ai.runtime.context import AgentContext
 
-ToolEffect = Literal["none", "read", "write", "external"]
 ToolFactory = Callable[[AgentContext], list[Any]]
 
 
 @dataclass(frozen=True, slots=True)
 class ToolSpec:
-    """数据对象，承载 `ToolSpec` 的结构化字段和跨模块契约；只表达数据，不在构造或序列化时执行外部调用。"""
+    """声明一个工具能力组的名称、构建函数和构建前置权限。"""
     name: str
     factory: ToolFactory
-    effect: ToolEffect = "read"
     required_permissions: frozenset[str] = field(default_factory=frozenset)
-    requires_confirmation: bool = False
 
 
 class ToolRegistry:
     """维护运行时注册表。"""
     def __init__(self) -> None:
-        """初始化 `ToolRegistry` 的依赖和运行配置；构造阶段不执行业务写入，外部客户端只在后续方法调用时承担访问边界。"""
+        """初始化线程安全的进程内能力组注册表，不构建或执行工具。"""
         self._specs: dict[str, ToolSpec] = {}
         self._lock = RLock()
 
     def register(self, spec: ToolSpec, *, replace: bool = False) -> None:
-        """注册可供运行时发现的声明，拒绝重复或不完整定义，保持模块加载顺序不会改变最终契约。
+        """注册能力组声明，并拒绝空名称或未显式替换的重复项。
 
         Args:
             spec: 经过类型边界校验的 `spec`；其格式和可选值由参数类型及调用流程约束。
-            replace: 经过类型边界校验的 `replace`；其格式和可选值由参数类型及调用流程约束。
+            replace: 是否显式替换同名能力组。
         """
         key = spec.name.strip().lower()
         if not key:
@@ -43,7 +40,7 @@ class ToolRegistry:
             self._specs[key] = spec
 
     def build(self, name: str, context: AgentContext) -> list[Any]:
-        """根据已注册的工具或配置构建可执行对象；先保留契约和权限信息，实际外部副作用由执行器统一治理。
+        """校验能力组前置权限后，构建带工具级契约的可执行对象。
 
         Args:
             name: 名称。
@@ -62,7 +59,7 @@ class ToolRegistry:
         return spec.factory(context)
 
     def describe(self, name: str) -> ToolSpec:
-        """返回注册工具的可审计描述，包括权限、效果和确认要求。
+        """返回工具组的构建声明；副作用与确认要求由组内 ToolContract 声明。
 
         Args:
             name: 名称。
@@ -98,7 +95,38 @@ def _resume_tools(context: AgentContext) -> list[Any]:
 
     resume = str(context.api_config.get("resume_content", ""))
     jd = str(context.api_config.get("job_description", ""))
-    return make_resume_tools(resume_content=resume, job_description=jd)
+    model_config = {
+        key: value
+        for key, value in context.api_config.items()
+        if key not in {"resume_content", "job_description", "verification_source"}
+    }
+    return make_resume_tools(
+        resume_content=resume,
+        job_description=jd,
+        api_config=model_config or None,
+        user_id=context.user_id,
+    )
+
+
+def _verification_tools(context: AgentContext) -> list[Any]:
+    """构造绑定可信来源的声明核验工具，不允许模型替换证据源。"""
+
+    from ai.tools.verification_tools import make_verification_tools
+
+    source = context.api_config.get("verification_source")
+    if isinstance(source, (list, tuple)):
+        source_text = "\n".join(str(item) for item in source)
+    else:
+        source_text = str(source or context.api_config.get("resume_content", ""))
+    return make_verification_tools(source_text)
+
+
+def _job_tools(context: AgentContext) -> list[Any]:
+    """构造绑定 owner 的岗位准备与现有标签页打开工具。"""
+
+    from ai.tools.job_tools import make_job_tools
+
+    return make_job_tools(context.user_id)
 
 
 def _memory_tools(context: AgentContext) -> list[Any]:
@@ -112,6 +140,8 @@ def _memory_tools(context: AgentContext) -> list[Any]:
     return make_memory_tools(user_id=context.user_id)
 
 
-tool_registry.register(ToolSpec("interview", _interview_tools, effect="read"))
-tool_registry.register(ToolSpec("resume", _resume_tools, effect="read"))
-tool_registry.register(ToolSpec("memory", _memory_tools, effect="read"))
+tool_registry.register(ToolSpec("interview", _interview_tools))
+tool_registry.register(ToolSpec("resume", _resume_tools))
+tool_registry.register(ToolSpec("verification", _verification_tools))
+tool_registry.register(ToolSpec("jobs", _job_tools))
+tool_registry.register(ToolSpec("memory", _memory_tools))

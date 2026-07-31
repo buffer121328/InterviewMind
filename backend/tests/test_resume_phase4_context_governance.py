@@ -175,7 +175,7 @@ async def test_workspace_parallel_branches_share_deadline_and_preserve_success(m
 
     repo = FakeRepo()
     monkeypatch.setattr(resume_analyzer_graph, "analyze_resume", analyze_resume)
-    monkeypatch.setattr(jd_matcher, "analyze_jd_match", analyze_match)
+    monkeypatch.setattr(jd_matcher, "match_jd", analyze_match)
     monkeypatch.setattr(resume_orchestrator, "run_pipeline", run_pipeline)
     monkeypatch.setattr("app.db.repositories.resume.resume_repo.get_resume_repo", lambda: repo)
 

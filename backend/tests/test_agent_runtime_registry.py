@@ -42,7 +42,6 @@ def test_tool_registry_checks_permissions_before_building():
     registry.register(ToolSpec(
         name="external",
         factory=lambda _context: ["tool"],
-        effect="external",
         required_permissions=frozenset({"external:run"}),
     ))
 
@@ -54,7 +53,9 @@ def test_tool_registry_checks_permissions_before_building():
 
 
 def test_default_registries_expose_business_capabilities():
-    assert {"interview", "resume", "memory"}.issubset(tool_registry.names())
+    assert {"interview", "resume", "memory", "verification", "jobs"}.issubset(
+        tool_registry.names()
+    )
     assert {
         "interview",
         "resume_analyzer",
@@ -138,6 +139,32 @@ def test_memory_tools_can_be_built_through_runtime_registry():
     tools = tool_registry.build("memory", AgentContext(user_id="user-1"))
 
     assert [tool.name for tool in tools] == ["search_memory"]
+
+
+def test_resume_and_verification_tools_are_built_as_distinct_capability_groups():
+    context = AgentContext(
+        user_id="user-1",
+        api_config={
+            "resume_content": "熟悉 Python 和 FastAPI",
+            "job_description": "需要 Python、FastAPI 和 Redis",
+        },
+    )
+
+    resume_tools = tool_registry.build("resume", context)
+    verification_tools = tool_registry.build("verification", context)
+
+    assert [tool.name for tool in resume_tools] == ["match_jd"]
+    assert [tool.name for tool in verification_tools] == ["verify_claim_against_source"]
+
+
+def test_job_tools_expose_only_capabilities_backed_by_existing_workflows():
+    tools = tool_registry.build("jobs", AgentContext(user_id="user-1"))
+
+    assert {tool.name for tool in tools} == {
+        "prepare_boss_application",
+        "open_boss_job",
+        "send_boss_message",
+    }
 
 
 @pytest.mark.asyncio

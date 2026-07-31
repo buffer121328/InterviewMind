@@ -49,12 +49,20 @@ _COMPANY_SIZE_RE = re.compile(
 class BossExistingTabError(RuntimeError):
     """表示现有浏览器标签页桥接的可诊断失败，不携带页面正文或认证数据。"""
 
-    def __init__(self, code: str, message: str, *, status_code: int = 409) -> None:
-        """保存稳定错误码和脱敏提示；本机前置条件失败用 409 保留可操作文案。"""
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        *,
+        status_code: int = 409,
+        request_may_have_run: bool = False,
+    ) -> None:
+        """保存稳定错误码、脱敏提示和外部动作是否可能已经执行。"""
         super().__init__(message)
         self.code = code
         self.message = message
         self.status_code = status_code
+        self.request_may_have_run = request_may_have_run
 
 
 @dataclass(frozen=True)
@@ -434,6 +442,112 @@ _CAPTURE_JAVASCRIPT = r"""
 """.strip()
 
 
+_OPEN_CONTACT_JAVASCRIPT = r"""
+(() => {
+  const clean = (value) => String(value || '').replace(/\s+/g, ' ').trim();
+  const visible = (element) => Boolean(element && element.getClientRects().length && !element.disabled);
+  const pageText = clean(document.body ? document.body.innerText : '').slice(0, 6000);
+  if (['扫码登录', '手机号登录', '密码登录', '登录后继续'].some(marker => pageText.includes(marker))) {
+    return JSON.stringify({status: 'login_required'});
+  }
+  if (['安全验证', '请完成验证', '访问异常', '行为验证', '拖动滑块'].some(marker => pageText.includes(marker))) {
+    return JSON.stringify({status: 'security_check'});
+  }
+  const composerSelectors = [
+    'textarea',
+    '[contenteditable="true"]',
+    '[class*="chat-input"]',
+    '[class*="message-input"]',
+  ];
+  const composer = composerSelectors
+    .flatMap(selector => Array.from(document.querySelectorAll(selector)))
+    .find(visible);
+  if (composer) return JSON.stringify({status: 'composer_ready'});
+
+  const allowedLabels = ['立即沟通', '继续沟通', '打招呼', '沟通'];
+  const contact = Array.from(document.querySelectorAll('button, a, [role="button"]'))
+    .find(element => {
+      if (!visible(element)) return false;
+      const label = clean(element.innerText || element.textContent || element.getAttribute('aria-label'));
+      return label.length <= 12 && allowedLabels.includes(label);
+    });
+  if (!contact) return JSON.stringify({status: 'contact_action_not_found'});
+  contact.click();
+  return JSON.stringify({status: 'contact_clicked'});
+})()
+""".strip()
+
+
+def _build_send_message_javascript(message_text: str) -> str:
+    """构造只向可见聊天编辑器写入有界文案并点击一次发送的固定脚本。"""
+
+    message = json.dumps(message_text)
+    return r"""
+(() => {
+  const message = MESSAGE_VALUE;
+  const clean = (value) => String(value || '').replace(/\s+/g, ' ').trim();
+  const visible = (element) => Boolean(element && element.getClientRects().length && !element.disabled);
+  const composerSelectors = [
+    'textarea',
+    '[contenteditable="true"]',
+    '[class*="chat-input"]',
+    '[class*="message-input"]',
+  ];
+  const composer = composerSelectors
+    .flatMap(selector => Array.from(document.querySelectorAll(selector)))
+    .find(visible);
+  if (!composer) return JSON.stringify({status: 'message_composer_not_found'});
+
+  composer.focus();
+  if (composer instanceof HTMLTextAreaElement || composer instanceof HTMLInputElement) {
+    const prototype = composer instanceof HTMLTextAreaElement
+      ? HTMLTextAreaElement.prototype
+      : HTMLInputElement.prototype;
+    const setter = Object.getOwnPropertyDescriptor(prototype, 'value').set;
+    setter.call(composer, message);
+  } else {
+    composer.textContent = message;
+  }
+  composer.dispatchEvent(new InputEvent('input', {bubbles: true, inputType: 'insertText', data: message}));
+  composer.dispatchEvent(new Event('change', {bubbles: true}));
+
+  const send = Array.from(document.querySelectorAll('button, [role="button"], [class*="send"]'))
+    .find(element => {
+      if (!visible(element)) return false;
+      const label = clean(
+        element.innerText || element.textContent || element.getAttribute('aria-label') || element.title
+      );
+      return label === '发送' || label === '发送消息';
+    });
+  if (!send) return JSON.stringify({status: 'send_button_not_found'});
+  send.click();
+  return JSON.stringify({status: 'send_clicked'});
+})()
+""".replace('MESSAGE_VALUE', message).strip()
+
+
+def _build_verify_message_javascript(message_text: str) -> str:
+    """构造发送后置条件检查，只判断可见消息气泡，不读取或返回聊天正文。"""
+
+    message = json.dumps(message_text)
+    return r"""
+(() => {
+  const message = MESSAGE_VALUE;
+  const clean = (value) => String(value || '').replace(/\s+/g, ' ').trim();
+  const expected = clean(message);
+  const candidates = Array.from(document.querySelectorAll(
+    '[class*="message"], [class*="bubble"], [class*="chat-record"], li, p'
+  ));
+  const matched = candidates.some(element => {
+    if (!element.getClientRects().length || element.closest('[contenteditable="true"]')) return false;
+    return clean(element.innerText || element.textContent) === expected;
+  });
+  return JSON.stringify({status: matched ? 'sent' : 'unverified'});
+})()
+""".replace('MESSAGE_VALUE', message).strip()
+
+
+
 class BossExistingTabBridge:
     """通过浏览器官方 AppleScript 接口接管既有 BOSS 标签页并限速采集。"""
 
@@ -657,6 +771,24 @@ class BossExistingTabBridge:
             message=messages.get(page_status, "已连接现有 BOSS 标签页。"),
         )
 
+    @staticmethod
+    def _action_status(execution: BossTabExecution) -> str:
+        """解析页面动作的最小状态，不接受或向上返回页面正文。"""
+
+        try:
+            payload = json.loads(execution.result)
+        except json.JSONDecodeError as exc:
+            raise BossExistingTabError(
+                "invalid_browser_response",
+                "浏览器返回了无法识别的页面动作状态。",
+            ) from exc
+        if not isinstance(payload, dict):
+            raise BossExistingTabError(
+                "invalid_browser_response",
+                "浏览器页面动作状态格式无效。",
+            )
+        return str(payload.get("status") or "")[:80]
+
     async def _inspect_unlocked(
         self,
         target: BossBrowserTarget,
@@ -871,6 +1003,127 @@ class BossExistingTabBridge:
                 "岗位列表在保守等待时间内仍未出现。请检查当前标签页是否加载完成或需要手动验证。",
                 status_code=409,
             )
+
+
+    async def send_message(
+        self,
+        *,
+        source_url: str,
+        message_text: str,
+        browser_channel: str | None = None,
+    ) -> dict[str, Any]:
+        """在锁定的 BOSS 标签页发送一次文案，并要求消息气泡后置条件成立。"""
+
+        message = str(message_text or "").strip()
+        if not is_allowed_boss_job_url(source_url):
+            raise BossExistingTabError(
+                "invalid_job_url",
+                "只允许向已保存的 BOSS 官方岗位发送沟通文案。",
+                status_code=400,
+            )
+        if not 20 <= len(message) <= 500 or any(ord(char) < 32 and char not in "\n\t" for char in message):
+            raise BossExistingTabError(
+                "invalid_message",
+                "沟通文案长度必须为 20-500 字且不能包含控制字符。",
+                status_code=400,
+            )
+
+        target = get_existing_tab_browser_target(browser_channel)
+        async with self._locks[target.channel]:
+            status = await self._inspect_unlocked(target)
+            if status.page_status == "login_required":
+                raise BossExistingTabError(
+                    "login_required",
+                    "当前 BOSS 标签页尚未登录，请手动登录后重试。",
+                )
+            if status.page_status == "security_check":
+                raise BossExistingTabError(
+                    "security_check_required",
+                    "当前 BOSS 标签页需要安全验证，请手动完成后重试。",
+                )
+
+            await self._respect_action_spacing(target)
+            tab_id = await self._navigate_existing_tab(
+                target,
+                source_url,
+                expected_tab_id=status.tab_id,
+                allow_job_detail=True,
+            )
+            await asyncio.sleep(boss_existing_tab_poll_interval_seconds())
+
+            contact_status = self._action_status(await self._execute_in_existing_tab(
+                target,
+                _OPEN_CONTACT_JAVASCRIPT,
+                expected_tab_id=tab_id,
+            ))
+            if contact_status == "contact_clicked":
+                await asyncio.sleep(boss_existing_tab_action_delay_seconds())
+                contact_status = self._action_status(await self._execute_in_existing_tab(
+                    target,
+                    _OPEN_CONTACT_JAVASCRIPT,
+                    expected_tab_id=tab_id,
+                ))
+            if contact_status == "login_required":
+                raise BossExistingTabError("login_required", "BOSS 登录态已失效，请手动登录后重试。")
+            if contact_status == "security_check":
+                raise BossExistingTabError(
+                    "security_check_required",
+                    "BOSS 要求安全验证，请手动完成后重试。",
+                )
+            if contact_status != "composer_ready":
+                raise BossExistingTabError(
+                    "contact_action_unavailable",
+                    "未找到可用的 BOSS 沟通入口或消息编辑器，请在页面中手动确认岗位状态。",
+                )
+
+            try:
+                send_status = self._action_status(await self._execute_in_existing_tab(
+                    target,
+                    _build_send_message_javascript(message),
+                    expected_tab_id=tab_id,
+                ))
+            except BossExistingTabError as exc:
+                raise BossExistingTabError(
+                    exc.code,
+                    exc.message,
+                    status_code=exc.status_code,
+                    request_may_have_run=True,
+                ) from exc
+            if send_status != "send_clicked":
+                raise BossExistingTabError(
+                    "message_send_unavailable",
+                    "未找到可用的消息编辑器或发送按钮，本次没有确认执行发送。",
+                )
+
+            self._last_action_at[target.channel] = monotonic()
+            self._status_cache.pop(target.channel, None)
+            await asyncio.sleep(boss_existing_tab_poll_interval_seconds())
+            try:
+                verified = self._action_status(await self._execute_in_existing_tab(
+                    target,
+                    _build_verify_message_javascript(message),
+                    expected_tab_id=tab_id,
+                ))
+            except BossExistingTabError as exc:
+                raise BossExistingTabError(
+                    exc.code,
+                    exc.message,
+                    status_code=exc.status_code,
+                    request_may_have_run=True,
+                ) from exc
+            if verified != "sent":
+                raise BossExistingTabError(
+                    "message_send_unverified",
+                    "已点击发送但未观察到消息气泡，请人工检查后再决定是否重试。",
+                    request_may_have_run=True,
+                )
+            return {
+                "success": True,
+                "status": "sent",
+                "browser_channel": target.channel,
+                "browser_label": target.label,
+                "message": "BOSS 沟通文案已发送并通过页面后置条件确认。",
+            }
 
 
     async def open_job(

@@ -40,7 +40,7 @@ class JobApplicationModel(Base):
     external_job_id: Mapped[str | None] = mapped_column(String, nullable=True)     # 平台侧岗位ID
     captured_job_id: Mapped[int | None] = mapped_column(Integer, nullable=True)    # FK -> captured_jobs
     greeting_text: Mapped[str | None] = mapped_column(Text, nullable=True)          # 使用的打招呼文案
-    send_status: Mapped[str | None] = mapped_column(String, nullable=True)          # pending/sent/failed/manual_takeover
+    send_status: Mapped[str | None] = mapped_column(String, nullable=True)          # pending/sending/sent/failed/unknown
     send_attempts: Mapped[int] = mapped_column(Integer, default=0)                 # 发送尝试次数
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)             # 最后错误信息
     last_screenshot_path: Mapped[str | None] = mapped_column(String, nullable=True) # 最后截图路径

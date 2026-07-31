@@ -4,6 +4,7 @@
 """
 
 from dataclasses import dataclass
+from typing import Any
 
 from app.db.repositories.jobs.job_capture_repo import get_job_capture_repo
 from app.schemas.job_schemas import (
@@ -15,6 +16,11 @@ from app.schemas.job_schemas import (
     JobListItem,
     JobListResponse,
 )
+from integrations.boss.automation_client import (
+    BossAutomationError,
+    get_boss_automation_client,
+)
+from integrations.boss.security import is_allowed_boss_job_url
 
 
 @dataclass(slots=True)
@@ -161,6 +167,156 @@ class JobsUseCases:
             ),
         )
         return {"success": True, "application": detail, "message": "已加入投递管理，状态为待投递"}
+
+    @staticmethod
+    async def _record_send_event(
+        *,
+        application_id: int,
+        event_type: str,
+        event_data: dict[str, Any] | None = None,
+    ) -> None:
+        """写入不含消息正文的发送事件。"""
+
+        from app.db.repositories.application.application_event_repo import application_event_repo
+        from app.schemas.job_application import EventCreateRequest
+
+        await application_event_repo.add_event(
+            application_id,
+            EventCreateRequest(
+                event_type=event_type,
+                event_data=event_data or {},
+            ),
+        )
+
+    async def _record_send_state(
+        self,
+        *,
+        application_id: int,
+        user_id: str,
+        send_status: str,
+        event_type: str,
+        latest_status: str | None = None,
+        event_data: dict[str, Any] | None = None,
+    ) -> None:
+        """持久化无正文发送状态和事件；owner 校验失败时停止后续外部动作。"""
+
+        from app.db.repositories.application.job_application_repo import job_application_repo
+        from app.schemas.job_application import ApplicationUpdateRequest
+
+        updated = await job_application_repo.update_application(
+            application_id,
+            user_id,
+            ApplicationUpdateRequest(
+                send_status=send_status,
+                latest_status=latest_status,
+            ),
+        )
+        if updated is None:
+            raise JobNotFound("application_not_found", "投递记录不存在或无权访问")
+        await self._record_send_event(
+            application_id=application_id,
+            event_type=event_type,
+            event_data=event_data,
+        )
+
+    async def send_boss_application_message(
+        self,
+        *,
+        application_id: int,
+        browser_channel: str | None,
+        user_id: str,
+    ) -> dict[str, object]:
+        """发送投递记录中已审批的 BOSS 文案，并用状态占位阻止歧义重试。"""
+
+        from app.db.repositories.application.job_application_repo import job_application_repo
+
+        application = await job_application_repo.get_application(application_id, user_id)
+        if application is None:
+            raise JobNotFound("application_not_found", "投递记录不存在或无权访问")
+        send_status = str(application.send_status or "pending")
+        if send_status == "sent":
+            return {
+                "success": True,
+                "status": "sent",
+                "already_sent": True,
+                "message": "该投递文案已发送，本次未重复执行。",
+            }
+        if send_status in {"sending", "unknown"}:
+            raise JobBadRequest(
+                "send_state_requires_review",
+                "上一次发送结果尚不明确，请人工复核 BOSS 会话后再决定是否重试。",
+            )
+
+        source_url = str(application.source_url or "")
+        message_text = str(application.greeting_text or "").strip()
+        if str(application.source_platform or "").casefold() != "boss":
+            raise JobBadRequest("unsupported_platform", "该投递记录不是 BOSS 岗位")
+        if not is_allowed_boss_job_url(source_url):
+            raise JobBadRequest("invalid_job_url", "投递记录缺少有效的 BOSS 官方岗位链接")
+        if not 20 <= len(message_text) <= 500:
+            raise JobBadRequest("invalid_greeting", "投递记录中的沟通文案长度必须为 20-500 字")
+
+        claimed = await job_application_repo.claim_application_for_send(application_id, user_id)
+        if not claimed:
+            latest = await job_application_repo.get_application(application_id, user_id)
+            if latest is None:
+                raise JobNotFound("application_not_found", "投递记录不存在或无权访问")
+            latest_status = str(latest.send_status or "pending")
+            if latest_status == "sent":
+                return {
+                    "success": True,
+                    "status": "sent",
+                    "already_sent": True,
+                    "message": "该投递文案已发送，本次未重复执行。",
+                }
+            if latest_status in {"sending", "unknown"}:
+                raise JobBadRequest(
+                    "ambiguous_send_state",
+                    "该投递可能正在发送或结果未知，请人工复核 BOSS 会话后再决定是否重试。",
+                )
+            raise JobBadRequest("send_state_conflict", "投递发送状态已变化，请刷新后重试")
+
+        await self._record_send_event(
+            application_id=application_id,
+            event_type="send_requested",
+            event_data={"browser_channel": browser_channel or "default"},
+        )
+        try:
+            result = await get_boss_automation_client().browser_tab_send_message(
+                source_url,
+                message_text,
+                browser_channel,
+            )
+        except BossAutomationError as exc:
+            ambiguous = bool(exc.request_may_have_run)
+            await self._record_send_state(
+                application_id=application_id,
+                user_id=user_id,
+                send_status="unknown" if ambiguous else "failed",
+                event_type="send_uncertain" if ambiguous else "send_failed",
+                event_data={
+                    "browser_channel": browser_channel or "default",
+                    "error_type": type(exc).__name__,
+                    "request_may_have_run": ambiguous,
+                },
+            )
+            error_type = JobBadRequest if exc.status_code == 400 else JobBrowserTabUnavailable
+            raise error_type("boss_message_send_failed", str(exc)) from exc
+
+        await self._record_send_state(
+            application_id=application_id,
+            user_id=user_id,
+            send_status="sent",
+            latest_status="applied",
+            event_type="applied",
+            event_data={"browser_channel": browser_channel or "default"},
+        )
+        return {
+            **result,
+            "success": True,
+            "status": "sent",
+            "application_id": application_id,
+        }
 
     async def open_job_in_existing_tab(
         self,

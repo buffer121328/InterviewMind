@@ -11,8 +11,10 @@ from unittest.mock import AsyncMock
 
 import ai.tools.interview_tools as interview_tools_module
 import ai.tools.memory_tools as memory_tools_module
+import ai.tools.job_tools as job_tools_module
 
 from ai.tools.interview_tools import make_interview_tool_executor
+from ai.tools.job_tools import make_job_tools
 from ai.tools.resume_tools import make_resume_tools
 
 
@@ -50,7 +52,7 @@ class TestInterviewToolExecutor:
 
 
 class TestResumeToolFactory:
-    """简历工具工厂测试"""
+    """简历工具只暴露统一 JD 匹配入口。"""
 
     @pytest.mark.asyncio
     async def test_resume_tools_use_default_context(self):
@@ -59,9 +61,53 @@ class TestResumeToolFactory:
             job_description="需要 Java、Spring Boot 和 Redis 经验",
         )}
 
-        keywords = await tools["search_jd_keywords"].ainvoke({"jd": ""})
-        claim_result = await tools["validate_resume_claim"].ainvoke({"claim": "Java"})
+        result = await tools["match_jd"].ainvoke({"job_description": "", "mode": "fast"})
 
-        assert "Java" in keywords
-        assert "Spring" in keywords
-        assert claim_result["has_evidence"] is True
+        assert result["match_score"] > 0
+        assert "Java" in result["matched_keywords"]
+
+
+class TestJobToolFactory:
+    """岗位工具绑定 owner，并保留写入/外部动作的真实语义。"""
+
+    @pytest.mark.asyncio
+    async def test_job_tools_delegate_to_existing_use_cases(self, monkeypatch):
+        calls = []
+
+        class FakeUseCases:
+            async def export_to_application(self, **kwargs):
+                calls.append(("prepare", kwargs))
+                return {"success": True, "application": {"id": 7}, "message": "prepared"}
+
+            async def open_job_in_existing_tab(self, **kwargs):
+                calls.append(("open", kwargs))
+                return {"success": True, "opened_url": "https://www.zhipin.com/job_detail/abc.html"}
+
+            async def send_boss_application_message(self, **kwargs):
+                calls.append(("send", kwargs))
+                return {"success": True, "status": "sent"}
+
+        monkeypatch.setattr(job_tools_module, "jobs_use_cases", FakeUseCases())
+        tools = {tool.name: tool for tool in make_job_tools(user_id="owner-1")}
+
+        prepared = await tools["prepare_boss_application"].ainvoke({
+            "job_id": 7,
+            "greeting_index": 1,
+            "greeting_text": "您好，我希望进一步沟通这个岗位和团队当前需求。",
+        })
+        opened = await tools["open_boss_job"].ainvoke({
+            "job_id": 7,
+            "browser_channel": "chrome",
+        })
+
+        sent = await tools["send_boss_message"].ainvoke({
+            "application_id": 31,
+            "browser_channel": "msedge",
+        })
+
+        assert prepared["success"] is True
+        assert opened["success"] is True
+        assert sent["success"] is True
+        assert calls[0][1]["user_id"] == "owner-1"
+        assert calls[1][1]["user_id"] == "owner-1"
+        assert calls[2][1]["user_id"] == "owner-1"

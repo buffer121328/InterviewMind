@@ -210,3 +210,192 @@ async def test_export_existing_application_updates_greeting_without_duplicate(mo
     assert "已更新打招呼文案" in response["message"]
     update.assert_awaited_once()
     create.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_send_boss_application_message_records_state_and_event(monkeypatch):
+    """真实发送必须先占用幂等状态，成功后再落 applied 状态和无正文事件。"""
+    from types import SimpleNamespace
+
+    from ai.workflows import jobs
+    from app.db.repositories.application.application_event_repo import application_event_repo
+    from app.db.repositories.application.job_application_repo import job_application_repo
+
+    application = SimpleNamespace(
+        id=31,
+        source_platform="boss",
+        source_url="https://www.zhipin.com/job_detail/card_7-real.html",
+        greeting_text="您好，我希望基于真实项目经验进一步沟通这个岗位和团队需求。",
+        send_status="pending",
+    )
+    get_application = AsyncMock(return_value=application)
+    claim_application = AsyncMock(return_value=True)
+    update_application = AsyncMock(return_value=application)
+    add_event = AsyncMock()
+    send = AsyncMock(return_value={"success": True, "status": "sent"})
+    client = SimpleNamespace(browser_tab_send_message=send)
+
+    monkeypatch.setattr(job_application_repo, "get_application", get_application)
+    monkeypatch.setattr(
+        job_application_repo,
+        "claim_application_for_send",
+        claim_application,
+    )
+    monkeypatch.setattr(job_application_repo, "update_application", update_application)
+    monkeypatch.setattr(application_event_repo, "add_event", add_event)
+    monkeypatch.setattr(jobs, "get_boss_automation_client", lambda: client)
+
+    result = await jobs.JobsUseCases().send_boss_application_message(
+        application_id=31,
+        browser_channel="msedge",
+        user_id="user-1",
+    )
+
+    assert result["success"] is True
+    assert send.await_args.args[0].endswith("card_7-real.html")
+    assert "真实项目经验" in send.await_args.args[1]
+    claim_application.assert_awaited_once_with(31, "user-1")
+    assert [call.args[2].send_status for call in update_application.await_args_list] == ["sent"]
+    assert update_application.await_args_list[-1].args[2].latest_status == "applied"
+    assert [call.args[1].event_type for call in add_event.await_args_list] == [
+        "send_requested",
+        "applied",
+    ]
+    assert "真实项目经验" not in str(add_event.await_args_list)
+
+
+@pytest.mark.asyncio
+async def test_send_boss_application_message_blocks_ambiguous_retry(monkeypatch):
+    """发送状态为 sending/unknown 时必须要求人工复核，不能再次点击发送。"""
+    from types import SimpleNamespace
+
+    from ai.workflows import jobs
+    from app.db.repositories.application.job_application_repo import job_application_repo
+
+    application = SimpleNamespace(
+        id=31,
+        source_platform="boss",
+        source_url="https://www.zhipin.com/job_detail/card_7-real.html",
+        greeting_text="您好，我希望进一步沟通这个岗位和团队需求。",
+        send_status="unknown",
+    )
+    monkeypatch.setattr(
+        job_application_repo,
+        "get_application",
+        AsyncMock(return_value=application),
+    )
+
+    with pytest.raises(jobs.JobBadRequest, match="人工复核"):
+        await jobs.JobsUseCases().send_boss_application_message(
+            application_id=31,
+            browser_channel="msedge",
+            user_id="user-1",
+        )
+
+
+@pytest.mark.asyncio
+async def test_send_boss_application_message_marks_ambiguous_failure_unknown(monkeypatch):
+    """点击可能已发生时必须落 unknown/send_uncertain，绝不能自动重试。"""
+    from types import SimpleNamespace
+
+    from ai.workflows import jobs
+    from app.db.repositories.application.application_event_repo import application_event_repo
+    from app.db.repositories.application.job_application_repo import job_application_repo
+    from integrations.boss.automation_client import BossAutomationError
+
+    application = SimpleNamespace(
+        id=31,
+        source_platform="boss",
+        source_url="https://www.zhipin.com/job_detail/card_7-real.html",
+        greeting_text="您好，我希望基于真实项目经验进一步沟通这个岗位和团队需求。",
+        send_status="pending",
+    )
+    update_application = AsyncMock(return_value=application)
+    add_event = AsyncMock()
+    send = AsyncMock(
+        side_effect=BossAutomationError(
+            "发送后无法确认消息气泡，请人工复核。",
+            request_may_have_run=True,
+            status_code=409,
+        )
+    )
+
+    monkeypatch.setattr(
+        job_application_repo,
+        "get_application",
+        AsyncMock(return_value=application),
+    )
+    monkeypatch.setattr(
+        job_application_repo,
+        "claim_application_for_send",
+        AsyncMock(return_value=True),
+    )
+    monkeypatch.setattr(job_application_repo, "update_application", update_application)
+    monkeypatch.setattr(application_event_repo, "add_event", add_event)
+    monkeypatch.setattr(
+        jobs,
+        "get_boss_automation_client",
+        lambda: SimpleNamespace(browser_tab_send_message=send),
+    )
+
+    with pytest.raises(jobs.JobBrowserTabUnavailable, match="人工复核"):
+        await jobs.JobsUseCases().send_boss_application_message(
+            application_id=31,
+            browser_channel="chrome",
+            user_id="user-1",
+        )
+
+    assert [call.args[2].send_status for call in update_application.await_args_list] == ["unknown"]
+    assert [call.args[1].event_type for call in add_event.await_args_list] == [
+        "send_requested",
+        "send_uncertain",
+    ]
+    assert add_event.await_args_list[-1].args[1].event_data == {
+        "browser_channel": "chrome",
+        "error_type": "BossAutomationError",
+        "request_may_have_run": True,
+    }
+    assert "真实项目经验" not in str(add_event.await_args_list)
+
+
+@pytest.mark.asyncio
+async def test_send_boss_application_message_loses_atomic_claim_without_sending(monkeypatch):
+    """并发请求未取得发送占位时必须读取最新状态，且不得调用宿主机发送。"""
+    from types import SimpleNamespace
+
+    from ai.workflows import jobs
+    from app.db.repositories.application.job_application_repo import job_application_repo
+
+    pending = SimpleNamespace(
+        id=31,
+        source_platform="boss",
+        source_url="https://www.zhipin.com/job_detail/card_7-real.html",
+        greeting_text="您好，我希望基于真实项目经验进一步沟通这个岗位和团队需求。",
+        send_status="pending",
+    )
+    sending = SimpleNamespace(**{**pending.__dict__, "send_status": "sending"})
+    send = AsyncMock()
+    monkeypatch.setattr(
+        job_application_repo,
+        "get_application",
+        AsyncMock(side_effect=[pending, sending]),
+    )
+    monkeypatch.setattr(
+        job_application_repo,
+        "claim_application_for_send",
+        AsyncMock(return_value=False),
+    )
+    monkeypatch.setattr(
+        jobs,
+        "get_boss_automation_client",
+        lambda: SimpleNamespace(browser_tab_send_message=send),
+    )
+
+    with pytest.raises(jobs.JobBadRequest, match="人工复核"):
+        await jobs.JobsUseCases().send_boss_application_message(
+            application_id=31,
+            browser_channel="msedge",
+            user_id="user-1",
+        )
+
+    send.assert_not_awaited()

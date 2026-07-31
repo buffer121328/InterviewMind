@@ -4,7 +4,7 @@
 负责把一个已采集的岗位从"原始 JD"加工成"可投递资产"：
 
 流程：
-1. JD 分析 → 调用 jd_matcher.analyze_jd_match()
+1. JD 分析 → 调用统一 match_jd(mode="smart")
 2. 定制简历 → 调用 resume_generation_sessions.init_generation_session()
 3. 打招呼文案 → 调用 greeting_generator.generate_greetings()
 4. 资产打包 → 返回 JD 分析、定制简历和可编辑打招呼方案
@@ -106,8 +106,9 @@ async def generate_assets(
     # ======================================================================
     jd_analysis = None
     try:
-        from ai.agents.resume.jd_matcher import analyze_jd_match
-        jd_analysis = await analyze_jd_match(
+        from ai.agents.resume.jd_matcher import match_jd
+        jd_analysis = await match_jd(
+            mode="smart",
             resume_content=compact_resume,
             job_description=compact_jd,
             api_config=api_config,

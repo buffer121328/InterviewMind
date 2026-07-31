@@ -7,7 +7,7 @@ import logging
 from datetime import datetime
 from typing import List, Optional
 
-from sqlalchemy import select, func
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -130,6 +130,29 @@ class JobApplicationRepo:
                 return None
             return self._row_to_detail(obj)
 
+    async def claim_application_for_send(
+        self,
+        application_id: int,
+        user_id: str,
+    ) -> bool:
+        """原子地把可重试发送状态占为 sending，防止并发请求重复执行外部动作。"""
+
+        async with async_session() as db:
+            result = await db.execute(
+                update(JobApplicationModel)
+                .where(
+                    JobApplicationModel.id == application_id,
+                    JobApplicationModel.user_id == user_id,
+                    or_(
+                        JobApplicationModel.send_status.is_(None),
+                        JobApplicationModel.send_status.in_(("pending", "failed")),
+                    ),
+                )
+                .values(send_status="sending", updated_at=datetime.now())
+            )
+            await db.commit()
+            return result.rowcount == 1
+
     async def update_application(
         self,
         application_id: int,
@@ -157,6 +180,7 @@ class JobApplicationRepo:
                 ("priority", request.priority),
                 ("notes", request.notes),
                 ("greeting_text", request.greeting_text),
+                ("send_status", request.send_status),
             ]
             changed = False
             for field_name, value in fields:

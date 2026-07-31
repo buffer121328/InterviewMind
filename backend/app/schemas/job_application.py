@@ -96,6 +96,7 @@ class ApplicationUpdateRequest(BaseModel):
     priority: Optional[str] = Field(None, description="优先级")
     notes: Optional[str] = Field(None, description="备注")
     greeting_text: Optional[str] = Field(None, max_length=500)
+    send_status: Optional[Literal["pending", "sending", "sent", "failed", "unknown"]] = None
 
 
 class EventCreateRequest(BaseModel):

@@ -47,6 +47,16 @@ class BossTabStatusRequest(BaseModel):
     browser_channel: Literal["chrome", "msedge"] | None = None
 
 
+class BossSendMessageHostRequest(BaseModel):
+    """承载已审批文案和官方岗位 URL，不接收 Cookie 或任意页面脚本。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    source_url: str = Field(min_length=8, max_length=2048)
+    message_text: str = Field(min_length=20, max_length=500)
+    browser_channel: Literal["chrome", "msedge"] | None = None
+
+
 class BossOpenJobHostRequest(BaseModel):
     """承载一个已校验的 BOSS 岗位 URL，并限定为现有登录标签页导航。"""
 
@@ -89,7 +99,7 @@ async def health(_: EmptyRequest) -> dict[str, object]:
             "msedge": "Microsoft Edge",
             "chrome": "Google Chrome",
         },
-        "capabilities": ["status", "search_and_capture", "open_job"],
+        "capabilities": ["status", "search_and_capture", "open_job", "send_message"],
     }
 
 
@@ -105,7 +115,11 @@ def _raise_existing_tab_error(exc: BossExistingTabError) -> NoReturn:
 
     raise HTTPException(
         status_code=exc.status_code,
-        detail={"error": exc.code, "message": exc.message},
+        detail={
+            "error": exc.code,
+            "message": exc.message,
+            "request_may_have_run": exc.request_may_have_run,
+        },
     ) from exc
 
 
@@ -129,6 +143,23 @@ async def boss_browser_tab_search_and_capture(request: BossTabCaptureRequest) ->
             query=request.query,
             city=request.city,
             max_cards=request.max_cards,
+            browser_channel=request.browser_channel,
+        )
+    except BossExistingTabError as exc:
+        _raise_existing_tab_error(exc)
+
+
+@app.post("/v1/boss/browser-tab/send-message", dependencies=[Depends(require_browser_service_token)])
+async def boss_browser_tab_send_message(
+    request: BossSendMessageHostRequest,
+) -> dict[str, object]:
+    """在锁定的官方岗位标签页发送一次文案，并要求页面后置条件确认。"""
+
+    _require_boss_job_url(request.source_url)
+    try:
+        return await get_boss_existing_tab_bridge().send_message(
+            source_url=request.source_url,
+            message_text=request.message_text,
             browser_channel=request.browser_channel,
         )
     except BossExistingTabError as exc:

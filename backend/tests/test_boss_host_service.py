@@ -1,5 +1,6 @@
 """宿主机 BOSS 标签页桥接 HTTP 服务与客户端测试；不启动真实浏览器。"""
 
+import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -71,7 +72,12 @@ async def test_host_health_reports_selected_boss_browser_channel(monkeypatch):
     body = response.json()
     assert body["service"] == "browser_tab_bridge"
     assert body["default_browser_channel"] == "chrome"
-    assert body["capabilities"] == ["status", "search_and_capture", "open_job"]
+    assert body["capabilities"] == [
+        "status",
+        "search_and_capture",
+        "open_job",
+        "send_message",
+    ]
 
 
 @pytest.mark.asyncio
@@ -144,6 +150,7 @@ async def test_host_service_preserves_actionable_existing_tab_errors(monkeypatch
     assert response.json()["detail"] == {
         "error": "browser_javascript_disabled",
         "message": "请在浏览器中开启 Apple 事件 JavaScript",
+        "request_may_have_run": False,
     }
 
 
@@ -177,6 +184,54 @@ async def test_host_service_delegates_search_and_capture(monkeypatch):
         city="101280600",
         max_cards=20,
         browser_channel=None,
+    )
+
+
+@pytest.mark.asyncio
+async def test_host_service_delegates_send_message_without_echoing_body(monkeypatch):
+    """宿主端只委托一次受控发送，并且响应中不回显沟通正文。"""
+
+    from app.entrypoints.browser_automation_service import app
+
+    monkeypatch.setenv("BROWSER_AUTOMATION_SERVICE_TOKEN", TOKEN)
+    message = "您好，我希望基于自己的真实项目经验进一步沟通这个岗位和团队需求。"
+    bridge = MagicMock()
+    bridge.send_message = AsyncMock(
+        return_value={
+            "success": True,
+            "status": "sent",
+            "browser_channel": "chrome",
+        }
+    )
+    with patch(
+        "app.entrypoints.browser_automation_service.get_boss_existing_tab_bridge",
+        return_value=bridge,
+    ):
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://test",
+        ) as client:
+            response = await client.post(
+                "/v1/boss/browser-tab/send-message",
+                headers={"Authorization": f"Bearer {TOKEN}"},
+                json={
+                    "source_url": "https://www.zhipin.com/job_detail/card_1-real.html",
+                    "message_text": message,
+                    "browser_channel": "chrome",
+                },
+            )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "success": True,
+        "status": "sent",
+        "browser_channel": "chrome",
+    }
+    assert message not in response.text
+    bridge.send_message.assert_awaited_once_with(
+        source_url="https://www.zhipin.com/job_detail/card_1-real.html",
+        message_text=message,
+        browser_channel="chrome",
     )
 
 
@@ -277,6 +332,72 @@ async def test_http_client_forwards_existing_tab_status_and_preserves_host_detai
     assert "Apple 事件" in str(caught.value)
     assert requests[0].url.path == "/v1/boss/browser-tab/status"
     assert requests[0].method == "POST"
+
+
+@pytest.mark.asyncio
+async def test_http_client_forwards_send_message_payload():
+    """主后端客户端必须调用专用发送端点并完整转发受控字段。"""
+
+    requests: list[httpx.Request] = []
+    message = "您好，我希望基于自己的真实项目经验进一步沟通这个岗位和团队需求。"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json={"success": True, "status": "sent"})
+
+    settings = AppSettings(
+        browser_automation_service_url="http://host.docker.internal:8765",
+        browser_automation_service_token=SecretStr(TOKEN),
+    )
+    client = BossAutomationClient(settings, transport=httpx.MockTransport(handler))
+
+    result = await client.browser_tab_send_message(
+        "https://www.zhipin.com/job_detail/card_1-real.html",
+        message,
+        "chrome",
+    )
+
+    assert result == {"success": True, "status": "sent"}
+    assert requests[0].url.path == "/v1/boss/browser-tab/send-message"
+    assert json.loads(requests[0].content) == {
+        "source_url": "https://www.zhipin.com/job_detail/card_1-real.html",
+        "message_text": message,
+        "browser_channel": "chrome",
+    }
+
+
+@pytest.mark.asyncio
+async def test_http_client_preserves_ambiguous_send_marker():
+    """宿主机报告点击可能已发生时，客户端必须保留歧义标记供上层阻止重试。"""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v1/boss/browser-tab/send-message"
+        return httpx.Response(
+            409,
+            json={
+                "detail": {
+                    "error": "message_send_unverified",
+                    "message": "发送后无法确认消息气泡，请人工复核。",
+                    "request_may_have_run": True,
+                }
+            },
+        )
+
+    settings = AppSettings(
+        browser_automation_service_url="http://host.docker.internal:8765",
+        browser_automation_service_token=SecretStr(TOKEN),
+    )
+    client = BossAutomationClient(settings, transport=httpx.MockTransport(handler))
+
+    with pytest.raises(BossAutomationError) as caught:
+        await client.browser_tab_send_message(
+            "https://www.zhipin.com/job_detail/card_1-real.html",
+            "您好，我希望基于自己的真实项目经验进一步沟通这个岗位和团队需求。",
+        )
+
+    assert caught.value.status_code == 409
+    assert caught.value.request_may_have_run is True
+    assert "人工复核" in str(caught.value)
 
 
 @pytest.mark.asyncio

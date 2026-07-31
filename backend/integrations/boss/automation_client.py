@@ -76,6 +76,22 @@ class BossAutomationClient:
             payload["browser_channel"] = browser_channel
         return await self._post("/v1/boss/browser-tab/search-and-capture", payload)
 
+    async def browser_tab_send_message(
+        self,
+        source_url: str,
+        message_text: str,
+        browser_channel: str | None = None,
+    ) -> dict[str, Any]:
+        """请求宿主机在锁定的 BOSS 标签页发送一次已审批沟通文案。"""
+
+        payload: dict[str, Any] = {
+            "source_url": source_url,
+            "message_text": message_text,
+        }
+        if browser_channel is not None:
+            payload["browser_channel"] = browser_channel
+        return await self._post("/v1/boss/browser-tab/send-message", payload)
+
     async def browser_tab_open_job(
         self,
         source_url: str,

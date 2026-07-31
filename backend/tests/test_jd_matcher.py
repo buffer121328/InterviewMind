@@ -37,7 +37,7 @@ def jd_match_dependencies(monkeypatch):
     repository.get_result.return_value = None
     repository.delete_result.return_value = False
 
-    monkeypatch.setattr(jd_match_app, "analyze_jd_match", analyze)
+    monkeypatch.setattr(jd_match_app, "match_jd", analyze)
     monkeypatch.setattr(jd_match_app, "get_jd_analysis_repo", lambda: repository)
     return analyze, repository
 

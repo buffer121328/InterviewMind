@@ -307,10 +307,12 @@ async def stage1_jd_analysis(state: PipelineState) -> PipelineState:
         return state
 
     try:
-        from ai.tools.resume_tools import analyze_jd_keyword_match
+        from ai.agents.resume.jd_matcher import match_jd
 
-        state.jd_analysis = await analyze_jd_keyword_match(
-            state.job_description, state.resume_content
+        state.jd_analysis = await match_jd(
+            job_description=state.job_description,
+            resume_content=state.resume_content,
+            mode="fast",
         )
         logger.info(f"[Stage1] JD分析完成: 匹配度 {state.jd_analysis.get('match_score', 0)}%")
         _append_trace(

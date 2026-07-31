@@ -135,12 +135,12 @@ class TestStage1JDAnalysis:
 
     @pytest.mark.asyncio
     async def test_reuses_precomputed_workspace_score(self, monkeypatch):
-        """A valid upstream score must not be replaced by the legacy keyword matcher."""
+        """A valid upstream score must not be replaced by the unified fast matcher."""
         async def fail_if_called(*_args, **_kwargs):
             """Fail when the fallback matcher is invoked unexpectedly."""
             raise AssertionError("keyword fallback should not run")
 
-        monkeypatch.setattr("ai.tools.resume_tools.analyze_jd_keyword_match", fail_if_called)
+        monkeypatch.setattr("ai.agents.resume.jd_matcher.match_jd", fail_if_called)
         state = PipelineState(
             resume_content=MOCK_RESUME,
             job_description=MOCK_JD,

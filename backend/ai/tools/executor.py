@@ -12,6 +12,7 @@ from typing import Any, Awaitable, Callable, Collection
 from urllib.parse import urlparse
 
 from ai.runtime.context import AgentContext
+from app.schemas.tools import ToolEffect
 from app.security.security import redact_secrets, safe_error_message
 from observability import record_approval_event, record_tool_event
 from observability.runtime_events import (
@@ -22,7 +23,6 @@ from observability.runtime_events import (
     new_runtime_event_id,
 )
 
-from .registry import ToolEffect
 
 logger = logging.getLogger(__name__)
 

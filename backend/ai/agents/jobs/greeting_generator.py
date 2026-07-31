@@ -19,6 +19,7 @@ from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, Field
 
 from ai.runtime.deadlines import TaskDeadline
+from ai.runtime.evidence import claim_has_evidence
 
 logger = logging.getLogger(__name__)
 
@@ -178,7 +179,6 @@ def _validate_generated_greetings(
     if any(tone not in by_tone for tone in expected_tones):
         raise ValueError("greeting tones are incomplete")
     greetings = [by_tone[tone] for tone in expected_tones]
-    allowed_highlights = {item.casefold() for item in highlights}
     issues: list[str] = []
 
     for greeting in greetings:
@@ -194,10 +194,7 @@ def _validate_generated_greetings(
         unsupported = [
             item
             for item in greeting.get("highlights_used", [])
-            if not any(
-                str(item).casefold() in allowed or allowed in str(item).casefold()
-                for allowed in allowed_highlights
-            )
+            if not claim_has_evidence(str(item), highlights)
         ]
         if unsupported:
             issues.append(f"{tone} 使用了未提供的候选人亮点")

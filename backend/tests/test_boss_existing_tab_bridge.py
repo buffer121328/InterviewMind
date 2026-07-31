@@ -363,3 +363,89 @@ async def test_open_job_reuses_pinned_existing_tab_and_rejects_external_url(monk
     }
     with pytest.raises(BossExistingTabError, match="BOSS 官方岗位详情"):
         await bridge.open_job("https://example.com/job_detail/card_1-real.html", "msedge")
+
+
+@pytest.mark.asyncio
+async def test_send_message_uses_pinned_tab_and_requires_postcondition(monkeypatch):
+    """发送只允许在锁定标签页执行一次，并以消息气泡出现作为成功后置条件。"""
+    bridge = BossExistingTabBridge()
+    status = BossTabStatus(
+        success=True,
+        browser_channel="msedge",
+        browser_label="Microsoft Edge",
+        connected=True,
+        current_url="https://www.zhipin.com/web/geek/jobs?query=agent",
+        page_status="search_ready",
+        ready_state="complete",
+        visible_card_count=3,
+        message="connected",
+        tab_id="edge-tab-7",
+    )
+    inspect = AsyncMock(return_value=status)
+    navigate = AsyncMock(return_value="edge-tab-7")
+    execute = AsyncMock(side_effect=[
+        BossTabExecution(tab_id="edge-tab-7", result=json.dumps({"status": "contact_clicked"})),
+        BossTabExecution(tab_id="edge-tab-7", result=json.dumps({"status": "composer_ready"})),
+        BossTabExecution(tab_id="edge-tab-7", result=json.dumps({"status": "send_clicked"})),
+        BossTabExecution(tab_id="edge-tab-7", result=json.dumps({"status": "sent"})),
+    ])
+    sleep = AsyncMock()
+    monkeypatch.setattr(bridge, "_inspect_unlocked", inspect)
+    monkeypatch.setattr(bridge, "_navigate_existing_tab", navigate)
+    monkeypatch.setattr(bridge, "_execute_in_existing_tab", execute)
+    monkeypatch.setattr(bridge_module.asyncio, "sleep", sleep)
+
+    result = await bridge.send_message(
+        source_url="https://www.zhipin.com/job_detail/card_1-real.html",
+        message_text="您好，我希望基于真实项目经验进一步沟通该岗位。",
+        browser_channel="msedge",
+    )
+
+    assert result["success"] is True
+    assert result["status"] == "sent"
+    assert navigate.await_args.kwargs == {
+        "expected_tab_id": "edge-tab-7",
+        "allow_job_detail": True,
+    }
+    assert execute.await_count == 4
+    assert all(
+        call.kwargs["expected_tab_id"] == "edge-tab-7"
+        for call in execute.await_args_list
+    )
+    assert "真实项目经验" not in str(result)
+
+
+@pytest.mark.asyncio
+async def test_send_message_marks_unverified_click_as_ambiguous(monkeypatch):
+    """点击发送后无法观察到消息气泡时必须返回可能已执行，禁止自动重试。"""
+    bridge = BossExistingTabBridge()
+    status = BossTabStatus(
+        success=True,
+        browser_channel="chrome",
+        browser_label="Google Chrome",
+        connected=True,
+        current_url="https://www.zhipin.com/job_detail/card_1-real.html",
+        page_status="boss_page",
+        ready_state="complete",
+        visible_card_count=0,
+        message="connected",
+        tab_id="chrome-tab-1",
+    )
+    monkeypatch.setattr(bridge, "_inspect_unlocked", AsyncMock(return_value=status))
+    monkeypatch.setattr(bridge, "_navigate_existing_tab", AsyncMock(return_value="chrome-tab-1"))
+    monkeypatch.setattr(bridge_module.asyncio, "sleep", AsyncMock())
+    monkeypatch.setattr(bridge, "_execute_in_existing_tab", AsyncMock(side_effect=[
+        BossTabExecution(tab_id="chrome-tab-1", result=json.dumps({"status": "composer_ready"})),
+        BossTabExecution(tab_id="chrome-tab-1", result=json.dumps({"status": "send_clicked"})),
+        BossTabExecution(tab_id="chrome-tab-1", result=json.dumps({"status": "unverified"})),
+    ]))
+
+    with pytest.raises(BossExistingTabError) as caught:
+        await bridge.send_message(
+            source_url="https://www.zhipin.com/job_detail/card_1-real.html",
+            message_text="您好，我希望基于自己的真实项目经验进一步沟通这个岗位和团队需求。",
+            browser_channel="chrome",
+        )
+
+    assert caught.value.code == "message_send_unverified"
+    assert caught.value.request_may_have_run is True
