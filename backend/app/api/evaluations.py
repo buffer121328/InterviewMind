@@ -324,12 +324,38 @@ async def export_report(
 
 
 @router.get("/runs/{run_id}/cases")
-async def list_case_runs(run_id: str, user_id: str = Depends(get_current_user_id)):
-    """列出运行内案例摘要。"""
+async def list_case_runs(
+    run_id: str,
+    status: str | None = Query(default=None),
+    error_category: str | None = Query(default=None),
+    tool_name: str | None = Query(default=None),
+    tool_effect: str | None = Query(default=None),
+    tool_status: str | None = Query(default=None),
+    approval_status: str | None = Query(default=None),
+    has_external_side_effect: bool | None = Query(default=None),
+    trace_incomplete: bool | None = Query(default=None),
+    retrieval_empty: bool | None = Query(default=None),
+    needs_review: bool | None = Query(default=None),
+    hard_gate_passed: bool | None = Query(default=None),
+    user_id: str = Depends(get_current_user_id),
+):
+    """在 owner 校验下筛选案例，前端不会绕过运行归属或读取原始 payload。"""
 
     try:
         return await evaluation_use_cases.list_case_runs(
-            user_id=user_id, run_id=run_id
+            user_id=user_id,
+            run_id=run_id,
+            status=status,
+            error_category=error_category,
+            tool_name=tool_name,
+            tool_effect=tool_effect,
+            tool_status=tool_status,
+            approval_status=approval_status,
+            has_external_side_effect=has_external_side_effect,
+            trace_incomplete=trace_incomplete,
+            retrieval_empty=retrieval_empty,
+            needs_review=needs_review,
+            hard_gate_passed=hard_gate_passed,
         )
     except EvaluationUseCaseError as exc:
         _raise(exc)

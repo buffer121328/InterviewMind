@@ -173,10 +173,18 @@ def test_annotation_request_rejects_secret_bearing_evidence() -> None:
 
 
 @pytest.mark.fast
-def test_evaluation_feature_flags_have_safe_defaults() -> None:
+def test_evaluation_feature_flags_have_safe_defaults(monkeypatch) -> None:
     """评测中心可只读启用，真实运行、线上抽样和强制门禁默认关闭。"""
 
-    settings = AppSettings()
+    for key in (
+        "EVALUATION_CENTER_ENABLED",
+        "EVALUATION_RUNS_ENABLED",
+        "EVALUATION_LANGFUSE_REPORTING_ENABLED",
+        "EVALUATION_ONLINE_SAMPLING_ENABLED",
+        "EVALUATION_RELEASE_GATE_MODE",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    settings = AppSettings(_env_file=None)
 
     assert settings.evaluation_center_enabled is False
     assert settings.evaluation_runs_enabled is False

@@ -34,32 +34,42 @@ const cardTones: Record<string, string> = {
     violet: 'from-violet-50 to-white border-violet-100', cyan: 'from-cyan-50 to-white border-cyan-100', indigo: 'from-indigo-50 to-white border-indigo-100',
     fuchsia: 'from-fuchsia-50 to-white border-fuchsia-100', amber: 'from-amber-50 to-white border-amber-100', orange: 'from-orange-50 to-white border-orange-100',
     rose: 'from-rose-50 to-white border-rose-100', red: 'from-red-50 to-white border-red-100', slate: 'from-slate-50 to-white border-slate-200',
+    purple: 'from-purple-50 to-white border-purple-100', green: 'from-green-50 to-white border-green-100',
 };
 
 /** Renders source-separated health metrics, filters and regression actions. */
 export function EvaluationOverviewPanel({ overview, trends, regressions, onOpenRun, onRequestReview }: Props) {
     const [agent, setAgent] = useState('all');
+    const [agentVersion, setAgentVersion] = useState('all');
     const [prompt, setPrompt] = useState('all');
+    const [promptVersion, setPromptVersion] = useState('all');
     const [dataset, setDataset] = useState('all');
     const [model, setModel] = useState('all');
+    const [environment, setEnvironment] = useState('all');
     const [range, setRange] = useState('all');
     const [acknowledged, setAcknowledged] = useState<Set<string>>(() => new Set());
 
     const options = useMemo(() => ({
         agents: unique(trends.map((item) => item.agent_name)),
+        agentVersions: unique(trends.map((item) => item.agent_version)),
         prompts: unique(trends.map((item) => item.prompt_name).filter(Boolean) as string[]),
+        promptVersions: unique(trends.map((item) => item.prompt_version).filter(Boolean) as string[]),
         datasets: unique(trends.map((item) => item.dataset_version)),
         models: unique(trends.map((item) => item.model_config_hash)),
+        environments: unique(trends.map((item) => item.environment)),
     }), [trends]);
     const filtered = useMemo(() => {
         const newestTimestamp = trends.reduce((latest, item) => Math.max(latest, new Date(item.created_at).getTime() || 0), 0);
         const cutoff = range === 'all' ? null : newestTimestamp - Number(range) * 86_400_000;
         return trends.filter((item) => (agent === 'all' || item.agent_name === agent)
+            && (agentVersion === 'all' || item.agent_version === agentVersion)
             && (prompt === 'all' || item.prompt_name === prompt)
+            && (promptVersion === 'all' || item.prompt_version === promptVersion)
             && (dataset === 'all' || item.dataset_version === dataset)
             && (model === 'all' || item.model_config_hash === model)
+            && (environment === 'all' || item.environment === environment)
             && (cutoff == null || new Date(item.created_at).getTime() >= cutoff));
-    }, [agent, dataset, model, prompt, range, trends]);
+    }, [agent, agentVersion, dataset, environment, model, prompt, promptVersion, range, trends]);
     const chartData = filtered.map((item) => ({
         name: formatShortDate(item.created_at),
         average: percent(item.average_score),
@@ -82,22 +92,28 @@ export function EvaluationOverviewPanel({ overview, trends, regressions, onOpenR
         capability('效率', overview.p95_latency_ms == null ? null : Math.max(0, 1 - overview.p95_latency_ms / 30_000)),
     ];
     const visibleRegressions = regressions.filter((item) => !acknowledged.has(item.run_id));
+    const cards = overviewCards(overview);
+    const cardGroups = [
+        { key: 'quality', title: '结果与质量' },
+        { key: 'governance', title: '安全与治理' },
+        { key: 'stability', title: '稳定性与效率' },
+        { key: 'observability', title: '观测上报' },
+    ] as const;
 
     return <div className="space-y-5">
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            {overviewCards(overview).map((card) => <div key={card.key} className={`rounded-2xl border bg-gradient-to-br p-4 shadow-sm ${cardTones[card.tone]}`}>
-                <div className="text-xs font-medium text-slate-500">{card.label}</div><div className="mt-2 text-2xl font-semibold text-slate-900">{card.value}</div>
-            </div>)}
-        </div>
+        {cardGroups.map((group) => <section key={group.key} className="space-y-2"><h3 className="text-sm font-semibold text-slate-700">{group.title}</h3><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{cards.filter((card) => card.group === group.key).map((card) => <div key={card.key} className={`rounded-2xl border bg-gradient-to-br p-4 shadow-sm ${cardTones[card.tone]}`}><div className="text-xs font-medium text-slate-500">{card.label}</div><div className="mt-2 text-2xl font-semibold text-slate-900">{card.value}</div></div>)}</div></section>)}
 
         <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="flex flex-col justify-between gap-3 lg:flex-row lg:items-end">
                 <div><h3 className="font-semibold text-slate-900">版本趋势</h3><p className="mt-1 text-xs text-slate-500">平均分、最低分、完全成功率与 P95 延迟分轴展示；筛选不会混合不同版本上下文。</p></div>
-                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
                     <Filter value={agent} onChange={setAgent} label="全部 Agent" options={options.agents} />
+                    <Filter value={agentVersion} onChange={setAgentVersion} label="全部 Agent 版本" options={options.agentVersions} />
                     <Filter value={prompt} onChange={setPrompt} label="全部 Prompt" options={options.prompts} />
+                    <Filter value={promptVersion} onChange={setPromptVersion} label="全部 Prompt 版本" options={options.promptVersions} />
                     <Filter value={dataset} onChange={setDataset} label="全部 Dataset" options={options.datasets} />
                     <Filter value={model} onChange={setModel} label="全部模型配置" options={options.models} compact />
+                    <Filter value={environment} onChange={setEnvironment} label="全部环境" options={options.environments} />
                     <select className="h-9 rounded-lg border border-slate-200 bg-white px-2 text-xs" value={range} onChange={(event) => setRange(event.target.value)}><option value="all">全部时间</option><option value="7">最近 7 天</option><option value="30">最近 30 天</option><option value="90">最近 90 天</option></select>
                 </div>
             </div>

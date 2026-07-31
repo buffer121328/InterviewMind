@@ -44,6 +44,15 @@ class EvalApprovalStatus(str, Enum):
     REJECTED = "rejected"
 
 
+class EvalExternalIOStatus(str, Enum):
+    """外部依赖调用的状态，不把依赖成功冒充为业务成功。"""
+
+    STARTED = "started"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+
+
 class EvalScoreStatus(str, Enum):
     """单项评测结果状态，硬门禁只接受明确通过。"""
 
@@ -139,13 +148,16 @@ class EvalStep(_EvalModel):
 
 
 class EvalToolCall(_EvalModel):
-    """工具调用的权限、副作用、审批和幂等审计记录。"""
+    """工具调用的权限、副作用、审批、重试和幂等审计记录。"""
 
     call_id: str = Field(min_length=1, max_length=160)
     sequence: int = Field(ge=0)
+    event_type: str = Field(default="tool.completed", min_length=1, max_length=120)
+    parent_call_id: str | None = Field(default=None, max_length=160)
     tool_name: str = Field(min_length=1, max_length=160)
     effect: EvalToolEffect = EvalToolEffect.READ
     status: EvalToolStatus
+    attempt: int = Field(default=1, ge=1)
     arguments_summary: dict[str, JsonValue] = Field(default_factory=dict)
     result_summary: dict[str, JsonValue] = Field(default_factory=dict)
     required_permissions: tuple[str, ...] = ()
@@ -157,7 +169,10 @@ class EvalToolCall(_EvalModel):
     simulated: bool = False
     target_namespace: str | None = Field(default=None, max_length=256)
     latency_ms: int | None = Field(default=None, ge=0)
+    duration_ms: int | None = Field(default=None, ge=0)
     error_type: str | None = Field(default=None, max_length=160)
+    error_category: str | None = Field(default=None, max_length=160)
+    evidence_refs: tuple[str, ...] = ()
 
     @field_validator("arguments_summary", "result_summary")
     @classmethod
@@ -179,6 +194,32 @@ class EvalRetrieval(_EvalModel):
     rank: int | None = Field(default=None, ge=1)
     adopted: bool = False
     strategy: str | None = Field(default=None, max_length=120)
+    call_id: str | None = Field(default=None, max_length=160)
+    sequence: int | None = Field(default=None, ge=0)
+    result_count: int | None = Field(default=None, ge=0)
+    empty_result: bool | None = None
+    duration_ms: int | None = Field(default=None, ge=0)
+    error_category: str | None = Field(default=None, max_length=160)
+
+
+class EvalExternalIO(_EvalModel):
+    """外部依赖的可用性、耗时和结果计数；不承载请求或响应正文。"""
+
+    call_id: str = Field(min_length=1, max_length=160)
+    sequence: int = Field(ge=0)
+    event_type: str = Field(default="external_io.completed", min_length=1, max_length=120)
+    parent_call_id: str | None = Field(default=None, max_length=160)
+    operation: str = Field(min_length=1, max_length=160)
+    dependency: str | None = Field(default=None, max_length=120)
+    status: EvalExternalIOStatus
+    attempt: int = Field(default=1, ge=1)
+    duration_ms: int | None = Field(default=None, ge=0)
+    item_count: int | None = Field(default=None, ge=0)
+    result_count: int | None = Field(default=None, ge=0)
+    query_fingerprint: str | None = Field(default=None, max_length=256)
+    adopted: bool | None = None
+    error_type: str | None = Field(default=None, max_length=160)
+    error_category: str | None = Field(default=None, max_length=160)
 
 
 class EvalModelCall(_EvalModel):
@@ -206,6 +247,10 @@ class EvalApproval(_EvalModel):
     requested_sequence: int = Field(ge=0)
     decided_sequence: int | None = Field(default=None, ge=0)
     actor_hash: str | None = Field(default=None, max_length=256)
+    call_id: str | None = Field(default=None, max_length=160)
+    sequence: int | None = Field(default=None, ge=0)
+    event_type: str = Field(default="approval.resolved", min_length=1, max_length=120)
+    evidence_refs: tuple[str, ...] = ()
 
 
 class EvalRunEvent(_EvalModel):
@@ -286,6 +331,39 @@ class EvalScore(_EvalModel):
     evidence_refs: tuple[str, ...] = ()
 
 
+class EvalTraceCompleteness(_EvalModel):
+    """关键观测证据是否齐全；缺失时进入复核而不是静默通过。"""
+
+    complete: bool = False
+    trace_id_present: bool = False
+    tracing_disabled: bool = False
+    agent_version_present: bool = False
+    prompt_version_present: bool = False
+    model_config_hash_present: bool = False
+    tool_terminal_states_complete: bool = True
+    stable_error_categories: bool = True
+    external_approval_status_present: bool = True
+    agent_run_id_present: bool = False
+    sensitive_data_clean: bool = True
+    evaluation_namespace_isolated: bool = False
+    score: float = Field(default=0.0, ge=0, le=1)
+    missing: tuple[str, ...] = ()
+
+
+class EvalObservabilitySummary(_EvalModel):
+    """前端和根 Span 共用的安全观测摘要，不包含单次业务正文。"""
+
+    schema_version: int = Field(default=1, ge=1)
+    tool_event_count: int = Field(default=0, ge=0)
+    tool_call_summary: dict[str, JsonValue] = Field(default_factory=dict)
+    external_io_event_count: int = Field(default=0, ge=0)
+    external_io_summary: dict[str, JsonValue] = Field(default_factory=dict)
+    approval_event_count: int = Field(default=0, ge=0)
+    langfuse_reported: bool | None = None
+    langfuse_error: str | None = Field(default=None, max_length=160)
+    trace_completeness: EvalTraceCompleteness = Field(default_factory=EvalTraceCompleteness)
+
+
 class AgentEvalRecord(_EvalModel):
     """Eval Harness 与 DeepEval、Langfuse、人工标注之间的中间记录。"""
 
@@ -299,11 +377,14 @@ class AgentEvalRecord(_EvalModel):
     model_config_hash: str = Field(min_length=1, max_length=256)
     owner_scope_hash: str = Field(min_length=1, max_length=256)
     evaluation_namespace: str = Field(min_length=1, max_length=256)
+    trace_id: str | None = Field(default=None, max_length=256)
+    agent_run_id: str | None = Field(default=None, max_length=256)
     input_summary: dict[str, JsonValue]
     final_output: JsonValue
     steps: tuple[EvalStep, ...] = ()
     tool_calls: tuple[EvalToolCall, ...] = ()
     retrievals: tuple[EvalRetrieval, ...] = ()
+    external_ios: tuple[EvalExternalIO, ...] = ()
     model_calls: tuple[EvalModelCall, ...] = ()
     approvals: tuple[EvalApproval, ...] = ()
     events: tuple[EvalRunEvent, ...] = ()
@@ -319,6 +400,7 @@ class AgentEvalRecord(_EvalModel):
     estimated_cost_usd: float | None = Field(default=None, ge=0)
     token_usage: EvalTokenUsage = Field(default_factory=EvalTokenUsage)
     error: EvalError | None = None
+    observability: EvalObservabilitySummary = Field(default_factory=EvalObservabilitySummary)
 
     @field_validator("input_summary", "final_output")
     @classmethod
@@ -333,6 +415,7 @@ class AgentEvalRecord(_EvalModel):
         """保证同类轨迹 ID 和事件 sequence 唯一，避免审计引用歧义。"""
 
         _require_unique((item.call_id for item in self.tool_calls), "tool call_id")
+        _require_unique((item.call_id for item in self.external_ios), "external IO call_id")
         _require_unique((item.call_id for item in self.model_calls), "model call_id")
         _require_unique((item.approval_id for item in self.approvals), "approval_id")
         _require_unique((item.sequence for item in self.events), "event sequence")

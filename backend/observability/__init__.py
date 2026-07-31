@@ -6,11 +6,21 @@ import uuid
 from collections.abc import Mapping, Sequence
 from contextlib import asynccontextmanager, contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from hashlib import sha256
 from math import ceil
-from typing import Any, AsyncIterator, Optional
+from typing import Any, AsyncIterator, Optional, cast
 from urllib.parse import urlsplit
+
+from app.security.security import safe_error_message
+
+from observability.runtime_events import (
+    ApprovalObservationEvent,
+    ExternalIOObservationEvent,
+    RUNTIME_EVENT_SCHEMA_VERSION,
+    RuntimeObservationEvent,
+    ToolObservationEvent,
+)
 
 _MODEL_PRICE_ENV = "MODEL_PRICE_REGISTRY"
 
@@ -24,6 +34,9 @@ _active_trace_id: ContextVar[str | None] = ContextVar(
 _model_events: ContextVar[list[dict[str, Any]] | None] = ContextVar(
     "model_events", default=None
 )
+_runtime_events: ContextVar[list[dict[str, Any]] | None] = ContextVar(
+    "runtime_events", default=None
+)
 _agent_run_id: ContextVar[str | None] = ContextVar(
     "agent_run_id", default=None
 )
@@ -35,6 +48,12 @@ _suppress_direct_llm_callbacks: ContextVar[bool] = ContextVar(
 )
 _model_call_metadata: ContextVar[dict[str, Any] | None] = ContextVar(
     "model_call_metadata", default=None
+)
+_evaluation_runtime_sinks: ContextVar[list[Any] | None] = ContextVar(
+    "evaluation_runtime_sinks", default=None
+)
+_runtime_sink_errors: ContextVar[list[str] | None] = ContextVar(
+    "runtime_sink_errors", default=None
 )
 _client: Any = None
 _config: "LangfuseConfig | None" = None
@@ -111,6 +130,7 @@ class AgentObservation:
     output_payload: Optional[dict[str, Any]] = None
     error_payload: Optional[dict[str, str]] = None
     model_events: list[dict[str, Any]] | None = None
+    runtime_events: list[dict[str, Any]] | None = None
 
     def set_output(self, output_payload: dict[str, Any]) -> None:
         """更新当前观测或流程状态中的 output；遵循调用方的数据脱敏和生命周期边界。
@@ -128,7 +148,7 @@ class AgentObservation:
         """
         self.error_payload = {
             "type": type(error).__name__,
-            "message": str(error)[:160],
+            "message": safe_error_message(error, max_len=160),
         }
 
 
@@ -544,6 +564,247 @@ def record_model_event(**event: Any) -> None:
     events.append(safe_event)
 
 
+def bind_runtime_event_context(
+    event: RuntimeObservationEvent,
+) -> RuntimeObservationEvent:
+    """把当前 Trace、AgentRun 和 Agent 身份补充到不可变运行时事件。
+
+    已由调用方显式提供的关联字段优先保留；本函数只补空值，不读取用户正文、
+    session 或业务对象 ID。
+    """
+
+    updates: dict[str, Any] = {}
+    if event.trace_id is None:
+        updates["trace_id"] = _active_trace_id.get()
+    if event.agent_run_id is None:
+        updates["agent_run_id"] = _agent_run_id.get()
+    if event.agent_name is None:
+        updates["agent_name"] = _agent_name.get()
+    return replace(event, **updates) if updates else event
+
+
+def record_runtime_event(
+    event: RuntimeObservationEvent,
+) -> RuntimeObservationEvent:
+    """记录统一运行时事件并投影到所有启用的 Sink。
+
+    事件只以 ``to_langfuse_payload()`` 的固定字段进入 Langfuse 根观测；评测
+    Collector 通过 ContextVar 接收同一个不可变事件，Sink 失败只标记本地
+    observability degradation，不改变工具、检索或审批业务终态。
+    """
+
+    bound_event = bind_runtime_event_context(event)
+    events = _runtime_events.get()
+    if events is not None:
+        events.append(bound_event.to_langfuse_payload())
+    for sink in tuple(_evaluation_runtime_sinks.get() or ()):
+        try:
+            sink(bound_event)
+        except Exception as exc:  # noqa: BLE001 - 观测 Sink 不得阻断业务。
+            errors = _runtime_sink_errors.get()
+            if errors is not None:
+                errors.append(type(exc).__name__)
+            logger.warning("运行时观测 Sink 失败: %s", type(exc).__name__)
+    if isinstance(bound_event, ToolObservationEvent):
+        from observability.tool_tracing import observe_tool_event
+
+        observe_tool_event(bound_event)
+    return bound_event
+
+
+def record_tool_event(event: ToolObservationEvent) -> ToolObservationEvent:
+    """记录 Tool 事件，不接收工具参数或结果正文的 Langfuse 投影。"""
+
+    return cast(ToolObservationEvent, record_runtime_event(event))
+
+
+def record_external_io_event(
+    event: ExternalIOObservationEvent,
+) -> ExternalIOObservationEvent:
+    """记录 external IO 事件，不接收 query、文档、页面或 URL 正文。"""
+
+    return cast(ExternalIOObservationEvent, record_runtime_event(event))
+
+
+def record_approval_event(
+    event: ApprovalObservationEvent,
+) -> ApprovalObservationEvent:
+    """记录匿名化审批事件；Langfuse 投影会排除 actor hash。"""
+
+    return cast(ApprovalObservationEvent, record_runtime_event(event))
+
+
+def get_current_runtime_events() -> list[dict[str, Any]]:
+    """返回当前 Agent 观测中的安全运行时事件副本。"""
+
+    events = _runtime_events.get()
+    return list(events or [])
+
+
+def get_current_trace_id() -> str | None:
+    """返回当前根 Trace ID，供统一事件关联本地 AgentRun 审计。"""
+
+    return _active_trace_id.get()
+
+
+def is_agent_observation_active() -> bool:
+    """返回当前任务是否位于 Agent root observation 内。"""
+
+    return _active_agent_observation.get()
+
+
+@contextmanager
+def evaluation_runtime_sink(sink: Any):
+    """把统一运行时事件绑定到一次评测 Collector。
+
+    该上下文只增加观测投影，不改变生产工具权限、审批或外部 IO 策略。
+    """
+
+    sinks = list(_evaluation_runtime_sinks.get() or [])
+    sinks.append(sink)
+    token_sinks = _evaluation_runtime_sinks.set(sinks)
+    token_errors = _runtime_sink_errors.set([])
+    try:
+        yield
+    finally:
+        _evaluation_runtime_sinks.reset(token_sinks)
+        _runtime_sink_errors.reset(token_errors)
+
+
+def get_runtime_sink_errors() -> tuple[str, ...]:
+    """返回当前评测上下文发现的 Sink 异常类型。"""
+
+    return tuple(_runtime_sink_errors.get() or ())
+
+
+def _runtime_percentile(values: Sequence[int], fraction: float) -> int | None:
+    """使用最近秩计算运行时事件的小样本百分位。"""
+
+    if not values:
+        return None
+    ordered = sorted(values)
+    index = max(0, min(len(ordered) - 1, ceil(len(ordered) * fraction) - 1))
+    return ordered[index]
+
+
+def _terminal_runtime_events(
+    events: Sequence[Mapping[str, Any]],
+    *,
+    prefix: str,
+) -> dict[str, Mapping[str, Any]]:
+    """按 call ID 保留最后一个终态，避免重试事件被重复计算为多个调用。"""
+
+    terminal_statuses = {"completed", "failed", "blocked", "skipped"}
+    terminals: dict[str, Mapping[str, Any]] = {}
+    for event in events:
+        if not str(event.get("event_type") or "").startswith(prefix):
+            continue
+        if event.get("status") not in terminal_statuses:
+            continue
+        call_id = str(event.get("call_id") or event.get("event_id") or "")
+        if call_id:
+            terminals[call_id] = event
+    return terminals
+
+
+def summarize_tool_events(events: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """按逻辑 Tool 调用汇总终态、审批风险、耗时和不完整调用。"""
+
+    tool_events = [
+        event
+        for event in events
+        if str(event.get("event_type") or "").startswith("tool.")
+    ]
+    call_ids = {str(event.get("call_id")) for event in tool_events if event.get("call_id")}
+    terminals = _terminal_runtime_events(tool_events, prefix="tool.")
+    durations = [
+        int(event["duration_ms"])
+        for event in terminals.values()
+        if isinstance(event.get("duration_ms"), (int, float))
+    ]
+    slowest = max(
+        (
+            event
+            for event in terminals.values()
+            if isinstance(event.get("duration_ms"), (int, float))
+        ),
+        key=lambda event: int(event.get("duration_ms") or 0),
+        default=None,
+    )
+    return {
+        "total": len(call_ids),
+        "completed": sum(event.get("status") == "completed" for event in terminals.values()),
+        "failed": sum(event.get("status") == "failed" for event in terminals.values()),
+        "blocked": sum(event.get("status") == "blocked" for event in terminals.values()),
+        "skipped": sum(event.get("status") == "skipped" for event in terminals.values()),
+        "incomplete": max(0, len(call_ids) - len(terminals)),
+        "approval_required": len(
+            {
+                str(event.get("call_id"))
+                for event in tool_events
+                if event.get("requires_confirmation")
+            }
+        ),
+        "external_effect_count": len(
+            {
+                str(event.get("call_id"))
+                for event in tool_events
+                if event.get("tool_effect") == "external"
+            }
+        ),
+        "p50_duration_ms": _runtime_percentile(durations, 0.50),
+        "p95_duration_ms": _runtime_percentile(durations, 0.95),
+        "slowest_tool": slowest.get("tool_name") if slowest else None,
+    }
+
+
+def summarize_external_io_events(
+    events: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """汇总外部依赖调用的终态、超时和耗时。"""
+
+    io_events = [
+        event
+        for event in events
+        if str(event.get("event_type") or "").startswith("external_io.")
+    ]
+    call_ids = {str(event.get("call_id")) for event in io_events if event.get("call_id")}
+    terminals = _terminal_runtime_events(io_events, prefix="external_io.")
+    durations = [
+        int(event["duration_ms"])
+        for event in terminals.values()
+        if isinstance(event.get("duration_ms"), (int, float))
+    ]
+    return {
+        "total": len(call_ids),
+        "completed": sum(event.get("status") == "completed" for event in terminals.values()),
+        "failed": sum(event.get("status") == "failed" for event in terminals.values()),
+        "skipped": sum(event.get("status") == "skipped" for event in terminals.values()),
+        "incomplete": max(0, len(call_ids) - len(terminals)),
+        "timeout": sum(
+            event.get("error_category") == "external_io_timeout"
+            for event in terminals.values()
+        ),
+        "p50_duration_ms": _runtime_percentile(durations, 0.50),
+        "p95_duration_ms": _runtime_percentile(durations, 0.95),
+    }
+
+
+def summarize_approval_events(events: Sequence[Mapping[str, Any]]) -> dict[str, int]:
+    """汇总审批请求和决定，不暴露审批人身份。"""
+
+    approval_events = [
+        event
+        for event in events
+        if str(event.get("event_type") or "").startswith("approval.")
+    ]
+    return {
+        "requested": sum(event.get("status") == "pending" for event in approval_events),
+        "approved": sum(event.get("status") == "approved" for event in approval_events),
+        "rejected": sum(event.get("status") == "rejected" for event in approval_events),
+    }
+
+
 @contextmanager
 def model_call_metadata_scope(**metadata: Any):
     """在一次模型 attempt 内传播候选、deadline 和上下文审计元数据。"""
@@ -867,6 +1128,8 @@ async def agent_observation(
         token_agent_name = _agent_name.set(agent_type)
         parent_events = _model_events.get()
         event_start = len(parent_events or [])
+        parent_runtime_events = _runtime_events.get()
+        runtime_event_start = len(parent_runtime_events or [])
 
         if _client is None:
             try:
@@ -876,6 +1139,9 @@ async def agent_observation(
                 raise
             finally:
                 observation.model_events = list((_model_events.get() or [])[event_start:])
+                observation.runtime_events = list(
+                    (_runtime_events.get() or [])[runtime_event_start:]
+                )
                 _agent_run_id.reset(token_run_id)
                 _agent_name.reset(token_agent_name)
             return
@@ -896,6 +1162,9 @@ async def agent_observation(
                     raise
                 finally:
                     observation.model_events = list((_model_events.get() or [])[event_start:])
+                    observation.runtime_events = list(
+                        (_runtime_events.get() or [])[runtime_event_start:]
+                    )
                     _update_span(span, observation)
         except Exception as error:
             if business_error:
@@ -909,6 +1178,9 @@ async def agent_observation(
                     raise
                 finally:
                     observation.model_events = list((_model_events.get() or [])[event_start:])
+                    observation.runtime_events = list(
+                        (_runtime_events.get() or [])[runtime_event_start:]
+                    )
         finally:
             _agent_run_id.reset(token_run_id)
             _agent_name.reset(token_agent_name)
@@ -933,6 +1205,7 @@ async def agent_observation(
     if _client is None:
         token_active = _active_agent_observation.set(True)
         token_events = _model_events.set([])
+        token_runtime_events = _runtime_events.set([])
         try:
             yield observation
         except Exception as error:
@@ -940,7 +1213,9 @@ async def agent_observation(
             raise
         finally:
             observation.model_events = get_current_model_events()
+            observation.runtime_events = get_current_runtime_events()
             await _persist_agent_observation(observation)
+            _runtime_events.reset(token_runtime_events)
             _model_events.reset(token_events)
             _active_agent_observation.reset(token_active)
             _agent_run_id.reset(token_run_id)
@@ -969,6 +1244,7 @@ async def agent_observation(
                 entered = True
                 token = _active_agent_observation.set(True)
                 token_events = _model_events.set([])
+                token_runtime_events = _runtime_events.set([])
                 try:
                     yield observation
                 except Exception as error:
@@ -977,7 +1253,9 @@ async def agent_observation(
                     raise
                 finally:
                     observation.model_events = get_current_model_events()
+                    observation.runtime_events = get_current_runtime_events()
                     await _persist_agent_observation(observation)
+                    _runtime_events.reset(token_runtime_events)
                     _model_events.reset(token_events)
                     _active_agent_observation.reset(token)
                     _agent_run_id.reset(token_run_id)
@@ -996,15 +1274,75 @@ async def agent_observation(
                 run_id=run_id,
             )
             token_events = _model_events.set([])
+            token_runtime_events = _runtime_events.set([])
             try:
                 yield fallback
             finally:
                 fallback.model_events = get_current_model_events()
+                fallback.runtime_events = get_current_runtime_events()
                 await _persist_agent_observation(fallback)
+                _runtime_events.reset(token_runtime_events)
                 _model_events.reset(token_events)
                 _agent_run_id.reset(token_run_id)
                 _agent_name.reset(token_agent_name)
                 _active_trace_id.reset(token_trace_id)
+
+
+def _trace_completeness_summary(observation: AgentObservation) -> dict[str, Any]:
+    """从安全事件和根元数据生成 critical trace 完整性摘要。"""
+
+    events = observation.runtime_events or []
+    tools = [
+        event for event in events
+        if str(event.get("event_type") or "").startswith("tool.")
+    ]
+    calls = {str(event.get("call_id")) for event in tools if event.get("call_id")}
+    terminal_statuses = {"completed", "failed", "blocked", "skipped"}
+    terminal_calls = {
+        str(event.get("call_id"))
+        for event in tools
+        if event.get("call_id") and event.get("status") in terminal_statuses
+    }
+    tool_terminal_states_complete = calls.issubset(terminal_calls)
+    stable_error_categories = all(
+        event.get("status") != "failed" or bool(event.get("error_category"))
+        for event in tools
+    )
+    external_approval_status_present = all(
+        event.get("tool_effect") != "external" or bool(event.get("approval_status"))
+        for event in tools
+    )
+    model_events = observation.model_events or []
+    prompt_version_present = bool(observation.input_payload.get("prompt_version")) or not bool(
+        observation.input_payload.get("prompt_name")
+    )
+    model_config_hash_present = bool(observation.input_payload.get("model_config_hash")) or any(
+        event.get("model_name") or event.get("model_member") for event in model_events
+    )
+    checks = {
+        "trace_id": bool(observation.trace_id),
+        "agent_version": bool(observation.input_payload.get("agent_version")),
+        "prompt_version": prompt_version_present,
+        "model_config_hash": model_config_hash_present,
+        "tool_terminal_states": tool_terminal_states_complete,
+        "stable_error_categories": stable_error_categories,
+        "external_approval_status": external_approval_status_present,
+        "agent_run_id": bool(observation.run_id),
+    }
+    missing = tuple(name for name, passed in checks.items() if not passed)
+    return {
+        "complete": not missing,
+        "score": sum(checks.values()) / len(checks),
+        "missing": missing,
+        "trace_id_present": bool(observation.trace_id),
+        "agent_version_present": bool(observation.input_payload.get("agent_version")),
+        "prompt_version_present": prompt_version_present,
+        "model_config_hash_present": model_config_hash_present,
+        "tool_terminal_states_complete": tool_terminal_states_complete,
+        "stable_error_categories": stable_error_categories,
+        "external_approval_status_present": external_approval_status_present,
+        "agent_run_id_present": bool(observation.run_id),
+    }
 
 
 def _update_span(span: Any, observation: AgentObservation) -> None:
@@ -1022,6 +1360,31 @@ def _update_span(span: Any, observation: AgentObservation) -> None:
         output_payload["model_event_summary"] = summarize_model_events(observation.model_events)
         if _env_bool("LANGFUSE_INCLUDE_MODEL_EVENTS_IN_SPAN_OUTPUT", False):
             output_payload["model_events"] = observation.model_events
+    if observation.runtime_events:
+        output_payload["observability_schema_version"] = RUNTIME_EVENT_SCHEMA_VERSION
+        output_payload["runtime_event_count"] = len(observation.runtime_events)
+        output_payload["tool_event_count"] = sum(
+            str(event.get("event_type") or "").startswith("tool.")
+            for event in observation.runtime_events
+        )
+        output_payload["external_io_event_count"] = sum(
+            str(event.get("event_type") or "").startswith("external_io.")
+            for event in observation.runtime_events
+        )
+        output_payload["approval_event_count"] = sum(
+            str(event.get("event_type") or "").startswith("approval.")
+            for event in observation.runtime_events
+        )
+        output_payload["tool_call_summary"] = summarize_tool_events(
+            observation.runtime_events
+        )
+        output_payload["trace_completeness"] = _trace_completeness_summary(observation)
+        output_payload["external_io_summary"] = summarize_external_io_events(
+            observation.runtime_events
+        )
+        output_payload["approval_event_summary"] = summarize_approval_events(
+            observation.runtime_events
+        )
     if observation.error_payload:
         output_payload = {**output_payload, "error": observation.error_payload}
     try:
@@ -1329,7 +1692,13 @@ def _reset_langfuse_for_tests() -> None:
     _active_agent_observation.set(False)
     _active_trace_id.set(None)
     _model_events.set(None)
+    _runtime_events.set(None)
     _agent_run_id.set(None)
     _agent_name.set(None)
     _suppress_direct_llm_callbacks.set(False)
     _model_call_metadata.set(None)
+    _evaluation_runtime_sinks.set(None)
+    _runtime_sink_errors.set(None)
+    from observability.tool_tracing import reset_tool_spans
+
+    reset_tool_spans()

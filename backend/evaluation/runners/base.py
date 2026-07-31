@@ -219,30 +219,59 @@ class AgentEvalRunner:
         output: JsonValue = None
         trace.record_event(stage="starting", event_type="case.started")
         try:
-            raw_output = await adapter.run(dict(case.input_payload), context, trace)
-            output, findings = sanitize_evaluation_value(
-                raw_output, location="final_output"
-            )
-            trace.sensitive_data_findings.extend(findings)
-            trace.record_event(
-                stage="running_cases",
-                event_type="case.agent_completed",
-                status="succeeded",
-            )
-        except Exception as exc:
-            final_status = "failed"
-            error = EvalError(
-                classification=type(exc).__name__,
-                message=safe_error_message(exc),
-                retryable=isinstance(exc, (TimeoutError, ConnectionError)),
-            )
-            trace.record_event(
-                stage="running_cases",
-                event_type="case.failed",
-                status="failed",
-                payload_summary={"error_type": type(exc).__name__},
-            )
+            # 统一运行时事件在一次事实生成后直接投影到 Eval Collector；
+            # Collector 失败由 trace_completeness 记录，不改变 Agent 业务终态。
+            from observability import evaluation_runtime_sink, get_runtime_sink_errors
+
+            with evaluation_runtime_sink(trace.record_runtime_event):
+                try:
+                    raw_output = await adapter.run(dict(case.input_payload), context, trace)
+                    output, findings = sanitize_evaluation_value(
+                        raw_output, location="final_output"
+                    )
+                    trace.sensitive_data_findings.extend(findings)
+                    trace.record_event(
+                        stage="running_cases",
+                        event_type="case.agent_completed",
+                        status="succeeded",
+                    )
+                except Exception as exc:
+                    final_status = "failed"
+                    error = EvalError(
+                        classification=type(exc).__name__,
+                        message=safe_error_message(exc),
+                        retryable=isinstance(exc, (TimeoutError, ConnectionError)),
+                    )
+                    trace.record_event(
+                        stage="running_cases",
+                        event_type="case.failed",
+                        status="failed",
+                        payload_summary={"error_type": type(exc).__name__},
+                    )
+                finally:
+                    for sink_error in get_runtime_sink_errors():
+                        trace.mark_runtime_sink_error(sink_error)
+        except Exception:
+            # 运行时事件上下文本身不能掩盖 Agent 失败；最终记录会保留已有状态。
+            if error is None:
+                final_status = "failed"
+                error = EvalError(
+                    classification="EvaluationObservationError",
+                    message="evaluation observability context failed",
+                    retryable=False,
+                )
         latency_ms = max(0, int((time.perf_counter() - started) * 1000))
+        from observability import get_langfuse_client
+
+        tracing_disabled = get_langfuse_client() is None
+        completeness = trace.trace_completeness(
+            agent_version=adapter.version,
+            prompt_name=prompt_name,
+            prompt_version=prompt_version,
+            model_config_hash=model_config_hash,
+            agent_run_id=run_id,
+            tracing_disabled=tracing_disabled,
+        )
         record = AgentEvalRecord(
             case_id=case.case_id,
             case_version=case.case_version,
@@ -254,11 +283,14 @@ class AgentEvalRunner:
             model_config_hash=model_config_hash,
             owner_scope_hash=owner_scope_hash,
             evaluation_namespace=f"eval:{run_id}",
+            trace_id=trace.trace_id,
+            agent_run_id=run_id,
             input_summary=summarize_input(dict(case.input_payload)),
             final_output=output,
             steps=tuple(trace.steps),
             tool_calls=tuple(trace.tool_calls),
             retrievals=tuple(trace.retrievals),
+            external_ios=tuple(trace.external_ios),
             model_calls=tuple(trace.model_calls),
             approvals=tuple(trace.approvals),
             events=tuple(trace.events),
@@ -271,6 +303,7 @@ class AgentEvalRunner:
             recovery_count=sum(step.recovery_source is not None for step in trace.steps),
             token_usage=_aggregate_tokens(trace),
             error=error,
+            observability=trace.observability_summary(completeness),
         )
         scores = tuple(
             self.evaluator_registry.evaluate(record, include_judges=include_judges)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any, Literal
 
 from app.schemas.schemas import ApiConfig
@@ -30,11 +31,27 @@ class EvaluationCaseCreateRequest(_EvaluationRequest):
     forbidden_state_transitions: list[str] = Field(default_factory=list, max_length=100)
     quality_rubric: dict[str, JsonValue] = Field(default_factory=dict)
     retrieval_context: list[str] = Field(default_factory=list, max_length=100)
+    evidence_refs: list[str] = Field(default_factory=list, max_length=200)
     tags: list[str] = Field(default_factory=list, max_length=40)
     severity: Literal["low", "medium", "high", "critical"] = "medium"
     latency_budget_ms: int | None = Field(default=None, ge=1, le=3_600_000)
     token_budget: int | None = Field(default=None, ge=1, le=10_000_000)
     fault_injection: dict[str, JsonValue] | None = None
+
+    @field_validator("evidence_refs")
+    @classmethod
+    def validate_evidence_refs(cls, value: list[str]) -> list[str]:
+        """只允许保存不含正文、凭据或空白字符的稳定证据引用。"""
+
+        normalized = list(dict.fromkeys(value))
+        for item in normalized:
+            if (
+                not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/@#-]{0,255}", item)
+                or redact_secret_text(item) != item
+                or "cookie" in item.lower()
+            ):
+                raise ValueError("unsafe evaluation evidence reference")
+        return normalized
 
 
 class EvaluationDatasetCreateRequest(_EvaluationRequest):

@@ -499,8 +499,24 @@ class EvaluationUseCases:
             payload["cases"] = [_case_run(item) for item in cases]
             return payload
 
-    async def list_case_runs(self, *, user_id: str, run_id: str) -> dict[str, Any]:
-        """列出某次运行的案例摘要。"""
+    async def list_case_runs(
+        self,
+        *,
+        user_id: str,
+        run_id: str,
+        status: str | None = None,
+        error_category: str | None = None,
+        tool_name: str | None = None,
+        tool_effect: str | None = None,
+        tool_status: str | None = None,
+        approval_status: str | None = None,
+        has_external_side_effect: bool | None = None,
+        trace_incomplete: bool | None = None,
+        retrieval_empty: bool | None = None,
+        needs_review: bool | None = None,
+        hard_gate_passed: bool | None = None,
+    ) -> dict[str, Any]:
+        """在 owner 校验后按失败、工具、门禁和复核状态筛选案例摘要。"""
 
         self._ensure_center_enabled()
         async with UnitOfWork(async_session) as uow:
@@ -509,7 +525,48 @@ class EvaluationUseCases:
             rows = await self.repository.list_case_runs(
                 uow.db, run_id=run_id, user_id=user_id
             )
-            return {"items": [_case_run(row) for row in rows], "total": len(rows)}
+            filtered = [
+                row
+                for row in rows
+                if (status is None or row.status == status)
+                and (error_category is None or row.error_category == error_category)
+                and (needs_review is None or row.needs_review is needs_review)
+                and (
+                    hard_gate_passed is None
+                    or row.hard_gate_passed is hard_gate_passed
+                )
+                and (tool_name is None or _record_has_tool(row.record_sanitized, tool_name))
+                and (
+                    tool_effect is None
+                    or _record_has_tool_effect(row.record_sanitized, tool_effect)
+                )
+                and (
+                    tool_status is None
+                    or _record_has_tool_status(row.record_sanitized, tool_status)
+                )
+                and (
+                    approval_status is None
+                    or _record_has_approval_status(
+                        row.record_sanitized, approval_status
+                    )
+                )
+                and (
+                    has_external_side_effect is None
+                    or _record_has_external_side_effect(row.record_sanitized)
+                    is has_external_side_effect
+                )
+                and (
+                    trace_incomplete is None
+                    or _record_trace_incomplete(row.record_sanitized)
+                    is trace_incomplete
+                )
+                and (
+                    retrieval_empty is None
+                    or _record_has_empty_retrieval(row.record_sanitized)
+                    is retrieval_empty
+                )
+            ]
+            return {"items": [_case_run(row) for row in filtered], "total": len(filtered)}
 
     async def get_case_run(self, *, user_id: str, case_run_id: str) -> dict[str, Any]:
         """owner 显式请求详情时解密案例、Golden 与实际输出。"""
@@ -838,6 +895,54 @@ class EvaluationUseCases:
                     if latest
                     else None
                 ),
+                "trace_completeness_rate": _weighted_ratio(
+                    rows, "trace_complete_count", "completed_count"
+                ),
+                "trace_incomplete_count": sum(
+                    int(row.summary.get("trace_incomplete_count") or 0) for row in rows
+                ),
+                "tool_failure_rate": _weighted_ratio(
+                    rows, "tool_call_failed_count", "tool_call_total"
+                ),
+                "tool_execution_success_rate": _weighted_ratio(
+                    rows, "tool_call_completed_count", "tool_call_total"
+                ),
+                "tool_p95_duration_ms": (
+                    latest.summary.get("tool_p95_duration_ms") if latest else None
+                ),
+                "dependency_failure_rate": _weighted_ratio(
+                    rows, "external_io_failed_count", "external_io_total"
+                ),
+                "external_io_timeout_rate": _weighted_ratio(
+                    rows, "external_io_timeout_count", "external_io_total"
+                ),
+                "retrieval_empty_rate": _weighted_ratio(
+                    rows,
+                    "retrieval_empty_case_count",
+                    "retrieval_observed_case_count",
+                ),
+                "external_effect_count": sum(
+                    int(row.summary.get("external_effect_total") or 0) for row in rows
+                ),
+                "external_effect_blocked_count": sum(
+                    int(row.summary.get("external_effect_blocked_count") or 0)
+                    for row in rows
+                ),
+                "approval_event_count": sum(
+                    int(row.summary.get("approval_event_total") or 0) for row in rows
+                ),
+                "approval_violation_count": sum(
+                    int(row.summary.get("approval_violation_count") or 0)
+                    for row in rows
+                ),
+                "langfuse_reported_case_count": sum(
+                    int(row.summary.get("langfuse_reported_case_count") or 0)
+                    for row in rows
+                ),
+                "langfuse_failed_case_count": sum(
+                    int(row.summary.get("langfuse_failed_case_count") or 0)
+                    for row in rows
+                ),
             }
 
     async def trends(
@@ -1079,6 +1184,10 @@ class EvaluationUseCases:
                     "minimum_sample_size": policy.minimum_sample_size,
                     "metrics": metrics,
                     "baseline_comparison": baseline_comparison,
+                    "hard_gates": dict(run.summary.get("hard_gates") or {}),
+                    "hard_gate_evidence": dict(
+                        run.summary.get("hard_gate_evidence") or {}
+                    ),
                     "mode": get_settings().evaluation_release_gate_mode,
                 },
             )
@@ -1320,6 +1429,101 @@ def _gate(row: Any) -> dict[str, Any]:
         "status": row.status,
         "created_at": row.created_at.isoformat(),
     }
+
+
+def _weighted_ratio(rows: list[Any], numerator_key: str, denominator_key: str) -> float | None:
+    """按运行摘要中的计数加权计算治理指标，避免小运行放大平均值。"""
+
+    numerator = sum(int(row.summary.get(numerator_key) or 0) for row in rows)
+    denominator = sum(int(row.summary.get(denominator_key) or 0) for row in rows)
+    return numerator / denominator if denominator else None
+
+
+def _record_has_tool(record: Any, tool_name: str) -> bool:
+    """只从 owner 已授权返回的脱敏 record 中匹配工具名，不读取原始参数。"""
+
+    if not isinstance(record, dict):
+        return False
+    for item in record.get("tool_calls") or ():
+        if isinstance(item, dict) and item.get("tool_name") == tool_name:
+            return True
+    return False
+
+
+def _record_has_tool_effect(record: Any, tool_effect: str) -> bool:
+    """只从脱敏 ToolCall 列表匹配副作用等级。"""
+
+    return _record_has_item_value(record, collection="tool_calls", key="effect", value=tool_effect)
+
+
+def _record_has_tool_status(record: Any, tool_status: str) -> bool:
+    """只从脱敏 ToolCall 列表匹配工具终态。"""
+
+    return _record_has_item_value(record, collection="tool_calls", key="status", value=tool_status)
+
+
+def _record_has_approval_status(record: Any, approval_status: str) -> bool:
+    """从 ToolCall 或 Approval 安全字段匹配审批状态。"""
+
+    return _record_has_item_value(
+        record,
+        collection="tool_calls",
+        key="approval_status",
+        value=approval_status,
+    ) or _record_has_item_value(
+        record,
+        collection="approvals",
+        key="status",
+        value=approval_status,
+    )
+
+
+def _record_has_external_side_effect(record: Any) -> bool:
+    """判断脱敏轨迹中是否存在 external effect Tool。"""
+
+    return _record_has_tool_effect(record, "external")
+
+
+def _record_trace_incomplete(record: Any) -> bool:
+    """历史记录缺少完整性字段时不伪造 incomplete，仅匹配显式 false。"""
+
+    if not isinstance(record, dict):
+        return False
+    observability = record.get("observability")
+    if not isinstance(observability, dict):
+        return False
+    completeness = observability.get("trace_completeness")
+    return isinstance(completeness, dict) and completeness.get("complete") is False
+
+
+def _record_has_empty_retrieval(record: Any) -> bool:
+    """从脱敏 Retrieval 列表识别显式空召回案例。"""
+
+    if not isinstance(record, dict):
+        return False
+    for item in record.get("retrievals") or ():
+        if not isinstance(item, dict):
+            continue
+        if item.get("empty_result") is True or item.get("result_count") == 0:
+            return True
+    return False
+
+
+def _record_has_item_value(
+    record: Any,
+    *,
+    collection: str,
+    key: str,
+    value: str,
+) -> bool:
+    """在已脱敏结构化列表中执行精确短标量匹配。"""
+
+    if not isinstance(record, dict):
+        return False
+    return any(
+        isinstance(item, dict) and item.get(key) == value
+        for item in record.get(collection) or ()
+    )
 
 
 def _metric_average(rows: list[Any], keywords: tuple[str, ...]) -> float | None:

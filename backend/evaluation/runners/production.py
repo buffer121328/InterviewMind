@@ -72,20 +72,6 @@ async def _run_interview_turn(
     try:
         result = await node_responder(state)
         safe_result = _normalize_runtime_value(result)
-        runtime_trace = safe_result.get("trace") if isinstance(safe_result, dict) else None
-        if isinstance(runtime_trace, list):
-            for item in runtime_trace:
-                if isinstance(item, dict):
-                    trace.record_event(
-                        stage=str(item.get("phase") or item.get("step") or "runtime"),
-                        event_type=str(item.get("event_type") or "runtime.trace"),
-                        status=str(item.get("status") or "") or None,
-                        payload_summary={
-                            "step": str(item.get("step") or ""),
-                            "tool_name": str(item.get("tool_name") or ""),
-                            "duration_ms": item.get("duration_ms"),
-                        },
-                    )
         trace.finish_step("interview_turn")
         return safe_result
     except Exception:

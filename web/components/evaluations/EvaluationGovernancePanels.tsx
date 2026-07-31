@@ -175,17 +175,96 @@ export function CalibrationPanel({ calibrations, onRefresh }: { calibrations: Ev
     </div>;
 }
 
+const HARD_GATE_CATALOG = [
+    ['hard_gate.unapproved_external_action', '未审批 external action'],
+    ['hard_gate.duplicate_external_side_effect', '重复 external side effect'],
+    ['hard_gate.post_cancel_external_write', '取消后 external write'],
+    ['hard_gate.cross_user_access', '跨用户访问'],
+    ['hard_gate.credential_leak', '凭据泄漏'],
+    ['hard_gate.checkpoint_integrity_violation', 'Checkpoint 完整性'],
+    ['hard_gate.evaluation_data_contamination', '评测数据污染'],
+] as const;
+
+/** 展示不可抵消的发布门禁与安全 evidence，并只通过后端 Gate Check 写入结果。 */
 export function GatesPanel({ gates, runs, onRefresh }: { gates: EvaluationGatePolicy[]; runs: EvaluationRun[]; onRefresh: () => Promise<void> }) {
-    const [payload, setPayload] = useState(JSON.stringify({ name: 'prompt-production', version: 'v1', hard_gates: ['security.cross_user_access'], metric_thresholds: { 'quality.score': { value: 0.8, comparison: 'gte' }, 'factuality.mae': { value: 0.1, comparison: 'lte' } }, regression_tolerances: {}, minimum_sample_size: 20, status: 'draft' }, null, 2));
+    const [payload, setPayload] = useState(JSON.stringify({
+        name: 'prompt-production',
+        version: 'v1',
+        hard_gates: HARD_GATE_CATALOG.map(([name]) => name),
+        metric_thresholds: {
+            'quality.score': { value: 0.8, comparison: 'gte' },
+            'factuality.mae': { value: 0.1, comparison: 'lte' },
+        },
+        regression_tolerances: {},
+        minimum_sample_size: 20,
+        status: 'draft',
+    }, null, 2));
     const [runId, setRunId] = useState(runs[0]?.id ?? '');
     const [policyId, setPolicyId] = useState(gates[0]?.id ?? '');
     const [result, setResult] = useState<Record<string, unknown> | null>(null);
     const effectiveRunId = runId || runs[0]?.id || '';
     const effectivePolicyId = policyId || gates[0]?.id || '';
-    async function create() { try { await evaluationApi.createGate(JSON.parse(payload)); toast.success('Gate Policy Version 已创建'); await onRefresh(); } catch (error) { toast.error(error instanceof Error ? error.message : '创建失败'); } }
-    async function check() { if (!effectiveRunId || !effectivePolicyId) return; try { setResult(await evaluationApi.gateCheck(effectiveRunId, effectivePolicyId)); } catch (error) { toast.error(error instanceof Error ? error.message : '门禁检查失败'); } }
+
+    /** Creates a new immutable gate policy version; it never publishes a Prompt. */
+    async function create() {
+        try {
+            await evaluationApi.createGate(JSON.parse(payload));
+            toast.success('Gate Policy Version 已创建');
+            await onRefresh();
+        } catch (error) {
+            toast.error(error instanceof Error ? error.message : '创建失败');
+        }
+    }
+
+    /** Executes the owner-scoped backend gate check without locally overriding failures. */
+    async function check() {
+        if (!effectiveRunId || !effectivePolicyId) return;
+        try {
+            setResult(await evaluationApi.gateCheck(effectiveRunId, effectivePolicyId));
+        } catch (error) {
+            toast.error(error instanceof Error ? error.message : '门禁检查失败');
+        }
+    }
+
     const blocked = Array.isArray(result?.blocked_by) ? result.blocked_by as string[] : [];
-    return <div className="grid gap-4 xl:grid-cols-2"><section className="rounded-2xl border bg-white p-4 shadow-sm"><div className="flex items-center justify-between"><div><h3 className="font-semibold">发布门禁检查</h3><p className="mt-1 text-xs text-slate-500">硬门禁、样本量、指标阈值与基线回归均独立阻断，不参与抵消平均。</p></div><ShieldAlert className="h-4 w-4 text-rose-600" /></div><div className="mt-3 grid gap-3"><select className="h-10 rounded-md border px-3 text-sm" value={effectiveRunId} onChange={(event) => setRunId(event.target.value)}><option value="">选择 Evaluation Run</option>{runs.map((item) => <option key={item.id} value={item.id}>{item.agent_name} · {item.prompt_version ?? item.id}</option>)}</select><select className="h-10 rounded-md border px-3 text-sm" value={effectivePolicyId} onChange={(event) => setPolicyId(event.target.value)}><option value="">选择 Gate Policy</option>{gates.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.version}</option>)}</select><Button onClick={() => void check()}>执行 Gate Check</Button></div>{result && <div className={`mt-4 rounded-xl border p-4 ${result.passed ? 'border-emerald-200 bg-emerald-50' : 'border-red-200 bg-red-50'}`}><div className="font-semibold">{result.passed ? '门禁通过，可作为发布依据' : '门禁失败，禁止受控发布'}</div>{blocked.length > 0 && <div className="mt-2 flex flex-wrap gap-1">{blocked.map((item) => <span key={item} className="rounded bg-white px-2 py-1 text-xs text-red-700">{item}</span>)}</div>}<pre className="mt-3 max-h-72 overflow-auto whitespace-pre-wrap text-[11px] text-slate-600">{JSON.stringify(result.details, null, 2)}</pre></div>}<div className="mt-5 space-y-2">{gates.map((item) => <div key={item.id} className="rounded-xl border p-3"><div className="flex justify-between"><span className="font-medium">{item.name} · {item.version}</span><span className="text-xs uppercase text-slate-500">{item.status}</span></div><div className="mt-1 text-xs text-slate-500">最低样本 {item.minimum_sample_size} · 硬门禁 {item.hard_gates.length} · 指标 {Object.keys(item.metric_thresholds).length}</div></div>)}</div></section><section className="rounded-2xl border bg-white p-4 shadow-sm"><h3 className="font-semibold">创建 Gate Policy Version</h3><p className="mt-1 text-xs text-slate-500">策略版本和 Gate Result 均不可变；Prompt 发布仍经过原受权限保护 API。</p><Textarea className="mt-3 min-h-[460px] font-mono text-xs" value={payload} onChange={(event) => setPayload(event.target.value)} /><Button className="mt-3" onClick={() => void create()}>保存策略版本</Button></section></div>;
+    const details = asRecord(result?.details);
+    const hardGateStates = asRecord(details.hard_gates);
+    const hardGateEvidence = asRecord(details.hard_gate_evidence);
+    const metrics = asRecord(details.metrics);
+    const baseline = asRecord(details.baseline_comparison);
+
+    return <div className="grid gap-4 xl:grid-cols-2">
+        <section className="rounded-2xl border bg-white p-4 shadow-sm">
+            <div className="flex items-center justify-between"><div><h3 className="font-semibold">发布门禁检查</h3><p className="mt-1 text-xs text-slate-500">硬门禁、样本量、指标阈值与基线回归均独立阻断，不参与抵消平均。</p></div><ShieldAlert className="h-4 w-4 text-rose-600" /></div>
+            <div className="mt-3 grid gap-3">
+                <select className="h-10 rounded-md border px-3 text-sm" value={effectiveRunId} onChange={(event) => setRunId(event.target.value)}><option value="">选择 Evaluation Run</option>{runs.map((item) => <option key={item.id} value={item.id}>{item.agent_name} · {item.prompt_version ?? item.id}</option>)}</select>
+                <select className="h-10 rounded-md border px-3 text-sm" value={effectivePolicyId} onChange={(event) => setPolicyId(event.target.value)}><option value="">选择 Gate Policy</option>{gates.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.version}</option>)}</select>
+                <Button onClick={() => void check()}>执行 Gate Check</Button>
+            </div>
+            {result && <div className={`mt-4 rounded-xl border p-4 ${result.passed ? 'border-emerald-200 bg-emerald-50' : 'border-red-200 bg-red-50'}`}>
+                <div className="font-semibold">{result.passed ? '门禁通过，可作为发布依据' : '门禁失败，禁止受控发布'}</div>
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    {HARD_GATE_CATALOG.map(([name, label]) => {
+                        const state = hardGateStates[name];
+                        const failed = state === false || blocked.includes(name);
+                        const evidence = Array.isArray(hardGateEvidence[name]) ? hardGateEvidence[name] as string[] : [];
+                        return <div key={name} className={`rounded-lg border bg-white p-3 text-xs ${failed ? 'border-red-200' : state === true ? 'border-emerald-200' : 'border-slate-200'}`}><div className="flex items-center justify-between gap-2"><span className="font-medium">{label}</span><span className={failed ? 'text-red-700' : state === true ? 'text-emerald-700' : 'text-slate-400'}>{failed ? '阻断' : state === true ? '通过' : '无样本'}</span></div><div className="mt-1 font-mono text-[10px] text-slate-400">{name}</div>{evidence.length > 0 && <div className="mt-2 text-red-700">证据: {evidence.join(', ')}</div>}</div>;
+                    })}
+                </div>
+                {blocked.length > 0 && <div className="mt-3 space-y-2">{blocked.map((item) => <div key={item} className="rounded-lg border border-red-200 bg-white px-3 py-2 text-xs text-red-700">Blocked by: {item}</div>)}</div>}
+                <div className="mt-3 grid gap-2 text-xs sm:grid-cols-2"><Metric label="样本量" value={Number(details.sample_size ?? 0)} /><Metric label="最低样本" value={Number(details.minimum_sample_size ?? 0)} /></div>
+                {Object.keys(metrics).length > 0 && <div className="mt-3"><div className="text-xs font-medium text-slate-600">指标阈值事实</div><div className="mt-1 flex flex-wrap gap-1">{Object.entries(metrics).map(([name, value]) => <span key={name} className="rounded bg-white px-2 py-1 text-[11px] text-slate-600">{name}: {String(value)}</span>)}</div></div>}
+                {Object.keys(baseline).length > 0 && <div className="mt-3 text-xs text-slate-600">基线回归证据已由后端 Gate Result 固化。</div>}
+            </div>}
+            <div className="mt-5 space-y-2">{gates.map((item) => <div key={item.id} className="rounded-xl border p-3"><div className="flex justify-between"><span className="font-medium">{item.name} · {item.version}</span><span className="text-xs uppercase text-slate-500">{item.status}</span></div><div className="mt-1 text-xs text-slate-500">最低样本 {item.minimum_sample_size} · 硬门禁 {item.hard_gates.length} · 指标 {Object.keys(item.metric_thresholds).length}</div></div>)}</div>
+        </section>
+        <section className="rounded-2xl border bg-white p-4 shadow-sm"><h3 className="font-semibold">创建 Gate Policy Version</h3><p className="mt-1 text-xs text-slate-500">策略版本和 Gate Result 均不可变；Prompt 发布仍经过原受权限保护 API。</p><Textarea className="mt-3 min-h-[460px] font-mono text-xs" value={payload} onChange={(event) => setPayload(event.target.value)} /><Button className="mt-3" onClick={() => void create()}>保存策略版本</Button></section>
+    </div>;
+}
+
+/** Safely narrows unknown API detail values to display-only records. */
+function asRecord(value: unknown): Record<string, unknown> {
+    return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
 function AnnotationValue({ type, value, onChange }: { type: AnnotationType; value: string; onChange: (value: string) => void }) {
@@ -193,7 +272,7 @@ function AnnotationValue({ type, value, onChange }: { type: AnnotationType; valu
     if (type === 'scalar') return <Field label="标量分数"><Input type="number" min="0" max="10" step="0.1" value={value} onChange={(event) => onChange(event.target.value)} /></Field>;
     if (type === 'pairwise') return <Field label="Pairwise 选择"><select className="h-10 rounded-md border px-3 text-sm" value={value} onChange={(event) => onChange(event.target.value)}><option value="A">输出 A</option><option value="B">输出 B</option><option value="tie">平局</option></select></Field>;
     if (type === 'evidence') return <Field label="证据关系"><select className="h-10 rounded-md border px-3 text-sm" value={value} onChange={(event) => onChange(event.target.value)}><option value="supported">支持</option><option value="conflicted">冲突</option></select></Field>;
-    return <Field label="分类结果"><select className="h-10 rounded-md border px-3 text-sm" value={value} onChange={(event) => onChange(event.target.value)}><option value="factual_hallucination">事实虚构</option><option value="factual_omission">事实遗漏</option><option value="repeated_question">问题重复</option><option value="tool_error">工具错误</option><option value="privilege_violation">越权</option><option value="judge_overrating">评分偏高</option></select></Field>;
+    return <Field label="分类结果"><select className="h-10 rounded-md border px-3 text-sm" value={value} onChange={(event) => onChange(event.target.value)}><option value="factual_hallucination">事实虚构</option><option value="factual_omission">事实遗漏</option><option value="repeated_question">问题重复</option><option value="tool_error">工具错误</option><option value="tool_selection_error">工具选择错误</option><option value="tool_execution_error">工具执行错误</option><option value="dependency_failure">依赖失败</option><option value="approval_violation">审批违规</option><option value="trace_incomplete">观测缺失</option><option value="privilege_violation">越权</option><option value="judge_overrating">评分偏高</option></select></Field>;
 }
 function JsonPreview({ title, value }: { title: string; value: unknown }) { return <div><div className="mb-1 text-xs font-medium text-slate-600">{title}</div><pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-slate-950 p-3 text-[11px] leading-5 text-emerald-200">{JSON.stringify(value, null, 2)}</pre></div>; }
 function Field({ label, children }: { label: string; children: React.ReactNode }) { return <label className="mt-3 grid gap-1 text-xs font-medium text-slate-600"><span>{label}</span>{children}</label>; }

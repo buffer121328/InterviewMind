@@ -7,7 +7,10 @@ from typing import Any
 import pytest
 
 from evaluation.adapters.deepeval_adapter import DeepEvalAdapter
-from evaluation.adapters.langfuse_adapter import LangfuseScoreAdapter
+from evaluation.adapters.langfuse_adapter import (
+    LangfuseReportSummary,
+    LangfuseScoreAdapter,
+)
 from evaluation.domain import (
     AnnotationInput,
     AnnotationLedger,
@@ -23,11 +26,17 @@ from evaluation.runners import (
     AgentEvalRunner,
     CallableAgentAdapter,
     EvaluationCaseSpec,
+    EvaluationCaseResult,
     EvaluationExecutionContext,
 )
 from evaluation.schemas import (
+    EvalApproval,
     EvalApprovalStatus,
+    EvalExternalIO,
+    EvalExternalIOStatus,
+    EvalRetrieval,
     EvalScoreStatus,
+    EvalToolCall,
     EvalToolEffect,
     EvalToolStatus,
     ScoreSource,
@@ -198,6 +207,130 @@ def test_langfuse_adapter_is_best_effort_and_preserves_score_sources() -> None:
     assert summary.reported == 0
     assert summary.failed == 1
     assert calls[0]["metadata"]["source"] == "deterministic"
+
+
+@pytest.mark.fast
+def test_worker_governance_counts_cover_tool_dependency_approval_and_retrieval() -> None:
+    """Worker 汇总必须区分 blocked 外部调用和真正的未审批外部执行。"""
+
+    from ai.workflows.agent_tasks.evaluation_suite import _case_governance_counts
+
+    record = AgentEvalRunner.minimal_record_for_test(
+        case=EvaluationCaseSpec(
+            case_id="case-governance",
+            dataset_version="dataset-v1",
+            input_payload={"value": "safe"},
+        ),
+        actual_output={"answer": "ok"},
+    ).model_copy(
+        update={
+            "tool_calls": (
+                EvalToolCall(
+                    call_id="call-blocked",
+                    sequence=1,
+                    tool_name="boss_apply",
+                    effect=EvalToolEffect.EXTERNAL,
+                    status=EvalToolStatus.BLOCKED,
+                    approval_status=EvalApprovalStatus.PENDING,
+                    duration_ms=10,
+                ),
+                EvalToolCall(
+                    call_id="call-violation",
+                    sequence=2,
+                    tool_name="boss_apply",
+                    effect=EvalToolEffect.EXTERNAL,
+                    status=EvalToolStatus.COMPLETED,
+                    approval_status=EvalApprovalStatus.NOT_REQUIRED,
+                    duration_ms=20,
+                ),
+                EvalToolCall(
+                    call_id="call-approved",
+                    sequence=3,
+                    tool_name="search_question_bank",
+                    effect=EvalToolEffect.READ,
+                    status=EvalToolStatus.FAILED,
+                    approval_status=EvalApprovalStatus.NOT_REQUIRED,
+                    duration_ms=30,
+                ),
+            ),
+            "external_ios": (
+                EvalExternalIO(
+                    call_id="io-1",
+                    sequence=4,
+                    operation="rag.search",
+                    dependency="vector_store",
+                    status=EvalExternalIOStatus.FAILED,
+                    error_category="external_io_timeout",
+                ),
+            ),
+            "approvals": (
+                EvalApproval(
+                    approval_id="approval-1",
+                    action="boss_apply",
+                    status=EvalApprovalStatus.REJECTED,
+                    requested_sequence=1,
+                    decided_sequence=2,
+                ),
+            ),
+            "retrievals": (
+                EvalRetrieval(
+                    retrieval_id="retrieval-1",
+                    query_fingerprint="sha256:query",
+                    source_type="rag",
+                    result_count=0,
+                    empty_result=True,
+                ),
+            ),
+        }
+    )
+
+    counts = _case_governance_counts(record)
+
+    assert counts == {
+        "trace_complete": False,
+        "tool_call_total": 3,
+        "tool_call_completed_count": 1,
+        "tool_call_failed_count": 1,
+        "tool_durations": [10, 20, 30],
+        "external_effect_total": 2,
+        "external_effect_blocked_count": 1,
+        "approval_violation_count": 1,
+        "external_io_total": 1,
+        "external_io_failed_count": 1,
+        "external_io_timeout_count": 1,
+        "approval_event_total": 1,
+        "retrieval_observed_case_count": 1,
+        "retrieval_empty_case_count": 1,
+    }
+
+
+@pytest.mark.fast
+def test_langfuse_failure_marks_observability_degraded_without_changing_case_status() -> None:
+    """Langfuse Score 失败只修改观测降级字段，业务成功和本地分数保持不变。"""
+
+    from ai.workflows.agent_tasks.evaluation_suite import _apply_langfuse_report_status
+
+    record = AgentEvalRunner.minimal_record_for_test(
+        case=EvaluationCaseSpec(
+            case_id="case-langfuse",
+            dataset_version="dataset-v1",
+            input_payload={"value": "safe"},
+        ),
+        actual_output={"answer": "ok"},
+    )
+    score = AgentEvalRunner.passing_score_for_test(source=ScoreSource.DETERMINISTIC)
+    result = EvaluationCaseResult(record=record, scores=(score,))
+
+    updated, failed = _apply_langfuse_report_status(
+        result,
+        LangfuseReportSummary(attempted=1, reported=0, failed=1),
+    )
+
+    assert failed is True
+    assert updated.record.final_status == "succeeded"
+    assert updated.scores == result.scores
+    assert updated.record.observability.langfuse_reported is False
+    assert updated.record.observability.langfuse_error == "score_report_failed:1/1"
 
 
 @pytest.mark.fast

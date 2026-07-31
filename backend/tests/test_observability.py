@@ -817,20 +817,23 @@ async def test_browser_automation_event_records_only_timing_and_count(monkeypatc
         result = await client.post("/private/path", {"resume": "private resume"})
 
     assert result == {"success": True}
-    assert observation.model_events == [
-        {
-            "agent_name": "browser_automation",
-            "event_type": "external_io.completed",
-            "operation": "browser_automation.post",
-            "duration_ms": observation.model_events[0]["duration_ms"],
-            "item_count": 1,
-            "status": "completed",
-            "degraded": False,
-        }
-    ]
-    assert "private/path" not in str(observation.model_events)
-    assert "private resume" not in str(observation.model_events)
-    assert "browser.internal" not in str(observation.model_events)
+    assert observation.model_events == []
+    assert observation.runtime_events is not None
+    assert len(observation.runtime_events) == 1
+    event = observation.runtime_events[0]
+    assert event["agent_name"] == "browser_automation"
+    assert event["dependency"] == "browser_automation"
+    assert event["event_type"] == "external_io.completed"
+    assert event["operation"] == "browser_automation.post"
+    assert event["item_count"] == 1
+    assert event["schema_version"] == 1
+    assert event["status"] == "completed"
+    assert event["trace_id"] == observation.trace_id
+    assert isinstance(event["duration_ms"], int)
+    assert event["duration_ms"] >= 0
+    assert "private/path" not in str(observation.runtime_events)
+    assert "private resume" not in str(observation.runtime_events)
+    assert "browser.internal" not in str(observation.runtime_events)
     observability._reset_langfuse_for_tests()
 
 

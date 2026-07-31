@@ -19,14 +19,18 @@ import { Input } from '@/components/ui/input';
 import type {
     EvaluationCaseRun,
     EvaluationCaseRunDetail,
+    EvaluationCaseRunFilters,
     EvaluationDatasetDetail,
+    EvaluationApprovalStatus,
     EvaluationRun,
     EvaluationScore,
     EvaluationSuite,
+    EvaluationToolEffect,
 } from '@/lib/api/evaluations';
 import { downloadEvaluationReport, evaluationApi } from '@/lib/api/evaluations';
 import { groupScoresBySource, runProgress } from '@/lib/evaluationMetrics';
 import { toast } from 'sonner';
+import { EvaluationTrajectory } from './EvaluationTrajectory';
 
 interface Props {
     runs: EvaluationRun[];
@@ -57,6 +61,8 @@ export function EvaluationRunsPanel({ runs, suites, focusRunId, onRefresh, onOpe
     const [caseDetail, setCaseDetail] = useState<EvaluationCaseRunDetail | null>(null);
     const [dataset, setDataset] = useState<EvaluationDatasetDetail | null>(null);
     const [selectedCaseIds, setSelectedCaseIds] = useState<Set<string>>(() => new Set());
+    const [caseFilters, setCaseFilters] = useState<EvaluationCaseRunFilters>({});
+    const [traceNotice, setTraceNotice] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
     const [detailBusy, setDetailBusy] = useState(false);
     const [candidateName, setCandidateName] = useState('evaluation-regression');
@@ -79,12 +85,14 @@ export function EvaluationRunsPanel({ runs, suites, focusRunId, onRefresh, onOpe
         }
     }, []);
 
-    const loadCases = useCallback(async (runId: string) => {
+    /** Loads owner-scoped case summaries and keeps the active governance filters server-side. */
+    const loadCases = useCallback(async (runId: string, filters: EvaluationCaseRunFilters = {}) => {
         setSelectedRunId(runId);
         setSelectedCaseRunId(null);
         setCaseDetail(null);
+        setTraceNotice(null);
         try {
-            const result = await evaluationApi.caseRuns(runId);
+            const result = await evaluationApi.caseRuns(runId, filters);
             setCases(result.items);
             if (result.items[0]) void loadCaseDetail(result.items[0].id);
         } catch (error) {
@@ -95,9 +103,15 @@ export function EvaluationRunsPanel({ runs, suites, focusRunId, onRefresh, onOpe
     useEffect(() => {
         const target = focusRunId ?? (!selectedRunId ? runs[0]?.id : null);
         if (!target || target === selectedRunId) return;
-        const timer = window.setTimeout(() => void loadCases(target), 0);
+        const timer = window.setTimeout(() => void loadCases(target, caseFilters), 0);
         return () => window.clearTimeout(timer);
-    }, [focusRunId, loadCases, runs, selectedRunId]);
+    }, [caseFilters, focusRunId, loadCases, runs, selectedRunId]);
+
+    useEffect(() => {
+        if (!selectedRunId) return;
+        const timer = window.setTimeout(() => void loadCases(selectedRunId, caseFilters), 0);
+        return () => window.clearTimeout(timer);
+    }, [caseFilters, loadCases, selectedRunId]);
 
     useEffect(() => {
         if (!selectedSuite) {
@@ -167,14 +181,23 @@ export function EvaluationRunsPanel({ runs, suites, focusRunId, onRefresh, onOpe
         }
     }
 
+    /** Opens only the backend-issued Langfuse URL and preserves local evidence on failure. */
     async function openTrace() {
-        if (!selected?.agent_run_id) return toast.error('当前运行尚未关联 AgentRun');
+        if (!selected?.agent_run_id) {
+            setTraceNotice('本地证据可用，远端 Trace 不可用：当前运行尚未关联 AgentRun。');
+            return;
+        }
         try {
             const result = await evaluationApi.traceLink(selected.agent_run_id);
-            if (!result.available || !result.url) return toast.error(result.message ?? 'Langfuse Trace 暂不可用');
+            if (!result.available || !result.url) {
+                setTraceNotice(`本地证据可用，远端 Trace 不可用：${result.message ?? 'Langfuse Trace 暂不可用'}。`);
+                return;
+            }
+            setTraceNotice(null);
             window.open(result.url, '_blank', 'noopener,noreferrer');
         } catch (error) {
-            toast.error(error instanceof Error ? error.message : '打开 Trace 失败');
+            const message = error instanceof Error ? error.message : '打开 Trace 失败';
+            setTraceNotice(`本地证据可用，远端 Trace 不可用：${message}。`);
         }
     }
 
@@ -229,13 +252,25 @@ export function EvaluationRunsPanel({ runs, suites, focusRunId, onRefresh, onOpe
 
         <div className="grid gap-4 xl:grid-cols-[380px_minmax(0,1fr)]">
             <section className="rounded-2xl border bg-white p-3 shadow-sm">
-                <div className="mb-2 flex items-center justify-between px-1"><h3 className="font-semibold">评测运行</h3><Button variant="ghost" size="icon-sm" onClick={() => void onRefresh()} aria-label="刷新评测运行"><RefreshCw /></Button></div>
-                <div className="max-h-[760px] space-y-2 overflow-auto">{runs.map((run) => <button key={run.id} onClick={() => void loadCases(run.id)} className={`w-full rounded-xl border p-3 text-left transition ${selectedRunId === run.id ? 'border-teal-500 bg-teal-50' : 'hover:bg-slate-50'}`}><div className="flex justify-between gap-2"><span className="font-medium">{run.agent_name} · {run.prompt_name ?? '默认 Prompt'}</span><Status status={run.status} /></div><div className="mt-1 text-xs text-slate-500">{run.dataset_version} · Prompt {run.prompt_version ?? '-'} · 重复 {run.repetition_count}</div><div className="mt-1 text-[11px] text-slate-400">{shortHash(run.model_config_hash)} · {formatDate(run.created_at)}</div><div className="mt-2 h-1.5 rounded-full bg-slate-100"><div className="h-full rounded-full bg-teal-600" style={{ width: `${runProgress(run) * 100}%` }} /></div><div className="mt-2 flex justify-between text-[11px] text-slate-500"><span>完全成功 {formatRate(run.summary.complete_success_rate)}</span><span>硬门禁 {String(run.summary.hard_gate_failure_count ?? 0)}</span><span>人工 {String(run.summary.needs_review_count ?? 0)}</span></div></button>)}{!runs.length && <Empty text="暂无评测运行。" />}</div>
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2 px-1"><h3 className="font-semibold">评测运行</h3><div className="flex items-center gap-2"><select className="h-8 rounded-md border px-2 text-xs" value={caseFilterKey(caseFilters)} onChange={(event) => setCaseFilters((current) => applyCasePreset(current, event.target.value))} aria-label="案例筛选"><option value="all">全部案例</option><option value="failed">失败案例</option><option value="review">待人工复核</option><option value="gate_failed">硬门禁失败</option></select><Button variant="ghost" size="icon-sm" onClick={() => void onRefresh()} aria-label="刷新评测运行"><RefreshCw /></Button></div></div>
+                <div className="mb-3 grid gap-2 rounded-xl border bg-slate-50 p-2 sm:grid-cols-2">
+                    <Input className="h-8 text-xs" value={caseFilters.tool_name ?? ''} onChange={(event) => setCaseFilters((current) => ({ ...current, tool_name: event.target.value || undefined }))} placeholder="Tool name" aria-label="按工具名筛选" />
+                    <Input className="h-8 text-xs" value={caseFilters.error_category ?? ''} onChange={(event) => setCaseFilters((current) => ({ ...current, error_category: event.target.value || undefined }))} placeholder="Error category" aria-label="按错误分类筛选" />
+                    <CaseFilterSelect label="Tool effect" value={caseFilters.tool_effect} onChange={(value) => setCaseFilters((current) => ({ ...current, tool_effect: value as EvaluationToolEffect | undefined }))} options={[['read', 'read'], ['write', 'write'], ['external', 'external'], ['none', 'none']]} />
+                    <CaseFilterSelect label="Tool status" value={caseFilters.tool_status} onChange={(value) => setCaseFilters((current) => ({ ...current, tool_status: value }))} options={[['completed', 'completed'], ['failed', 'failed'], ['blocked', 'blocked'], ['started', 'started'], ['skipped', 'skipped']]} />
+                    <CaseFilterSelect label="Approval" value={caseFilters.approval_status} onChange={(value) => setCaseFilters((current) => ({ ...current, approval_status: value as EvaluationApprovalStatus | undefined }))} options={[['approved', 'approved'], ['pending', 'pending'], ['rejected', 'rejected'], ['not_required', 'not required']]} />
+                    <CaseFilterSelect label="External side effect" value={optionalBooleanValue(caseFilters.has_external_side_effect)} onChange={(value) => setCaseFilters((current) => ({ ...current, has_external_side_effect: parseOptionalBoolean(value) }))} options={[['true', '有 external'], ['false', '无 external']]} />
+                    <CaseFilterSelect label="Trace" value={optionalBooleanValue(caseFilters.trace_incomplete)} onChange={(value) => setCaseFilters((current) => ({ ...current, trace_incomplete: parseOptionalBoolean(value) }))} options={[['true', 'Trace incomplete'], ['false', 'Trace complete']]} />
+                    <CaseFilterSelect label="Retrieval" value={optionalBooleanValue(caseFilters.retrieval_empty)} onChange={(value) => setCaseFilters((current) => ({ ...current, retrieval_empty: parseOptionalBoolean(value) }))} options={[['true', '空召回'], ['false', '非空召回']]} />
+                    <Button className="sm:col-span-2" size="sm" variant="ghost" onClick={() => setCaseFilters({})}>清空全部筛选</Button>
+                </div>
+                <div className="max-h-[760px] space-y-2 overflow-auto">{runs.map((run) => <button key={run.id} onClick={() => void loadCases(run.id, caseFilters)} className={`w-full rounded-xl border p-3 text-left transition ${selectedRunId === run.id ? 'border-teal-500 bg-teal-50' : 'hover:bg-slate-50'}`}><div className="flex justify-between gap-2"><span className="font-medium">{run.agent_name} · {run.prompt_name ?? '默认 Prompt'}</span><Status status={run.status} /></div><div className="mt-1 text-xs text-slate-500">{run.dataset_version} · Prompt {run.prompt_version ?? '-'} · 重复 {run.repetition_count}</div><div className="mt-1 text-[11px] text-slate-400">{shortHash(run.model_config_hash)} · {formatDate(run.created_at)}</div><div className="mt-2 h-1.5 rounded-full bg-slate-100"><div className="h-full rounded-full bg-teal-600" style={{ width: `${runProgress(run) * 100}%` }} /></div><div className="mt-2 flex justify-between text-[11px] text-slate-500"><span>完全成功 {formatRate(run.summary.complete_success_rate)}</span><span>硬门禁 {String(run.summary.hard_gate_failure_count ?? 0)}</span><span>人工 {String(run.summary.needs_review_count ?? 0)}</span></div></button>)}{!runs.length && <Empty text="暂无评测运行。" />}</div>
             </section>
 
             <section className="min-w-0 rounded-2xl border bg-white p-4 shadow-sm">
                 <div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="font-semibold">运行详情</h3><p className="text-xs text-slate-500">确定性规则、Judge、人工标注和用户反馈保持来源分离。</p></div>{selected && <div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" onClick={() => void downloadEvaluationReport(selected.id)}><Download />HTML 报告</Button><Button size="sm" variant="outline" onClick={() => void openTrace()}><ExternalLink />Langfuse</Button><Button size="sm" variant="outline" onClick={() => void action('review')}><UserCheck />发起复核</Button><Button size="sm" variant="outline" onClick={() => void action('retry')}><RotateCcw />重试失败</Button><Button size="sm" variant="outline" onClick={() => void action('cancel')}><Square />取消</Button></div>}</div>
-                {selected && <><div className="mt-4 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4 xl:grid-cols-8"><Info label="状态" value={selected.status} /><Info label="案例" value={String(selected.summary.case_total ?? 0)} /><Info label="完成" value={String(selected.summary.completed_count ?? 0)} /><Info label="失败" value={String(selected.summary.failed_count ?? 0)} /><Info label="完全成功" value={formatRate(selected.summary.complete_success_rate)} /><Info label="硬门禁" value={String(selected.summary.hard_gate_failure_count ?? 0)} /><Info label="P95 延迟" value={`${formatNumber(selected.summary.p95_latency_ms)} ms`} /><Info label="Token" value={formatNumber(selected.summary.token_total)} /></div><Baseline summary={selected.summary} /></>}
+                {selected && (traceNotice || !selected.agent_run_id) && <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">{traceNotice ?? '本地证据可用，远端 Trace 不可用：当前运行尚未关联 AgentRun。'}</div>}
+                {selected && <><div className="mt-4 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4 xl:grid-cols-6"><Info label="状态" value={selected.status} /><Info label="案例" value={String(selected.summary.case_total ?? 0)} /><Info label="完成" value={String(selected.summary.completed_count ?? 0)} /><Info label="失败" value={String(selected.summary.failed_count ?? 0)} /><Info label="完全成功" value={formatRate(selected.summary.complete_success_rate)} /><Info label="硬门禁" value={String(selected.summary.hard_gate_failure_count ?? 0)} /><Info label="P95 延迟" value={`${formatNumber(selected.summary.p95_latency_ms)} ms`} /><Info label="Token" value={formatNumber(selected.summary.token_total)} /><Info label="Trace 完整率" value={formatRate(selected.summary.trace_completeness_rate)} /><Info label="Tool / 失败" value={`${formatNumber(selected.summary.tool_call_total)} / ${formatNumber(selected.summary.tool_call_failed_count)}`} /><Info label="External / 阻断" value={`${formatNumber(selected.summary.external_effect_total)} / ${formatNumber(selected.summary.external_effect_blocked_count)}`} /><Info label="审批违规" value={formatNumber(selected.summary.approval_violation_count)} /><Info label="检索空召回案例" value={formatNumber(selected.summary.retrieval_empty_case_count)} /><Info label="依赖失败率" value={formatRate(selected.summary.dependency_failure_rate)} /><Info label="Langfuse 上报" value={formatNumber(selected.summary.langfuse_reported_case_count)} /><Info label="Langfuse 降级" value={formatNumber(selected.summary.langfuse_failed_case_count)} /></div><Baseline summary={selected.summary} /></>}
                 <div className="mt-4 overflow-auto"><table className="w-full min-w-[760px] text-left text-sm"><thead className="text-xs text-slate-500"><tr><th className="py-2">案例</th><th>重复</th><th>状态</th><th>硬门禁</th><th>软分数</th><th>人工队列</th><th>延迟</th></tr></thead><tbody>{cases.map((item) => <tr key={item.id} onClick={() => void loadCaseDetail(item.id)} className={`cursor-pointer border-t hover:bg-slate-50 ${selectedCaseRunId === item.id ? 'bg-teal-50/70' : ''}`}><td className="py-3 font-mono text-xs">{item.case_id}</td><td>{item.repetition_index + 1}</td><td>{item.status}</td><td className={item.hard_gate_passed ? 'text-emerald-700' : 'text-red-700'}>{item.hard_gate_passed ? '通过' : '失败'}</td><td>{item.overall_score == null ? '-' : item.overall_score.toFixed(3)}</td><td>{item.needs_review ? '待复核' : '-'}</td><td>{item.latency_ms} ms</td></tr>)}</tbody></table></div>
                 {!selected && <Empty text="选择一个运行查看案例。" />}
 
@@ -249,13 +284,10 @@ export function EvaluationRunsPanel({ runs, suites, focusRunId, onRefresh, onOpe
 function CaseDetail({ detail, candidateName, candidateVersion, onCandidateName, onCandidateVersion, onCreateCandidate }: { detail: EvaluationCaseRunDetail; candidateName: string; candidateVersion: string; onCandidateName: (value: string) => void; onCandidateVersion: (value: string) => void; onCreateCandidate: () => Promise<void> }) {
     const grouped = groupScoresBySource(detail.scores);
     const expected = detail.case.expected ?? {};
-    const trajectory = {
-        tool_calls: detail.record.tool_calls ?? [], retrievals: detail.record.retrievals ?? [], model_calls: detail.record.model_calls ?? [], agent_run_events: detail.record.agent_run_events ?? [], checkpoints: detail.record.checkpoints ?? [],
-    };
     return <div className="mt-6 border-t pt-5"><div className="mb-3 flex flex-wrap items-center justify-between gap-2"><div><h4 className="font-semibold">案例三栏详情 · {detail.case.case_key}</h4><p className="text-xs text-slate-500">{detail.case.category} · {detail.case.severity} · repetition {detail.repetition_index + 1}</p></div><div className="flex items-center gap-2 text-xs"><span className={`rounded-full px-2 py-1 ${detail.hard_gate_passed ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>{detail.hard_gate_passed ? '硬门禁通过' : '硬门禁失败'}</span>{detail.needs_review && <span className="rounded-full bg-amber-50 px-2 py-1 text-amber-700">待人工复核</span>}</div></div>
         <div className="grid gap-3 2xl:grid-cols-3">
             <DetailColumn title="输入与 Golden"><JsonBlock label="案例输入" value={detail.case.input} /><JsonBlock label="预期输出 / 事实" value={expected} /><div className="flex flex-wrap gap-1">{detail.case.tags.map((tag) => <span key={tag} className="rounded-full bg-slate-100 px-2 py-1 text-[10px] text-slate-600">{tag}</span>)}</div></DetailColumn>
-            <DetailColumn title="执行轨迹"><JsonBlock label="工具 / 检索 / 模型 / AgentRun" value={trajectory} /><JsonBlock label="运行记录摘要" value={{ final_status: detail.record.final_status, error: detail.record.error, recovery_count: detail.record.recovery_count, estimated_cost_usd: detail.record.estimated_cost_usd }} /></DetailColumn>
+            <DetailColumn title="执行轨迹"><EvaluationTrajectory record={detail.record} scores={detail.scores} /><JsonBlock label="运行记录摘要" value={{ final_status: detail.record.final_status, error: detail.record.error, recovery_count: detail.record.recovery_count, estimated_cost_usd: detail.record.estimated_cost_usd }} /></DetailColumn>
             <DetailColumn title="输出、评分与裁决"><JsonBlock label="实际输出" value={detail.actual_output} /><div className="space-y-3">{Object.entries(grouped).map(([source, scores]) => <ScoreGroup key={source} source={source} scores={scores} />)}{!detail.scores.length && <Empty text="暂无自动评分。" />}</div>{detail.annotations.length > 0 && <div><div className="mb-2 text-xs font-medium text-slate-600">人工标注 / 裁决</div><div className="space-y-2">{detail.annotations.map((item) => <div key={item.id} className="rounded-lg border p-2 text-xs"><div className="flex justify-between"><span className="font-medium">{item.reviewer_key} · {item.metric_name}</span><span>rev {item.revision}</span></div><div className="mt-1 text-slate-500">{prettyInline(item.value)} · {item.adjudication ? '专家裁决' : item.blind ? '盲测' : '非盲测'}</div></div>)}</div></div>}</DetailColumn>
         </div>
         <div className="mt-3 rounded-xl border border-dashed border-teal-200 bg-teal-50/50 p-3"><div className="flex flex-col justify-between gap-3 md:flex-row md:items-end"><div><div className="flex items-center gap-2 text-sm font-medium text-teal-900"><FlaskConical className="h-4 w-4" />失败案例沉淀</div><p className="mt-1 text-xs text-teal-700">创建新的 Candidate Dataset Version，不修改已锁定版本。</p></div><div className="grid gap-2 sm:grid-cols-[220px_150px_auto]"><Input value={candidateName} onChange={(event) => onCandidateName(event.target.value)} placeholder="Dataset 名称" /><Input value={candidateVersion} onChange={(event) => onCandidateVersion(event.target.value)} placeholder="版本" /><Button onClick={() => void onCreateCandidate()}><CheckCircle2 />加入回归集</Button></div></div></div>
@@ -272,6 +304,44 @@ function Empty({ text }: { text: string }) { return <div className="my-3 rounded
 function Baseline({ summary }: { summary: Record<string, unknown> }) { const comparison = summary.baseline_comparison as Record<string, unknown> | undefined; if (!comparison) return null; return <div className="mt-3 rounded-xl border border-blue-100 bg-blue-50/60 p-3 text-xs text-blue-900"><div className="font-medium">与基线运行比较</div><div className="mt-2 flex flex-wrap gap-2"><Delta label="完全成功率" value={comparison.complete_success_rate_delta} percent /><Delta label="P95 延迟" value={comparison.p95_latency_ms_delta} suffix=" ms" /><Delta label="Token" value={comparison.token_total_delta_percent} percent /></div></div>; }
 function Delta({ label, value, percent = false, suffix = '' }: { label: string; value: unknown; percent?: boolean; suffix?: string }) { const number = Number(value); const text = value == null || !Number.isFinite(number) ? '-' : `${number > 0 ? '+' : ''}${(percent ? number * 100 : number).toFixed(1)}${percent ? '%' : suffix}`; return <span className="rounded-md bg-white px-2 py-1">{label} {text}</span>; }
 function promptCandidateForm(): RunForm { let candidate: { name?: string; version?: number; compareProduction?: boolean } = {}; if (typeof window !== 'undefined') { try { candidate = JSON.parse(localStorage.getItem('evaluationPromptCandidate') || '{}'); } catch { candidate = {}; } } return { suite_id: '', model_config_hash: 'sha256:default', prompt_name: candidate.name ?? '', prompt_version: candidate.version == null ? '' : String(candidate.version), baseline_run_id: candidate.compareProduction ? '__production__' : '', repetition_count: '1', max_concurrency: '2', max_budget_usd: '5', human_review_rate: '10', include_judges: false }; }
+function caseFilterKey(filters: EvaluationCaseRunFilters): string {
+    if (filters.status === 'failed') return 'failed';
+    if (filters.needs_review === true) return 'review';
+    if (filters.hard_gate_passed === false) return 'gate_failed';
+    return 'all';
+}
+
+function parseCaseFilter(value: string): EvaluationCaseRunFilters {
+    if (value === 'failed') return { status: 'failed' };
+    if (value === 'review') return { needs_review: true };
+    if (value === 'gate_failed') return { hard_gate_passed: false };
+    return {};
+}
+
+/** Applies one preset without discarding advanced owner-scoped filters. */
+function applyCasePreset(filters: EvaluationCaseRunFilters, value: string): EvaluationCaseRunFilters {
+    const advanced = { ...filters };
+    delete advanced.status;
+    delete advanced.needs_review;
+    delete advanced.hard_gate_passed;
+    return { ...advanced, ...parseCaseFilter(value) };
+}
+
+/** Renders one compact optional selector used by server-side case filtering. */
+function CaseFilterSelect({ label, value, options, onChange }: { label: string; value?: string; options: Array<[string, string]>; onChange: (value: string | undefined) => void }) {
+    return <select className="h-8 rounded-md border bg-white px-2 text-xs" value={value ?? ''} onChange={(event) => onChange(event.target.value || undefined)} aria-label={label}><option value="">{label}: 全部</option>{options.map(([option, text]) => <option key={option} value={option}>{text}</option>)}</select>;
+}
+
+/** Converts tri-state boolean filters to a stable select value. */
+function optionalBooleanValue(value: boolean | undefined): string | undefined {
+    return value == null ? undefined : String(value);
+}
+
+/** Parses a tri-state select without treating “all” as false. */
+function parseOptionalBoolean(value: string | undefined): boolean | undefined {
+    return value == null ? undefined : value === 'true';
+}
+
 function sourceLabel(source: string): string { return ({ deterministic: '确定性规则', deepeval: 'DeepEval', judge: 'LLM Judge', human: '人工标注', user_feedback: '用户反馈' } as Record<string, string>)[source] ?? source; }
 function formatRate(value: unknown): string { const number = Number(value); return value == null || !Number.isFinite(number) ? '-' : `${(number * 100).toFixed(1)}%`; }
 function formatNumber(value: unknown): string { const number = Number(value); return value == null || !Number.isFinite(number) ? '-' : Math.round(number).toLocaleString('zh-CN'); }

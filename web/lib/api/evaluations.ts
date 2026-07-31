@@ -64,6 +64,20 @@ export interface EvaluationOverview {
     regression_count: number;
     p95_latency_ms: number | null;
     token_delta_percent: number | null;
+    trace_completeness_rate: number | null;
+    trace_incomplete_count: number;
+    tool_failure_rate: number | null;
+    tool_execution_success_rate: number | null;
+    tool_p95_duration_ms: number | null;
+    dependency_failure_rate: number | null;
+    external_io_timeout_rate: number | null;
+    retrieval_empty_rate: number | null;
+    external_effect_count: number;
+    external_effect_blocked_count: number;
+    approval_event_count: number;
+    approval_violation_count: number;
+    langfuse_reported_case_count: number;
+    langfuse_failed_case_count: number;
 }
 
 export interface EvaluationDatasetCase {
@@ -102,6 +116,42 @@ export interface EvaluationSuite {
     gate_policy_id: string | null;
 }
 
+export interface EvaluationRunSummary {
+    case_total?: number;
+    completed_count?: number;
+    failed_count?: number;
+    hard_gate_failure_count?: number;
+    needs_review_count?: number;
+    progress?: number;
+    complete_success_rate?: number | null;
+    p95_latency_ms?: number | null;
+    token_total?: number | null;
+    trace_complete_count?: number;
+    trace_incomplete_count?: number;
+    trace_completeness_rate?: number | null;
+    tool_call_total?: number;
+    tool_call_completed_count?: number;
+    tool_call_failed_count?: number;
+    tool_failure_rate?: number | null;
+    tool_execution_success_rate?: number | null;
+    tool_p95_duration_ms?: number | null;
+    external_effect_total?: number;
+    external_effect_blocked_count?: number;
+    approval_violation_count?: number;
+    external_io_total?: number;
+    external_io_failed_count?: number;
+    external_io_timeout_count?: number;
+    dependency_failure_rate?: number | null;
+    external_io_timeout_rate?: number | null;
+    approval_event_total?: number;
+    retrieval_observed_case_count?: number;
+    retrieval_empty_case_count?: number;
+    retrieval_empty_rate?: number | null;
+    langfuse_reported_case_count?: number;
+    langfuse_failed_case_count?: number;
+    [key: string]: unknown;
+}
+
 export interface EvaluationRun {
     id: string;
     suite_id: string;
@@ -117,7 +167,7 @@ export interface EvaluationRun {
     repetition_count: number;
     include_judges: boolean;
     budget: Record<string, unknown>;
-    summary: Record<string, unknown>;
+    summary: EvaluationRunSummary;
     created_at: string;
     started_at: string | null;
     finished_at: string | null;
@@ -153,10 +203,130 @@ export interface EvaluationCaseRun {
     needs_review: boolean;
 }
 
+export type EvaluationToolEffect = 'none' | 'read' | 'write' | 'external';
+export type EvaluationToolStatus = 'requested' | 'started' | 'completed' | 'failed' | 'blocked' | 'skipped' | string;
+export type EvaluationApprovalStatus = 'not_required' | 'pending' | 'approved' | 'rejected' | string;
+
+export interface EvaluationToolCall {
+    call_id: string;
+    sequence: number;
+    event_type?: string;
+    parent_call_id?: string | null;
+    tool_name: string;
+    effect: EvaluationToolEffect;
+    status: EvaluationToolStatus;
+    attempt: number;
+    requires_confirmation: boolean;
+    approval_status: EvaluationApprovalStatus;
+    simulated: boolean;
+    duration_ms?: number | null;
+    error_type?: string | null;
+    error_category?: string | null;
+    evidence_refs: string[];
+}
+
+export interface EvaluationRetrieval {
+    retrieval_id: string;
+    sequence?: number | null;
+    source_type: string;
+    strategy?: string | null;
+    result_count?: number | null;
+    empty_result?: boolean | null;
+    adopted: boolean;
+    duration_ms?: number | null;
+    error_category?: string | null;
+}
+
+export interface EvaluationExternalIo {
+    call_id: string;
+    sequence: number;
+    event_type?: string;
+    parent_call_id?: string | null;
+    operation: string;
+    dependency?: string | null;
+    status: string;
+    attempt: number;
+    duration_ms?: number | null;
+    item_count?: number | null;
+    result_count?: number | null;
+    adopted?: boolean | null;
+    error_type?: string | null;
+    error_category?: string | null;
+}
+
+export interface EvaluationModelCall {
+    call_id: string;
+    sequence: number;
+    model_channel: string;
+    model_member_hash: string;
+    fallback_index: number;
+    latency_ms: number;
+    status: string;
+    error_classification?: string | null;
+}
+
+export interface EvaluationApproval {
+    approval_id: string;
+    action: string;
+    status: EvaluationApprovalStatus;
+    call_id?: string | null;
+    requested_sequence?: number | null;
+    sequence?: number | null;
+    evidence_refs: string[];
+}
+
+export interface EvaluationRunEvent {
+    sequence: number;
+    stage: string;
+    event_type: string;
+    status?: string | null;
+    payload_summary: Record<string, unknown>;
+}
+
+export interface EvaluationTraceCompleteness {
+    complete: boolean;
+    score: number;
+    missing: string[];
+    trace_id_present: boolean;
+    tool_terminal_states_complete: boolean;
+    stable_error_categories: boolean;
+    external_approval_status_present: boolean;
+    agent_run_id_present: boolean;
+}
+
+export interface EvaluationObservabilitySummary {
+    schema_version: number;
+    tool_event_count: number;
+    tool_call_summary: Record<string, unknown>;
+    external_io_event_count: number;
+    external_io_summary: Record<string, unknown>;
+    approval_event_count: number;
+    langfuse_reported?: boolean | null;
+    langfuse_error?: string | null;
+    trace_completeness: EvaluationTraceCompleteness;
+}
+
+export interface EvaluationRecord {
+    final_status?: string;
+    trace_id?: string | null;
+    agent_run_id?: string | null;
+    tool_calls?: EvaluationToolCall[];
+    retrievals?: EvaluationRetrieval[];
+    external_ios?: EvaluationExternalIo[];
+    model_calls?: EvaluationModelCall[];
+    approvals?: EvaluationApproval[];
+    events?: EvaluationRunEvent[];
+    observability?: EvaluationObservabilitySummary;
+    recovery_count?: number;
+    estimated_cost_usd?: number | null;
+    error?: { classification?: string; message?: string; retryable?: boolean } | null;
+    [key: string]: unknown;
+}
+
 export interface EvaluationCaseRunDetail extends EvaluationCaseRun {
     actual_output: unknown;
     pairwise_outputs: { A: unknown; B: unknown | null };
-    record: Record<string, unknown>;
+    record: EvaluationRecord;
     case: EvaluationDatasetCase & {
         input: Record<string, unknown>;
         expected: Record<string, unknown>;
@@ -261,6 +431,20 @@ export interface EvaluationTrendFilters {
     created_to?: string;
 }
 
+export interface EvaluationCaseRunFilters {
+    status?: string;
+    error_category?: string;
+    tool_name?: string;
+    tool_effect?: EvaluationToolEffect;
+    tool_status?: string;
+    approval_status?: EvaluationApprovalStatus;
+    has_external_side_effect?: boolean;
+    trace_incomplete?: boolean;
+    retrieval_empty?: boolean;
+    needs_review?: boolean;
+    hard_gate_passed?: boolean;
+}
+
 interface Page<T> { items: T[]; total: number; limit?: number; offset?: number }
 
 function withQuery(path: string, values: object): string {
@@ -295,7 +479,14 @@ export const evaluationApi = {
     cancelRun: (id: string) => apiRequest<Record<string, unknown>>(`/api/evaluations/runs/${id}/cancel`, { method: 'POST' }),
     retryRun: (id: string) => apiRequest<Record<string, unknown>>(`/api/evaluations/runs/${id}/retry-failed`, { method: 'POST' }),
     requestReview: (id: string, caseRunIds: string[] = [], failedOnly = true) => apiRequest<{ run_id: string; queued_count: number }>(`/api/evaluations/runs/${id}/request-review`, { method: 'POST', body: JSON.stringify({ case_run_ids: caseRunIds, failed_only: failedOnly }) }),
-    caseRuns: (runId: string) => apiRequest<Page<EvaluationCaseRun>>(`/api/evaluations/runs/${runId}/cases`),
+    caseRuns: (runId: string, filters: EvaluationCaseRunFilters = {}) => {
+        const params = new URLSearchParams();
+        for (const [key, value] of Object.entries(filters)) {
+            if (value !== undefined && value !== null && value !== '') params.set(key, String(value));
+        }
+        const suffix = params.toString() ? `?${params.toString()}` : '';
+        return apiRequest<Page<EvaluationCaseRun>>(`/api/evaluations/runs/${runId}/cases${suffix}`);
+    },
     caseRun: (id: string) => apiRequest<EvaluationCaseRunDetail>(`/api/evaluations/case-runs/${id}`),
     annotationQueue: () => apiRequest<Page<EvaluationCaseRun & { agent_name: string }>>('/api/evaluations/annotations/queue'),
     annotations: (caseRunId: string) => apiRequest<Page<EvaluationAnnotation>>(`/api/evaluations/case-runs/${caseRunId}/annotations`),
