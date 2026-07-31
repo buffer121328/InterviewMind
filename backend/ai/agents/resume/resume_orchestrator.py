@@ -496,6 +496,9 @@ async def stage3_rewrite_agent(state: PipelineState, mode: str = "balanced") -> 
     )
 
     # 没有模型配置时保持旧行为，便于本地测试和无配置环境沿用原 pipeline fallback。
+    # `ResumeOptimizeRequest.api_config` 仍是可选契约：服务端托管模型配置、离线评测和
+    # 旧客户端可能不随请求传 Key。这里并非无模型执行，而是继续让 invoke_structured
+    # 通过服务端模型网关解析配置。仅当 API 强制 api_config 且服务端托管模式退役后删除。
     if not state.api_config:
         _append_trace(
             state,

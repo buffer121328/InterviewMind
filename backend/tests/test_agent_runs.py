@@ -12,7 +12,7 @@ from cryptography.fernet import Fernet
 from app.db.models.agent_run import AgentRunModel
 from app.domain.agent_runs import TASK_TYPE_INTERVIEW_REPORT, TASK_TYPE_RESUME_OPTIMIZE
 from app.schemas.schemas import InterviewStartRequest
-from ai.runtime.agent_runs.crypto import (
+from app.security.payload_crypto import (
     TaskPayloadConfigurationError,
     decrypt_payload,
     encrypt_payload,

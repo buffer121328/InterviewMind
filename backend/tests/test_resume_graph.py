@@ -220,3 +220,29 @@ async def test_quality_mode_uses_legacy_rewrite_node(monkeypatch):
 
     assert calls == {"agent": 0, "legacy": 1}
     assert result["change_items"][0]["optimized_text"] == "legacy"
+
+
+@pytest.mark.asyncio
+async def test_agent_rewrite_without_request_config_keeps_server_managed_fallback(monkeypatch):
+    """Optional api_config must continue through the server-managed legacy rewrite path."""
+
+    calls = {"legacy": 0}
+    state = orchestrator.PipelineState(
+        resume_content="Python 后端开发",
+        job_description="招聘 Python 后端开发",
+        user_id="user-1",
+        api_config=None,
+    )
+
+    async def legacy_stage(current_state):
+        calls["legacy"] += 1
+        current_state.change_items = [{"optimized_text": "server-managed"}]
+        return current_state
+
+    monkeypatch.setattr(orchestrator, "stage3_custom_rewrite", legacy_stage)
+
+    result = await orchestrator.stage3_rewrite_agent(state, mode="balanced")
+
+    assert calls == {"legacy": 1}
+    assert result.change_items == [{"optimized_text": "server-managed"}]
+    assert result.trace[-1]["output_summary"] == "fallback_to_legacy_without_api_config"

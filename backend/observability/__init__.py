@@ -1,18 +1,37 @@
 """Agent 的可选 Langfuse 观测适配层。"""
 
 import logging
-import os
 import uuid
 from collections.abc import Mapping, Sequence
 from contextlib import asynccontextmanager, contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, replace
-from hashlib import sha256
-from math import ceil
 from typing import Any, AsyncIterator, Optional, cast
 from urllib.parse import urlsplit
 
 from app.security.security import safe_error_message
+
+from observability.config import LangfuseConfig, _env_bool
+from observability.langfuse_client import (
+    _create_langfuse_client,
+    _get_callback_handler,
+    _get_propagate_attributes,
+)
+from observability.providers import (
+    estimate_model_cost,
+    infer_model_integration,
+    infer_model_provider,
+    provider_observability_metadata,
+)
+from observability.summaries import (
+    compare_governance_windows,
+    summarize_approval_events,
+    summarize_external_io_events,
+    summarize_governance_window,
+    summarize_model_events,
+    summarize_tool_events,
+)
+from observability.usage import extract_token_usage, measure_model_input
 
 from observability.runtime_events import (
     ApprovalObservationEvent,
@@ -21,8 +40,6 @@ from observability.runtime_events import (
     RuntimeObservationEvent,
     ToolObservationEvent,
 )
-
-_MODEL_PRICE_ENV = "MODEL_PRICE_REGISTRY"
 
 logger = logging.getLogger(__name__)
 _active_agent_observation: ContextVar[bool] = ContextVar(
@@ -63,65 +80,6 @@ _config: "LangfuseConfig | None" = None
 _configured = False
 
 
-def _env_bool(name: str, default: bool = False) -> bool:
-    """Read a boolean environment variable."""
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    return raw.lower() in {"1", "true", "yes"}
-
-
-def _env_int(name: str, default: int) -> int:
-    """Read a positive integer environment variable with a safe fallback."""
-    try:
-        return max(1, int(os.getenv(name, str(default))))
-    except ValueError:
-        return default
-
-
-def _env_float_optional(name: str) -> float | None:
-    """Read an optional float environment variable."""
-    raw = os.getenv(name)
-    if not raw:
-        return None
-    try:
-        return float(raw)
-    except ValueError:
-        return None
-
-
-@dataclass(frozen=True)
-class LangfuseConfig:
-    """数据对象，承载 `LangfuseConfig` 的结构化字段和跨模块契约；只表达数据，不在构造或序列化时执行外部调用。"""
-    enabled: bool
-    public_key: str = ""
-    secret_key: str = ""
-    base_url: str = "https://cloud.langfuse.com"
-    environment: str | None = None
-    release: str | None = None
-    sample_rate: float | None = None
-    prompt_management_enabled: bool = False
-    prompt_label: str | None = "production"
-    prompt_cache_ttl_seconds: int = 300
-
-    @classmethod
-    def from_env(cls) -> "LangfuseConfig":
-        """从环境变量构造 Langfuse 配置，统一开关、项目和凭据的延迟读取边界。"""
-        prompt_label = os.getenv("LANGFUSE_PROMPT_LABEL", "production").strip() or None
-        return cls(
-            enabled=_env_bool("LANGFUSE_ENABLED"),
-            public_key=os.getenv("LANGFUSE_PUBLIC_KEY", ""),
-            secret_key=os.getenv("LANGFUSE_SECRET_KEY", ""),
-            base_url=os.getenv("LANGFUSE_BASE_URL", "https://cloud.langfuse.com"),
-            environment=os.getenv("LANGFUSE_TRACING_ENVIRONMENT") or None,
-            release=os.getenv("LANGFUSE_RELEASE") or None,
-            sample_rate=_env_float_optional("LANGFUSE_SAMPLE_RATE"),
-            prompt_management_enabled=_env_bool("LANGFUSE_PROMPT_MANAGEMENT_ENABLED"),
-            prompt_label=prompt_label,
-            prompt_cache_ttl_seconds=_env_int("LANGFUSE_PROMPT_CACHE_TTL_SECONDS", 300),
-        )
-
-
 @dataclass
 class AgentObservation:
     """仅保存可安全上传的 Agent 输入输出摘要。"""
@@ -156,209 +114,22 @@ class AgentObservation:
 
 
 
-def _read_nested_usage_value(usage: Any, path: str) -> Any:
-    """按点分路径读取 usage 字段，兼容 completion_tokens_details.reasoning_tokens 等结构。"""
-    current = usage
-    for part in path.split("."):
-        if current is None:
-            return None
-        current = current.get(part) if isinstance(current, Mapping) else getattr(current, part, None)
-    return current
 
 
-def _read_usage_value(usage: Any, *names: str) -> int | None:
-    """从 dict 或 SDK 对象中按别名读取 token 计数；缺失时返回 None 而不是 0。"""
-    for name in names:
-        value = _read_nested_usage_value(usage, name)
-        if value is None:
-            continue
-        try:
-            return int(value)
-        except (TypeError, ValueError):
-            continue
-    return None
 
 
-def _normalize_token_usage(usage: Any) -> dict[str, int | None]:
-    """把 OpenAI、LangChain 与国产兼容服务商的 usage 字段规整为统一键。"""
-    input_tokens = _read_usage_value(usage, "input_tokens", "prompt_tokens", "promptTokens")
-    output_tokens = _read_usage_value(usage, "output_tokens", "completion_tokens", "completionTokens")
-    total_tokens = _read_usage_value(usage, "total_tokens", "totalTokens")
-    if total_tokens is None and input_tokens is not None and output_tokens is not None:
-        total_tokens = input_tokens + output_tokens
-    return {
-        "input_tokens": input_tokens,
-        "output_tokens": output_tokens,
-        "total_tokens": total_tokens,
-        "cache_read_tokens": _read_usage_value(
-            usage,
-            "cache_read_tokens",
-            "cached_tokens",
-            "prompt_cache_hit_tokens",
-            "cache_hit_tokens",
-        ),
-        "reasoning_tokens": _read_usage_value(
-            usage,
-            "reasoning_tokens",
-            "completion_tokens_details.reasoning_tokens",
-        ),
-    }
 
 
-def _merge_usage_result(usage: Any) -> dict[str, int | None]:
-    """返回标准 token 结构，并在没有有效计数时保留统一的 unavailable 状态。"""
-    result = _normalize_token_usage(usage)
-    if any(value is not None for value in result.values()):
-        return result
-    return {
-        "input_tokens": None,
-        "output_tokens": None,
-        "total_tokens": None,
-        "cache_read_tokens": None,
-        "reasoning_tokens": None,
-    }
 
 
-def extract_token_usage(value: Any) -> dict[str, int | None]:
-    """从 LangChain/OpenAI 响应提取 token 数量，不读取或上报响应正文。"""
-    usage = getattr(value, "usage_metadata", None)
-    if isinstance(usage, Mapping):
-        return _merge_usage_result(usage)
-    response_metadata = getattr(value, "response_metadata", None)
-    if isinstance(response_metadata, Mapping):
-        token_usage = response_metadata.get("token_usage") or response_metadata.get("usage")
-        if isinstance(token_usage, Mapping):
-            return _merge_usage_result(token_usage)
-    raw_usage = getattr(value, "usage", None)
-    if raw_usage is not None:
-        return _merge_usage_result(raw_usage)
-    llm_output = getattr(value, "llm_output", None)
-    if isinstance(llm_output, Mapping):
-        token_usage = llm_output.get("token_usage") or llm_output.get("usage")
-        if isinstance(token_usage, Mapping):
-            return _merge_usage_result(token_usage)
-    generations = getattr(value, "generations", None)
-    if generations:
-        try:
-            first = generations[0][0]
-            message = getattr(first, "message", None)
-            usage = getattr(message, "usage_metadata", None)
-            if isinstance(usage, Mapping):
-                return _merge_usage_result(usage)
-            metadata = getattr(message, "response_metadata", None)
-            if isinstance(metadata, Mapping):
-                token_usage = metadata.get("token_usage") or metadata.get("usage")
-                if isinstance(token_usage, Mapping):
-                    return _merge_usage_result(token_usage)
-        except (IndexError, TypeError):
-            pass
-    return _merge_usage_result(None)
 
 
-def _message_role(value: Any) -> str | None:
-    """把消息对象映射到固定角色名，避免把任意用户字段名写入观测事件。"""
-    role = getattr(value, "role", None) or getattr(value, "type", None)
-    if not role and isinstance(value, Mapping):
-        role = value.get("role") or value.get("type")
-    normalized = str(role or "").lower()
-    if normalized in {"system", "human", "user", "ai", "assistant", "tool", "function"}:
-        return "human" if normalized == "user" else "ai" if normalized == "assistant" else normalized
-    class_name = type(value).__name__.lower()
-    for candidate in ("system", "human", "ai", "tool", "function"):
-        if candidate in class_name:
-            return candidate
-    return None
 
 
-def _content_char_count(value: Any) -> int:
-    """递归统计模型可见字符串体积；只返回数量，不序列化或保留原文。"""
-    if value is None:
-        return 0
-    if isinstance(value, str):
-        return len(value)
-    if isinstance(value, bytes):
-        return len(value)
-    if isinstance(value, Mapping):
-        if "content" in value:
-            return _content_char_count(value.get("content"))
-        return sum(_content_char_count(item) for item in value.values())
-    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
-        return sum(_content_char_count(item) for item in value)
-    content = getattr(value, "content", None)
-    if content is not None:
-        return _content_char_count(content)
-    return len(str(value)) if isinstance(value, (int, float, bool)) else 0
 
 
-def _content_fingerprint(value: Any) -> str:
-    """对模型可见内容做单向哈希；哈希过程不返回或保存原文。"""
-    digest = sha256()
-
-    def update(current: Any) -> None:
-        """稳定遍历常见消息和结构化输入，加入类型与长度分隔符避免拼接碰撞。"""
-        if current is None:
-            digest.update(b"none;")
-            return
-        if isinstance(current, str):
-            encoded = current.encode("utf-8")
-            digest.update(f"str:{len(encoded)}:".encode("ascii"))
-            digest.update(encoded)
-            return
-        if isinstance(current, bytes):
-            digest.update(f"bytes:{len(current)}:".encode("ascii"))
-            digest.update(current)
-            return
-        if isinstance(current, Mapping):
-            digest.update(b"mapping{")
-            for key in sorted(current, key=lambda item: str(item)):
-                digest.update(sha256(str(key).encode("utf-8")).digest())
-                update(current[key])
-            digest.update(b"}")
-            return
-        if isinstance(current, Sequence) and not isinstance(current, (str, bytes, bytearray)):
-            digest.update(b"sequence[")
-            for item in current:
-                update(item)
-            digest.update(b"]")
-            return
-        content = getattr(current, "content", None)
-        if content is not None:
-            digest.update(f"message:{_message_role(current) or 'unknown'}:".encode("ascii"))
-            update(content)
-            return
-        digest.update(f"scalar:{type(current).__name__}:{current!s}".encode("utf-8"))
-
-    update(value)
-    return digest.hexdigest()
 
 
-def measure_model_input(value: Any, *, chars_per_token: float = 4.0) -> dict[str, Any]:
-    """生成不含原文的模型输入体积、粗略 token 数、来源分布和指纹。"""
-    input_chars = _content_char_count(value)
-    source_breakdown: dict[str, int] = {}
-
-    def iter_items(current: Any):
-        """展平 LangChain 的批次消息外层，同时保留具体消息对象作为统计单元。"""
-        if _message_role(current) is not None or isinstance(current, (str, bytes, Mapping)):
-            yield current
-            return
-        if isinstance(current, Sequence) and not isinstance(current, (str, bytes, bytearray)):
-            for child in current:
-                yield from iter_items(child)
-            return
-        yield current
-
-    for item in iter_items(value):
-        role = _message_role(item) or "input"
-        source_breakdown[role] = source_breakdown.get(role, 0) + _content_char_count(item)
-    if not source_breakdown:
-        source_breakdown = {"input": input_chars}
-    return {
-        "input_chars": input_chars,
-        "estimated_input_tokens": ceil(input_chars / max(chars_per_token, 0.1)),
-        "source_breakdown": source_breakdown,
-        "input_fingerprint": _content_fingerprint(value),
-    }
 
 
 _SAFE_MODEL_EVENT_FIELDS = {
@@ -419,117 +190,16 @@ _SAFE_MODEL_EVENT_FIELDS = {
 }
 
 
-def _normalize_model_provider(value: Any) -> str | None:
-    """把前端供应商 ID 归一到观测维度，避免 aliyun 与 qwen 混用。"""
-    raw = str(value or "").strip().lower()
-    if not raw:
-        return None
-    if raw in {"aliyun", "dashscope", "bailian", "qwen", "qwq"}:
-        return "qwen"
-    if raw in {"deepseek", "openai", "openai_compatible", "custom"}:
-        return "openai_compatible" if raw == "custom" else raw
-    return raw
 
 
-def provider_observability_metadata(config: Mapping[str, Any] | None) -> dict[str, Any]:
-    """从模型通道配置生成不含凭据的 Provider 元数据，供 Langfuse 和本地事件统一使用。"""
-    cfg = dict(config or {})
-    base_url = str(cfg.get("base_url") or "")
-    endpoint = None
-    if base_url:
-        parsed = urlsplit(base_url)
-        endpoint = parsed.netloc or None
-    provider = _normalize_model_provider(cfg.get("provider")) or infer_model_provider(cfg.get("model"), base_url)
-    return {
-        "model_provider": provider,
-        "model_integration": cfg.get("integration") or infer_model_integration(cfg.get("model"), base_url, provider),
-        "model_endpoint": endpoint,
-        "pricing_key": cfg.get("pricing_key") or cfg.get("model"),
-    }
 
 
-def infer_model_provider(model: Any, base_url: str | None = None) -> str:
-    """根据显式配置缺失时的模型名和端点推断 Provider，只返回可公开观测的归一化名称。"""
-    text = f"{model or ''} {base_url or ''}".lower()
-    if "deepseek" in text:
-        return "deepseek"
-    if any(marker in text for marker in ("dashscope", "aliyun", "bailian", "qwen", "qwq")):
-        return "qwen"
-    if "openai" in text:
-        return "openai"
-    return "openai_compatible"
 
 
-def infer_model_integration(model: Any, base_url: str | None = None, provider: Any = None) -> str:
-    """推断模型客户端集成类型；原生服务商优先，网关和自定义端点保持 generic 兜底。"""
-    explicit = _normalize_model_provider(provider) or ""
-    inferred = infer_model_provider(model, base_url)
-    base = (base_url or "").lower()
-    if explicit in {"deepseek", "qwen", "openai", "openai_compatible"}:
-        inferred = explicit
-    if inferred == "deepseek" and (not base or "deepseek" in base):
-        return "deepseek"
-    if inferred in {"qwen", "aliyun"} and (not base or any(marker in base for marker in ("dashscope", "aliyun"))):
-        return "qwen"
-    if inferred == "openai" and (not base or "openai" in base):
-        return "openai"
-    return "openai_compatible"
 
 
-def _load_price_registry() -> dict[str, dict[str, Any]]:
-    """从 JSON 环境变量读取本地模型价格表；解析失败时禁用成本估算但不阻断业务。"""
-    raw = os.getenv(_MODEL_PRICE_ENV, "").strip()
-    if not raw:
-        return {}
-    try:
-        import json
-
-        parsed = json.loads(raw)
-    except Exception as error:
-        logger.warning("模型价格表解析失败，跳过成本估算: %s", type(error).__name__)
-        return {}
-    if not isinstance(parsed, Mapping):
-        return {}
-    registry: dict[str, dict[str, Any]] = {}
-    for key, value in parsed.items():
-        if isinstance(value, Mapping):
-            registry[str(key).lower()] = dict(value)
-    return registry
 
 
-def estimate_model_cost(
-    *,
-    pricing_key: Any = None,
-    model_name: Any = None,
-    input_tokens: int | None = None,
-    output_tokens: int | None = None,
-) -> dict[str, Any]:
-    """按本地价格表估算模型成本，默认支持人民币；缺 token 或价格时明确返回 unavailable。"""
-    if input_tokens is None or output_tokens is None:
-        return {"usage_status": "unavailable", "cost_status": "unavailable"}
-    registry = _load_price_registry()
-    key_candidates = [str(item).lower() for item in (pricing_key, model_name) if item]
-    price = next((registry[key] for key in key_candidates if key in registry), None)
-    if not price:
-        return {"usage_status": "available", "cost_status": "unpriced"}
-    currency = str(price.get("currency") or "CNY").upper()
-    try:
-        input_per_1m = float(price.get("input_per_1m", 0) or 0)
-        output_per_1m = float(price.get("output_per_1m", 0) or 0)
-    except (TypeError, ValueError):
-        return {"usage_status": "available", "cost_status": "unpriced"}
-    estimated = (input_tokens * input_per_1m + output_tokens * output_per_1m) / 1_000_000
-    result: dict[str, Any] = {
-        "usage_status": "available",
-        "cost_status": "estimated",
-        "cost_currency": currency,
-        "cost_source": "local_pricelist",
-    }
-    if currency == "CNY":
-        result["estimated_cost_cny"] = round(estimated, 8)
-    elif currency == "USD":
-        result["estimated_cost_usd"] = round(estimated, 8)
-    return result
 
 
 def _safe_model_event_value(value: Any) -> Any:
@@ -708,132 +378,14 @@ def get_runtime_sink_errors() -> tuple[str, ...]:
     return tuple(_runtime_sink_errors.get() or ())
 
 
-def _runtime_percentile(values: Sequence[int], fraction: float) -> int | None:
-    """使用最近秩计算运行时事件的小样本百分位。"""
-
-    if not values:
-        return None
-    ordered = sorted(values)
-    index = max(0, min(len(ordered) - 1, ceil(len(ordered) * fraction) - 1))
-    return ordered[index]
 
 
-def _terminal_runtime_events(
-    events: Sequence[Mapping[str, Any]],
-    *,
-    prefix: str,
-) -> dict[str, Mapping[str, Any]]:
-    """按 call ID 保留最后一个终态，避免重试事件被重复计算为多个调用。"""
-
-    terminal_statuses = {"completed", "failed", "blocked", "skipped"}
-    terminals: dict[str, Mapping[str, Any]] = {}
-    for event in events:
-        if not str(event.get("event_type") or "").startswith(prefix):
-            continue
-        if event.get("status") not in terminal_statuses:
-            continue
-        call_id = str(event.get("call_id") or event.get("event_id") or "")
-        if call_id:
-            terminals[call_id] = event
-    return terminals
 
 
-def summarize_tool_events(events: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
-    """按逻辑 Tool 调用汇总终态、审批风险、耗时和不完整调用。"""
-
-    tool_events = [
-        event
-        for event in events
-        if str(event.get("event_type") or "").startswith("tool.")
-    ]
-    call_ids = {str(event.get("call_id")) for event in tool_events if event.get("call_id")}
-    terminals = _terminal_runtime_events(tool_events, prefix="tool.")
-    durations = [
-        int(event["duration_ms"])
-        for event in terminals.values()
-        if isinstance(event.get("duration_ms"), (int, float))
-    ]
-    slowest = max(
-        (
-            event
-            for event in terminals.values()
-            if isinstance(event.get("duration_ms"), (int, float))
-        ),
-        key=lambda event: int(event.get("duration_ms") or 0),
-        default=None,
-    )
-    return {
-        "total": len(call_ids),
-        "completed": sum(event.get("status") == "completed" for event in terminals.values()),
-        "failed": sum(event.get("status") == "failed" for event in terminals.values()),
-        "blocked": sum(event.get("status") == "blocked" for event in terminals.values()),
-        "skipped": sum(event.get("status") == "skipped" for event in terminals.values()),
-        "incomplete": max(0, len(call_ids) - len(terminals)),
-        "approval_required": len(
-            {
-                str(event.get("call_id"))
-                for event in tool_events
-                if event.get("requires_confirmation")
-            }
-        ),
-        "external_effect_count": len(
-            {
-                str(event.get("call_id"))
-                for event in tool_events
-                if event.get("tool_effect") == "external"
-            }
-        ),
-        "p50_duration_ms": _runtime_percentile(durations, 0.50),
-        "p95_duration_ms": _runtime_percentile(durations, 0.95),
-        "slowest_tool": slowest.get("tool_name") if slowest else None,
-    }
 
 
-def summarize_external_io_events(
-    events: Sequence[Mapping[str, Any]],
-) -> dict[str, Any]:
-    """汇总外部依赖调用的终态、超时和耗时。"""
-
-    io_events = [
-        event
-        for event in events
-        if str(event.get("event_type") or "").startswith("external_io.")
-    ]
-    call_ids = {str(event.get("call_id")) for event in io_events if event.get("call_id")}
-    terminals = _terminal_runtime_events(io_events, prefix="external_io.")
-    durations = [
-        int(event["duration_ms"])
-        for event in terminals.values()
-        if isinstance(event.get("duration_ms"), (int, float))
-    ]
-    return {
-        "total": len(call_ids),
-        "completed": sum(event.get("status") == "completed" for event in terminals.values()),
-        "failed": sum(event.get("status") == "failed" for event in terminals.values()),
-        "skipped": sum(event.get("status") == "skipped" for event in terminals.values()),
-        "incomplete": max(0, len(call_ids) - len(terminals)),
-        "timeout": sum(
-            event.get("error_category") == "external_io_timeout"
-            for event in terminals.values()
-        ),
-        "p50_duration_ms": _runtime_percentile(durations, 0.50),
-        "p95_duration_ms": _runtime_percentile(durations, 0.95),
-    }
 
 
-def summarize_approval_events(events: Sequence[Mapping[str, Any]]) -> dict[str, int]:
-    """汇总审批请求和决定，不暴露审批人身份。"""
-
-    approval_events = [
-        event
-        for event in events
-        if str(event.get("event_type") or "").startswith("approval.")
-    ]
-    return {
-        "requested": sum(event.get("status") == "pending" for event in approval_events),
-        "approved": sum(event.get("status") == "approved" for event in approval_events),
-        "rejected": sum(event.get("status") == "rejected" for event in approval_events),
-    }
 
 
 @contextmanager
@@ -891,187 +443,12 @@ def get_current_model_events() -> list[dict[str, Any]]:
     return list(events or [])
 
 
-def summarize_model_events(events: Sequence[Mapping[str, Any]]) -> dict[str, dict[str, Any]]:
-    """按 Agent 汇总 P50/P95、超时率、重试率和 fallback 率。"""
-    grouped: dict[str, list[Mapping[str, Any]]] = {}
-    for event in events:
-        grouped.setdefault(str(event.get("agent_name") or "unknown"), []).append(event)
-
-    def percentile(values: list[int], fraction: float) -> int | None:
-        """使用最近秩计算小样本可解释百分位。"""
-        if not values:
-            return None
-        ordered = sorted(values)
-        index = max(0, min(len(ordered) - 1, ceil(len(ordered) * fraction) - 1))
-        return ordered[index]
-
-    summaries: dict[str, dict[str, Any]] = {}
-    for agent_name, agent_events in grouped.items():
-        started = [item for item in agent_events if item.get("event_type") == "llm.request.started"]
-        terminal = [
-            item
-            for item in agent_events
-            if item.get("event_type") in {
-                "llm.request.completed",
-                "llm.request.failed",
-                "llm.request.skipped",
-            }
-        ]
-        durations = [
-            int(item["model_duration_ms"])
-            for item in terminal
-            if isinstance(item.get("model_duration_ms"), (int, float))
-        ]
-        timeout_count = sum(item.get("failure_type") == "timeout" for item in terminal)
-        retry_count = sum(int(item.get("attempt") or 1) > 1 for item in started)
-        fallback_count = sum(int(item.get("fallback_index") or 0) > 0 for item in started)
-        denominator = max(1, len(started))
-        summaries[agent_name] = {
-            "call_count": len(started),
-            "completed_count": sum(item.get("event_type") == "llm.request.completed" for item in terminal),
-            "failed_count": sum(item.get("event_type") != "llm.request.completed" for item in terminal),
-            "p50_model_duration_ms": percentile(durations, 0.50),
-            "p95_model_duration_ms": percentile(durations, 0.95),
-            "timeout_rate": min(timeout_count, denominator) / denominator,
-            "retry_rate": retry_count / denominator,
-            "fallback_rate": fallback_count / denominator,
-        }
-    return summaries
 
 
-def summarize_governance_window(events: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
-    """Summarize one sanitized event window for Phase 6 performance acceptance."""
-    started = [event for event in events if event.get("event_type") == "llm.request.started"]
-    terminal = [
-        event
-        for event in events
-        if event.get("event_type") in {
-            "llm.request.completed",
-            "llm.request.failed",
-            "llm.request.skipped",
-        }
-    ]
-    durations = sorted(
-        int(event["total_duration_ms"])
-        for event in terminal
-        if isinstance(event.get("total_duration_ms"), (int, float))
-    )
-    p95_index = max(0, min(len(durations) - 1, ceil(len(durations) * 0.95) - 1))
-    denominator = max(1, len(started))
-    audited_count = sum(
-        isinstance(event.get("input_chars"), (int, float))
-        and isinstance(event.get("input_fingerprint"), str)
-        and isinstance(event.get("source_breakdown"), Mapping)
-        for event in started
-    )
-    forbidden_fields = {
-        "api_key",
-        "authorization",
-        "cookie",
-        "job_description",
-        "memory",
-        "prompt",
-        "resume",
-        "token",
-        "user_answer",
-    }
-    return {
-        "call_count": len(started),
-        "p95_total_duration_ms": durations[p95_index] if durations else None,
-        "timeout_rate": sum(
-            event.get("failure_type") == "timeout"
-            or event.get("error_category") == "external_io_timeout"
-            for event in terminal
-        ) / denominator,
-        "average_fallback_count": sum(
-            int(event.get("fallback_index") or 0) > 0
-            for event in started
-        ) / denominator,
-        "context_audit_coverage": audited_count / denominator,
-        "unsafe_field_count": sum(
-            bool(forbidden_fields.intersection(event))
-            for event in events
-        ),
-    }
 
 
-def compare_governance_windows(
-    baseline_events: Sequence[Mapping[str, Any]],
-    current_events: Sequence[Mapping[str, Any]],
-    *,
-    voice_baseline_chars: int,
-    voice_current_chars: int,
-    resume_baseline_chars: int,
-    resume_current_chars: int,
-) -> dict[str, Any]:
-    """Compare sanitized before/after windows against the Phase 6 reduction targets."""
-    baseline = summarize_governance_window(baseline_events)
-    current = summarize_governance_window(current_events)
-
-    def reduction(before: int | float | None, after: int | float | None) -> float:
-        """Return a stable reduction ratio; a zero baseline passes only without regression."""
-        before_value = float(before or 0)
-        after_value = float(after or 0)
-        if before_value <= 0:
-            return 1.0 if after_value <= 0 else -1.0
-        return (before_value - after_value) / before_value
-
-    improvements = {
-        "p95_total_duration_reduction": reduction(
-            baseline["p95_total_duration_ms"],
-            current["p95_total_duration_ms"],
-        ),
-        "timeout_rate_reduction": reduction(
-            baseline["timeout_rate"],
-            current["timeout_rate"],
-        ),
-        "average_fallback_reduction": reduction(
-            baseline["average_fallback_count"],
-            current["average_fallback_count"],
-        ),
-        "voice_context_reduction": reduction(
-            voice_baseline_chars,
-            voice_current_chars,
-        ),
-        "resume_repeated_input_reduction": reduction(
-            resume_baseline_chars,
-            resume_current_chars,
-        ),
-    }
-    targets = {
-        "p95_total_duration": improvements["p95_total_duration_reduction"] >= 0.30,
-        "timeout_rate": improvements["timeout_rate_reduction"] >= 0.70,
-        "average_fallback_count": improvements["average_fallback_reduction"] >= 0.50,
-        "voice_context": improvements["voice_context_reduction"] >= 0.60,
-        "resume_repeated_input": improvements["resume_repeated_input_reduction"] >= 0.50,
-        "context_audit_coverage": current["context_audit_coverage"] == 1.0,
-        "sensitive_event_fields": current["unsafe_field_count"] == 0,
-    }
-    return {
-        "baseline": baseline,
-        "current": current,
-        "improvements": improvements,
-        "targets": targets,
-        "passed": all(targets.values()),
-    }
 
 
-def _create_langfuse_client(config: LangfuseConfig) -> Any:
-    """按配置创建 Langfuse 客户端；外部追踪不可用时使用安全降级，不让观测初始化阻断业务流程。
-
-    Args:
-        config: 配置对象。
-    """
-    from langfuse import Langfuse
-
-    return Langfuse(
-        public_key=config.public_key,
-        secret_key=config.secret_key,
-        base_url=config.base_url,
-        environment=config.environment,
-        release=config.release,
-        sample_rate=config.sample_rate,
-    )
 
 
 def _get_agent_run_service() -> Any:
@@ -1081,32 +458,8 @@ def _get_agent_run_service() -> Any:
     return AgentRunService()
 
 
-def _get_propagate_attributes():
-    """生成 LangChain/Langfuse 传播属性，限制在当前请求的 trace 边界内，不把完整敏感上下文放入外部追踪。"""
-    from langfuse import propagate_attributes
-
-    return propagate_attributes
 
 
-def _get_callback_handler():
-    """按当前请求配置创建观测回调处理器；回调只接收脱敏事件，追踪失败不影响主流程返回。"""
-    try:
-        from langfuse.langchain import CallbackHandler
-    except ModuleNotFoundError:
-        class CallbackHandler:  # pragma: no cover - 轻量测试环境占位
-            """应用或基础设施协作者，负责 `CallbackHandler` 的职责；依赖通过构造或模块边界注入，外部调用、状态持久化和安全校验不向调用方隐藏。"""
-            def __call__(self, *args: Any, **kwargs: Any) -> None:
-                """实现 `__call__` 协议方法。
-
-                Args:
-                    *args: 经过类型边界校验的 `args`；其格式和可选值由参数类型及调用流程约束。
-                    **kwargs: 经过类型边界校验的 `kwargs`；其格式和可选值由参数类型及调用流程约束。
-                """
-                return None
-
-        return CallbackHandler
-
-    return CallbackHandler
 
 
 def configure_langfuse() -> bool:

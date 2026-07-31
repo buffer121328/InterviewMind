@@ -18,7 +18,7 @@ from app.domain.agent_runs import (
     TERMINAL_STATUSES,
 )
 from app.domain.agent_definitions import get_agent_definition
-from ai.runtime.agent_runs.crypto import TaskPayloadConfigurationError
+from app.security.payload_crypto import TaskPayloadConfigurationError
 from ai.runtime.agent_runs.dispatcher import enqueue_agent_run
 from ai.runtime.agent_runs.event_stream import replay_cursor
 from ai.workflows.agent_tasks.registry import execute_registered_task

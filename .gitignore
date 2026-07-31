@@ -44,6 +44,5 @@ meta-output/
 # Skills (only on lite branch)
 skills/
 
-# Local docs
-docs/
+# Local-only docs
 README.local.md

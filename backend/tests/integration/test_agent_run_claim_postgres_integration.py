@@ -36,7 +36,7 @@ async def test_two_workers_cannot_claim_same_run(monkeypatch):
     monkeypatch.setenv("TASK_PAYLOAD_ENCRYPTION_KEY", Fernet.generate_key().decode())
 
     from app.db.models.agent_run import AgentRunEventModel, AgentRunModel
-    from ai.runtime.agent_runs.crypto import encrypt_payload
+    from app.security.payload_crypto import encrypt_payload
     from ai.runtime.agent_runs import service as service_module
 
     async_url = dsn.replace("postgresql://", "postgresql+asyncpg://")

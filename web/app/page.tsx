@@ -1,9 +1,8 @@
 "use client";
 
 import { useState, useEffect, useRef, useMemo, useSyncExternalStore } from "react";
-import { Activity, BookOpenCheck, Bot, BriefcaseBusiness, Database, Loader2, Award, Plus, MessageCircle, FileText, ArrowDown, Square, Lightbulb, X, Mic, Target, Sparkles, ShieldCheck } from "lucide-react";
+import { Activity, BookOpenCheck, BriefcaseBusiness, Database, Loader2, Award, Plus, MessageCircle, FileText, ArrowDown, Target, Sparkles, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { ChatMessage } from "@/components/ChatMessage";
 import { AbilityProfileView } from "@/components/AbilityProfileView";
 import { SettingsDialog } from "@/components/SettingsDialog";
 import { SessionProfileDialog } from "@/components/SessionProfileDialog";
@@ -11,17 +10,16 @@ import { useInterviewStore } from "@/store/useInterviewStore";
 import { useSpeechToText } from "@/hooks/useSpeechToText";
 import { getUserId } from "@/hooks/useUserIdentity";
 import { API_BASE_URL } from "@/lib/api/config";
-import { cn } from "@/lib/utils";
 import { parseSavedMainView, requiresApiConfig, type MainView } from "@/lib/navigation";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "sonner";
 import { ResumeTools } from "@/components/ResumeTools";
 import { LandingPage } from "@/components/LandingPage";
 import { InterviewSetup } from "@/components/interview/InterviewSetup";
+import { InterviewAnswerComposer } from "@/components/interview/InterviewAnswerComposer";
+import { InterviewChatStream } from "@/components/interview/InterviewChatStream";
+import { InterviewProgressBar } from "@/components/interview/InterviewProgressBar";
 import { GuidePage } from "@/components/GuidePage";
 import { InterviewArea } from "@/components/InterviewArea";
-import { PreparingInterview } from "@/components/interview/PreparingInterview";
-import { ExecutionPlanPanel } from "@/components/interview/ExecutionPlanPanel";
 import { InterviewHistoryDetailDialog } from "@/components/InterviewHistoryDetailDialog";
 import { ApplicationBoard } from "@/components/ApplicationBoard";
 import { ApplicationDetailDrawer } from "@/components/ApplicationDetailDrawer";
@@ -637,84 +635,26 @@ export default function InterviewPage() {
           // 聊天界面
           <InterviewArea>
             <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-              {/* 面试进度条 - 仅在有消息时显示 */}
-              {interviewProgress && interviewProgress.total > 0 && messages.length > 0 && (
-                <div className="border-b border-gray-100 bg-white/80 backdrop-blur-sm sticky top-0 z-10">
-                  <div className="max-w-3xl mx-auto px-6 py-3">
-                    <div className="flex items-center justify-between text-sm">
-                      <div className="flex items-center gap-2">
-                        <div className="flex items-center gap-1.5">
-                          <div className={cn(
-                            "w-2 h-2 rounded-full",
-                            interviewProgress.current >= interviewProgress.total ? "bg-gray-400" : "bg-teal-500 animate-pulse"
-                          )}></div>
-                          <span className="font-medium text-gray-700">
-                            {interviewProgress.current >= interviewProgress.total ? "面试已完成" : "面试进行中"}
-                          </span>
-                        </div>
-                        <span className="text-gray-300">|</span>
-                        <span className="text-gray-500">
-                          问题 {Math.min(interviewProgress.current + 1, interviewProgress.total)} / {interviewProgress.total}
-                        </span>
-                      </div>
-
-                      {/* 切换语音面试按钮 */}
-                      {interviewProgress.current < interviewProgress.total && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="text-purple-700 hover:text-purple-800 hover:bg-purple-50 gap-1.5 h-7 px-2"
-                          onClick={handleSwitchToVoice}
-                        >
-                          <Mic className="w-3.5 h-3.5" />
-                          <span>切换语音面试</span>
-                        </Button>
-                      )}
-                    </div>
-                    {/* 进度条 */}
-                    <div className="mt-3 h-1.5 w-full bg-gray-100 rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-teal-500 rounded-full transition-all duration-500 ease-out"
-                        style={{ width: `${(interviewProgress.current / interviewProgress.total) * 100}%` }}
-                      />
-                    </div>
-                  </div>
-                </div>
-              )}
+              <InterviewProgressBar
+                progress={interviewProgress}
+                messageCount={messages.length}
+                onSwitchToVoice={handleSwitchToVoice}
+              />
 
               {/* 聊天区域 */}
               <div className="flex-1 overflow-hidden relative flex flex-col">
-                <ScrollArea className="flex-1 px-4 overflow-hidden" viewportRef={scrollViewportRef} onScroll={handleScroll}>
-                  <div className="max-w-3xl mx-auto pt-6 pb-2 space-y-6">
-                    {/* 初始加载状态：当正在加载或流式传输且没有消息时显示 */}
-                    {(isLoading || isStreaming) && messages.length === 0 && (
-                      <PreparingInterview stage={initializationStage} plan={executionPlan} />
-                    )}
-
-                    {messages.map((msg, index) => (
-                      <ChatMessage
-                        key={index}
-                        role={msg.role}
-                        content={msg.content}
-                        timestamp={msg.timestamp}
-                        onEdit={msg.role === 'user' ? (content) => handleEditMessage(index, content) : undefined}
-                        onRegenerate={msg.role === 'assistant' && index !== 0 ? () => handleRegenerateMessage(index) : undefined}
-                      />
-                    ))}
-
-                    {/* 后续对话的思考状态：仅在流式传输中且最后一条消息是用户消息时显示 */}
-                    {isStreaming && messages.length > 0 && messages[messages.length - 1].role === 'user' && (
-                      <div className="space-y-3 px-4">
-                        <div className="flex items-center gap-2 text-gray-400 text-sm animate-pulse">
-                          <Bot className="w-4 h-4" />
-                          <span>面试官正在思考...</span>
-                        </div>
-                        <ExecutionPlanPanel steps={executionPlan} />
-                      </div>
-                    )}
-                    <div ref={messagesEndRef} />
-                  </div>
-                </ScrollArea>
+                <InterviewChatStream
+                  messages={messages}
+                  isLoading={isLoading}
+                  isStreaming={isStreaming}
+                  initializationStage={initializationStage}
+                  executionPlan={executionPlan}
+                  viewportRef={scrollViewportRef}
+                  messagesEndRef={messagesEndRef}
+                  onScroll={handleScroll}
+                  onEditMessage={handleEditMessage}
+                  onRegenerateMessage={handleRegenerateMessage}
+                />
 
 
 
@@ -915,102 +855,22 @@ export default function InterviewPage() {
                         </div>
                       )}
 
-                    {/* 回答提示显示区域 */}
-                    {hintContent && (
-                      <div className="mb-4 p-4 rounded-xl bg-gradient-to-r from-amber-50 to-yellow-50 border border-amber-200 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                        <div className="flex items-start gap-3">
-                          <div className="flex-shrink-0 w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center">
-                            <Lightbulb className="w-4 h-4 text-amber-600" />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center justify-between mb-1">
-                              <h4 className="font-medium text-amber-800 text-sm">回答提示</h4>
-                              <button
-                                onClick={() => setHintContent(null)}
-                                className="p-1 hover:bg-amber-100 rounded-full transition-colors"
-                              >
-                                <X className="w-4 h-4 text-amber-600" />
-                              </button>
-                            </div>
-                            <p className="text-sm text-amber-700 leading-relaxed whitespace-pre-wrap">
-                              {hintContent}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* 判断面试是否已完成 */}
-                    {(() => {
-                      const isInterviewCompleted = !!(interviewProgress && interviewProgress.current >= interviewProgress.total);
-                      return (
-                        <div className="flex gap-2 items-end">
-                          <div className="flex-1 relative flex">
-                            {/* 输入框 Textarea */}
-                            <textarea
-                              value={input}
-                              onChange={(e) => setInput(e.target.value)}
-                              onKeyDown={handleKeyDown}
-                              placeholder={isInterviewCompleted ? "本轮面试已结束" : "输入您的回答..."}
-                              disabled={isStreaming || isInterviewCompleted}
-                              className={cn(
-                                "w-full resize-none rounded-2xl border border-gray-200 py-3 pl-4 pr-24 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-50 min-h-[120px] max-h-[200px]",
-                                isInterviewCompleted && "bg-gray-50 cursor-not-allowed opacity-60"
-                              )}
-                              rows={4}
-                            />
-                            {/* 获取提示按钮 */}
-                            <button
-                              onClick={handleGetHint}
-                              disabled={isInterviewCompleted || isLoadingHint || !threadId}
-                              title="获取回答提示"
-                              className={cn(
-                                "absolute right-12 bottom-3 p-2 rounded-full transition-colors",
-                                isLoadingHint ? "bg-amber-100 text-amber-500" : "hover:bg-amber-50 text-amber-400 hover:text-amber-500",
-                                (isInterviewCompleted || !threadId) && "opacity-50 cursor-not-allowed"
-                              )}
-                            >
-                              {isLoadingHint ? (
-                                <Loader2 className="w-5 h-5 animate-spin" />
-                              ) : (
-                                <Lightbulb className="w-5 h-5" />
-                              )}
-                            </button>
-                            {/* 语音按钮 */}
-                            <button
-                              onClick={toggleListening}
-                              disabled={isInterviewCompleted}
-                              className={cn(
-                                "absolute right-3 bottom-3 p-2 rounded-full transition-colors",
-                                isListening ? "bg-red-100 text-red-500 animate-pulse" : "hover:bg-gray-100 text-gray-400",
-                                isInterviewCompleted && "opacity-50 cursor-not-allowed"
-                              )}
-                            >
-                              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" x2="12" y1="19" y2="22" /></svg>
-                            </button>
-                          </div>
-
-                          <Button
-                            onClick={isStreaming ? stopStreaming : handleSend}
-                            disabled={!isStreaming && (!input.trim() || isInterviewCompleted)}
-                            className={cn(
-                              "h-[52px] w-[52px] rounded-2xl transition-all",
-                              isStreaming
-                                ? "bg-red-500 hover:bg-red-600 shadow-lg shadow-red-200"
-                                : input.trim() && !isInterviewCompleted
-                                  ? "bg-teal-600 hover:bg-teal-700 shadow-lg shadow-teal-200"
-                                  : "bg-gray-100 text-gray-400"
-                            )}
-                          >
-                            {isStreaming ? (
-                              <Square className="w-5 h-5" fill="currentColor" />
-                            ) : (
-                              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m22 2-7 20-4-9-9-4Z" /><path d="M22 2 11 13" /></svg>
-                            )}
-                          </Button>
-                        </div>
-                      );
-                    })()}
+                    <InterviewAnswerComposer
+                      input={input}
+                      onInputChange={setInput}
+                      onKeyDown={handleKeyDown}
+                      isStreaming={isStreaming}
+                      isListening={isListening}
+                      isInterviewCompleted={Boolean(interviewProgress && interviewProgress.current >= interviewProgress.total)}
+                      isLoadingHint={isLoadingHint}
+                      canRequestHint={Boolean(threadId)}
+                      hintContent={hintContent}
+                      onRequestHint={handleGetHint}
+                      onDismissHint={() => setHintContent(null)}
+                      onToggleListening={toggleListening}
+                      onSend={handleSend}
+                      onStopStreaming={stopStreaming}
+                    />
                   </div>
                 </div>
               </div>

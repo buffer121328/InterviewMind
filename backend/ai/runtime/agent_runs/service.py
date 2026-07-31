@@ -24,7 +24,7 @@ from app.domain.agent_runs import (
 from app.db.unit_of_work import UnitOfWork
 from app.db.models import AgentRunEventModel, AgentRunModel, SessionModel, async_session
 from app.security.security import redact_secrets
-from ai.runtime.agent_runs.crypto import decrypt_payload, encrypt_payload
+from app.security.payload_crypto import decrypt_payload, encrypt_payload
 from ai.runtime.agent_runs.outbox import enqueue_agent_run_outbox
 from ai.runtime.agent_runs.policies import allows_whole_run_retry
 
