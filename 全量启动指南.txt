@@ -80,7 +80,7 @@
 3. 验证后端完整依赖就绪情况：
 
   docker compose --env-file .env exec backend \
-    python -m app.entrypoints.deployment readiness
+    python -m scripts.deployment readiness
 
 4. 打开页面：
 

@@ -7,9 +7,10 @@
 import { v4 as uuidv4 } from 'uuid';
 import type { ModelConfig, ApiConfig } from '../types';
 import { DEFAULT_API_CONFIG } from '../types';
+import { modelConfigForRequest } from '@/lib/modelCredentialRequest';
 
 type ModelRequestConfig = {
-    api_key: string;
+    credential_id: string;
     base_url: string;
     model: string;
     provider?: string;
@@ -41,7 +42,7 @@ export interface ApiConfigActions {
     setContentWriterModel: (id: string) => boolean;
     setHrReviewerModel: (id: string) => boolean;
     setReflectorModel: (id: string) => boolean;
-    setVoiceModel: (id: string) => boolean;
+    setMimoModel: (id: string) => boolean;
     setRagEmbeddingModel: (id: string) => boolean;
     setMem0LlmModel: (id: string) => boolean;
     setMem0EmbedderModel: (id: string) => boolean;
@@ -50,7 +51,7 @@ export interface ApiConfigActions {
     getContentWriterModel: () => ModelConfig | null;
     getHrReviewerModel: () => ModelConfig | null;
     getReflectorModel: () => ModelConfig | null;
-    getVoiceModel: () => ModelConfig | null;
+    getMimoModel: () => ModelConfig | null;
     getRagEmbeddingModel: () => ModelConfig | null;
     getMem0LlmModel: () => ModelConfig | null;
     getMem0EmbedderModel: () => ModelConfig | null;
@@ -64,7 +65,7 @@ export interface ApiConfigActions {
         content_writer: ModelRequestConfig;
         hr_reviewer: ModelRequestConfig;
         reflector: ModelRequestConfig;
-        voice: ModelRequestConfig | null;
+        mimo: ModelRequestConfig | null;
         rag_embedding: ModelRequestConfig | null;
         mem0_llm: ModelRequestConfig | null;
         mem0_embedder: ModelRequestConfig | null;
@@ -102,8 +103,8 @@ export const createApiConfigSlice = (set: SetState, get: GetState): ApiConfigSli
             models: [...apiConfig.models, newModel],
         };
 
-        // 如果是第一个模型，自动设为所有通道的默认值
-        if (apiConfig.models.length === 0) {
+        // 只有文本连接可自动成为核心通道；MiMo 语音连接保持独立。
+        if (apiConfig.models.length === 0 && newModel.kind !== 'voice') {
             newConfig.smartModelId = newModel.id;
             newConfig.fastModelId = newModel.id;
             newConfig.generalModelId = newModel.id;
@@ -111,9 +112,9 @@ export const createApiConfigSlice = (set: SetState, get: GetState): ApiConfigSli
             newConfig.contentWriterModelId = newModel.id;
             newConfig.hrReviewerModelId = newModel.id;
             newConfig.reflectorModelId = newModel.id;
-            if (newModel.kind === 'voice' || /omni|audio/i.test(newModel.model)) {
-                newConfig.voiceModelId = newModel.id;
-            }
+        }
+        if (newModel.provider === 'mimo') {
+            newConfig.mimoModelId = newModel.id;
         }
 
         set({ apiConfig: newConfig });
@@ -146,7 +147,7 @@ export const createApiConfigSlice = (set: SetState, get: GetState): ApiConfigSli
             contentWriterModelId: apiConfig.contentWriterModelId === id ? '' : apiConfig.contentWriterModelId,
             hrReviewerModelId: apiConfig.hrReviewerModelId === id ? '' : apiConfig.hrReviewerModelId,
             reflectorModelId: apiConfig.reflectorModelId === id ? '' : apiConfig.reflectorModelId,
-            voiceModelId: apiConfig.voiceModelId === id ? '' : apiConfig.voiceModelId,
+            mimoModelId: apiConfig.mimoModelId === id ? '' : apiConfig.mimoModelId,
             ragEmbeddingModelId: apiConfig.ragEmbeddingModelId === id ? '' : apiConfig.ragEmbeddingModelId,
             mem0LlmModelId: apiConfig.mem0LlmModelId === id ? '' : apiConfig.mem0LlmModelId,
             mem0EmbedderModelId: apiConfig.mem0EmbedderModelId === id ? '' : apiConfig.mem0EmbedderModelId,
@@ -228,10 +229,10 @@ export const createApiConfigSlice = (set: SetState, get: GetState): ApiConfigSli
         return true;
     },
 
-    setVoiceModel: (id) => {
+    setMimoModel: (id) => {
         const { apiConfig } = get();
-        if (id && !apiConfig.models.find(m => m.id === id)) return false;
-        set({ apiConfig: { ...apiConfig, voiceModelId: id } });
+        if (id && !apiConfig.models.find(m => m.id === id && m.provider === 'mimo')) return false;
+        set({ apiConfig: { ...apiConfig, mimoModelId: id } });
         return true;
     },
 
@@ -292,9 +293,9 @@ export const createApiConfigSlice = (set: SetState, get: GetState): ApiConfigSli
         return apiConfig.models.find(m => m.id === apiConfig.reflectorModelId) || null;
     },
 
-    getVoiceModel: () => {
+    getMimoModel: () => {
         const { apiConfig } = get();
-        return apiConfig.models.find(m => m.id === apiConfig.voiceModelId) || null;
+        return apiConfig.models.find(m => m.id === apiConfig.mimoModelId && m.provider === 'mimo') || null;
     },
 
     getRagEmbeddingModel: () => {
@@ -316,7 +317,7 @@ export const createApiConfigSlice = (set: SetState, get: GetState): ApiConfigSli
         const { apiConfig } = get();
         const smartModel = apiConfig.models.find(m => m.id === apiConfig.smartModelId);
         const fastModel = apiConfig.models.find(m => m.id === apiConfig.fastModelId);
-        return !!(smartModel?.apiKey && fastModel?.apiKey);
+        return !!(smartModel?.credentialStored && fastModel?.credentialStored);
     },
 
     getApiConfigForRequest: () => {
@@ -327,7 +328,7 @@ export const createApiConfigSlice = (set: SetState, get: GetState): ApiConfigSli
         const contentWriterModel = get().getContentWriterModel();
         const hrReviewerModel = get().getHrReviewerModel();
         const reflectorModel = get().getReflectorModel();
-        const voiceModel = get().getVoiceModel();
+        const mimoModel = get().getMimoModel();
         const ragEmbeddingModel = get().getRagEmbeddingModel();
         const mem0LlmModel = get().getMem0LlmModel();
         const mem0EmbedderModel = get().getMem0EmbedderModel();
@@ -338,21 +339,14 @@ export const createApiConfigSlice = (set: SetState, get: GetState): ApiConfigSli
         /** Provides the get model config store helper; request-scoped configuration and session state stay centralized in Zustand, while backend persistence remains in the API layer. */
         const getModelConfig = (model: ModelConfig | null) => {
             const m = model || smartModel;
-            return {
-                api_key: m.apiKey,
-                base_url: m.baseUrl,
-                model: m.model,
-                provider: m.provider,
-                integration: m.integration,
-                pricing_key: m.pricingKey || m.model,
-            };
+            return modelConfigForRequest(m);
         };
 
         /** Provides the get pool config store helper; request-scoped configuration and session state stay centralized in Zustand, while backend persistence remains in the API layer. */
         const getPoolConfig = (ids: string[] | undefined, fallback: ModelConfig) => {
             const selected = (ids || [])
                 .map(id => get().apiConfig.models.find(model => model.id === id))
-                .filter((model): model is ModelConfig => Boolean(model?.apiKey));
+                .filter((model): model is ModelConfig => Boolean(model?.credentialStored));
             const members = selected.length > 0 ? selected : [fallback];
             return members.map(model => ({
                 ...getModelConfig(model),
@@ -369,7 +363,7 @@ export const createApiConfigSlice = (set: SetState, get: GetState): ApiConfigSli
             content_writer: getModelConfig(contentWriterModel),
             hr_reviewer: getModelConfig(hrReviewerModel),
             reflector: getModelConfig(reflectorModel),
-            voice: voiceModel ? getModelConfig(voiceModel) : null,
+            mimo: mimoModel ? getModelConfig(mimoModel) : null,
             rag_embedding: ragEmbeddingModel ? getModelConfig(ragEmbeddingModel) : null,
             mem0_llm: mem0LlmModel ? getModelConfig(mem0LlmModel) : null,
             mem0_embedder: mem0EmbedderModel ? getModelConfig(mem0EmbedderModel) : null,

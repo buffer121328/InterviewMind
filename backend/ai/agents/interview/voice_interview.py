@@ -10,13 +10,11 @@ from typing import Any, AsyncGenerator, Dict, List, Literal, Optional, TypedDict
 
 from ai.agents.interview.voice_context import build_voice_history_context
 from ai.agents.interview.voice_progress import calculate_interview_progress
+from ai.agents.interview.voice_tts import generate_greeting_audio
 from ai.agents.interview.voice_utils import normalize_voice_transcript
-from ai.llm import llms
+from ai.llm.mimo import MIMO_BASE_URL, mimo_voice_gateway
 from ai.prompts.voice import (
     build_interview_voice_system_prompt as _build_system_prompt,
-)
-from ai.prompts.voice import (
-    build_tts_system_prompt,
 )
 from ai.prompts.voice import (
     get_opening_message as _get_opening_message,
@@ -80,9 +78,18 @@ async def save_message_async(
         logger.error(f"[Voice] 保存消息失败: {e}")
 
 
-def _get_omni_client(api_config: Dict[str, Any]):
-    """获取 Omni 客户端（内部工具函数）"""
-    return llms.model_gateway.get_voice_client(api_config)
+def _get_mimo_config(api_config: Dict[str, Any]) -> tuple[str, str]:
+    """读取请求级 MiMo 凭据；Key 始终只保留在当前请求内存中。"""
+    mimo = (api_config or {}).get("mimo") or {}
+    api_key = str(mimo.get("api_key") or "").strip()
+    if not api_key:
+        raise ValueError("未配置语音模型，请在设置中配置小米 MiMo")
+    return api_key, str(mimo.get("base_url") or MIMO_BASE_URL).rstrip("/")
+
+
+def _sse_error(message: str) -> str:
+    """构造同时兼容新旧前端读取字段的安全 SSE 错误事件。"""
+    return f"data: {json.dumps({'type': 'error', 'message': message, 'content': message}, ensure_ascii=False)}\n\n"
 
 
 # ============================================================================
@@ -220,8 +227,7 @@ async def node_planner(
 # ============================================================================
 
 async def node_greeting(state: VoiceInterviewState) -> AsyncGenerator[str, None]:
-    """
-    开场白节点：生成开场白的音频（SSE 流式输出）
+    """使用 MiMo TTS 生成开场白音频并按 SSE 输出。
 
     Args:
         state: 当前状态
@@ -237,50 +243,17 @@ async def node_greeting(state: VoiceInterviewState) -> AsyncGenerator[str, None]
     try:
         logger.info(f"[Voice] 开场白节点开始: session={session_id}, text={text_message[:50] if text_message else 'None'}...")
 
-        # TTS 专用消息 - 只做语音合成
-        messages = [
-            {
-                "role": "system",
-                "content": build_tts_system_prompt()
-            },
-            {
-                "role": "user",
-                "content": f"请朗读以下内容：\n\n{text_message}"
-            }
-        ]
+        _get_mimo_config(api_config)
+        text_response = str(text_message or "").strip()
+        if not text_response:
+            raise ValueError("开场白文本为空")
+        audio_data, _ = await generate_greeting_audio(text_response, api_config)
+        if not audio_data:
+            raise ValueError("TTS 未返回音频")
 
-        # 调用 Omni 模型
-        completion = llms.model_gateway.stream_voice_chat_completions(
-            api_config,
-            messages=messages,
-        )
-
-        # 处理流式响应
-        text_response = ""
-        audio_chunks = []
-
-        async for chunk in completion:
-            if chunk.choices:
-                delta = chunk.choices[0].delta
-
-                # 流式输出文本
-                if hasattr(delta, 'content') and delta.content:
-                    text_response += delta.content
-                    yield f"data: {json.dumps({'type': 'text', 'content': delta.content}, ensure_ascii=False)}\n\n"
-
-                # 流式输出音频
-                if hasattr(delta, 'audio') and delta.audio:
-                    audio_data = None
-                    if isinstance(delta.audio, dict):
-                        audio_data = delta.audio.get("data")
-                    elif hasattr(delta.audio, 'data'):
-                        audio_data = delta.audio.data
-
-                    if audio_data:
-                        yield f"data: {json.dumps({'type': 'audio', 'content': audio_data}, ensure_ascii=False)}\n\n"
-                        audio_chunks.append(audio_data)
-
-        logger.info(f"[Voice] 开场白节点完成: text={len(text_response)}字符, audio_chunks={len(audio_chunks)}")
+        yield f"data: {json.dumps({'type': 'text', 'content': text_response}, ensure_ascii=False)}\n\n"
+        yield f"data: {json.dumps({'type': 'audio', 'content': audio_data}, ensure_ascii=False)}\n\n"
+        logger.info("[Voice] 开场白节点完成: text=%s字符", len(text_response))
 
         # 发送完成信号
         yield f"data: {json.dumps({'type': 'done', 'text': text_response}, ensure_ascii=False)}\n\n"
@@ -292,9 +265,10 @@ async def node_greeting(state: VoiceInterviewState) -> AsyncGenerator[str, None]
             name=f"voice-save-opening:{session_id}"
         )
 
-    except Exception as e:
-        logger.error(f"[Voice] 开场白节点失败: {e}", exc_info=True)
-        yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+    except Exception as exc:
+        logger.error("[Voice] 开场白节点失败: %s", type(exc).__name__)
+        message = str(exc) if isinstance(exc, ValueError) else "语音模型调用失败，请稍后重试"
+        yield _sse_error(message)
 
 
 # ============================================================================
@@ -302,8 +276,7 @@ async def node_greeting(state: VoiceInterviewState) -> AsyncGenerator[str, None]
 # ============================================================================
 
 async def node_responder(state: VoiceInterviewState) -> AsyncGenerator[str, None]:
-    """
-    对话节点：处理用户输入并生成 AI 回复（SSE 流式输出）
+    """执行唯一的 MiMo ASR→文本对话→TTS 链路，并复用既有进度持久化。
 
     Args:
         state: 当前状态
@@ -314,7 +287,7 @@ async def node_responder(state: VoiceInterviewState) -> AsyncGenerator[str, None
     session_id = state.get("session_id")
     history = state.get("history", [])
     audio_base64 = state.get("audio_base64")
-    text_message = normalize_voice_transcript(
+    browser_text = normalize_voice_transcript(
         state.get("text_message"),
         get_settings().voice_transcript_term_fixes,
     )
@@ -323,6 +296,32 @@ async def node_responder(state: VoiceInterviewState) -> AsyncGenerator[str, None
     user_id = state.get("user_id", "default_user")
 
     try:
+        api_key, base_url = _get_mimo_config(api_config)
+        text_message = browser_text
+        if audio_base64:
+            try:
+                asr_text = await mimo_voice_gateway.transcribe(
+                    audio_base64,
+                    api_key,
+                    base_url,
+                    audio_format="wav",
+                )
+                text_message = normalize_voice_transcript(
+                    asr_text,
+                    get_settings().voice_transcript_term_fixes,
+                )
+            except Exception as exc:
+                if browser_text:
+                    logger.warning(
+                        "[Voice] MiMo ASR 失败，使用浏览器显示转录兜底: error=%s",
+                        type(exc).__name__,
+                    )
+                    text_message = browser_text
+                else:
+                    raise ValueError("语音识别失败，请稍后重试") from exc
+        if not text_message:
+            raise ValueError("未能识别到有效语音，请再说一遍")
+
         # 1. 获取面试计划和进度
         service = SessionRepo()
         session = await service.get_session(session_id, user_id=user_id)
@@ -371,65 +370,9 @@ async def node_responder(state: VoiceInterviewState) -> AsyncGenerator[str, None
                 "content": "【已预算化对话历史】\n" + history_context.model_context,
             })
 
-        # 当前用户输入
-        if audio_base64:
-            input_format = llms.model_gateway.get_voice_input_format()
-            audio_data_url = f"data:audio/{input_format};base64,{audio_base64}"
-            messages.append({
-                "role": "user",
-                "content": [
-                    {
-                        "type": "input_audio",
-                        "input_audio": {
-                            "data": audio_data_url,
-                            "format": input_format,
-                        }
-                    }
-                ]
-            })
-        elif text_message:
-            messages.append({
-                "role": "user",
-                "content": text_message
-            })
-
-        logger.info(f"[Voice] 发送 Omni 请求: session={session_id}, msgs_len={len(messages)}")
-
-        # 调用 Omni 模型
-        completion = llms.model_gateway.stream_voice_chat_completions(
-            api_config,
-            messages=messages,
-            call_metadata=history_context.model_event_fields(),
-        )
-
-        # 处理流式响应
-        text_response = ""
-        audio_chunks = []
-        chunk_count = 0
-
-        async for chunk in completion:
-            chunk_count += 1
-            if chunk.choices:
-                delta = chunk.choices[0].delta
-
-                # 流式输出文本
-                if hasattr(delta, 'content') and delta.content:
-                    text_response += delta.content
-                    yield f"data: {json.dumps({'type': 'text', 'content': delta.content}, ensure_ascii=False)}\n\n"
-
-                # 流式输出音频
-                if hasattr(delta, 'audio') and delta.audio:
-                    audio_data = None
-                    if isinstance(delta.audio, dict):
-                        audio_data = delta.audio.get("data")
-                    elif hasattr(delta.audio, 'data'):
-                        audio_data = delta.audio.data
-
-                    if audio_data:
-                        yield f"data: {json.dumps({'type': 'audio', 'content': audio_data}, ensure_ascii=False)}\n\n"
-                        audio_chunks.append(audio_data)
-
-        logger.info(f"[Voice] 对话节点完成: chunks={chunk_count}, text={len(text_response)}字符, audio_chunks={len(audio_chunks)}")
+        messages.append({"role": "user", "content": text_message})
+        logger.info("[Voice] 发送 MiMo 文本请求: session=%s, msgs_len=%s", session_id, len(messages))
+        text_response = await mimo_voice_gateway.chat_text(messages, api_key, base_url)
 
         # 再次计算进度，以包含 AI 刚刚给出的回复（判断 AI 是否已经进入了下一题）
         user_content = text_message if text_message else "[语音]"
@@ -441,14 +384,21 @@ async def node_responder(state: VoiceInterviewState) -> AsyncGenerator[str, None
         new_q_idx = new_progress["current_q_idx"]
         is_complete = new_progress.get("is_complete", False)
 
+        if is_complete:
+            from app.domain.interview_rounds import INTERVIEW_CLOSING_MESSAGE
+            text_response = INTERVIEW_CLOSING_MESSAGE
+
+        yield f"data: {json.dumps({'type': 'text', 'content': text_response}, ensure_ascii=False)}\n\n"
+        audio_data = await mimo_voice_gateway.synthesize(text_response, api_key, base_url)
+        yield f"data: {json.dumps({'type': 'audio', 'content': audio_data}, ensure_ascii=False)}\n\n"
+        logger.info("[Voice] MiMo 拆分链路完成: text=%s字符", len(text_response))
+
         # 1. 发送进度更新
         yield f"data: {json.dumps({'type': 'progress', 'current': new_q_idx + 1}, ensure_ascii=False)}\n\n"
 
         # 如果面试已完成，发送对应标志并更新状态（画像分析在总结节点或手动调用时统一触发）
         if is_complete:
             from ai.workflows.interview.completion import handle_interview_complete
-            from app.domain.interview_rounds import INTERVIEW_CLOSING_MESSAGE
-            text_response = INTERVIEW_CLOSING_MESSAGE
             yield f"data: {json.dumps({'type': 'complete'}, ensure_ascii=False)}\n\n"
             # 完成后直接触发统一结构化报告，不再依赖额外的文字总结入口。
             from ai.runtime.background_tasks import create_background_task
@@ -467,9 +417,10 @@ async def node_responder(state: VoiceInterviewState) -> AsyncGenerator[str, None
         # 注意：user 消息已经在开头存过了，这里只存 assistant
         await save_message_async(session_id, "assistant", text_response, question_index=new_q_idx, user_id=user_id)
 
-    except Exception as e:
-        logger.error(f"[Voice] 对话节点失败: {e}", exc_info=True)
-        yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+    except Exception as exc:
+        logger.error("[Voice] 对话节点失败: %s", type(exc).__name__)
+        message = str(exc) if isinstance(exc, ValueError) else "语音模型调用失败，请稍后重试"
+        yield _sse_error(message)
 
 
 # ============================================================================
@@ -558,8 +509,7 @@ async def process_voice_chat(
     user_id: str = "default_user",
     run_id: Optional[str] = None,
 ) -> AsyncGenerator[str, None]:
-    """
-    处理语音对话请求（对外接口，兼容现有调用）
+    """处理语音对话请求，并只按显式 ``is_greeting`` 路由开场白。
 
     内部使用路由逻辑分发到对应的节点函数
 
@@ -576,6 +526,12 @@ async def process_voice_chat(
     Yields:
         SSE 格式的事件数据
     """
+    try:
+        _get_mimo_config(api_config)
+    except ValueError as exc:
+        yield _sse_error(str(exc))
+        return
+
     # 构建状态
     state: VoiceInterviewState = {
         "session_id": session_id,
@@ -590,14 +546,6 @@ async def process_voice_chat(
         "text_message": text_message,
         "audio_id": audio_id
     }
-
-    # 兼容处理：仅在确定为启动阶段且无历史记录时，自动识别开场白模式
-    if not is_greeting:
-        # 如果既没有历史记录，也没有语音输入，但有文本输入（通常是首回合的 greetingText）
-        if not history and not audio_base64 and text_message:
-            logger.info("[Voice] 自动识别为首回合开场白模式 (TTS)")
-            state["current_phase"] = "greeting"
-            is_greeting = True
 
     logger.info(f"[Voice] process_voice_chat: session={session_id}, phase={state['current_phase']}, is_greeting={is_greeting}")
 

@@ -25,6 +25,8 @@ from app.schemas.job_schemas import (
     GreetingUpdateRequest,
     JobExportApplicationRequest,
     JobDetailResponse,
+    JobImportResponse,
+    JobLibraryImportRequest,
     JobListResponse,
 )
 
@@ -95,6 +97,19 @@ async def search_and_capture_current_boss_tab(
         lambda: jobs_use_cases.search_and_capture_boss_tab(request=request),
         "boss_browser_tab_failed",
         "现有 BOSS 标签页搜索采集失败",
+    )
+
+
+@router.post("/import", response_model=JobImportResponse)
+async def import_cards_to_library(
+    request: JobLibraryImportRequest,
+    user_id: str = Depends(get_current_user_id),
+):
+    """把用户确认的待入库卡片真正写入岗位库并调度可恢复资产任务。"""
+    return await _call_use_case(
+        lambda: jobs_use_cases.import_cards_to_library(request=request, user_id=user_id),
+        "job_import_failed",
+        "岗位入库失败",
     )
 
 

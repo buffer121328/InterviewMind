@@ -1,3 +1,8 @@
+"""模型网关。
+
+已知超限：职责单一（模型网关），暂不拆分。
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -113,15 +118,13 @@ def _resolve_channel_config(api_config: dict, channel: str) -> dict:
     import logging
 
     logger = logging.getLogger(__name__)
-    fallback_chain = ["voice", "fast"] if channel == "voice" else [channel, "general", "smart"]
+    fallback_chain = [channel, "general", "smart"]
     for ch in fallback_chain:
         config = api_config.get(ch)
         if config and config.get("api_key"):
             if ch != channel:
                 logger.info("[LLM] 通道 %s 未配置，回退到 %s", channel, ch)
             return config
-    if channel == "voice":
-        raise ValueError("未检测到 VOICE 通道的 API 配置。请在设置中选择语音模型。")
     raise ValueError(f"未检测到 {channel.upper()} 通道的 API 配置。请在设置中配置请求通道模型。")
 
 
@@ -328,207 +331,6 @@ class ModelGateway:
         if identity and not getattr(llm, "_model_pool_callback_managed", False):
             self.scheduler.record_failure(identity)
 
-    def get_voice_client(self, api_config: dict):
-        """读取 voice client，并保持调用方的错误和生命周期边界；资源不存在或状态不合法时返回稳定的业务结果或异常。
-
-        Args:
-            api_config: api 配置。
-        """
-        voice_config = _resolve_channel_config(api_config, "voice")
-        return get_async_omni_client(voice_config)
-
-    def get_voice_request_options(self, api_config: dict, voice_config: dict | None = None) -> dict:
-        """读取 voice request options，并保持调用方的错误和生命周期边界；资源不存在或状态不合法时返回稳定的业务结果或异常。
-
-        Args:
-            api_config: api 配置。
-            voice_config: voice 配置。
-        """
-        settings = get_settings()
-        selected = voice_config or api_config.get("voice") or {}
-        return {
-            "model": selected.get("model") or settings.voice_model,
-            "modalities": ["text", "audio"],
-            "audio": {"voice": settings.voice_name, "format": settings.voice_output_format},
-        }
-
-    def _voice_candidate_configs(self, api_config: dict) -> tuple[list[dict], str | None]:
-        """从请求配置解析语音模型候选，并保持语音调用的 URL、超时和冷却约束。
-
-        Args:
-            api_config: api 配置。
-        """
-        settings = get_settings()
-        groups: list[tuple[str, list[dict]]] = []
-        voice_config = api_config.get("voice")
-        if voice_config and voice_config.get("api_key"):
-            groups.append(("channel:voice", [dict(voice_config)]))
-
-        fast_fallbacks = [
-            {**config, "model": settings.voice_model}
-            for config in self._pool(api_config, "fast_pool", "fast")
-        ]
-        if fast_fallbacks:
-            groups.append(("voice:fallback_fast", fast_fallbacks))
-
-        ordered: list[dict] = []
-        seen: set[str] = set()
-        reserved_identity: str | None = None
-        for pool_name, configs in groups:
-            if not configs:
-                continue
-            if reserved_identity is None:
-                group_order, reserved_identity = self.scheduler.reserve_order(pool_name, configs)
-            else:
-                group_order = self.scheduler.order(pool_name, configs)
-            for config in group_order:
-                identity = _identity(config)
-                if identity not in seen:
-                    ordered.append(config)
-                    seen.add(identity)
-
-        if not ordered:
-            # 保留旧错误语义：既无 voice 也无 fast 时提示语音通道缺失。
-            config = _resolve_channel_config(api_config, "voice")
-            ordered.append({**config, "model": config.get("model") or settings.voice_model})
-        return ordered, reserved_identity
-
-    async def stream_voice_chat_completions(
-        self,
-        api_config: dict,
-        *,
-        messages: list[dict],
-        stream_options: dict | None = None,
-        call_metadata: dict[str, Any] | None = None,
-    ):
-        """通过统一模型网关流式生成语音面试回复；按请求配置选择模型并保持取消、错误脱敏和外部调用边界。
-
-        Args:
-            api_config: api 配置。
-            messages: 消息列表。
-            stream_options: 经过类型边界校验的 `stream_options`；其格式和可选值由参数类型及调用流程约束。
-            call_metadata: ContextAssembler 产生的不含原文的来源审计字段。
-        """
-        settings = get_settings()
-        configs, reserved_identity = self._voice_candidate_configs(api_config)
-        input_metrics = {
-            **filter_model_call_metadata(call_metadata),
-            **measure_model_input(
-                messages,
-                chars_per_token=settings.llm_estimated_chars_per_token,
-            ),
-        }
-        last_error: Exception | None = None
-        for index, config in enumerate(configs):
-            identity = _identity(config)
-            safe_identity = sha256(identity.encode("utf-8")).hexdigest()[:16]
-            model_name = config.get("model")
-            if identity != reserved_identity:
-                self.scheduler.start(identity)
-            yielded = False
-            started = time()
-            record_model_event(
-                event_type="voice.request.started",
-                channel="voice",
-                model_name=model_name,
-                **provider_observability_metadata(config),
-                model_member=safe_identity,
-                candidate_count=len(configs),
-                candidate_index=index + 1,
-                fallback_index=index,
-                **input_metrics,
-            )
-            try:
-                client = get_async_omni_client(config)
-                completion = await client.chat.completions.create(
-                    messages=messages,
-                    stream=True,
-                    stream_options=stream_options or {"include_usage": True},
-                    **self.get_voice_request_options(api_config, config),
-                )
-                last_chunk = None
-                iterator = completion.__aiter__()
-                first_started = time()
-                try:
-                    first_chunk = await asyncio.wait_for(
-                        iterator.__anext__(),
-                        timeout=settings.voice_first_chunk_timeout_seconds,
-                    )
-                except StopAsyncIteration:
-                    first_chunk = None
-                first_chunk_duration_ms = max(0, int((time() - first_started) * 1000))
-                if first_chunk is not None:
-                    yielded = True
-                    last_chunk = first_chunk
-                    yield first_chunk
-                async for chunk in iterator:
-                    yielded = True
-                    last_chunk = chunk
-                    yield chunk
-                self.scheduler.record_success(identity)
-                usage = extract_token_usage(last_chunk) if last_chunk is not None else {"input_tokens": None, "output_tokens": None}
-                cost = estimate_model_cost(
-                    pricing_key=provider_observability_metadata(config).get("pricing_key"),
-                    model_name=model_name,
-                    input_tokens=usage.get("input_tokens"),
-                    output_tokens=usage.get("output_tokens"),
-                )
-                duration_ms = max(0, int((time() - started) * 1000))
-                record_model_event(
-                    event_type="voice.request.completed",
-                    channel="voice",
-                    model_name=model_name,
-                    **provider_observability_metadata(config),
-                    model_member=safe_identity,
-                    candidate_count=len(configs),
-                    candidate_index=index + 1,
-                    fallback_index=index,
-                    duration_ms=duration_ms,
-                    model_duration_ms=duration_ms,
-                    total_duration_ms=duration_ms,
-                    first_chunk_duration_ms=first_chunk_duration_ms,
-                    **input_metrics,
-                    **usage,
-                    **cost,
-                )
-                return
-            except Exception as exc:
-                self.scheduler.record_failure(identity)
-                last_error = exc
-                classified = classify_exception(exc)
-                duration_ms = max(0, int((time() - started) * 1000))
-                record_model_event(
-                    event_type="voice.request.failed",
-                    channel="voice",
-                    model_name=model_name,
-                    **provider_observability_metadata(config),
-                    model_member=safe_identity,
-                    candidate_count=len(configs),
-                    candidate_index=index + 1,
-                    fallback_index=index,
-                    duration_ms=duration_ms,
-                    model_duration_ms=duration_ms,
-                    total_duration_ms=duration_ms,
-                    **input_metrics,
-                    error_type=type(exc).__name__,
-                    error_category=classified.category.value,
-                    error_code=classified.code,
-                    failure_type=classified.failure_type.value,
-                )
-                if yielded:
-                    raise
-                logging.getLogger(__name__).warning(
-                    "[LLM] Voice 调用失败，切换候选: candidate=%s error=%s",
-                    index + 1, type(exc).__name__,
-                )
-        if last_error is not None:
-            raise last_error
-        raise RuntimeError("没有可用的语音模型候选")
-
-    def get_voice_input_format(self) -> str:
-        """返回语音输入所需的格式契约，供浏览器录音和后端解码保持一致；不触发音频上传或模型调用。"""
-        return get_settings().voice_input_format
-
     def get_embedding_request_options(self, model: str | None = None, dimensions: int | None = None) -> dict:
         """读取 embedding request options，并保持调用方的错误和生命周期边界；资源不存在或状态不合法时返回稳定的业务结果或异常。
 
@@ -680,22 +482,6 @@ def create_embedding_client(config: dict):
     validate_outbound_url(base_url, allow_private=get_settings().allow_private_model_base_urls)
     return AsyncOpenAI(
         api_key=config["api_key"],
-        base_url=base_url,
-        timeout=get_settings().llm_request_timeout_seconds,
-        max_retries=0,
-    )
-
-
-def get_async_omni_client(voice_config: dict):
-    """根据前端传入的配置创建异步 OpenAI 客户端。"""
-    from openai import AsyncOpenAI
-
-    if not voice_config or not voice_config.get("api_key"):
-        raise ValueError("未检测到语音模型 API 配置")
-    base_url = voice_config.get("base_url") or "https://dashscope.aliyuncs.com/compatible-mode/v1"
-    validate_outbound_url(base_url, allow_private=get_settings().allow_private_model_base_urls)
-    return AsyncOpenAI(
-        api_key=voice_config["api_key"],
         base_url=base_url,
         timeout=get_settings().llm_request_timeout_seconds,
         max_retries=0,

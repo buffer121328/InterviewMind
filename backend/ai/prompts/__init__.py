@@ -1,7 +1,6 @@
 """统一 Prompt 管理中心。"""
 
 from .analysis import (
-    build_aggregate_profile_prompt,
     build_evidence_chunk_prompt,
     build_evidence_report_prompt,
     build_session_report_prompt,
@@ -46,7 +45,6 @@ from .resume import (
 from .voice import (
     build_interview_voice_system_prompt,
     build_tts_system_prompt,
-    build_voice_system_prompt,
     get_opening_message,
 )
 from .registry import PromptRegistry, PromptSpec, prompt_registry

@@ -16,7 +16,8 @@ from app.domain.interview_rounds import resolve_max_questions, resolve_round_typ
 
 class ModelChannelConfig(BaseModel):
     """单个通道的模型配置；provider 字段只用于路由和观测，不包含凭据。"""
-    api_key: str = Field(..., description="API Key")
+    credential_id: Optional[str] = Field(default=None, description="Redis 中的用户隔离凭据引用")
+    api_key: str = Field(default="", description="由后端凭据中间件注入，前端业务请求不得直接填写")
     base_url: str = Field(..., description="API Base URL")
     model: str = Field(..., description="模型名称")
     provider: Optional[str] = Field(default=None, description="服务商标识，如 deepseek/qwen/openai_compatible")
@@ -49,7 +50,7 @@ class ApiConfig(BaseModel):
     content_writer: Optional[ModelChannelConfig] = Field(default=None, description="内容优化师通道")
     hr_reviewer: Optional[ModelChannelConfig] = Field(default=None, description="HR审核官通道")
     reflector: Optional[ModelChannelConfig] = Field(default=None, description="质量审核通道")
-    voice: Optional[ModelChannelConfig] = Field(default=None, description="语音面试通道，未配置时回退到 fast")
+    mimo: Optional[ModelChannelConfig] = Field(default=None, description="MiMo ASR/文本/TTS 拆分语音通道")
     # 检索/记忆通道（可选，未配置时回退到服务端 .env）
     rag_embedding: Optional[ModelChannelConfig] = Field(default=None, description="RAG 向量检索 Embedding 通道")
     mem0_llm: Optional[ModelChannelConfig] = Field(default=None, description="mem0 记忆提取 LLM 通道")

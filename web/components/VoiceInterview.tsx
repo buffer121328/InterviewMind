@@ -1,3 +1,5 @@
+// 已知超限：职责单一（语音面试组件，迁移中），暂不拆分。
+
 import { useState, useEffect, useRef } from 'react';
 import { Mic, MicOff, PhoneOff, SendHorizontal, Loader2 } from 'lucide-react';
 import { useVoiceChat } from '@/hooks/useVoiceChat';
@@ -110,8 +112,8 @@ export function VoiceInterview({ sessionId, onEnd }: VoiceInterviewProps) {
     };
 
     // 专门用于开场白的流式生成（在初始化时调用）
-    /** Encapsulates send to omni for greeting; returns typed data or state and keeps side effects within the owning module boundary. */
-    async function sendToOmniForGreeting(
+    /** Sends deterministic greeting text to the backend-owned MiMo TTS boundary. */
+    async function sendGreetingToMimo(
         apiConfig: NonNullable<VoiceRequestApiConfig>,
         prompt: string,
         greetingText: string
@@ -190,21 +192,21 @@ export function VoiceInterview({ sessionId, onEnd }: VoiceInterviewProps) {
         onHangUp: handleHangUp,
         startRecording,
         setStatus,
-        sendGreeting: sendToOmniForGreeting,
+        sendGreeting: sendGreetingToMimo,
         markWaitingForPlayback: playbackFlow.markWaitingForPlayback,
         resetPlaybackFlow: playbackFlow.resetPlaybackFlow,
     });
 
-    // 3. 发送音频/文本给 Omni (SSE 流式接收)
-    /** Encapsulates send to omni; returns typed data or state and keeps side effects within the owning module boundary. */
-    async function sendToOmni(
+    // 3. 发送音频和浏览器显示转录；后端统一执行 MiMo 拆分链路。
+    /** Sends the recorded WAV to the backend-owned MiMo split pipeline; browser text is display fallback only. */
+    async function sendToMimo(
         apiConfig: NonNullable<VoiceRequestApiConfig>,
         prompt: string,
         chatHistory: Message[],
         audioBlob: Blob | null,
         textMessage: string | null = null
     ) {
-        console.log('[VoiceInterview] sendToOmni 被调用, chatHistory长度:', chatHistory.length, 'transcript:', textMessage);
+        console.log('[VoiceInterview] sendToMimo 被调用, chatHistory长度:', chatHistory.length, 'transcript:', textMessage);
         setStatus('processing');
         resetPcmState(); // 重置 PCM 播放状态
 
@@ -221,7 +223,7 @@ export function VoiceInterview({ sessionId, onEnd }: VoiceInterviewProps) {
                     console.warn('[VoiceInterview] 本地音频保存失败:', e);
                 }
 
-                // 转换为 base64 发送给后端（用于 Omni 理解）
+                // 转换为 base64 发送给后端 MiMo ASR 主通道。
                 audioBase64 = await blobToBase64(audioBlob);
             }
 
@@ -328,7 +330,7 @@ export function VoiceInterview({ sessionId, onEnd }: VoiceInterviewProps) {
 
         console.log(`[VoiceInterview] Audio captured. Transcript: "${transcript || ''}"`);
 
-        await sendToOmni(apiConfig, latestPrompt, latestHistory, audioBlob, transcript);
+        await sendToMimo(apiConfig, latestPrompt, latestHistory, audioBlob, transcript);
     }
 
     // Helper

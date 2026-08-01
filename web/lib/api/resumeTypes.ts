@@ -166,7 +166,8 @@ export interface CompletedSession {
 }
 
 export interface ApiModelChannel {
-    api_key: string;
+    credential_id: string;
+    api_key?: string;
     base_url: string;
     model: string;
 }

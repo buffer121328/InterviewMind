@@ -1,7 +1,7 @@
 # ============================================================================
 # 面必过全量环境变量模板
 # 复制为 .env 后使用；不要提交真实密码、API Key 或浏览器登录目录。
-# 模型聊天 API Key 与 Fast/Reasoning Pool 在前端「设置 → 模型配置」中维护。
+# 模型聊天 API Key 在前端设置页录入、加密存入 Redis；Fast/Reasoning Pool 在前端维护。
 # ============================================================================
 
 # ----------------------------------------------------------------------------
@@ -23,6 +23,8 @@ REDIS_URL=redis://localhost:6379/0
 TASK_QUEUE_ENABLED=true
 # 使用 Fernet.generate_key() 生成；API 和 Worker 必须完全一致。
 TASK_PAYLOAD_ENCRYPTION_KEY=
+# 前端保存的模型 API Key 使用同一 Fernet key 加密后写入 Redis，默认有效期 30 天。
+MODEL_CREDENTIAL_TTL_SECONDS=2592000
 AGENT_RUN_LOCK_TTL_SECONDS=600
 # 用户手动重试与中断恢复共享此上限。
 AGENT_RUN_MAX_ATTEMPTS=3
@@ -149,18 +151,16 @@ FILE_PARSE_TIMEOUT_SECONDS=30
 
 # ----------------------------------------------------------------------------
 # 语音面试运行默认值
-# API Key、Base URL 与模型优先使用前端 Voice 通道。
+# API Key 与 Base URL 只使用前端 MiMo 通道，服务端不保存模型凭据。
 # ----------------------------------------------------------------------------
-VOICE_MODEL=qwen3-omni-flash-2025-12-01
-VOICE_NAME=Cherry
-VOICE_INPUT_FORMAT=wav
-VOICE_OUTPUT_FORMAT=wav
+MIMO_VOICE=Chloe
+MIMO_TTS_TIMEOUT_SECONDS=30
+MIMO_ASR_TIMEOUT_SECONDS=30
 # 每轮只发送近期原文和更早历史的确定性摘要；音频限制在模型调用前校验。
 VOICE_HISTORY_MAX_CHARS=5000
 VOICE_RECENT_MESSAGE_COUNT=8
 VOICE_AUDIO_MAX_BYTES=8000000
 VOICE_AUDIO_MAX_DURATION_SECONDS=120
-VOICE_FIRST_CHUNK_TIMEOUT_SECONDS=12
 # JSON 对象；仅配置确认需要修正的识别词。
 VOICE_TRANSCRIPT_TERM_FIXES={}
 # 示例：VOICE_TRANSCRIPT_TERM_FIXES={"lang graph":"LangGraph","拉姆达":"Lambda"}

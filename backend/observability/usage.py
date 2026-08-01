@@ -7,7 +7,7 @@ from typing import Any
 
 
 def _read_nested_usage_value(usage: Any, path: str) -> Any:
-    """按点分路径读取 usage 字段，兼容 completion_tokens_details.reasoning_tokens 等结构。"""
+    """按点分路径读取各受支持 provider 的 usage 嵌套字段。"""
     current = usage
     for part in path.split("."):
         if current is None:
@@ -30,7 +30,7 @@ def _read_usage_value(usage: Any, *names: str) -> int | None:
 
 
 def _normalize_token_usage(usage: Any) -> dict[str, int | None]:
-    """把 OpenAI、LangChain 与国产兼容服务商的 usage 字段规整为统一键。"""
+    """把 OpenAI、LangChain 与 OpenAI-compatible provider 的 usage 规整为统一键。"""
     input_tokens = _read_usage_value(usage, "input_tokens", "prompt_tokens", "promptTokens")
     output_tokens = _read_usage_value(usage, "output_tokens", "completion_tokens", "completionTokens")
     total_tokens = _read_usage_value(usage, "total_tokens", "totalTokens")

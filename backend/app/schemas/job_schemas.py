@@ -93,6 +93,12 @@ class BossDomJobCard(BaseModel):
     title_summary: str = Field(default="", max_length=300)
     job_description: str = Field(min_length=8, max_length=3000)
     source_url: str = Field(min_length=8, max_length=2048)
+    preliminary_match_score: Optional[float] = Field(
+        default=None,
+        ge=0,
+        le=100,
+        description="采集阶段排序产生的展示用匹配度；入库时仅作记录，不赋予治理语义",
+    )
 
     @field_validator("source_url")
     @classmethod
@@ -101,6 +107,41 @@ class BossDomJobCard(BaseModel):
         if not is_allowed_boss_job_url(value):
             raise ValueError("岗位卡片仅允许 BOSS 官方岗位详情链接")
         return value
+
+
+class JobLibraryImportRequest(BaseModel):
+    """把用户确认的待入库卡片真正写入岗位库并调度资产任务。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    cards: List[BossDomJobCard] = Field(
+        min_length=1,
+        max_length=20,
+        description="采集阶段排序后的待入库卡片，顺序即匹配度顺序",
+    )
+    resume_content: str = Field(min_length=1, description="候选人基础简历，用于资产任务")
+    city: Optional[str] = Field(default=None, max_length=20, description="城市代码提示")
+    api_config: Optional[dict] = Field(default=None, description="模型通道配置")
+
+
+class JobImportFailedItem(BaseModel):
+    """一键入库中单张卡片保存失败的安全明细。"""
+
+    company_name: str = ""
+    job_title: str = ""
+    reason: str = ""
+    source_url: str = ""
+
+
+class JobImportResponse(BaseModel):
+    """一键入库结果：成功保存的岗位与失败明细。"""
+
+    success: bool = True
+    total: int = 0
+    duplicates: int = 0
+    jobs: List[Dict[str, Any]] = Field(default_factory=list)
+    failed: List[JobImportFailedItem] = Field(default_factory=list)
+    message: str = ""
 
 
 class BossTabStatusResponse(BaseModel):

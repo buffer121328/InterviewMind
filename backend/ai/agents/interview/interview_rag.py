@@ -1,5 +1,6 @@
 """
 面试 RAG 编排服务
+已知超限：职责单一（RAG 检索管线），暂不拆分。
 实现 planner_router -> query_builder -> retriever -> reranker -> evidence_packer -> fact_guard 流程
 """
 

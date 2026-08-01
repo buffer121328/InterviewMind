@@ -58,20 +58,12 @@ def _start_context_manager(client: Any, event: ToolObservationEvent) -> _ActiveT
     """创建不携带业务正文的 Langfuse Tool observation。"""
 
     metadata = event.to_langfuse_payload()
-    try:
-        context_manager = client.start_as_current_observation(
-            name=event.tool_name,
-            as_type="tool",
-            metadata=metadata,
-            end_on_exit=False,
-        )
-    except TypeError:
-        # 旧版 SDK 或测试替身可能没有 end_on_exit；仍保持结构化 Tool 事实。
-        context_manager = client.start_as_current_observation(
-            name=event.tool_name,
-            as_type="tool",
-            metadata=metadata,
-        )
+    context_manager = client.start_as_current_observation(
+        name=event.tool_name,
+        as_type="tool",
+        metadata=metadata,
+        end_on_exit=False,
+    )
     span = context_manager.__enter__()
     return _ActiveToolSpan(context_manager=context_manager, span=span)
 

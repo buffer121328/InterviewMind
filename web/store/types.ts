@@ -67,6 +67,8 @@ export interface ModelConfig {
     provider: string;
     kind?: 'chat' | 'embedding' | 'voice';
     apiKey: string;
+    credentialStored?: boolean;
+    credentialExpiresAt?: string;
     baseUrl: string;
     model: string;
     pricingKey?: string;
@@ -86,7 +88,7 @@ export interface ApiConfig {
     contentWriterModelId: string;  // 内容优化师
     hrReviewerModelId: string;     // HR审核官
     reflectorModelId: string;      // 质量审核
-    voiceModelId: string;          // 语音面试 (Qwen3-Omni)
+    mimoModelId: string;           // MiMo ASR / 文本对话 / TTS 拆分语音链路
     ragEmbeddingModelId: string;   // RAG 向量检索 Embedding
     mem0LlmModelId: string;        // mem0 记忆提取 LLM
     mem0EmbedderModelId: string;   // mem0 语义检索 Embedding
@@ -342,8 +344,9 @@ export const API_PROVIDERS = [
     { id: 'openai', name: 'OpenAI', baseUrl: 'https://api.openai.com/v1', apiKeyUrl: 'https://platform.openai.com/api-keys', models: [] },
     { id: 'deepseek', name: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1', apiKeyUrl: 'https://platform.deepseek.com/api_keys', models: [] },
     { id: 'zhipu', name: '智谱 AI', baseUrl: 'https://open.bigmodel.cn/api/paas/v4', apiKeyUrl: 'https://open.bigmodel.cn/usercenter/apikeys', models: [] },
-    { id: 'aliyun', name: '阿里云百炼', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', apiKeyUrl: 'https://bailian.console.aliyun.com/#/api-key', models: ['qwen3-omni-flash-2025-12-01', 'text-embedding-v4'] },
+    { id: 'aliyun', name: '阿里云百炼', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', apiKeyUrl: 'https://bailian.console.aliyun.com/#/api-key', models: ['text-embedding-v4'] },
     { id: 'moonshot', name: 'Moonshot', baseUrl: 'https://api.moonshot.cn/v1', apiKeyUrl: 'https://platform.moonshot.cn/console/api-keys', models: [] },
+    { id: 'mimo', name: '小米 MiMo', baseUrl: 'https://api.xiaomimimo.com/v1', apiKeyUrl: 'https://mimo.mi.com', models: ['mimo-v2.5'] },
     { id: 'siliconflow', name: 'SiliconFlow', baseUrl: 'https://api.siliconflow.cn/v1', apiKeyUrl: 'https://cloud.siliconflow.cn/account/ak', models: [] },
     { id: 'modelscope', name: '魔搭社区', baseUrl: 'https://api-inference.modelscope.cn/v1', apiKeyUrl: 'https://www.modelscope.cn/my/myaccesstoken', models: [] },
     { id: 'custom', name: '自定义', baseUrl: '', apiKeyUrl: '', models: [] },
@@ -360,7 +363,7 @@ export const DEFAULT_API_CONFIG: ApiConfig = {
     contentWriterModelId: '',
     hrReviewerModelId: '',
     reflectorModelId: '',
-    voiceModelId: '',
+    mimoModelId: '',
     ragEmbeddingModelId: '',
     mem0LlmModelId: '',
     mem0EmbedderModelId: '',

@@ -71,8 +71,8 @@ export function useVoiceInterviewSession({
 
         try {
             const apiConfig = getVoiceRequestApiConfig();
-            if (!apiConfig || !apiConfig.voice) {
-                toast.error('请先在设置中配置语音模型 (Voice)');
+            if (!apiConfig || !apiConfig.mimo) {
+                toast.error('请先在设置中配置小米 MiMo 语音模型');
                 onEnd();
                 return;
             }

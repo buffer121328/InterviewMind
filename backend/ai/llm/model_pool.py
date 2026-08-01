@@ -153,7 +153,7 @@ class ModelPoolScheduler:
             return ordered
 
     def reserve_order(self, pool_name: str, configs: list[dict]) -> tuple[list[dict], str | None]:
-        """原子选择并预占首候选；Redis 不可用时保持旧的进程内排序。"""
+        """原子选择并预占首候选；Redis 不可用时切换到进程内安全调度。"""
         if not configs:
             return [], None
         redis = self._redis_client()

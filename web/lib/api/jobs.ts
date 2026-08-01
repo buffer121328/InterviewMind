@@ -17,7 +17,8 @@ import type { AgentRun } from './agentRunTypes';
 // ============================================================================
 
 export interface ApiChannelConfig {
-    api_key: string;
+    credential_id: string;
+    api_key?: string;
     base_url: string;
     model: string;
 }
@@ -84,7 +85,10 @@ export interface GreetingItem {
 }
 
 export interface CapturedJobSummary {
-    job_id: number;
+    /** 入库后的岗位库 ID；采集阶段尚未入库时为 null。 */
+    job_id: number | null;
+    /** 采集阶段返回的待入库卡片标记。 */
+    pending_import?: boolean;
     source_url?: string;
     company_name: string;
     company_size_text?: string;
@@ -171,6 +175,42 @@ export interface CaptureRecommendationsRequest {
 
 export type JobGreetingUpdateResponse = JobDetailResponse;
 
+/** 一键入库提交的一张待入库卡片；顺序即采集时的匹配度顺序。 */
+export interface JobLibraryImportCard {
+    company_name: string;
+    company_size_text?: string;
+    job_title: string;
+    salary_text: string;
+    city: string;
+    title_summary?: string;
+    job_description?: string;
+    source_url: string;
+    preliminary_match_score?: number | null;
+}
+
+export interface JobLibraryImportRequest {
+    cards: JobLibraryImportCard[];
+    resume_content: string;
+    city?: string;
+    api_config?: ApiConfig;
+}
+
+export interface JobImportFailedItem {
+    company_name: string;
+    job_title: string;
+    reason: string;
+    source_url: string;
+}
+
+export interface JobImportResponse {
+    success: boolean;
+    total: number;
+    duplicates: number;
+    jobs: CapturedJobSummary[];
+    failed: JobImportFailedItem[];
+    message: string;
+}
+
 export interface JobExportApplicationResponse {
     success: boolean;
     message?: string;
@@ -218,6 +258,16 @@ export async function listJobs(params?: {
  */
 export async function getJobDetail(jobId: number): Promise<JobDetailResponse> {
     return apiRequest<JobDetailResponse>(`/api/jobs/${jobId}`);
+}
+
+/**
+ * 把用户确认的待入库卡片真正写入岗位库并调度可恢复资产任务。
+ * 保存按来源哈希去重，重复岗位复用既有记录；失败卡片在响应中返回明细。
+ *
+ * POST /api/jobs/import
+ */
+export async function importCardsToLibrary(req: JobLibraryImportRequest): Promise<JobImportResponse> {
+    return apiRequest<JobImportResponse>('/api/jobs/import', { method: 'POST', body: JSON.stringify(req) });
 }
 
 /**

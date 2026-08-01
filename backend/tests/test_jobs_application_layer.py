@@ -31,7 +31,7 @@ def test_jobs_api_uses_application_layer_instead_of_repositories_or_job_services
 @pytest.mark.asyncio
 async def test_list_jobs_exposes_clickable_library_asset_fields(monkeypatch):
     """岗位库列表应返回公司人数、链接、匹配度和资产状态，详情再按需加载资产正文。"""
-    from ai.workflows import jobs
+    from ai.workflows.jobs import use_cases as jobs
 
     fake_repo = type("FakeRepo", (), {})()
     fake_repo.list_jobs = AsyncMock(return_value=[{
@@ -71,7 +71,7 @@ async def test_list_jobs_exposes_clickable_library_asset_fields(monkeypatch):
 @pytest.mark.asyncio
 async def test_list_jobs_normalizes_nullable_database_fields(monkeypatch):
     """旧岗位记录中的数据库 NULL 不应让列表响应触发 Pydantic 500。"""
-    from ai.workflows import jobs
+    from ai.workflows.jobs import use_cases as jobs
 
     fake_repo = type("FakeRepo", (), {})()
     fake_repo.list_jobs = AsyncMock(return_value=[{
@@ -113,7 +113,7 @@ async def test_export_job_creates_pending_application_with_selected_greeting(mon
     """一键导出应保留岗位链接、文案和定制简历，并统一使用待投递状态。"""
     from types import SimpleNamespace
 
-    from ai.workflows import jobs
+    from ai.workflows.jobs import use_cases as jobs
     from app.db.repositories.application.job_application_repo import job_application_repo
     from app.schemas.job_schemas import JobExportApplicationRequest
 
@@ -169,7 +169,7 @@ async def test_export_existing_application_updates_greeting_without_duplicate(mo
     """同一岗位重复点击导出时应更新文案，而不是创建重复投递记录。"""
     from types import SimpleNamespace
 
-    from ai.workflows import jobs
+    from ai.workflows.jobs import use_cases as jobs
     from app.db.repositories.application.job_application_repo import job_application_repo
     from app.schemas.job_schemas import JobExportApplicationRequest
 
@@ -217,7 +217,7 @@ async def test_send_boss_application_message_records_state_and_event(monkeypatch
     """真实发送必须先占用幂等状态，成功后再落 applied 状态和无正文事件。"""
     from types import SimpleNamespace
 
-    from ai.workflows import jobs
+    from ai.workflows.jobs import use_cases as jobs
     from app.db.repositories.application.application_event_repo import application_event_repo
     from app.db.repositories.application.job_application_repo import job_application_repo
 
@@ -269,7 +269,7 @@ async def test_send_boss_application_message_blocks_ambiguous_retry(monkeypatch)
     """发送状态为 sending/unknown 时必须要求人工复核，不能再次点击发送。"""
     from types import SimpleNamespace
 
-    from ai.workflows import jobs
+    from ai.workflows.jobs import use_cases as jobs
     from app.db.repositories.application.job_application_repo import job_application_repo
 
     application = SimpleNamespace(
@@ -298,7 +298,7 @@ async def test_send_boss_application_message_marks_ambiguous_failure_unknown(mon
     """点击可能已发生时必须落 unknown/send_uncertain，绝不能自动重试。"""
     from types import SimpleNamespace
 
-    from ai.workflows import jobs
+    from ai.workflows.jobs import use_cases as jobs
     from app.db.repositories.application.application_event_repo import application_event_repo
     from app.db.repositories.application.job_application_repo import job_application_repo
     from integrations.boss.automation_client import BossAutomationError
@@ -363,7 +363,7 @@ async def test_send_boss_application_message_loses_atomic_claim_without_sending(
     """并发请求未取得发送占位时必须读取最新状态，且不得调用宿主机发送。"""
     from types import SimpleNamespace
 
-    from ai.workflows import jobs
+    from ai.workflows.jobs import use_cases as jobs
     from app.db.repositories.application.job_application_repo import job_application_repo
 
     pending = SimpleNamespace(

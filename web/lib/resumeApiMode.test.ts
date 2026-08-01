@@ -4,8 +4,8 @@ import test from 'node:test';
 import { buildResumeOptimizePayload } from './api/resumePayloads.ts';
 
 const apiConfig = {
-    smart: { api_key: 'k', base_url: 'https://example.test', model: 'smart' },
-    fast: { api_key: 'k', base_url: 'https://example.test', model: 'fast' },
+    smart: { credential_id: 'smart-id', base_url: 'https://example.test', model: 'smart' },
+    fast: { credential_id: 'fast-id', base_url: 'https://example.test', model: 'fast' },
 };
 
 test('buildResumeOptimizePayload preserves selected optimization mode', () => {

@@ -16,7 +16,7 @@ class TestAssetOrchestrator:
     @pytest.mark.asyncio
     async def test_generate_assets_full_flow(self):
         """完整资产生成流程：JD分析 → 简历 → 文案"""
-        from ai.workflows.jobs_support.job_asset_orchestrator import generate_assets
+        from ai.workflows.jobs.job_asset_orchestrator import generate_assets
 
         # Mock 岗位仓库
         mock_job = {
@@ -82,7 +82,7 @@ class TestAssetOrchestrator:
 
     @pytest.mark.asyncio
     async def test_generate_assets_job_not_found(self):
-        from ai.workflows.jobs_support.job_asset_orchestrator import generate_assets
+        from ai.workflows.jobs.job_asset_orchestrator import generate_assets
 
         with patch(
             "app.db.repositories.jobs.job_capture_repo.get_job_capture_repo"
@@ -103,7 +103,7 @@ class TestAssetOrchestrator:
     @pytest.mark.asyncio
     async def test_low_match_risk_flag(self):
         """匹配度过低时生成风险标记"""
-        from ai.workflows.jobs_support.job_asset_orchestrator import generate_assets
+        from ai.workflows.jobs.job_asset_orchestrator import generate_assets
 
         mock_job = {
             "id": 1, "company_name": "字节", "job_title": "Java",
@@ -240,7 +240,7 @@ class TestRateLimiter:
 
 @pytest.mark.asyncio
 async def test_generate_assets_blocks_injected_stored_job_description():
-    from ai.workflows.jobs_support.job_asset_orchestrator import generate_assets
+    from ai.workflows.jobs.job_asset_orchestrator import generate_assets
 
     mock_job = {
         "id": 1,

@@ -1,4 +1,7 @@
-"""Central prompts for resume analysis, rewriting, generation, and material reuse."""
+"""Central prompts for resume analysis, rewriting, generation, and material reuse.
+
+已知超限：职责单一（prompt 模板数据），暂不拆分。
+"""
 
 from __future__ import annotations
 

@@ -19,10 +19,12 @@ import {
     type EvaluationSuite,
     type EvaluationTrendPoint,
 } from '@/lib/api/evaluations';
+import { satisfactionApi, type SatisfactionStats } from '@/lib/api/satisfaction';
 import { EvaluationOverviewPanel } from './EvaluationOverviewPanel';
 import { EvaluationRunsPanel } from './EvaluationRunsPanel';
 import { AnnotationsPanel, CalibrationPanel, DatasetsPanel, GatesPanel } from './EvaluationGovernancePanels';
 import { QuickEvaluationPanel } from './QuickEvaluationPanel';
+import { SatisfactionStatsPanel } from './SatisfactionStatsPanel';
 
 /** Coordinates one-click evaluation by default and keeps six governance surfaces in Advanced Mode. */
 export function EvaluationCenter() {
@@ -40,6 +42,7 @@ export function EvaluationCenter() {
     const [queue, setQueue] = useState<Array<EvaluationCaseRun & { agent_name: string }>>([]);
     const [calibrations, setCalibrations] = useState<EvaluationCalibration[]>([]);
     const [gates, setGates] = useState<EvaluationGatePolicy[]>([]);
+    const [satisfactionStats, setSatisfactionStats] = useState<SatisfactionStats | null>(null);
 
     /** Refreshes one-click and governance data while preserving owner-scoped backend boundaries. */
     const refresh = useCallback(async () => {
@@ -56,6 +59,7 @@ export function EvaluationCenter() {
                 queueResult,
                 calibrationResult,
                 gateResult,
+                satisfactionResult,
             ] = await Promise.all([
                 evaluationApi.catalog(),
                 evaluationApi.overview(),
@@ -67,6 +71,7 @@ export function EvaluationCenter() {
                 evaluationApi.annotationQueue(),
                 evaluationApi.calibrations(),
                 evaluationApi.gates(),
+                satisfactionApi.stats(),
             ]);
             setCatalog(catalogResult);
             setOverview(overviewResult);
@@ -78,6 +83,7 @@ export function EvaluationCenter() {
             setQueue(queueResult.items);
             setCalibrations(calibrationResult.items);
             setGates(gateResult.items);
+            setSatisfactionStats(satisfactionResult);
         } catch (error) {
             toast.error(error instanceof Error ? error.message : '评测中心加载失败');
         } finally {
@@ -161,6 +167,7 @@ export function EvaluationCenter() {
                         <TabsTrigger value="annotations">人工标注</TabsTrigger>
                         <TabsTrigger value="calibration">Judge 校准</TabsTrigger>
                         <TabsTrigger value="gates">发布门禁</TabsTrigger>
+                        <TabsTrigger value="satisfaction">用户反馈</TabsTrigger>
                     </TabsList>
                     <TabsContent value="overview">
                         <EvaluationOverviewPanel overview={overview} trends={trends} regressions={regressions} onOpenRun={openRun} onRequestReview={requestReview} />
@@ -178,6 +185,7 @@ export function EvaluationCenter() {
                     <TabsContent value="annotations"><AnnotationsPanel queue={queue} onRefresh={refresh} /></TabsContent>
                     <TabsContent value="calibration"><CalibrationPanel calibrations={calibrations} onRefresh={refresh} /></TabsContent>
                     <TabsContent value="gates"><GatesPanel gates={gates} runs={runs} onRefresh={refresh} /></TabsContent>
+                    <TabsContent value="satisfaction"><SatisfactionStatsPanel stats={satisfactionStats} loading={loading} /></TabsContent>
                 </Tabs>}
         </div>
     </div>;

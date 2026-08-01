@@ -1,9 +1,8 @@
 "use client";
 
+// 已知超限:职责单一(页面编排聚合器),暂不拆分
 import { useState, useEffect, useRef, useMemo, useSyncExternalStore } from "react";
-import { Activity, BookOpenCheck, BriefcaseBusiness, Database, Loader2, Award, Plus, MessageCircle, FileText, ArrowDown, Target, Sparkles, ShieldCheck } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { AbilityProfileView } from "@/components/AbilityProfileView";
+import { Activity, BookOpenCheck, BriefcaseBusiness, Database, Loader2, MessageCircle, FileText, Target, Sparkles, ShieldCheck } from "lucide-react";
 import { SettingsDialog } from "@/components/SettingsDialog";
 import { useInterviewStore } from "@/store/useInterviewStore";
 import { useSpeechToText } from "@/hooks/useSpeechToText";
@@ -14,23 +13,23 @@ import { toast } from "sonner";
 import { ResumeTools } from "@/components/ResumeTools";
 import { LandingPage } from "@/components/LandingPage";
 import { InterviewSetup } from "@/components/interview/InterviewSetup";
-import { InterviewAnswerComposer } from "@/components/interview/InterviewAnswerComposer";
-import { InterviewChatStream } from "@/components/interview/InterviewChatStream";
 import { InterviewProgressBar } from "@/components/interview/InterviewProgressBar";
+import { InterviewChatArea } from "@/components/interview/InterviewChatArea";
+import { InterviewInputPanel } from "@/components/interview/InterviewInputPanel";
+import { InterviewNextRoundBanner } from "@/components/interview/InterviewNextRoundBanner";
+import { InterviewAbilityProfileView } from "@/components/interview/InterviewAbilityProfileView";
 import { GuidePage } from "@/components/GuidePage";
 import { InterviewArea } from "@/components/InterviewArea";
 import { InterviewHistoryDetailDialog } from "@/components/InterviewHistoryDetailDialog";
 import { ApplicationBoard } from "@/components/ApplicationBoard";
 import { ApplicationDetailDrawer } from "@/components/ApplicationDetailDrawer";
 import QuestionBankPage from "@/components/QuestionBankPage";
-import { BossCenter } from "@/components/BossCenter";
+import { BossCenter } from "@/components/boss/BossCenter";
 import { MemoryCenter } from "@/components/MemoryCenter";
 import { RunCenter } from "@/components/RunCenter";
 import { PromptManagementPage } from "@/components/PromptManagementPage";
 import { EvaluationCenter } from "@/components/evaluations/EvaluationCenter";
 import { WorkspaceShell } from "@/components/WorkspaceShell";
-import { QUESTION_COUNT_OPTIONS, defaultQuestionsForRoundIndex } from "@/lib/interview/questionDefaults";
-import { waitForInterviewStartRun, type InterviewStartRunState } from "@/lib/interviewStartRun";
 
 // 定义视图类型，包含 'landing'
 type ViewType = MainView;
@@ -64,7 +63,6 @@ export default function InterviewPage() {
   const [selectedApplicationId, setSelectedApplicationId] = useState<number | null>(null);
   const [historyDetailSessionId, setHistoryDetailSessionId] = useState<string | null>(null);
   const [historyDetailInitialTab, setHistoryDetailInitialTab] = useState<'overview' | 'dialogue' | 'report'>('overview');
-  const [nextRoundQuestionOverride, setNextRoundQuestionOverride] = useState<number | null>(null);
 
   useEffect(() => {
     localStorage.setItem("activeMainTab", activeMainTab);
@@ -113,7 +111,7 @@ export default function InterviewPage() {
     apiError,
     clearApiError,
     setVoiceMode,
-    getVoiceModel,
+    getMimoModel,
   } = useInterviewStore();
 
   // ===== 初始化 =====
@@ -160,8 +158,8 @@ export default function InterviewPage() {
 
   // 检查是否配置了语音模型
   const hasVoiceConfig = useMemo(() => {
-    return !!getVoiceModel?.();
-  }, [getVoiceModel]);
+    return !!getMimoModel?.();
+  }, [getMimoModel]);
 
   /** Handles start interview; updates local UI state first and delegates server mutations through the approved API boundary. */
   const handleStartInterview = async (mode: 'text' | 'voice' = 'text', options?: { interviewType: 'tech_initial' | 'tech_deep' | 'hr_comprehensive'; maxQuestions: number }) => {
@@ -345,7 +343,7 @@ export default function InterviewPage() {
   const hasApiConfig = useMemo(() => {
     const smartModel = apiConfig.models.find(m => m.id === apiConfig.smartModelId);
     const fastModel = apiConfig.models.find(m => m.id === apiConfig.fastModelId);
-    return !!(smartModel?.apiKey && fastModel?.apiKey);
+    return !!(smartModel?.credentialStored && fastModel?.credentialStored);
   }, [apiConfig]);
 
   // 防止 Hydration 错误
@@ -614,26 +612,7 @@ export default function InterviewPage() {
           </div>
         ) : showAbilityProfile ? (
           // 能力画像视图
-          <div className="flex-1 flex flex-col min-h-0 relative overflow-y-auto">
-            <div className="border-b border-gray-100 bg-white/80 backdrop-blur-sm sticky top-0 z-10">
-              <div className="max-w-5xl mx-auto px-6 py-4 flex items-center gap-4">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setStoreShowAbilityProfile(false)}
-                  className="gap-2"
-                >
-                  <Award className="w-4 h-4" />
-                  返回对话
-                </Button>
-                <div className="flex-1">
-                  <h2 className="text-lg font-semibold text-gray-900">综合能力画像</h2>
-                  <p className="text-xs text-gray-500">基于最近5次面试的综合分析</p>
-                </div>
-              </div>
-            </div>
-            <AbilityProfileView />
-          </div>
+          <InterviewAbilityProfileView onBack={() => setStoreShowAbilityProfile(false)} />
         ) : showSetup ? (
           // 面试配置页 (New Session / Setup)
           <div className="flex-1 flex flex-col items-center justify-start sm:justify-center p-6 animate-in fade-in duration-500 relative bg-gray-50/30 overflow-y-auto min-h-0">
@@ -679,239 +658,53 @@ export default function InterviewPage() {
               />
 
               {/* 聊天区域 */}
-              <div className="flex-1 overflow-hidden relative flex flex-col">
-                <InterviewChatStream
-                  messages={messages}
-                  isLoading={isLoading}
-                  isStreaming={isStreaming}
-                  initializationStage={initializationStage}
-                  executionPlan={executionPlan}
-                  viewportRef={scrollViewportRef}
-                  messagesEndRef={messagesEndRef}
-                  onScroll={handleScroll}
-                  onEditMessage={handleEditMessage}
-                  onRegenerateMessage={handleRegenerateMessage}
-                />
-
-
-
+              <InterviewChatArea
+                messages={messages}
+                isLoading={isLoading}
+                isStreaming={isStreaming}
+                initializationStage={initializationStage}
+                executionPlan={executionPlan}
+                viewportRef={scrollViewportRef}
+                messagesEndRef={messagesEndRef}
+                onScroll={handleScroll}
+                onEditMessage={handleEditMessage}
+                onRegenerateMessage={handleRegenerateMessage}
+              >
                 {/* 输入区域 */}
-                <div className="relative w-full bg-white border-t border-gray-100 px-6 py-4 z-20">
-                  <div className="relative mx-auto max-w-5xl">
-                    {/* 滚动到底部按钮 - 移动到输入框上方，确保不被遮挡 */}
-                    {showScrollButton && (
-                      <div className="absolute -top-12 left-0 right-0 flex justify-center z-20 pointer-events-none">
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          className="rounded-full shadow-lg bg-white border border-gray-200 hover:bg-gray-50 text-gray-600 gap-2 pointer-events-auto animate-in fade-in zoom-in duration-300"
-                          onClick={scrollToBottom}
-                        >
-                          <ArrowDown className="w-4 h-4" />
-                          <span>回到底部</span>
-                        </Button>
-                      </div>
-                    )}
+                <InterviewInputPanel
+                  showScrollButton={showScrollButton}
+                  onScrollToBottom={scrollToBottom}
+                  onKeyDown={handleKeyDown}
+                  input={input}
+                  onInputChange={setInput}
+                  isStreaming={isStreaming}
+                  isListening={isListening}
+                  isExpanded={isAnswerComposerExpanded}
+                  isInterviewCompleted={Boolean(interviewProgress && interviewProgress.current >= interviewProgress.total)}
+                  isLoadingHint={isLoadingHint}
+                  canRequestHint={Boolean(threadId)}
+                  hintContent={hintContent}
+                  onExpandedChange={setIsAnswerComposerExpanded}
+                  onRequestHint={handleGetHint}
+                  onDismissHint={() => setHintContent(null)}
+                  onToggleListening={toggleListening}
+                  onSend={handleSend}
+                  onStopStreaming={stopStreaming}
+                >
                     {/* 开启下一轮面试按钮 - 仅在面试完成时显示 */}
                     {interviewProgress &&
                       interviewProgress.current >= interviewProgress.total &&
                       currentSession?.metadata.status === 'completed' && (
-                        <div className="mb-4 p-4 rounded-xl bg-gradient-to-r from-teal-50 to-amber-50 border border-teal-200">
-                          <div className="flex items-center justify-between gap-4">
-                            <div className="flex-1">
-                              {/* 判断是否为最后一轮（第3轮） */}
-                              {(currentSession.metadata.round_index ?? 1) >= 3 ? (
-                                <>
-                                  <h4 className="font-semibold text-gray-900 mb-1">🎉 所有面试已结束！</h4>
-                                  <p className="text-sm text-gray-600">
-                                    恭喜您完成了全部 3 轮面试，点击查看本轮能力画像
-                                  </p>
-                                </>
-                              ) : (
-                                <>
-                                  <h4 className="font-semibold text-gray-900 mb-1">面试已完成！</h4>
-                                  <p className="text-sm text-gray-600">
-                                    继续进行下一轮面试，深入考察您的专业能力
-                                  </p>
-                                </>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-3">
-                              <Button
-                                variant="outline"
-                                onClick={() => currentSession && handleOpenSessionDetail(currentSession.session_id, 'report')}
-                                className="gap-2"
-                              >
-                                <Award className="w-4 h-4 text-pink-500" />
-                                本轮完整评估
-                              </Button>
-                              {/* 仅在非最后一轮时显示下一轮选项 */}
-                              {(currentSession.metadata.round_index ?? 1) < 3 && (
-                                <div className="flex items-center gap-2 bg-white p-1 rounded-lg border border-teal-100 shadow-sm">
-                                  <select
-                                    id="next-round-questions"
-                                    className="h-8 px-2 rounded-md bg-transparent text-sm focus:outline-none text-teal-900"
-                                    defaultValue={defaultQuestionsForRoundIndex((currentSession.metadata.round_index ?? 1) + 1)}
-                                    onChange={(e) => {
-                                      // 更新全局状态中的 maxQuestions
-                                      setNextRoundQuestionOverride(parseInt(e.target.value));
-                                      useInterviewStore.setState({ maxQuestions: parseInt(e.target.value) });
-                                    }}
-                                  >
-                                    {QUESTION_COUNT_OPTIONS.map((n) => (
-                                      <option key={n} value={n}>{n} 道题</option>
-                                    ))}
-                                  </select>
-                                  <Button
-                                    onClick={async () => {
-                                      try {
-                                        // 从 store 获取最新的题目数量
-                                        const nextRoundQuestions = nextRoundQuestionOverride ?? defaultQuestionsForRoundIndex((currentSession.metadata.round_index ?? 1) + 1);
-
-                                        // 设置加载状态，清空消息以显示加载动画
-                                        useInterviewStore.setState({
-                                          isLoading: true,
-                                          isStreaming: true,
-                                          messages: [],
-                                          interviewProgress: { current: 0, total: nextRoundQuestions }
-                                        });
-
-                                        // 1. 创建下一轮会话
-                                        const response = await fetch(`${API_BASE_URL}/api/sessions/${currentSession.session_id}/next-round`, {
-                                          method: 'POST',
-                                          headers: {
-                                            'Content-Type': 'application/json',
-                                            'X-User-ID': getUserId()
-                                          },
-                                          body: JSON.stringify({
-                                            max_questions: nextRoundQuestions,
-                                          })
-                                        });
-
-                                        if (!response.ok) {
-                                          const error = await response.json();
-                                          throw new Error(error.message || '创建下一轮失败');
-                                        }
-
-                                        const data = await response.json();
-                                        const newSessionId = data.session.session_id;
-
-                                        // 2. 刷新会话列表并选择新会话
-                                        await fetchSessions(undefined);
-                                        await selectSession(newSessionId);
-
-                                        // 3. 通过可恢复 AgentRun 启动下一轮，避免同步启动请求在模型超时时锁住页面。
-                                        const apiConfig = useInterviewStore.getState().getApiConfigForRequest();
-                                        if (!apiConfig) {
-                                          throw new Error('请先配置 API');
-                                        }
-
-                                        useInterviewStore.setState({
-                                          isInitializing: true,
-                                          initializationStage: 'queued',
-                                          executionPlan: [
-                                            { id: 'queued', title: '等待执行资源', status: 'running' },
-                                            { id: 'loading_context', title: '读取简历与面试上下文', status: 'pending' },
-                                            { id: 'generating_question', title: '规划面试并生成首题', status: 'pending' },
-                                          ],
-                                        });
-                                        const startResponse = await fetch(`${API_BASE_URL}/api/agent-runs/interview-start`, {
-                                          method: 'POST',
-                                          headers: {
-                                            'Content-Type': 'application/json',
-                                            'X-User-ID': getUserId(),
-                                            'Idempotency-Key': newSessionId,
-                                          },
-                                          body: JSON.stringify({
-                                            thread_id: newSessionId,
-                                            mode: 'mock',
-                                            max_questions: nextRoundQuestions,
-                                            api_config: apiConfig,
-                                          })
-                                        });
-
-                                        if (!startResponse.ok) {
-                                          const message = await startResponse.text();
-                                          throw new Error(message || '启动面试失败');
-                                        }
-
-                                        const initialRun = await startResponse.json() as InterviewStartRunState;
-                                        const result = await waitForInterviewStartRun(
-                                          initialRun,
-                                          async (runId) => {
-                                            const runResponse = await fetch(`${API_BASE_URL}/api/agent-runs/${runId}`, {
-                                              headers: { 'X-User-ID': getUserId() },
-                                            });
-                                            if (!runResponse.ok) throw new Error('读取面试任务状态失败');
-                                            return runResponse.json() as Promise<InterviewStartRunState>;
-                                          },
-                                          {
-                                            onProgress: (run) => useInterviewStore.setState({
-                                              initializationStage: run.stage || 'queued',
-                                              executionPlan: Array.isArray(run.plan)
-                                                ? run.plan
-                                                : useInterviewStore.getState().executionPlan,
-                                            }),
-                                          },
-                                        );
-
-                                        useInterviewStore.setState({
-                                          messages: [{
-                                            role: 'assistant',
-                                            content: result.first_question!,
-                                            timestamp: new Date().toISOString(),
-                                          }],
-                                          isLoading: false,
-                                          isStreaming: false,
-                                          isInitializing: false,
-                                          initializationStage: null,
-                                        });
-                                        await fetchSessions(undefined);
-
-                                      } catch (error) {
-                                        console.error('创建下一轮失败:', error);
-                                        toast.error((error as Error).message || '创建下一轮失败');
-                                        useInterviewStore.setState({ isLoading: false, isStreaming: false, isInitializing: false, initializationStage: null });
-                                      }
-                                    }}
-                                    disabled={isLoading || isStreaming}
-                                    className="bg-teal-600 hover:bg-teal-700 text-white gap-2 disabled:opacity-50 h-8 px-3 text-xs font-bold"
-                                  >
-                                    {isLoading ? (
-                                      <Loader2 className="w-3 h-3 animate-spin" />
-                                    ) : (
-                                      <Plus className="w-3 h-3" />
-                                    )}
-                                    {isLoading ? '准备中...' : '开启下一轮'}
-                                  </Button>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        </div>
+                        <InterviewNextRoundBanner
+                          roundIndex={currentSession.metadata.round_index ?? 1}
+                          sessionId={currentSession.session_id}
+                          isLoading={isLoading}
+                          isStreaming={isStreaming}
+                          onOpenReport={() => currentSession && handleOpenSessionDetail(currentSession.session_id, 'report')}
+                        />
                       )}
-
-                    <InterviewAnswerComposer
-                      input={input}
-                      onInputChange={setInput}
-                      onKeyDown={handleKeyDown}
-                      isStreaming={isStreaming}
-                      isListening={isListening}
-                      isExpanded={isAnswerComposerExpanded}
-                      isInterviewCompleted={Boolean(interviewProgress && interviewProgress.current >= interviewProgress.total)}
-                      isLoadingHint={isLoadingHint}
-                      canRequestHint={Boolean(threadId)}
-                      hintContent={hintContent}
-                      onExpandedChange={setIsAnswerComposerExpanded}
-                      onRequestHint={handleGetHint}
-                      onDismissHint={() => setHintContent(null)}
-                      onToggleListening={toggleListening}
-                      onSend={handleSend}
-                      onStopStreaming={stopStreaming}
-                    />
-                  </div>
-                </div>
-              </div>
+                </InterviewInputPanel>
+              </InterviewChatArea>
             </div>
           </InterviewArea>
         )}

@@ -10,7 +10,7 @@ async def execute_job_recommendation_capture(
     progress: ProgressCallback,
 ) -> ExecutionResult:
     """Validate browser-bridge DOM cards and persist the public result in AgentRun."""
-    from ai.workflows.jobs_support.job_capture_service import (
+    from ai.workflows.jobs.job_capture_service import (
         capture_from_imported_cards,
     )
 

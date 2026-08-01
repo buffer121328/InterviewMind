@@ -28,7 +28,7 @@ EXPOSE 8000
 
 # 健康检查
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -m app.entrypoints.deployment readiness && curl -fsS http://localhost:8000/health > /dev/null
+    CMD python -m scripts.deployment readiness && curl -fsS http://localhost:8000/health > /dev/null
 
 # 启动命令
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

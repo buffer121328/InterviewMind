@@ -133,7 +133,7 @@ _DEFINITIONS = (
         ),
         checkpoint_policy="durable",
         graph_name="interview",
-        prompt_name="voice.system",
+        prompt_name="voice.interview_system",
         prompt_version="2",
     ),
     AgentDefinition(
@@ -199,6 +199,8 @@ _DEFINITIONS = (
         prompt_version="2",
     ),
     AgentDefinition(
+        # 只为历史 AgentRun 的详情/事件展示保留；没有 API 或 EXECUTOR。
+        # 历史记录过保留期后与 task type 常量在 AgentRun schema 清理阶段一并删除。
         name="interview_experience_collector",
         version="1",
         task_type=TASK_TYPE_INTERVIEW_EXPERIENCE_COLLECT,
@@ -224,8 +226,7 @@ _DEFINITIONS = (
             ("validating_import", "校验当前页 DOM 导入"),
             ("extracting_jobs", "确认有效岗位卡片"),
             ("ranking_jobs", "按简历匹配度排序"),
-            ("saving_jobs", "标准化并保存岗位"),
-            ("scheduling_assets", "创建投递资产任务"),
+            ("awaiting_import", "等待入库确认"),
         ),
         checkpoint_policy="durable",
         graph_name=None,

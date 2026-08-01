@@ -446,30 +446,10 @@ export function useVoiceChat({ onAudioInput, onVADStatusChange, onPlaybackComple
             for (let i = 0; i < len; i++) {
                 bytes[i] = binaryString.charCodeAt(i);
             }
-            const int16View = new Int16Array(bytes.buffer);
-            const float32Data = new Float32Array(int16View.length);
-            for (let i = 0; i < int16View.length; i++) {
-                float32Data[i] = int16View[i] / 32768.0;
-            }
-
-            const audioBuffer = ctx.createBuffer(1, float32Data.length, 24000); // 24k samplerate from Omni
-            audioBuffer.copyToChannel(float32Data, 0);
-
-            const source = ctx.createBufferSource();
-            source.buffer = audioBuffer;
-            source.connect(ctx.destination);
-
-            const currentTime = ctx.currentTime;
-            if (pcmNextStartTimeRef.current < currentTime) {
-                pcmNextStartTimeRef.current = currentTime + 0.1;
-            }
-
-            source.start(pcmNextStartTimeRef.current);
-            pcmNextStartTimeRef.current += audioBuffer.duration;
-
             pcmActiveCountRef.current++;
 
-            source.onended = () => {
+            /** Finalizes one queued audio item and only resumes VAD after the SSE stream has also ended. */
+            const finishPlayback = () => {
                 pcmActiveCountRef.current--;
                 if (pcmActiveCountRef.current === 0 && streamEndedRef.current) {
                     // 播放完毕且流已结束
@@ -488,8 +468,53 @@ export function useVoiceChat({ onAudioInput, onVADStatusChange, onPlaybackComple
                 }
             };
 
+            /** Schedules a decoded buffer after earlier speech and shares the same completion boundary for WAV and PCM. */
+            const scheduleBuffer = (audioBuffer: AudioBuffer) => {
+                if (isStoppingRef.current) {
+                    finishPlayback();
+                    return;
+                }
+                const source = ctx.createBufferSource();
+                source.buffer = audioBuffer;
+                source.connect(ctx.destination);
+
+                const currentTime = ctx.currentTime;
+                if (pcmNextStartTimeRef.current < currentTime) {
+                    pcmNextStartTimeRef.current = currentTime + 0.1;
+                }
+
+                source.start(pcmNextStartTimeRef.current);
+                pcmNextStartTimeRef.current += audioBuffer.duration;
+                source.onended = finishPlayback;
+            };
+
+            const isWav = len >= 12
+                && binaryString.slice(0, 4) === 'RIFF'
+                && binaryString.slice(8, 12) === 'WAVE';
+            if (isWav) {
+                // MiMo TTS 的 wav 是完整容器；交给浏览器读取真实采样率和数据块，不能当裸 PCM 播放。
+                const wavBuffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+                void ctx.decodeAudioData(wavBuffer).then(scheduleBuffer).catch(error => {
+                    console.error('WAV Playback failed:', error);
+                    finishPlayback();
+                });
+                return;
+            }
+
+            // 保留对供应商异常返回裸 pcm16 的兜底，采样率沿用现有 24 kHz 契约。
+            const int16View = new Int16Array(bytes.buffer);
+            const float32Data = new Float32Array(int16View.length);
+            for (let i = 0; i < int16View.length; i++) {
+                float32Data[i] = int16View[i] / 32768.0;
+            }
+            const audioBuffer = ctx.createBuffer(1, float32Data.length, 24000);
+            audioBuffer.copyToChannel(float32Data, 0);
+            scheduleBuffer(audioBuffer);
+
         } catch (e) {
             console.error("PCM Playback failed:", e);
+            isPlayingRef.current = false;
+            internalProcessingRef.current = false;
         }
     }, []);
 

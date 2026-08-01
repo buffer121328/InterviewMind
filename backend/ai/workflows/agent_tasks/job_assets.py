@@ -51,7 +51,7 @@ async def execute_job_assets(payload: dict, user_id: str, progress: ProgressCall
 
 async def _execute_job_assets(payload: dict, user_id: str, progress: ProgressCallback) -> ExecutionResult:
     """Run the job-asset workflow body while the public executor owns observability."""
-    from ai.workflows.jobs_support.job_asset_orchestrator import generate_assets
+    from ai.workflows.jobs.job_asset_orchestrator import generate_assets
 
     await progress("loading_job")
     await progress("analyzing_jd")

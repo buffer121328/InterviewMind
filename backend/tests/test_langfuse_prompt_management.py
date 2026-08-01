@@ -291,19 +291,6 @@ def test_preview_requires_one_safe_selector():
         PromptPreviewRequest(name="resume-summary", version=1, label="production")
 
 
-def test_database_prompt_service_exposes_builtin_registered_templates_as_readonly_v0():
-    """Backend templates remain viewable before a user creates their first editable database version."""
-    from ai.workflows.prompt_management import DatabasePromptManagementService
-
-    builtin = DatabasePromptManagementService._builtin_prompt("interview.planner")
-
-    assert builtin is not None
-    assert builtin.version == 0
-    assert builtin.labels == ["builtin"]
-    assert isinstance(builtin.prompt, str)
-    assert "{{round_index}}" in builtin.prompt
-
-
 def test_router_lists_langfuse_cloud_prompts(monkeypatch):
     """Prompt management returns bounded metadata from the configured Langfuse project."""
     class FakeService:

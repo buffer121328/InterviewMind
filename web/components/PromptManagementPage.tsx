@@ -337,11 +337,11 @@ export function PromptManagementPage() {
                         <section className="space-y-5">
                             <div className="surface-panel p-6">
                                 <div className="flex items-center gap-2"><ShieldCheck className="h-5 w-5 text-emerald-700" /><h3 className="font-semibold">评测与发布门禁</h3></div>
-                                <p className="mt-2 text-sm leading-6 text-slate-500">先在 Agent 评测中心运行当前版本并与 Production 基线比较。门禁为 enforce 时，后端只接受通过 Gate Result 的版本。</p>
-                                <Input className="mt-4" value={evaluationRunId} onChange={event => setEvaluationRunId(event.target.value)} placeholder="Evaluation Run ID（发布时可选/强制模式必填）" />
+                                <p className="mt-2 text-sm leading-6 text-slate-500">先在 Agent 评测中心运行当前版本并与生产版本基线比较。门禁为强制时，后端只接受通过门禁结果的版本。</p>
+                                <Input className="mt-4" value={evaluationRunId} onChange={event => setEvaluationRunId(event.target.value)} placeholder="评测运行 ID（发布时可选/强制模式必填）" />
                                 <div className="mt-3 grid gap-2 sm:grid-cols-2">
                                     <Button variant="outline" onClick={() => { localStorage.setItem('evaluationPromptCandidate', JSON.stringify({ name: selected.name, version: selected.version, compareProduction: false })); localStorage.setItem('activeMainTab', 'evaluations'); window.location.reload(); }}>运行评测</Button>
-                                    <Button variant="outline" onClick={() => { localStorage.setItem('evaluationPromptCandidate', JSON.stringify({ name: selected.name, version: selected.version, compareProduction: true })); localStorage.setItem('activeMainTab', 'evaluations'); window.location.reload(); }}>与 Production 对比</Button>
+                                    <Button variant="outline" onClick={() => { localStorage.setItem('evaluationPromptCandidate', JSON.stringify({ name: selected.name, version: selected.version, compareProduction: true })); localStorage.setItem('activeMainTab', 'evaluations'); window.location.reload(); }}>与生产版本对比</Button>
                                 </div>
                             </div>
                             <div className="surface-panel p-6">

@@ -20,7 +20,7 @@ const DEFAULT_API_CONFIG: ApiConfig = {
     contentWriterModelId: '',
     hrReviewerModelId: '',
     reflectorModelId: '',
-    voiceModelId: '',
+    mimoModelId: '',
     ragEmbeddingModelId: '',
     mem0LlmModelId: '',
     mem0EmbedderModelId: '',
@@ -35,6 +35,8 @@ const apiConfig: ApiConfig = {
             provider: 'openai',
             kind: 'chat',
             apiKey: 'plaintext-secret-key',
+            credentialStored: true,
+            credentialExpiresAt: '2026-08-31T00:00:00.000Z',
             baseUrl: 'https://example.test/v1',
             model: 'model-a',
             createdAt: '2026-08-01T00:00:00.000Z',
@@ -89,6 +91,7 @@ test('rehydration restores non-sensitive settings with empty in-memory keys', ()
     const hydrated = rehydrateApiConfig(apiConfigForPersistence(apiConfig), DEFAULT_API_CONFIG);
 
     assert.equal(hydrated.models[0].apiKey, '');
+    assert.equal(hydrated.models[0].credentialStored, true);
     assert.equal(hydrated.models[0].baseUrl, 'https://example.test/v1');
     assert.equal(hydrated.smartModelId, 'model-1');
 });

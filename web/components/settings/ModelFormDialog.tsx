@@ -30,7 +30,7 @@ import { toast } from 'sonner';
 interface ModelFormDialogProps {
     open: boolean;
     onClose: () => void;
-    onSave: (model: Omit<ModelConfig, 'id' | 'createdAt'>) => void;
+    onSave: (model: Omit<ModelConfig, 'id' | 'createdAt'>) => Promise<void>;
     editingModel?: ModelConfig;
     initialValues?: Partial<ModelConfig>;
 }
@@ -81,13 +81,16 @@ export function ModelFormDialog({ open, onClose, onSave, editingModel, initialVa
     const [name, setName] = useState(initial.name);
     const [showApiKey, setShowApiKey] = useState(false);
     const [isTesting, setIsTesting] = useState(false);
+    const [isSaving, setIsSaving] = useState(false);
     const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
     const [testedFingerprint, setTestedFingerprint] = useState<string | null>(null);
 
     const providerConfig = API_PROVIDERS.find(item => item.id === provider);
     const fingerprint = [provider, kind, apiKey, baseUrl, model].join('\u0000');
     const currentTestResult = testedFingerprint === fingerprint ? testResult : null;
-    const canSave = Boolean(apiKey.trim() && baseUrl.trim() && model.trim());
+    const hasStoredCredential = editingModel?.credentialStored === true;
+    const canTest = Boolean(apiKey.trim() && baseUrl.trim() && model.trim());
+    const canSave = Boolean((apiKey.trim() || hasStoredCredential) && baseUrl.trim() && model.trim());
     const suggestedModels = useMemo(() => providerConfig?.models || [], [providerConfig]);
 
     /** Handles provider change; updates local UI state first and delegates server mutations through the approved API boundary. */
@@ -95,12 +98,13 @@ export function ModelFormDialog({ open, onClose, onSave, editingModel, initialVa
         const next = API_PROVIDERS.find(item => item.id === providerId);
         setProvider(providerId);
         setBaseUrl(next?.baseUrl || '');
-        setModel('');
+        setModel(providerId === 'mimo' ? 'mimo-v2.5' : '');
+        if (providerId === 'mimo') setKind('voice');
     };
 
     /** Handles test connection; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleTestConnection = async () => {
-        if (!canSave) {
+        if (!canTest) {
             setTestResult({ success: false, message: '请先填写 API Key、Base URL 和模型名称。' });
             setTestedFingerprint(fingerprint);
             return;
@@ -143,18 +147,24 @@ export function ModelFormDialog({ open, onClose, onSave, editingModel, initialVa
     };
 
     /** Handles save; updates local UI state first and delegates server mutations through the approved API boundary. */
-    const handleSave = () => {
+    const handleSave = async () => {
         if (!canSave) return;
         const displayName = name.trim() || `${providerConfig?.name || '自定义'} · ${model.trim()}`;
-        onSave({
-            name: displayName,
-            provider,
-            kind,
-            apiKey: apiKey.trim(),
-            baseUrl: baseUrl.trim().replace(/\/+$/, ''),
-            model: model.trim(),
-        });
-        onClose();
+        setIsSaving(true);
+        try {
+            await onSave({
+                name: displayName,
+                provider,
+                kind,
+                apiKey: apiKey.trim(),
+                baseUrl: baseUrl.trim().replace(/\/+$/, ''),
+                model: model.trim(),
+            });
+        } catch (error) {
+            toast.error('保存模型连接失败', { description: error instanceof Error ? error.message : undefined });
+        } finally {
+            setIsSaving(false);
+        }
     };
 
     return (
@@ -174,7 +184,7 @@ export function ModelFormDialog({ open, onClose, onSave, editingModel, initialVa
                     <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900">
                         <div className="flex items-start gap-2">
                             <KeyRound className="mt-0.5 h-4 w-4 shrink-0" />
-                            <p>Key 只保留在当前页面内存中，刷新或关闭页面后需重新输入；执行任务时会随请求发送给后端。公网部署必须使用 HTTPS。</p>
+                            <p>Key 会加密保存到 Redis 30 天，前端只保留保存状态和凭据引用；业务请求不会携带明文 Key。公网部署仍必须使用 HTTPS。</p>
                         </div>
                     </div>
 
@@ -205,7 +215,7 @@ export function ModelFormDialog({ open, onClose, onSave, editingModel, initialVa
                             {([
                                 ['chat', '文本 / 推理'],
                                 ['embedding', 'Embedding'],
-                                ['voice', '语音 Omni'],
+                                ['voice', '语音拆分'],
                             ] as const).map(([value, label]) => (
                                 <button
                                     type="button"
@@ -234,7 +244,7 @@ export function ModelFormDialog({ open, onClose, onSave, editingModel, initialVa
                                     onChange={event => setApiKey(event.target.value)}
                                     autoComplete="new-password"
                                     name="model-api-key"
-                                    placeholder="输入当前提供商的 API Key"
+                                    placeholder={hasStoredCredential ? '留空则继续使用已保存的 Key' : '输入当前提供商的 API Key'}
                                     className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 pr-11 text-sm outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100"
                                 />
                                 <button type="button" onClick={() => setShowApiKey(value => !value)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700" aria-label={showApiKey ? '隐藏 Key' : '显示 Key'}>
@@ -264,7 +274,7 @@ export function ModelFormDialog({ open, onClose, onSave, editingModel, initialVa
                                 value={model}
                                 onChange={event => setModel(event.target.value)}
                                 list="provider-model-suggestions"
-                                placeholder={kind === 'embedding' ? '例如 text-embedding-v4' : kind === 'voice' ? '例如 qwen3-omni-flash-2025-12-01' : '填写提供商模型 ID'}
+                                placeholder={kind === 'embedding' ? '例如 text-embedding-v4' : kind === 'voice' ? 'MiMo 通道填写 mimo-v2.5' : '填写提供商模型 ID'}
                                 className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100"
                             />
                             <datalist id="provider-model-suggestions">
@@ -297,11 +307,12 @@ export function ModelFormDialog({ open, onClose, onSave, editingModel, initialVa
                 </div>
 
                 <DialogFooter className="border-t border-slate-200 bg-slate-50 px-6 py-4">
-                    <Button variant="outline" onClick={handleTestConnection} disabled={!canSave || isTesting}>
+                    <Button variant="outline" onClick={handleTestConnection} disabled={!canTest || isTesting || isSaving}>
                         {isTesting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Network className="h-4 w-4" />}
                         验证连接
                     </Button>
-                    <Button className="bg-teal-700 hover:bg-teal-800" onClick={handleSave} disabled={!canSave}>
+                    <Button className="bg-teal-700 hover:bg-teal-800" onClick={() => void handleSave()} disabled={!canSave || isSaving}>
+                        {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                         保存连接
                     </Button>
                 </DialogFooter>

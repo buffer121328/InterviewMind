@@ -99,8 +99,8 @@ export function QuickEvaluationPanel({
         [effectiveAgentName, runs],
     );
     const modelConfigReady = Boolean(
-        smartModel?.apiKey
-        && fastModel?.apiKey
+        smartModel?.credentialStored
+        && fastModel?.credentialStored
         && getApiConfigForRequest(),
     );
     const canRun = Boolean(

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
     CheckCircle2,
     Copy,
@@ -20,7 +20,13 @@ import {
     DialogHeader,
     DialogTitle,
 } from '@/components/ui/dialog';
-import { maskApiKey, type ModelConfig, useInterviewStore } from '@/store/useInterviewStore';
+import { type ModelConfig, useInterviewStore } from '@/store/useInterviewStore';
+import {
+    deleteModelCredential,
+    fetchModelCredentialStatuses,
+    saveModelCredential,
+} from '@/lib/api/modelCredentials';
+import { toast } from 'sonner';
 import { ModelFormDialog } from './settings/ModelFormDialog';
 import { ModelAssignments } from './settings/ModelAssignments';
 
@@ -32,7 +38,7 @@ interface SettingsDialogProps {
 const KIND_LABEL: Record<string, string> = {
     chat: '文本 / 推理',
     embedding: 'Embedding',
-    voice: '语音',
+    voice: 'MiMo 语音拆分',
 };
 
 /** Encapsulates safe endpoint label; returns typed data or state and keeps side effects within the owning module boundary. */
@@ -44,6 +50,15 @@ function safeEndpointLabel(baseUrl: string) {
     }
 }
 
+/** Formats the Redis credential expiry as a compact user-facing status. */
+function credentialLabel(model: ModelConfig): string {
+    if (!model.credentialStored) return '未保存或已过期';
+    if (!model.credentialExpiresAt) return '已安全保存';
+    const remainingMs = new Date(model.credentialExpiresAt).getTime() - Date.now();
+    const remainingDays = Math.max(1, Math.ceil(remainingMs / 86_400_000));
+    return `已安全保存（约 ${remainingDays} 天）`;
+}
+
 /** Renders the settings dialog UI and coordinates its typed props, local state, and approved backend interactions. */
 export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     const store = useInterviewStore();
@@ -51,6 +66,29 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     const [showModelForm, setShowModelForm] = useState(false);
     const [editingModel, setEditingModel] = useState<ModelConfig | undefined>();
     const [sourceModel, setSourceModel] = useState<ModelConfig | undefined>();
+    const modelIdsKey = useMemo(() => config.models.map(model => model.id).sort().join(','), [config.models]);
+
+    useEffect(() => {
+        if (!open || !modelIdsKey) return;
+        let cancelled = false;
+        void fetchModelCredentialStatuses(modelIdsKey.split(',')).then(statuses => {
+            if (cancelled) return;
+            const byId = new Map(statuses.map(status => [status.model_id, status]));
+            config.models.forEach(model => {
+                const status = byId.get(model.id);
+                store.updateModel(model.id, {
+                    apiKey: '',
+                    credentialStored: status?.stored === true,
+                    credentialExpiresAt: status?.expires_at || undefined,
+                });
+            });
+        }).catch(() => {
+            if (!cancelled) toast.error('无法读取模型 Key 状态，请检查 Redis 与后端配置');
+        });
+        return () => { cancelled = true; };
+        // Model metadata changes do not require another vault status request.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [open, modelIdsKey]);
 
     /** Handles add; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleAdd = () => {
@@ -74,29 +112,63 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     };
 
     /** Handles save; updates local UI state first and delegates server mutations through the approved API boundary. */
-    const handleSave = (modelData: Omit<ModelConfig, 'id' | 'createdAt'>) => {
-        if (editingModel) store.updateModel(editingModel.id, modelData);
-        else store.addModel(modelData);
+    const handleSave = async (modelData: Omit<ModelConfig, 'id' | 'createdAt'>) => {
+        const apiKey = modelData.apiKey.trim();
+        const safeModelData = { ...modelData, apiKey: '' };
+        if (editingModel) {
+            if (apiKey) {
+                const status = await saveModelCredential(editingModel.id, apiKey);
+                safeModelData.credentialStored = status.stored;
+                safeModelData.credentialExpiresAt = status.expires_at || undefined;
+            } else {
+                safeModelData.credentialStored = editingModel.credentialStored;
+                safeModelData.credentialExpiresAt = editingModel.credentialExpiresAt;
+            }
+            store.updateModel(editingModel.id, safeModelData);
+        } else {
+            const created = store.addModel({ ...safeModelData, credentialStored: false });
+            if (!created) throw new Error('无法创建模型连接');
+            try {
+                const status = await saveModelCredential(created.id, apiKey);
+                store.updateModel(created.id, {
+                    apiKey: '',
+                    credentialStored: status.stored,
+                    credentialExpiresAt: status.expires_at || undefined,
+                });
+            } catch (error) {
+                store.deleteModel(created.id);
+                throw error;
+            }
+        }
         setShowModelForm(false);
         setEditingModel(undefined);
         setSourceModel(undefined);
+        toast.success('模型连接和 Key 已保存');
     };
 
     /** Handles delete; updates local UI state first and delegates server mutations through the approved API boundary. */
-    const handleDelete = (model: ModelConfig) => {
+    const handleDelete = async (model: ModelConfig) => {
         if (window.confirm(`确认删除模型连接「${model.name}」？相关通道分配会同时清空。`)) {
-            store.deleteModel(model.id);
+            try {
+                await deleteModelCredential(model.id);
+                store.deleteModel(model.id);
+            } catch (error) {
+                toast.error('删除模型 Key 失败', { description: error instanceof Error ? error.message : undefined });
+            }
         }
     };
 
     /** Handles clear all; updates local UI state first and delegates server mutations through the approved API boundary. */
-    const handleClearAll = () => {
-        if (!window.confirm('确认清除当前浏览器中的全部模型连接和 API Key？此操作无法撤销。')) return;
-        config.models.forEach(model => store.deleteModel(model.id));
+    const handleClearAll = async () => {
+        if (!window.confirm('确认清除全部模型连接和 Redis 中的 API Key？此操作无法撤销。')) return;
+        const results = await Promise.allSettled(config.models.map(model => deleteModelCredential(model.id)));
+        const failedIds = new Set(results.flatMap((result, index) => result.status === 'rejected' ? [config.models[index].id] : []));
+        config.models.filter(model => !failedIds.has(model.id)).forEach(model => store.deleteModel(model.id));
+        if (failedIds.size) toast.error(`${failedIds.size} 个模型 Key 删除失败，连接已保留`);
     };
 
-    const smartReady = Boolean(config.models.find(model => model.id === config.smartModelId)?.apiKey);
-    const fastReady = Boolean(config.models.find(model => model.id === config.fastModelId)?.apiKey);
+    const smartReady = Boolean(config.models.find(model => model.id === config.smartModelId)?.credentialStored);
+    const fastReady = Boolean(config.models.find(model => model.id === config.fastModelId)?.credentialStored);
     const coreReady = smartReady && fastReady;
 
     return (
@@ -110,7 +182,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                                     <ServerCog className="h-5 w-5 text-teal-700" />
                                     模型连接与通道路由
                                 </DialogTitle>
-                                <DialogDescription className="mt-1.5">连接模型端点，并按后端 Smart、Fast、专家、RAG、mem0 与 Voice 通道分配。</DialogDescription>
+                                <DialogDescription className="mt-1.5">连接模型端点，并按后端 Smart、Fast、专家、RAG、mem0 与 MiMo 语音通道分配。</DialogDescription>
                             </div>
                             <div className={`inline-flex w-fit items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium ${coreReady ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-800'}`}>
                                 {coreReady ? <CheckCircle2 className="h-3.5 w-3.5" /> : <ShieldAlert className="h-3.5 w-3.5" />}
@@ -124,8 +196,8 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                             <div className="flex items-start gap-2">
                                 <KeyRound className="mt-0.5 h-4 w-4 shrink-0" />
                                 <div>
-                                    <div className="font-semibold">本地 Key 安全提示</div>
-                                    <p className="mt-1 text-amber-900/80">模型名、端点和通道分配保存到 localStorage；API Key 只留在当前页面内存，刷新或关闭后清空。旧版已持久化的明文 Key 会在加载时自动删除。</p>
+                                    <div className="font-semibold">Key 安全存储</div>
+                                    <p className="mt-1 text-amber-900/80">模型名、端点和通道分配保存在当前浏览器；API Key 加密后按用户存入 Redis，有效期 30 天，前端不会读取或持久化明文。</p>
                                 </div>
                             </div>
                         </div>
@@ -162,13 +234,13 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                                                 <div className="flex items-center gap-1">
                                                     <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleDuplicate(model)} aria-label="复制连接"><Copy className="h-3.5 w-3.5" /></Button>
                                                     <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleEdit(model)} aria-label="编辑连接"><Pencil className="h-3.5 w-3.5" /></Button>
-                                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-red-500 hover:bg-red-50 hover:text-red-700" onClick={() => handleDelete(model)} aria-label="删除连接"><Trash2 className="h-3.5 w-3.5" /></Button>
+                                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-red-500 hover:bg-red-50 hover:text-red-700" onClick={() => void handleDelete(model)} aria-label="删除连接"><Trash2 className="h-3.5 w-3.5" /></Button>
                                                 </div>
                                             </div>
                                             <dl className="mt-4 grid gap-2 text-xs">
                                                 <div className="flex justify-between gap-3"><dt className="text-slate-400">模型</dt><dd className="truncate font-mono text-slate-700">{model.model}</dd></div>
                                                 <div className="flex justify-between gap-3"><dt className="text-slate-400">端点</dt><dd className="truncate text-slate-700">{safeEndpointLabel(model.baseUrl)}</dd></div>
-                                                <div className="flex justify-between gap-3"><dt className="text-slate-400">Key</dt><dd className="font-mono text-slate-700">{model.apiKey ? maskApiKey(model.apiKey) : '未输入（刷新后需重填）'}</dd></div>
+                                                <div className="flex justify-between gap-3"><dt className="text-slate-400">Key</dt><dd className="text-slate-700">{credentialLabel(model)}</dd></div>
                                             </dl>
                                         </div>
                                     ))}
@@ -193,7 +265,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                                     onSetContentWriterModel={store.setContentWriterModel}
                                     onSetHrReviewerModel={store.setHrReviewerModel}
                                     onSetReflectorModel={store.setReflectorModel}
-                                    onSetVoiceModel={store.setVoiceModel}
+                                    onSetMimoModel={store.setMimoModel}
                                     onSetRagEmbeddingModel={store.setRagEmbeddingModel}
                                     onSetMem0LlmModel={store.setMem0LlmModel}
                                     onSetMem0EmbedderModel={store.setMem0EmbedderModel}
@@ -203,9 +275,9 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                     </div>
 
                     <DialogFooter className="flex-col gap-3 border-t border-slate-200 bg-slate-50 px-6 py-4 sm:flex-row sm:justify-between">
-                        <div className="text-xs leading-5 text-slate-500">非敏感设置会立即保存；Key 仅在当前页面内存中有效。</div>
+                        <div className="text-xs leading-5 text-slate-500">Key 加密保存于 Redis 30 天；业务请求仅发送凭据引用。</div>
                         <div className="flex gap-2">
-                            {config.models.length > 0 && <Button variant="ghost" className="text-red-600 hover:bg-red-50 hover:text-red-700" onClick={handleClearAll}>清除全部连接</Button>}
+                            {config.models.length > 0 && <Button variant="ghost" className="text-red-600 hover:bg-red-50 hover:text-red-700" onClick={() => void handleClearAll()}>清除全部连接</Button>}
                             <Button variant="outline" onClick={() => onOpenChange(false)}>完成</Button>
                         </div>
                     </DialogFooter>

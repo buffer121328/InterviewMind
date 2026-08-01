@@ -180,7 +180,7 @@ async def test_job_assets_executor_defers_job_status_for_agent_run_transaction(m
     async def progress(stage: str) -> None:
         progress_stages.append(stage)
 
-    monkeypatch.setattr("ai.workflows.jobs_support.job_asset_orchestrator.generate_assets", fake_generate_assets)
+    monkeypatch.setattr("ai.workflows.jobs.job_asset_orchestrator.generate_assets", fake_generate_assets)
     monkeypatch.setattr("app.db.repositories.jobs.job_capture_repo.get_job_capture_repo", lambda: FakeJobRepo())
 
     result = await executors.execute_job_assets(

@@ -124,7 +124,7 @@ class TestJobDeduper:
 
     @pytest.mark.asyncio
     async def test_is_duplicate_true(self):
-        from ai.workflows.jobs_support.job_deduper import is_duplicate
+        from ai.workflows.jobs.job_deduper import is_duplicate
 
         with patch(
             "app.db.repositories.jobs.job_capture_repo.get_job_capture_repo"
@@ -138,7 +138,7 @@ class TestJobDeduper:
 
     @pytest.mark.asyncio
     async def test_is_duplicate_false(self):
-        from ai.workflows.jobs_support.job_deduper import is_duplicate
+        from ai.workflows.jobs.job_deduper import is_duplicate
 
         with patch(
             "app.db.repositories.jobs.job_capture_repo.get_job_capture_repo"
@@ -151,12 +151,12 @@ class TestJobDeduper:
             assert result is False
 
     def test_similarity_exact_match(self):
-        from ai.workflows.jobs_support.job_deduper import _calculate_similarity
+        from ai.workflows.jobs.job_deduper import _calculate_similarity
         sim = _calculate_similarity("字节跳动", "Java开发", "字节跳动", "Java开发")
         assert sim == 1.0
 
     def test_similarity_different(self):
-        from ai.workflows.jobs_support.job_deduper import _calculate_similarity
+        from ai.workflows.jobs.job_deduper import _calculate_similarity
         sim = _calculate_similarity("字节跳动", "Java开发", "阿里巴巴", "Python开发")
         assert sim < 0.5
 
@@ -167,7 +167,7 @@ class TestJobCaptureService:
     @pytest.mark.asyncio
     async def test_dom_import_never_calls_browser_search(self):
         """Recommendation import must use only supplied cards and never open a browser."""
-        from ai.workflows.jobs_support import job_capture_service
+        from ai.workflows.jobs import job_capture_service
 
         progress_stages: list[str] = []
 
@@ -179,11 +179,11 @@ class TestJobCaptureService:
         score_cards = AsyncMock(side_effect=lambda **kwargs: kwargs["cards"])
         with (
             patch(
-                "ai.workflows.jobs_support.job_capture_service._normalize_and_save",
+                "ai.workflows.jobs.job_capture_service._normalize_and_save",
                 new=normalize_job,
             ),
             patch(
-                "ai.workflows.jobs_support.job_capture_service._score_job_cards_by_match",
+                "ai.workflows.jobs.job_capture_service._score_job_cards_by_match",
                 new=score_cards,
             ),
             patch(
@@ -191,7 +191,7 @@ class TestJobCaptureService:
                 return_value=False,
             ),
             patch(
-                "ai.workflows.jobs_support.job_asset_orchestrator.generate_assets",
+                "ai.workflows.jobs.job_asset_orchestrator.generate_assets",
                 new=AsyncMock(return_value={"success": False}),
             ),
         ):
@@ -216,18 +216,16 @@ class TestJobCaptureService:
             "validating_import",
             "extracting_jobs",
             "ranking_jobs",
-            "saving_jobs",
-            "scheduling_assets",
+            "awaiting_import",
         ]
-        normalize_job.assert_awaited_once()
-        saved_card = normalize_job.await_args.args[0]
-        assert saved_card["salary_text"] == "20-30K"
-        assert saved_card["company_size_text"] == "100-499人"
+        normalize_job.assert_not_awaited()
+        assert result["jobs"][0]["job_id"] is None
+        assert result["jobs"][0]["pending_import"] is True
 
     @pytest.mark.asyncio
     async def test_dom_import_rejects_external_and_navigation_cards(self):
         """External links and navigation-like rows must not reach persistence."""
-        from ai.workflows.jobs_support import job_capture_service
+        from ai.workflows.jobs import job_capture_service
 
         external = {
             **make_imported_card(),
@@ -242,7 +240,7 @@ class TestJobCaptureService:
         }
         normalize_job = AsyncMock()
         with patch(
-            "ai.workflows.jobs_support.job_capture_service._normalize_and_save",
+            "ai.workflows.jobs.job_capture_service._normalize_and_save",
             new=normalize_job,
         ):
             result = await job_capture_service.capture_from_imported_cards(
@@ -261,17 +259,17 @@ class TestJobCaptureService:
     @pytest.mark.asyncio
     async def test_dom_import_reads_at_most_twenty_candidates(self):
         """Service-side bounds must hold even when a caller bypasses request validation."""
-        from ai.workflows.jobs_support import job_capture_service
+        from ai.workflows.jobs import job_capture_service
 
         normalize_job = AsyncMock(return_value={"success": True, "job_id": 7})
         score_cards = AsyncMock(side_effect=lambda **kwargs: kwargs["cards"])
         with (
             patch(
-                "ai.workflows.jobs_support.job_capture_service._normalize_and_save",
+                "ai.workflows.jobs.job_capture_service._normalize_and_save",
                 new=normalize_job,
             ),
             patch(
-                "ai.workflows.jobs_support.job_capture_service._score_job_cards_by_match",
+                "ai.workflows.jobs.job_capture_service._score_job_cards_by_match",
                 new=score_cards,
             ),
             patch(
@@ -279,7 +277,7 @@ class TestJobCaptureService:
                 return_value=False,
             ),
             patch(
-                "ai.workflows.jobs_support.job_asset_orchestrator.generate_assets",
+                "ai.workflows.jobs.job_asset_orchestrator.generate_assets",
                 new=AsyncMock(return_value={"success": False}),
             ),
         ):
@@ -294,13 +292,13 @@ class TestJobCaptureService:
             )
 
         assert result["total"] == 20
-        assert normalize_job.await_count == 20
+        normalize_job.assert_not_awaited()
         assert all("card_21-real.html" not in item["source_url"] for item in result["jobs"])
 
     @pytest.mark.asyncio
     async def test_dom_import_ranks_before_applying_top_n(self):
         """The imported cards must keep the existing resume-match ranking boundary."""
-        from ai.workflows.jobs_support import job_capture_service
+        from ai.workflows.jobs import job_capture_service
 
         cards = [make_imported_card(index) for index in range(1, 4)]
         ranked = [cards[2], cards[0], cards[1]]
@@ -308,11 +306,11 @@ class TestJobCaptureService:
         normalize_job = AsyncMock(return_value={"success": True, "job_id": 7})
         with (
             patch(
-                "ai.workflows.jobs_support.job_capture_service._score_job_cards_by_match",
+                "ai.workflows.jobs.job_capture_service._score_job_cards_by_match",
                 new=score_cards,
             ),
             patch(
-                "ai.workflows.jobs_support.job_capture_service._normalize_and_save",
+                "ai.workflows.jobs.job_capture_service._normalize_and_save",
                 new=normalize_job,
             ),
             patch(
@@ -320,7 +318,7 @@ class TestJobCaptureService:
                 return_value=False,
             ),
             patch(
-                "ai.workflows.jobs_support.job_asset_orchestrator.generate_assets",
+                "ai.workflows.jobs.job_asset_orchestrator.generate_assets",
                 new=AsyncMock(return_value={"success": False}),
             ),
         ):
@@ -343,7 +341,7 @@ class TestJobCaptureService:
     @pytest.mark.asyncio
     async def test_persistence_rejects_empty_or_navigation_job(self):
         """The shared persistence boundary rejects malformed jobs from any collector."""
-        from ai.workflows.jobs_support.job_capture_persistence import (
+        from ai.workflows.jobs.job_capture_persistence import (
             normalize_and_save_job,
         )
 
@@ -367,78 +365,9 @@ class TestJobCaptureService:
         }
 
     @pytest.mark.asyncio
-    async def test_dom_import_enqueues_recoverable_asset_task(self, monkeypatch):
-        """Each saved imported job should enqueue the existing recoverable asset task."""
-        from ai.runtime.agent_runs import outbox
-        from ai.runtime.agent_runs import service as run_service_module
-        from ai.workflows.jobs_support.job_capture_service import (
-            capture_from_imported_cards,
-        )
-
-        now = datetime.now()
-        run = AgentRunModel(
-            id="asset-run-1",
-            user_id="user-1",
-            task_type="job_assets",
-            status="queued",
-            stage="queued",
-            idempotency_key="asset-key",
-            payload_encrypted="encrypted",
-            result=None,
-            error_message=None,
-            attempts=0,
-            created_at=now,
-            updated_at=now,
-            started_at=None,
-            finished_at=None,
-        )
-        create_or_get = AsyncMock(return_value=(run, True))
-        monkeypatch.setattr(run_service_module, "task_queue_enabled", lambda: True)
-        monkeypatch.setattr(
-            run_service_module.AgentRunService,
-            "create_or_get",
-            create_or_get,
-        )
-        dispatch_pending = AsyncMock(return_value=(1, 0))
-        monkeypatch.setattr(outbox, "dispatch_pending_outbox", dispatch_pending)
-
-        fake_job_repo = MagicMock()
-        fake_job_repo.update_asset_tracking = AsyncMock(return_value=True)
-        with (
-            patch(
-                "ai.workflows.jobs_support.job_capture_service._normalize_and_save",
-                new=AsyncMock(return_value={"success": True, "job_id": 7}),
-            ),
-            patch(
-                "ai.workflows.jobs_support.job_capture_service._score_job_cards_by_match",
-                new=AsyncMock(side_effect=lambda **kwargs: kwargs["cards"]),
-            ),
-            patch(
-                "app.db.repositories.jobs.job_capture_repo.get_job_capture_repo",
-                return_value=fake_job_repo,
-            ),
-        ):
-            result = await capture_from_imported_cards(
-                user_id="user-1",
-                query="Agent",
-                resume_content="候选人简历",
-                imported_cards=[make_imported_card()],
-                source_page_url=VALID_BOSS_SEARCH_URL,
-                api_config={"smart": {"model": "mock"}},
-                top_n=1,
-            )
-
-        assert result["success"] is True
-        assert result["jobs"][0]["asset_run_id"] == "asset-run-1"
-        assert result["jobs"][0]["asset_status"] == "queued"
-        create_or_get.assert_awaited_once()
-        dispatch_pending.assert_awaited_once_with(limit=50)
-        fake_job_repo.update_asset_tracking.assert_awaited_once()
-
-    @pytest.mark.asyncio
     async def test_dom_import_writes_backend_txt_without_returning_logs(self, tmp_path):
         """Import audit text stays server-side and public results contain no raw logs."""
-        from ai.workflows.jobs_support import job_capture_service
+        from ai.workflows.jobs import job_capture_service
 
         result = await job_capture_service.capture_from_imported_cards(
             user_id="user-1",
@@ -519,7 +448,7 @@ def test_existing_tab_capture_request_requires_query_and_numeric_city_code():
 async def test_resume_keyword_fallback_ranks_relevant_job_when_model_scoring_fails(monkeypatch):
     """Fast 模型不可用时仍按基础简历与岗位的透明关键词重合度排序。"""
     from ai.llm import llms
-    from ai.workflows.jobs_support.job_capture_service import _score_job_cards_by_match
+    from ai.workflows.jobs.job_capture_service import _score_job_cards_by_match
 
     cards = [
         {
@@ -557,11 +486,11 @@ async def test_resume_keyword_fallback_ranks_relevant_job_when_model_scoring_fai
 @pytest.mark.asyncio
 async def test_dom_import_filters_internships_before_persistence():
     """标题或职位介绍包含实习标记的卡片不得进入岗位库。"""
-    from ai.workflows.jobs_support.job_capture_service import capture_from_imported_cards
+    from ai.workflows.jobs.job_capture_service import capture_from_imported_cards
 
     normalize_job = AsyncMock(return_value={"success": True, "job_id": 7})
     with patch(
-        "ai.workflows.jobs_support.job_capture_service._normalize_and_save",
+        "ai.workflows.jobs.job_capture_service._normalize_and_save",
         new=normalize_job,
     ):
         result = await capture_from_imported_cards(
@@ -581,7 +510,7 @@ async def test_dom_import_filters_internships_before_persistence():
 @pytest.mark.asyncio
 async def test_normalize_persistence_preserves_salary_company_size_and_match_score():
     """DOM 已校验强字段应直接持久化，不得再被二次 LLM 抽取覆盖。"""
-    from ai.workflows.jobs_support.job_capture_persistence import normalize_and_save_job
+    from ai.workflows.jobs.job_capture_persistence import normalize_and_save_job
 
     fake_repo = MagicMock()
     fake_repo.find_by_hash = AsyncMock(return_value=None)

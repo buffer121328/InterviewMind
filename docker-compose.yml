@@ -70,7 +70,7 @@ services:
       ARTIFACT_STORAGE_DIR: /app/data/artifacts
     volumes:
       - artifact_data:/app/data/artifacts
-    command: ["python", "-m", "app.entrypoints.deployment", "migrate"]
+    command: ["python", "-m", "scripts.deployment", "migrate"]
     networks:
       - agent_interview_network
     healthcheck:
@@ -101,7 +101,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:
-      test: ["CMD-SHELL", "python -m app.entrypoints.deployment readiness && curl -fsS http://localhost:8000/health > /dev/null"]
+      test: ["CMD-SHELL", "python -m scripts.deployment readiness && curl -fsS http://localhost:8000/health > /dev/null"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -131,7 +131,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:
-      test: ["CMD-SHELL", "python -m app.entrypoints.deployment readiness"]
+      test: ["CMD-SHELL", "python -m scripts.deployment readiness"]
       interval: 30s
       timeout: 10s
       retries: 3

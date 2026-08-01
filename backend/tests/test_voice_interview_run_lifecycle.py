@@ -1,11 +1,13 @@
 """语音面试生成接入持久化 AgentRun。"""
 
 import json
+from contextlib import asynccontextmanager
 from types import SimpleNamespace
 
 import pytest
 
 from ai.workflows.interview import voice_stream
+from ai.agents.interview import voice_interview
 from ai.workflows.interview.voice_stream import VoiceStreamUseCases
 from app.domain.agent_runs import TASK_TYPE_VOICE_INTERVIEW_TURN
 from app.schemas.voice import VoiceChatRequest
@@ -65,6 +67,53 @@ async def _fake_voice_chunks(**_kwargs):
     yield 'data: {"type":"done","content":"[DONE]"}\n\n'
 
 
+@pytest.mark.asyncio
+async def test_voice_chat_does_not_infer_greeting_from_empty_history_and_text(monkeypatch):
+    """Only the explicit request flag may select TTS greeting mode."""
+
+    routed_phases: list[str] = []
+
+    class _Observation:
+        def set_output(self, _payload):
+            return None
+
+    @asynccontextmanager
+    async def fake_observation(**_kwargs):
+        yield _Observation()
+
+    def fake_route(state):
+        routed_phases.append(state["current_phase"])
+        return "responder"
+
+    async def fake_responder(_state):
+        yield 'data: {"type":"token","content":"正常回答"}\n\n'
+
+    async def fail_if_greeting(_state):
+        raise AssertionError("greeting node must require is_greeting=true")
+        yield ""  # pragma: no cover
+
+    monkeypatch.setattr(voice_interview, "agent_observation", fake_observation)
+    monkeypatch.setattr(voice_interview, "route_voice_entry", fake_route)
+    monkeypatch.setattr(voice_interview, "node_responder", fake_responder)
+    monkeypatch.setattr(voice_interview, "node_greeting", fail_if_greeting)
+
+    source = voice_interview.process_voice_chat(
+        session_id="voice-session-1",
+        system_prompt="你是面试官",
+        history=[],
+        audio_base64=None,
+        text_message="普通文字回答",
+        api_config={"mimo": {"api_key": "x"}},
+        is_greeting=False,
+        user_id="user-1",
+    )
+
+    assert [chunk async for chunk in source] == [
+        'data: {"type":"token","content":"正常回答"}\n\n'
+    ]
+    assert routed_phases == ["conversation"]
+
+
 def test_voice_interview_turn_task_definition_is_registered():
     definition = get_task_definition(TASK_TYPE_VOICE_INTERVIEW_TURN)
     assert definition["title"] == "生成语音面试回复"
@@ -83,7 +132,7 @@ async def test_voice_chat_rejects_unowned_session_before_creating_run():
         system_prompt="你是面试官",
         history=[],
         message="我的回答",
-        api_config={"voice": {"api_key": "x"}},
+        api_config={"mimo": {"api_key": "x"}},
     )
 
     with pytest.raises(voice_stream.VoiceStreamUseCaseError) as exc_info:
@@ -106,7 +155,7 @@ async def test_voice_chat_stream_creates_and_completes_agent_run(monkeypatch):
         system_prompt="你是面试官",
         history=[],
         message="我的回答",
-        api_config={"voice": {"api_key": "x"}},
+        api_config={"mimo": {"api_key": "x"}},
         audio_id="audio-1",
     )
 
@@ -145,7 +194,7 @@ async def test_voice_chat_disconnect_marks_run_failed_not_cancelled(monkeypatch)
         system_prompt="你是面试官",
         history=[],
         message="我的回答",
-        api_config={"voice": {"api_key": "x"}},
+        api_config={"mimo": {"api_key": "x"}},
     )
 
     generator = await use_cases.stream_voice_chat(request=request, user_id="user-1")

@@ -14,7 +14,8 @@ TASK_TYPE_INTERVIEW_REPORT = "interview_report"
 TASK_TYPE_JOB_ASSETS = "job_assets"
 TASK_TYPE_JOB_RECOMMENDATION_CAPTURE = "job_recommendation_capture"
 TASK_TYPE_EVALUATION_SUITE = "evaluation_suite"
-# 仅用于序列化数据库中的历史任务；采集 API 与执行器已下线。
+# 仅用于读取数据库中的历史任务；采集 API 与执行器已下线。
+# 历史 task_type 记录全部归档/过保留期后，在 AgentRun schema 清理阶段删除。
 TASK_TYPE_INTERVIEW_EXPERIENCE_COLLECT = "interview_experience_collect"
 
 ACTIVE_STATUSES: frozenset[str] = frozenset(

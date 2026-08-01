@@ -1,5 +1,7 @@
 "use client";
 
+// 已知超限：职责单一（题库管理单页），暂不拆分。
+
 import { useState, useEffect, useCallback } from "react";
 import {
     Loader2, Plus, Search, Trash2, BookOpen,

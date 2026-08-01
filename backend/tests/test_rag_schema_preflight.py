@@ -77,7 +77,7 @@ def test_configured_embedding_dimension_rejects_invalid_environment(monkeypatch)
 def test_deployment_readiness_reports_vector_mismatch_as_schema_failure(monkeypatch) -> None:
     """Deployment readiness keeps PostgreSQL reachable while exposing a safe schema mismatch."""
 
-    from app.entrypoints import deployment
+    from scripts import deployment
 
     class Connection:
         def __enter__(self):

@@ -295,8 +295,8 @@ class ToolObservationEvent:
         """返回 AgentRun 可持久化的脱敏审计投影。"""
 
         payload = asdict(self)
-        # `effect` 保留给现有 AgentRun/BOSS Reader；`tool_effect` 是新统一字段。
-        # 所有旧 Reader 迁移完成后，再按兼容清理规则删除别名。
+        # `effect` 保留给已持久化 AgentRun/BOSS 事件 Reader；`tool_effect` 是统一字段。
+        # 仅在历史 schema v1 事件过保留期且 Reader 完成 schema v2 迁移后删除该别名。
         payload["tool_effect"] = self.effect
         payload["input_summary"] = _safe_local_text(self.input_summary, max_length=200)
         payload["output_summary"] = _safe_local_text(self.output_summary, max_length=300)

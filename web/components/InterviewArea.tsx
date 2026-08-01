@@ -1,4 +1,4 @@
-import { useState, ReactNode } from "react";
+import { useState, useEffect, ReactNode } from "react";
 import { Mic, Award, Plus, Loader2 } from "lucide-react";
 import { useInterviewStore } from "@/store/useInterviewStore";
 import { VoiceInterview } from "./VoiceInterview";
@@ -10,6 +10,8 @@ import { toast } from "sonner";
 import { getUserId } from "@/hooks/useUserIdentity";
 import { API_BASE_URL } from "@/lib/api/config";
 import { QUESTION_COUNT_OPTIONS, defaultQuestionsForRoundIndex } from "@/lib/interview/questionDefaults";
+import { hasSatisfactionAsked, markSatisfactionAsked, satisfactionAskKey } from "@/lib/api/satisfaction";
+import { SatisfactionDialog } from "./satisfaction/SatisfactionDialog";
 
 interface InterviewAreaProps {
     children: ReactNode;
@@ -33,6 +35,18 @@ export function InterviewArea({ children }: InterviewAreaProps) {
     const [showInterviewReportDialog, setShowInterviewReportDialog] = useState(false);
     const [iscloning, setIsCloning] = useState(false);
     const [nextRoundQuestionOverride, setNextRoundQuestionOverride] = useState<number | null>(null);
+    const [satisfactionOpen, setSatisfactionOpen] = useState(false);
+
+    // 面试完成且该会话尚未询问过满意度时，弹出反馈弹窗；提交后标记、不再弹出，"稍后再说"不标记
+    /* eslint-disable react-hooks/set-state-in-effect */
+    useEffect(() => {
+        if (currentSession?.metadata.mode === 'voice' && currentSession.metadata.status === 'completed') {
+            if (!hasSatisfactionAsked(satisfactionAskKey('interview', currentSession.session_id))) {
+                setSatisfactionOpen(true);
+            }
+        }
+    }, [currentSession]);
+    /* eslint-enable react-hooks/set-state-in-effect */
 
     // 1. 如果处于语音模式
     if (isVoiceMode) {
@@ -248,6 +262,14 @@ export function InterviewArea({ children }: InterviewAreaProps) {
                         onOpenChange={setShowInterviewReportDialog}
                     />
                 )}
+
+                <SatisfactionDialog
+                    open={satisfactionOpen}
+                    onOpenChange={setSatisfactionOpen}
+                    agentType="interview"
+                    refKey={currentSession.session_id}
+                    onSubmitted={() => markSatisfactionAsked(satisfactionAskKey('interview', currentSession.session_id))}
+                />
             </div>
         );
     }

@@ -3,8 +3,8 @@ import test from 'node:test';
 import { getPromptDisplayName, getPromptFunctionalGroup } from './promptCatalog.ts';
 
 test('prompt catalog translates backend names to Chinese display names', () => {
-    assert.equal(getPromptDisplayName('analysis.aggregate_profile'), '跨场综合画像');
-    assert.equal(getPromptFunctionalGroup('analysis.aggregate_profile'), '能力分析');
+    assert.equal(getPromptDisplayName('analysis.multi_reviewer_consensus.ability_profile'), '能力画像多评审共识汇总');
+    assert.equal(getPromptFunctionalGroup('analysis.multi_reviewer_consensus.ability_profile'), '能力分析');
     assert.equal(getPromptDisplayName('analysis.question_evidence'), '面试逐题证据块');
     assert.equal(getPromptDisplayName('analysis.evidence_report'), '逐题证据汇总报告');
     assert.equal(getPromptDisplayName('resume.rewrite_planner'), '简历改写规划');

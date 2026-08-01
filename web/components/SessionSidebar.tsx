@@ -166,14 +166,14 @@ export function SessionSidebar({
         apiConfig.contentWriterModelId,
         apiConfig.hrReviewerModelId,
         apiConfig.reflectorModelId,
-        apiConfig.voiceModelId,
+        apiConfig.mimoModelId,
         apiConfig.ragEmbeddingModelId,
         apiConfig.mem0LlmModelId,
         apiConfig.mem0EmbedderModelId,
     ].filter(Boolean)).size;
     const coreReady = Boolean(
-        apiConfig.models.find(model => model.id === apiConfig.smartModelId)?.apiKey
-        && apiConfig.models.find(model => model.id === apiConfig.fastModelId)?.apiKey,
+        apiConfig.models.find(model => model.id === apiConfig.smartModelId)?.credentialStored
+        && apiConfig.models.find(model => model.id === apiConfig.fastModelId)?.credentialStored,
     );
     const showsHistory = currentView === 'interview' || currentView === 'resume';
 

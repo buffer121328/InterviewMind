@@ -19,6 +19,8 @@ import {
     type ResumeReviewDecision, type ResumeReviewState,
 } from "@/lib/api/resume";
 import { restoreResumeHistorySelection, type RestoredResumeWorkspace } from '@/lib/resumeWorkspaceHistory';
+import { hasSatisfactionAsked, markSatisfactionAsked, satisfactionAskKey } from "@/lib/api/satisfaction";
+import { SatisfactionDialog } from "./satisfaction/SatisfactionDialog";
 
 interface ResumeToolsProps {
     apiConfig: ApiConfig | null;
@@ -41,6 +43,7 @@ export function ResumeTools({ apiConfig, resumeContent, onResumeChange, onOpenSe
     const [decisions, setDecisions] = useState<Record<string, ResumeReviewDecision>>({}), [reviewLoading, setReviewLoading] = useState(false), [reviewSubmitting, setReviewSubmitting] = useState(false);
     const [generate, setGenerate] = useState(false), [preview, setPreview] = useState<{ id: number; title: string; content: string } | null>(null);
     const [showFullOptimization, setShowFullOptimization] = useState(false);
+    const [satisfactionOpen, setSatisfactionOpen] = useState(false);
     const fileRef = useRef<HTMLInputElement>(null), bottomRef = useRef<HTMLDivElement>(null);
     const { currentResumeResult, fetchCompletedSessions, fetchResumeResults, completedSessions, completedSessionsLoading } = useInterviewStore();
 
@@ -77,7 +80,7 @@ export function ResumeTools({ apiConfig, resumeContent, onResumeChange, onOpenSe
     async function startWorkspace() {
         if (!resume.trim()) return toast.error("请输入或导入简历内容"); if (!jd.trim()) return toast.error("请输入目标职位描述"); if (!apiConfig) return toast.error("请先配置 API Key");
         setRunning(true); setWorkspace(null); setReview(null); setResultId(undefined); setRunStage("queued"); setShowFullOptimization(false);
-        try { const result = await runResumeWorkspace({ resume_content: resume, job_description: jd, session_ids: sessions, include_overall_profile: includeProfile, mode, api_config: apiConfig, onUpdate: run => { setRunStage(run.stage); setProgress(run.plan.find(step => step.status === "running")?.title || run.title); } }); setWorkspace(result); setReview(result.review); setResultId(result.result_id); if (result.warnings.length) toast.warning("分析完成，但部分节点返回了警告"); else toast.success("完整分析已完成"); await fetchResumeResults(); }
+        try { const result = await runResumeWorkspace({ resume_content: resume, job_description: jd, session_ids: sessions, include_overall_profile: includeProfile, mode, api_config: apiConfig, onUpdate: run => { setRunStage(run.stage); setProgress(run.plan.find(step => step.status === "running")?.title || run.title); } }); setWorkspace(result); setReview(result.review); setResultId(result.result_id); if (result.warnings.length) toast.warning("分析完成，但部分节点返回了警告"); else toast.success("完整分析已完成"); await fetchResumeResults(); if (!hasSatisfactionAsked(satisfactionAskKey('resume_optimize', String(result.result_id)))) setSatisfactionOpen(true); }
         catch (error) { toast.error(error instanceof Error ? error.message : "完整分析失败，请重试"); }
         finally { setRunning(false); setProgress(""); }
     }
@@ -97,5 +100,12 @@ export function ResumeTools({ apiConfig, resumeContent, onResumeChange, onOpenSe
         </div>
         {generate && apiConfig && optimize && <ResumeGenerationDialog isOpen={generate} onClose={() => setGenerate(false)} resumeContent={resume} jobDescription={jd} optimizationResult={optimize} optimizationResultId={resultId} apiConfig={apiConfig} onSuccess={(id, title, content) => { setGenerate(false); setPreview({ id, title, content }); void refreshGeneratedResumes(); }} />}
         {preview && <ResumePreviewDialog isOpen={true} onClose={() => setPreview(null)} title={preview.title} content={preview.content} resumeId={preview.id} onContentChange={async content => { const saved = await updateGeneratedResume(preview.id, content); if (!saved) throw new Error("保存简历失败，请重试"); setPreview(current => current ? { ...current, content } : current); void refreshGeneratedResumes(); }} />}
+        <SatisfactionDialog
+            open={satisfactionOpen}
+            onOpenChange={setSatisfactionOpen}
+            agentType="resume_optimize"
+            refKey={resultId != null ? String(resultId) : ""}
+            onSubmitted={() => { if (resultId != null) markSatisfactionAsked(satisfactionAskKey('resume_optimize', String(resultId))); }}
+        />
     </div>;
 }

@@ -87,7 +87,7 @@ type SetState = (partial: Partial<InterviewFlowSlice> | ((state: InterviewFlowSl
 type GetState = () => InterviewFlowSlice & {
     currentSession: InterviewSession | null;
     fetchSessions: (status?: 'active' | 'completed' | 'archived', mode?: 'mock' | 'voice') => Promise<void>;
-    getApiConfigForRequest: () => { smart: { api_key: string; base_url: string; model: string }; fast: { api_key: string; base_url: string; model: string } } | null;
+    getApiConfigForRequest: () => { smart: { credential_id: string; base_url: string; model: string }; fast: { credential_id: string; base_url: string; model: string } } | null;
 };
 
 /** Creates the interview Zustand slice; it owns long-lived shared state and leaves server persistence and authorization to the API layer. */

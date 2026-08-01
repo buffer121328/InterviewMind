@@ -28,7 +28,7 @@ def test_registry_covers_all_runtime_prompt_families():
         "interview.opening",
         "interview.evaluating",
         "analysis.session_report",
-        "analysis.aggregate_profile",
+        "analysis.multi_reviewer_consensus.ability_profile",
         "jobs.greeting",
         "jobs.extraction",
         "jobs.card_extraction",
@@ -50,13 +50,27 @@ def test_registry_covers_all_runtime_prompt_families():
 def test_every_registered_template_accepts_its_declared_variables():
     """Raw templates remain syntactically renderable for management preview and fallback."""
     for name in prompt_registry.names():
-        spec = prompt_registry.get(name, "1")
-        assert spec.template is not None
-        values = {variable: "示例值" for variable in spec.template.input_variables}
-        if hasattr(spec.template, "format_messages"):
-            spec.template.format_messages(**values)
-        else:
-            spec.template.format(**values)
+        for version in prompt_registry.versions(name):
+            spec = prompt_registry.get(name, version)
+            assert spec.template is not None
+            values = {variable: "示例值" for variable in spec.template.input_variables}
+            if hasattr(spec.template, "format_messages"):
+                spec.template.format_messages(**values)
+            else:
+                spec.template.format(**values)
+
+
+def test_registry_contains_only_current_versions_for_migrated_prompts():
+    """Prompt discovery must not republish removed aliases or superseded builders."""
+
+    assert "voice.system" not in prompt_registry.names()
+    assert "analysis.aggregate_profile" not in prompt_registry.names()
+    assert prompt_registry.versions("interview.planner") == ("2",)
+    assert prompt_registry.versions("interview.evaluating") == ("2",)
+    assert prompt_registry.versions("voice.interview_system") == ("2",)
+    assert prompt_registry.versions("analysis.session_report") == ("2",)
+    assert prompt_registry.versions("resume.fact_check") == ("2",)
+    assert prompt_registry.versions("jobs.greeting") == ("3",)
 
 
 def test_untrusted_job_inputs_are_data_and_unknown_fields_stay_empty():

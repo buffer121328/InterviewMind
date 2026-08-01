@@ -1,6 +1,6 @@
 import type { ApiConfig, ModelConfig } from './types';
 
-export const INTERVIEW_STORE_PERSIST_VERSION = 2;
+export const INTERVIEW_STORE_PERSIST_VERSION = 4;
 
 export type PersistedModelConfig = Omit<ModelConfig, 'apiKey'>;
 export type PersistedApiConfig = Omit<ApiConfig, 'models'> & {
@@ -56,7 +56,7 @@ function stripModelApiKeys(apiConfigValue: unknown): unknown {
     };
 }
 
-/** Removes legacy plaintext model keys from either a Zustand state object or its serialized storage envelope. */
+/** Removes plaintext model keys from either a Zustand state object or its serialized storage envelope. */
 export function stripApiKeysFromPersistedState(value: unknown): unknown {
     if (!isRecord(value)) return value;
     if (isRecord(value.state)) {
@@ -83,7 +83,7 @@ export function sanitizeInterviewStoreStorageValue(value: string): string {
     }
 }
 
-/** Wraps localStorage so legacy secrets are removed on read and every future write is credential-free. */
+/** Permanently guards localStorage reads/writes, including stale clients and manually modified payloads. */
 export function createCredentialSafeStorage(storage: StringStorage): StringStorage {
     return {
         getItem(name) {
@@ -120,6 +120,8 @@ function hydrateModel(value: unknown): ModelConfig | null {
         provider: provider as string,
         kind,
         apiKey: '',
+        credentialStored: value.credentialStored === true,
+        credentialExpiresAt: optionalString(value.credentialExpiresAt),
         baseUrl: baseUrl as string,
         model: model as string,
         pricingKey: optionalString(value.pricingKey),
@@ -146,7 +148,7 @@ export function rehydrateApiConfig(value: unknown, fallback: ApiConfig): ApiConf
         contentWriterModelId: readId('contentWriterModelId'),
         hrReviewerModelId: readId('hrReviewerModelId'),
         reflectorModelId: readId('reflectorModelId'),
-        voiceModelId: readId('voiceModelId'),
+        mimoModelId: readId('mimoModelId'),
         ragEmbeddingModelId: readId('ragEmbeddingModelId'),
         mem0LlmModelId: readId('mem0LlmModelId'),
         mem0EmbedderModelId: readId('mem0EmbedderModelId'),

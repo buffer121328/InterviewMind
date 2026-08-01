@@ -1,6 +1,8 @@
 """
 面试状态机（Interview Runtime State Machine）
 
+已知超限：职责单一（面试运行时状态机），暂不拆分。
+
 替代 `create_react_agent` 的 ReAct agent，使用状态机 + 结构化 LLM 调用
 实现面试官的在线对话逻辑。
 

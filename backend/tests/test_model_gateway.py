@@ -26,72 +26,27 @@ def local_model_pool(monkeypatch):
 
 def test_settings_read_model_runtime_environment(monkeypatch):
     monkeypatch.setenv("LLM_MAX_TOKENS", "4096")
-    monkeypatch.setenv("VOICE_NAME", "Serena")
+    monkeypatch.setenv("MIMO_VOICE", "Serena")
     get_settings.cache_clear()
 
     settings = get_settings()
 
     assert settings.llm_max_tokens == 4096
-    assert settings.voice_name == "Serena"
+    assert settings.mimo_voice == "Serena"
     get_settings.cache_clear()
 
 
-def test_voice_options_use_selected_model_and_central_audio_defaults(monkeypatch):
-    monkeypatch.setenv("VOICE_NAME", "Cherry")
-    monkeypatch.setenv("VOICE_OUTPUT_FORMAT", "wav")
-    get_settings.cache_clear()
-
-    options = llms.model_gateway.get_voice_request_options(
-        {"voice": _channel("candidate-selected-omni")}
-    )
-
-    assert options == {
-        "model": "candidate-selected-omni",
-        "modalities": ["text", "audio"],
-        "audio": {"voice": "Cherry", "format": "wav"},
-    }
-    get_settings.cache_clear()
-
-
-def test_voice_channel_falls_back_to_fast(monkeypatch):
-    fast_config = _channel("fast-omni")
-    captured = {}
-
-    def fake_create_client(config):
-        captured.update(config)
-        return "voice-client"
-
-    monkeypatch.setattr(llms, "get_async_omni_client", fake_create_client)
-
-    client = llms.model_gateway.get_voice_client({"fast": fast_config})
-
-    assert client == "voice-client"
-    assert captured == fast_config
-
-
-def test_voice_model_does_not_reuse_fast_text_model(monkeypatch):
-    monkeypatch.setenv("VOICE_MODEL", "default-omni")
-    get_settings.cache_clear()
-
-    options = llms.model_gateway.get_voice_request_options(
-        {"fast": _channel("fast-text-model")}
-    )
-
-    assert options["model"] == "default-omni"
-    get_settings.cache_clear()
-
-
-def test_api_config_preserves_voice_channel():
+def test_api_config_preserves_mimo_channel():
     config = ApiConfig.model_validate(
         {
             "smart": _channel("smart-model"),
             "fast": _channel("fast-model"),
-            "voice": _channel("voice-model"),
+            "mimo": _channel("mimo-v2.5"),
         }
     )
 
-    assert config.voice is not None
-    assert config.voice.model == "voice-model"
+    assert config.mimo is not None
+    assert config.mimo.model == "mimo-v2.5"
 
 
 def test_api_config_accepts_fast_and_reasoning_pools():
@@ -576,102 +531,6 @@ async def test_rag_embedding_batch_rejects_missing_vectors(monkeypatch):
             batch_size=2,
         )
 
-
-
-class _AsyncChunks:
-    def __init__(self, chunks, *, fail_after_first=False):
-        self._chunks = list(chunks)
-        self._fail_after_first = fail_after_first
-        self._index = 0
-
-    def __aiter__(self):
-        return self
-
-    async def __anext__(self):
-        if self._fail_after_first and self._index >= 1:
-            raise RuntimeError("stream interrupted")
-        if self._index >= len(self._chunks):
-            raise StopAsyncIteration
-        chunk = self._chunks[self._index]
-        self._index += 1
-        return chunk
-
-
-async def _voice_fallback_case(monkeypatch):
-    monkeypatch.delenv("REDIS_URL", raising=False)
-    monkeypatch.setenv("VOICE_MODEL", "fallback-omni")
-    get_settings.cache_clear()
-    calls = []
-
-    class FakeCompletions:
-        async def create(self, **kwargs):
-            calls.append(kwargs["model"])
-            if kwargs["model"] == "voice-primary":
-                raise RuntimeError("primary unavailable")
-            return _AsyncChunks(["fallback-chunk"])
-
-    class FakeClient:
-        chat = type("Chat", (), {"completions": FakeCompletions()})()
-
-    monkeypatch.setattr(llms, "get_async_omni_client", lambda _config: FakeClient())
-    gateway = llms.ModelGateway()
-    chunks = []
-    async for chunk in gateway.stream_voice_chat_completions(
-        {"voice": _channel("voice-primary"), "fast": _channel("fast-text")},
-        messages=[{"role": "user", "content": "hello"}],
-    ):
-        chunks.append(chunk)
-    get_settings.cache_clear()
-    return calls, chunks, gateway
-
-
-def test_voice_stream_falls_back_before_first_chunk(monkeypatch):
-    import asyncio
-
-    calls, chunks, gateway = asyncio.run(_voice_fallback_case(monkeypatch))
-
-    assert calls == ["voice-primary", "fallback-omni"]
-    assert chunks == ["fallback-chunk"]
-    assert all(value == 0 for value in gateway.scheduler._inflight.values())
-
-
-async def _voice_partial_failure_case(monkeypatch):
-    monkeypatch.delenv("REDIS_URL", raising=False)
-    monkeypatch.setenv("VOICE_MODEL", "fallback-omni")
-    get_settings.cache_clear()
-    calls = []
-
-    class FakeCompletions:
-        async def create(self, **kwargs):
-            calls.append(kwargs["model"])
-            if kwargs["model"] == "voice-primary":
-                return _AsyncChunks(["partial"], fail_after_first=True)
-            return _AsyncChunks(["fallback-chunk"])
-
-    class FakeClient:
-        chat = type("Chat", (), {"completions": FakeCompletions()})()
-
-    monkeypatch.setattr(llms, "get_async_omni_client", lambda _config: FakeClient())
-    gateway = llms.ModelGateway()
-    chunks = []
-    with pytest.raises(RuntimeError, match="stream interrupted"):
-        async for chunk in gateway.stream_voice_chat_completions(
-            {"voice": _channel("voice-primary"), "fast": _channel("fast-text")},
-            messages=[{"role": "user", "content": "hello"}],
-        ):
-            chunks.append(chunk)
-    get_settings.cache_clear()
-    return calls, chunks, gateway
-
-
-def test_voice_stream_does_not_fallback_after_partial_output(monkeypatch):
-    import asyncio
-
-    calls, chunks, gateway = asyncio.run(_voice_partial_failure_case(monkeypatch))
-
-    assert calls == ["voice-primary"]
-    assert chunks == ["partial"]
-    assert all(value == 0 for value in gateway.scheduler._inflight.values())
 
 
 def test_api_config_channel_preserves_provider_observability_fields():

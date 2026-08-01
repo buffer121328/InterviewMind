@@ -1,5 +1,7 @@
 'use client';
 
+// 已知超限：职责单一（运行中心单页），暂不拆分。
+
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     Activity,

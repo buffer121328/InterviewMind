@@ -21,6 +21,7 @@ from app.api.memory import router as memory_router
 from app.api.jobs import router as jobs_router
 from app.api.interview_experience import router as interview_experience_router
 from app.schemas.schemas import ErrorResponse
+from app.security.model_credential_middleware import ModelCredentialHydrationMiddleware
 from app.security.security import redact_secrets, safe_error_message
 
 # 配置日志
@@ -203,6 +204,9 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# 凭据解析位于业务路由之前；CORS 后注册使其保持最外层并覆盖凭据错误响应。
+app.add_middleware(ModelCredentialHydrationMiddleware)
+
 # 配置 CORS - 允许的前端域名
 app.add_middleware(
     CORSMiddleware,
@@ -281,6 +285,7 @@ async def health_check():
 # 注册路由
 from fastapi.staticfiles import StaticFiles
 from app.api import artifacts
+from app.api.satisfaction import router as satisfaction_router
 
 # 注册路由
 app.include_router(chat.router)
@@ -298,6 +303,7 @@ app.include_router(interview_experience_router)
 app.include_router(langfuse_prompts.router)
 app.include_router(artifacts.router)
 app.include_router(evaluations.router)
+app.include_router(satisfaction_router)
 
 # 挂载静态文件目录
 static_dir = os.path.join(os.getcwd(), "static")

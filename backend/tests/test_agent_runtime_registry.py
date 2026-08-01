@@ -65,13 +65,15 @@ def test_default_registries_expose_business_capabilities():
     assert {
         "interview.planner",
         "interview.evaluating",
-        "voice.system",
+        "voice.interview_system",
         "analysis.session_report",
-        "analysis.aggregate_profile",
+        "analysis.multi_reviewer_consensus.ability_profile",
         "resume.match_analyst",
         "resume.jd_match.user",
         "jobs.card_scoring",
     }.issubset(prompt_registry.names())
+    assert "voice.system" not in prompt_registry.names()
+    assert "analysis.aggregate_profile" not in prompt_registry.names()
 
 
 def test_job_capture_agent_exposes_current_page_import_stages():

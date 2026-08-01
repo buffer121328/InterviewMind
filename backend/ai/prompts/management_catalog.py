@@ -15,6 +15,8 @@ _CHAT_ROLE_BY_TEMPLATE = {
     "AIMessagePromptTemplate": "assistant",
 }
 _KNOWN_HISTORICAL_PRESENTATIONS = {
+    # Langfuse Cloud 中可能仍有迁移前的远端版本；这里只提供安全展示元数据，
+    # 不把它们重新注册为内置 Prompt。远端项目完成归档后在 Prompt 资产清理阶段删除。
     "analysis.candidate_profile": ("单场能力画像", "能力分析"),
     "analysis.weakness_report": ("短板报告", "能力分析"),
 }

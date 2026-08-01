@@ -167,27 +167,6 @@ class RagIndexRepo:
             )
             await db.commit()
 
-    async def soft_delete_by_source(
-        self,
-        user_id: str,
-        source_type: str,
-        source_id: str,
-    ) -> int:
-        """软删除某个来源的所有 chunk，返回受影响行数"""
-        async with async_session() as db:
-            result = await db.execute(
-                update(RagChunkModel)
-                .where(
-                    RagChunkModel.user_id == user_id,
-                    RagChunkModel.source_type == source_type,
-                    RagChunkModel.source_id == source_id,
-                    RagChunkModel.is_active == True,
-                )
-                .values(is_active=False, updated_at=_utcnow())
-            )
-            await db.commit()
-            return result.rowcount
-
     async def deactivate_stale_chunks(
         self,
         user_id: str,

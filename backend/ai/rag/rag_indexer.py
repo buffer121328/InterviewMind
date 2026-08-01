@@ -327,27 +327,6 @@ class RagIndexer:
 
         return stats
 
-    async def index_single_source(
-        self,
-        user_id: str,
-        source_type: str,
-        chunks: List[Dict[str, Any]],
-        with_embedding: bool = True,
-    ) -> int:
-        """
-        索引单个来源的 chunk 列表
-
-        Args:
-            user_id: 用户 ID
-            source_type: 来源类型
-            chunks: chunk 数据列表
-            with_embedding: 是否生成 embedding
-
-        Returns:
-            索引的 chunk 数量
-        """
-        return await self._index_chunks(chunks, user_id, with_embedding)
-
     async def _deactivate_stale_snapshot(
         self,
         *,

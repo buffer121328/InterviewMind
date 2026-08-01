@@ -1,3 +1,5 @@
+// 已知超限：职责单一（同域展示组件集合），暂不拆分。
+
 import type { RefObject } from 'react';
 import { AlertCircle, BarChart3, CheckCircle, FileText, Loader2, Shield, Target, TrendingUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';

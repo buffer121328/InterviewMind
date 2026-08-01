@@ -72,14 +72,12 @@ prompt_registry = PromptRegistry()
 def _register_builtin_prompts() -> None:
     """注册 `builtin prompts`。"""
     from ai.prompts.analysis import (
-        AGGREGATE_PROFILE_PROMPT,
         EVIDENCE_CHUNK_PROMPT,
         EVIDENCE_REPORT_PROMPT,
         MULTI_REVIEWER_CONSENSUS_PROMPT,
         MULTI_REVIEWER_PROMPT,
         SESSION_REPORT_PROMPT,
         build_ability_review_consensus_prompt,
-        build_aggregate_profile_prompt,
         build_communication_reviewer_prompt,
         build_evidence_chunk_prompt,
         build_evidence_report_prompt,
@@ -160,31 +158,20 @@ def _register_builtin_prompts() -> None:
     from ai.prompts.voice import (
         INTERVIEW_VOICE_SYSTEM_PROMPT,
         TTS_SYSTEM_PROMPT,
-        VOICE_SYSTEM_PROMPT,
         build_interview_voice_system_prompt,
         build_tts_system_prompt,
-        build_voice_system_prompt,
     )
 
     for spec in (
-        # v1 aliases remain for Prompt Management previews and already stored managed labels;
-        # production Agent definitions use v2 and the aliases can be removed after prompt migration.
-        PromptSpec("interview.planner", "1", build_planner_prompt, "面试题目规划（兼容）", PLANNER_PROMPT),
         PromptSpec("interview.planner", "2", build_planner_prompt, "面试题目规划", PLANNER_PROMPT),
         PromptSpec("interview.opening", "1", build_opening_prompt, "面试开场", OPENING_PROMPT),
-        PromptSpec("interview.evaluating", "1", build_evaluating_prompt, "面试回答评估与推进（兼容）", EVALUATING_PROMPT),
         PromptSpec("interview.evaluating", "2", build_evaluating_prompt, "面试回答评估与推进", EVALUATING_PROMPT),
         PromptSpec("interview.hints", "1", build_hints_prompt, "面试回答提示", HINTS_PROMPT),
-        PromptSpec("voice.system", "1", build_voice_system_prompt, "语音面试回复（兼容）", VOICE_SYSTEM_PROMPT),
-        PromptSpec("voice.system", "2", build_voice_system_prompt, "语音面试回复", VOICE_SYSTEM_PROMPT),
-        PromptSpec("voice.interview_system", "1", build_interview_voice_system_prompt, "语音面试系统提示（兼容）", INTERVIEW_VOICE_SYSTEM_PROMPT),
         PromptSpec("voice.interview_system", "2", build_interview_voice_system_prompt, "精简语音面试系统提示", INTERVIEW_VOICE_SYSTEM_PROMPT),
         PromptSpec("voice.tts", "1", build_tts_system_prompt, "语音合成系统提示", TTS_SYSTEM_PROMPT),
-        PromptSpec("analysis.session_report", "1", build_session_report_prompt, "单场能力画像与短板地图（兼容）", SESSION_REPORT_PROMPT),
         PromptSpec("analysis.session_report", "2", build_session_report_prompt, "单场能力画像与短板地图", SESSION_REPORT_PROMPT),
         PromptSpec("analysis.question_evidence", "1", build_evidence_chunk_prompt, "面试逐题证据块", EVIDENCE_CHUNK_PROMPT),
         PromptSpec("analysis.evidence_report", "1", build_evidence_report_prompt, "逐题证据汇总报告", EVIDENCE_REPORT_PROMPT),
-        PromptSpec("analysis.aggregate_profile", "1", build_aggregate_profile_prompt, "跨场综合画像（兼容）", AGGREGATE_PROFILE_PROMPT),
         PromptSpec("analysis.multi_reviewer.technical_depth", "1", build_technical_depth_reviewer_prompt, "面试评审：技术深度", MULTI_REVIEWER_PROMPT),
         PromptSpec("analysis.multi_reviewer.communication", "1", build_communication_reviewer_prompt, "面试评审：沟通表达", MULTI_REVIEWER_PROMPT),
         PromptSpec("analysis.multi_reviewer.job_fit", "1", build_job_fit_reviewer_prompt, "面试评审：岗位匹配", MULTI_REVIEWER_PROMPT),
@@ -202,7 +189,6 @@ def _register_builtin_prompts() -> None:
         PromptSpec("resume.needs_analysis", "1", build_needs_analysis_prompt, "简历生成：信息缺口分析", NEEDS_ANALYSIS_PROMPT),
         PromptSpec("resume.draft_generation", "1", build_draft_generation_prompt, "简历生成：初稿", DRAFT_GENERATION_PROMPT),
         PromptSpec("resume.draft_optimization", "1", build_draft_optimization_prompt, "简历生成：初稿优化", DRAFT_OPTIMIZATION_PROMPT),
-        PromptSpec("resume.fact_check", "1", build_fact_check_prompt, "简历生成：事实核查（兼容）", FACT_CHECK_PROMPT),
         PromptSpec("resume.fact_check", "2", build_fact_check_prompt, "简历生成：独立事实验证", FACT_CHECK_PROMPT),
         PromptSpec("resume.finalize_review", "1", build_finalize_review_prompt, "简历生成：最终审查", FINALIZE_REVIEW_PROMPT),
         PromptSpec("resume.analysis", "1", build_resume_analysis_prompt, "简历竞争力分析", RESUME_ANALYSIS_PROMPT),
@@ -214,9 +200,7 @@ def _register_builtin_prompts() -> None:
         PromptSpec("resume.rewrite_planner", "1", build_rewrite_planner_prompt, "简历改写规划", REWRITE_PLANNER_PROMPT),
         PromptSpec("resume.rewrite_executor", "1", build_rewrite_executor_prompt, "简历改写执行", REWRITE_EXECUTOR_PROMPT),
         PromptSpec("resume.material_extraction", "1", build_material_extraction_prompt, "简历素材抽取", MATERIAL_EXTRACTION_PROMPT),
-        PromptSpec("jobs.greeting", "1", build_greeting_prompt, "岗位打招呼文案（兼容）", GREETING_PROMPT),
-        PromptSpec("jobs.greeting", "2", build_greeting_prompt, "岗位打招呼文案（证据边界）", GREETING_PROMPT),
-        PromptSpec("jobs.greeting", "3", build_greeting_prompt, "岗位打招呼文案（Reflect）", GREETING_PROMPT),
+        PromptSpec("jobs.greeting", "3", build_greeting_prompt, "岗位打招呼文案", GREETING_PROMPT),
         PromptSpec("jobs.greeting_reflection", "1", build_greeting_reflection_prompt, "岗位打招呼文案自审", GREETING_REFLECTION_PROMPT),
         PromptSpec("jobs.extraction", "1", build_job_extraction_prompt, "岗位详情抽取", JOB_EXTRACTION_PROMPT),
         PromptSpec("jobs.card_extraction", "1", build_job_card_extraction_prompt, "岗位卡片抽取", JOB_CARD_EXTRACTION_PROMPT),

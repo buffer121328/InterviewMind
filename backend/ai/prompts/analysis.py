@@ -128,28 +128,6 @@ MULTI_REVIEWER_CONSENSUS_PROMPT = prompt_template(
 {STRICT_JSON_RULES}"""
 )
 
-AGGREGATE_PROFILE_PROMPT = prompt_template(
-    f"""你是人才评估专家。请将最近 {{profiles_count}} 个面试系列的最终评估聚合为稳定、可解释的综合画像。
-
-{UNTRUSTED_INPUT_RULES}
-{EVIDENCE_RULES}
-{SCORE_CALIBRATION_RULES}
-{CONCISE_CHINESE_RULES}
-
-【历史评估，按时间倒序且已包含权重】
-{{profiles_context}}
-
-【聚合要求】
-1. 六个维度均为 0-10 分，优先采用加权证据，不做简单最高分或最近一次覆盖。
-2. 区分稳定能力、偶发表现和近期趋势；单次异常不能主导结论。
-3. evidence 必须概括跨场证据和趋势，不要只重复分数。
-4. skill_tags 保留 5-10 个多次出现或证据最强的技能。
-5. recommendation 只能是 strong_hire、hire、borderline 或 no_hire；confidence 为 0-1，记录越少或冲突越大，置信度越低。
-
-{STRICT_JSON_RULES}"""
-)
-
-
 def build_session_report_prompt(
     report_context: str,
 ) -> str:
@@ -191,17 +169,6 @@ def build_evidence_report_prompt(
         report_context=report_context,
         evidence_text=evidence_text,
         evidence_count=evidence_count,
-    )
-
-
-def build_aggregate_profile_prompt(profiles_count: int, profiles_context: str) -> str:
-    """Build the time-weighted cross-interview profile prompt."""
-    return render_prompt(
-        AGGREGATE_PROFILE_PROMPT,
-        prompt_name="analysis.aggregate_profile",
-        prompt_version="1",
-        profiles_count=profiles_count,
-        profiles_context=profiles_context,
     )
 
 

@@ -62,20 +62,12 @@ def _start_context_manager(
     """Create one dependency span containing only the event safe projection."""
 
     metadata = event.to_langfuse_payload()
-    try:
-        context_manager = client.start_as_current_observation(
-            name=event.operation,
-            as_type="span",
-            metadata=metadata,
-            end_on_exit=False,
-        )
-    except TypeError:
-        # Older SDKs and lightweight test doubles may not accept end_on_exit.
-        context_manager = client.start_as_current_observation(
-            name=event.operation,
-            as_type="span",
-            metadata=metadata,
-        )
+    context_manager = client.start_as_current_observation(
+        name=event.operation,
+        as_type="span",
+        metadata=metadata,
+        end_on_exit=False,
+    )
     span = context_manager.__enter__()
     return _ActiveExternalIOSpan(context_manager=context_manager, span=span)
 

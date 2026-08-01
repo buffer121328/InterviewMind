@@ -25,7 +25,7 @@ interface ModelAssignmentsProps {
     onSetContentWriterModel: (id: string) => boolean;
     onSetHrReviewerModel: (id: string) => boolean;
     onSetReflectorModel: (id: string) => boolean;
-    onSetVoiceModel: (id: string) => boolean;
+    onSetMimoModel: (id: string) => boolean;
     onSetRagEmbeddingModel: (id: string) => boolean;
     onSetMem0LlmModel: (id: string) => boolean;
     onSetMem0EmbedderModel: (id: string) => boolean;
@@ -148,10 +148,9 @@ export function ModelAssignments(props: ModelAssignmentsProps) {
 
     const chatModels = config.models.filter(model => (model.kind || 'chat') === 'chat');
     const embeddingModels = config.models.filter(model => model.kind === 'embedding' || model.model.toLowerCase().includes('embedding'));
-    const voiceModels = config.models.filter(model => model.kind === 'voice' || /omni|audio/i.test(model.model));
+    const mimoModels = config.models.filter(model => model.provider === 'mimo');
     const primaryModels = chatModels.length > 0 ? chatModels : config.models;
     const embeddingOptions = embeddingModels.length > 0 ? embeddingModels : config.models;
-    const voiceOptions = voiceModels.length > 0 ? voiceModels : config.models;
 
     return (
         <div className="space-y-4">
@@ -199,9 +198,9 @@ export function ModelAssignments(props: ModelAssignmentsProps) {
             <Section
                 icon={AudioLines}
                 title="语音面试"
-                description="分配支持音频输入输出的 Omni 模型。兼容性取决于提供商端点与模型能力。"
+                description="语音统一走 MiMo ASR、文本对话与 TTS 拆分链路，不回退到其他语音模型。"
             >
-                <ModelSelect label="Voice 通道" description="语音面试转写、理解与合成调用。" value={config.voiceModelId} models={voiceOptions} onChange={props.onSetVoiceModel} />
+                <ModelSelect label="小米 MiMo" description="Key 随当前请求发送，后端固定调用 mimo-v2.5-asr、mimo-v2.5 与 mimo-v2.5-tts。" value={config.mimoModelId} models={mimoModels} onChange={props.onSetMimoModel} required />
             </Section>
 
             <div className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 text-xs leading-5 text-slate-600 sm:grid-cols-3">

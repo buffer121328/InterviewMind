@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import base64
 import re
 from types import SimpleNamespace
@@ -11,10 +10,8 @@ import pytest
 from pydantic import ValidationError
 
 from ai.agents.interview.voice_context import build_voice_history_context
-from ai.llm import llms
 from ai.prompts.voice import build_interview_voice_system_prompt
 from ai.workflows.analysis.analysis_service import SessionReportAnalysisService
-from app.config import get_settings
 from app.schemas.llm_outputs import EvidenceChunkOutput, SessionInterviewReportOutput
 from app.schemas.voice import VoiceChatRequest
 
@@ -320,74 +317,3 @@ def test_voice_request_rejects_malformed_and_over_duration_audio(monkeypatch):
     encoded = base64.b64encode(_wav_header(duration_seconds=121)).decode()
     with pytest.raises(ValidationError, match="单次录音不能超过 120 秒"):
         VoiceChatRequest(audio=encoded, **base)
-
-
-class _SlowFirstChunk:
-    """Async iterator that delays the first chunk for first-packet timeout testing."""
-
-    def __aiter__(self):
-        return self
-
-    async def __anext__(self):
-        await asyncio.sleep(0.2)
-        return "late"
-
-
-class _ImmediateChunks:
-    """Async iterator that returns one fallback chunk immediately."""
-
-    def __init__(self):
-        self.done = False
-
-    def __aiter__(self):
-        return self
-
-    async def __anext__(self):
-        if self.done:
-            raise StopAsyncIteration
-        self.done = True
-        return "fallback"
-
-
-@pytest.mark.asyncio
-async def test_voice_first_chunk_timeout_falls_back_before_any_output(monkeypatch):
-    """A first-packet timeout may switch candidates, but no switch occurs after output is yielded."""
-    settings = get_settings().model_copy(
-        update={
-            "voice_first_chunk_timeout_seconds": 0.01,
-            "voice_model": "voice-fallback",
-        }
-    )
-    monkeypatch.setattr(llms, "get_settings", lambda: settings)
-    calls: list[str] = []
-
-    class FakeCompletions:
-        async def create(self, **kwargs):
-            calls.append(kwargs["model"])
-            return _SlowFirstChunk() if kwargs["model"] == "voice-primary" else _ImmediateChunks()
-
-    class FakeClient:
-        chat = type("Chat", (), {"completions": FakeCompletions()})()
-
-    monkeypatch.setattr(llms, "get_async_omni_client", lambda _config: FakeClient())
-    chunks = []
-    gateway = llms.ModelGateway()
-    async for chunk in gateway.stream_voice_chat_completions(
-        {
-            "voice": {
-                "api_key": "test",
-                "base_url": "https://example.invalid/v1",
-                "model": "voice-primary",
-            },
-            "fast": {
-                "api_key": "test",
-                "base_url": "https://example.invalid/v1",
-                "model": "fast-text",
-            },
-        },
-        messages=[{"role": "user", "content": "hello"}],
-    ):
-        chunks.append(chunk)
-
-    assert calls == ["voice-primary", "voice-fallback"]
-    assert chunks == ["fallback"]

@@ -25,8 +25,8 @@ from .application import JobApplicationModel, ApplicationEventModel
 from .jd import JdAnalysisResultModel
 from .job_capture import CapturedJobModel
 from .agent_run import AgentRunEventModel, AgentRunModel, TaskOutboxModel
-from .prompt import PromptVersionModel
 from .artifact import ArtifactModel
+from .user_feedback import UserFeedbackModel
 from .evaluation import (
     EvaluationAnnotationModel,
     EvaluationCalibrationModel,
@@ -62,10 +62,10 @@ __all__ = [
     "CapturedJobModel",
     # agent runs
     "AgentRunModel", "AgentRunEventModel", "TaskOutboxModel",
-    # prompts
-    "PromptVersionModel",
     # private generated exports
     "ArtifactModel",
+    # user satisfaction feedback
+    "UserFeedbackModel",
     # evaluation
     "EvaluationAnnotationModel", "EvaluationCalibrationModel", "EvaluationCaseModel",
     "EvaluationCaseRunModel", "EvaluationDatasetVersionModel", "EvaluationGatePolicyModel",
