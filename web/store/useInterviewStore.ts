@@ -21,6 +21,13 @@ import { createInterviewSlice, type InterviewFlowSlice } from './slices/intervie
 import { createApiConfigSlice, type ApiConfigSlice } from './slices/apiConfigSlice';
 import { createResumeSlice, type ResumeSlice } from './slices/resumeSlice';
 import { createApplicationSlice, type ApplicationSlice } from './slices/applicationSlice';
+import {
+    apiConfigForPersistence,
+    createCredentialSafeStorage,
+    INTERVIEW_STORE_PERSIST_VERSION,
+    rehydrateApiConfig,
+    stripApiKeysFromPersistedState,
+} from './apiConfigPersistence';
 
 // ============================================================================
 // Store 类型定义
@@ -60,10 +67,22 @@ export const useInterviewStore = create<InterviewStore>()(
         }),
         {
             name: 'interview-store',
-            storage: createJSONStorage(() => localStorage),
-            // 只持久化 API 配置
+            storage: createJSONStorage(() => createCredentialSafeStorage(localStorage)),
+            version: INTERVIEW_STORE_PERSIST_VERSION,
+            migrate: persistedState => stripApiKeysFromPersistedState(persistedState),
+            merge: (persistedState, currentState) => {
+                const sanitized = stripApiKeysFromPersistedState(persistedState);
+                const persistedApiConfig = sanitized && typeof sanitized === 'object' && 'apiConfig' in sanitized
+                    ? (sanitized as { apiConfig?: unknown }).apiConfig
+                    : undefined;
+                return {
+                    ...currentState,
+                    apiConfig: rehydrateApiConfig(persistedApiConfig, currentState.apiConfig),
+                };
+            },
+            // 端点、模型和通道分配可持久化；API Key 只留在当前页面的 Zustand 内存中。
             partialize: (state) => ({
-                apiConfig: state.apiConfig,
+                apiConfig: apiConfigForPersistence(state.apiConfig),
             }),
         }
     )

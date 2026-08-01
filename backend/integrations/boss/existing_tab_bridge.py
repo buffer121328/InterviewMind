@@ -19,6 +19,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 from integrations.boss.security import (
+    boss_job_url_matches_expected,
     is_allowed_boss_job_url,
     is_allowed_boss_search_url,
 )
@@ -1050,6 +1051,18 @@ class BossExistingTabBridge:
                 allow_job_detail=True,
             )
             await asyncio.sleep(boss_existing_tab_poll_interval_seconds())
+            navigated_status = await self._inspect_unlocked(
+                target,
+                expected_tab_id=tab_id,
+            )
+            if not boss_job_url_matches_expected(
+                navigated_status.current_url,
+                source_url,
+            ):
+                raise BossExistingTabError(
+                    "job_navigation_mismatch",
+                    "岗位导航结果与已保存链接不一致，本次发送已安全停止。",
+                )
 
             contact_status = self._action_status(await self._execute_in_existing_tab(
                 target,
@@ -1149,6 +1162,19 @@ class BossExistingTabBridge:
             )
             self._last_action_at[target.channel] = monotonic()
             self._status_cache.pop(target.channel, None)
+            await asyncio.sleep(boss_existing_tab_poll_interval_seconds())
+            navigated_status = await self._inspect_unlocked(
+                target,
+                expected_tab_id=tab_id,
+            )
+            if not boss_job_url_matches_expected(
+                navigated_status.current_url,
+                source_url,
+            ):
+                raise BossExistingTabError(
+                    "job_navigation_mismatch",
+                    "岗位导航结果与已保存链接不一致，本次打开已安全停止。",
+                )
             return {
                 "success": True,
                 "browser_channel": target.channel,

@@ -1,21 +1,35 @@
 """RAG ORM 字段映射回归测试。"""
 
 import pytest
+from sqlalchemy.dialects import postgresql
 
 from app.db.repositories.interview import rag_index_repo
 
 
 class _FakeResult:
+    rowcount = 2
+
     def all(self):
         return []
 
     def scalars(self):
         return self
 
+    def scalar_one(self):
+        return 17
+
 
 class _FakeDb:
-    async def execute(self, _statement):
+    def __init__(self):
+        self.statements = []
+        self.commits = 0
+
+    async def execute(self, statement):
+        self.statements.append(statement)
         return _FakeResult()
+
+    async def commit(self):
+        self.commits += 1
 
 
 class _FakeSession:
@@ -52,3 +66,54 @@ async def test_rag_searches_use_chunk_metadata_mapping(monkeypatch):
         target_skill="FastAPI",
         is_verified=True,
     ) == []
+
+
+@pytest.mark.asyncio
+async def test_pending_upsert_is_idempotent_and_preserves_unchanged_embedding(monkeypatch):
+    """相同内容重复 upsert 仍返回行，并且不会把已完成 embedding 重置为 pending。"""
+    db = _FakeDb()
+    monkeypatch.setattr(rag_index_repo, "async_session", lambda: _FakeSession(db))
+
+    chunk_id = await rag_index_repo.RagIndexRepo().upsert_chunk(
+        user_id="user-1",
+        namespace="user_private",
+        source_type="question_bank",
+        source_id="42",
+        chunk_key="question_bank:42:main",
+        content="FastAPI dependency injection",
+        content_hash="hash-1",
+        metadata={"target_skill": "FastAPI"},
+    )
+
+    sql = str(db.statements[0].compile(dialect=postgresql.dialect()))
+    update_clause = sql.split("DO UPDATE SET", 1)[1].split("RETURNING", 1)[0]
+    assert chunk_id == 17
+    assert "embedding_status = CASE WHEN" in update_clause
+    assert "embedding = CASE WHEN" in update_clause
+    assert " WHERE " not in update_clause
+    assert db.commits == 1
+
+
+@pytest.mark.asyncio
+async def test_deactivate_stale_chunks_keeps_current_snapshot_scoped(monkeypatch):
+    """删除漂移只作用于同 owner、namespace、source_type 且不在当前快照中的 chunk。"""
+    db = _FakeDb()
+    monkeypatch.setattr(rag_index_repo, "async_session", lambda: _FakeSession(db))
+
+    affected = await rag_index_repo.RagIndexRepo().deactivate_stale_chunks(
+        user_id="user-1",
+        namespace="user_private",
+        source_type="question_bank",
+        active_chunk_scopes={
+            ("42", "question_bank:42:main"),
+            ("43", "question_bank:43:main"),
+        },
+    )
+
+    sql = str(db.statements[0].compile(dialect=postgresql.dialect()))
+    assert affected == 2
+    assert "UPDATE rag_chunks SET is_active=" in sql
+    assert "(rag_chunks.source_id, rag_chunks.chunk_key) NOT IN" in sql
+    assert "rag_chunks.user_id =" in sql
+    assert "rag_chunks.namespace =" in sql
+    assert "rag_chunks.source_type =" in sql

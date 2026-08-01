@@ -17,6 +17,10 @@ from observability.langfuse_client import (
     _get_callback_handler,
     _get_propagate_attributes,
 )
+from observability.privacy import (
+    sanitize_trace_payload as _sanitize_trace_payload,
+    trace_fingerprint as _trace_fingerprint,
+)
 from observability.providers import (
     estimate_model_cost,
     infer_model_integration,
@@ -188,18 +192,6 @@ _SAFE_MODEL_EVENT_FIELDS = {
     "trace_id",
     "truncated_sources",
 }
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 def _safe_model_event_value(value: Any) -> Any:
@@ -617,7 +609,7 @@ async def agent_observation(
         propagate_attributes = _get_propagate_attributes()
         metadata = {"agent_type": agent_type, "trace_id": observation.trace_id}
         if run_id:
-            metadata["agent_run_id"] = run_id
+            metadata["agent_run_id"] = _trace_fingerprint(run_id)
         with _client.start_as_current_observation(
             as_type="span",
             name=name,
@@ -625,8 +617,8 @@ async def agent_observation(
         ) as span:
             with propagate_attributes(
                 trace_name=name,
-                user_id=user_id,
-                session_id=session_id,
+                user_id=_trace_fingerprint(user_id) if user_id else None,
+                session_id=_trace_fingerprint(session_id) if session_id else None,
                 metadata=metadata,
             ):
                 entered = True
@@ -740,9 +732,11 @@ def _update_span(span: Any, observation: AgentObservation) -> None:
         span: 当前观测对象；更新前会应用脱敏和失败不阻断业务的约束。
         observation: 当前观测对象；更新前会应用脱敏和失败不阻断业务的约束。
     """
-    output_payload = {"trace_id": observation.trace_id, **(observation.output_payload or {})}
+    safe_input_payload = _sanitize_trace_payload(observation.input_payload)
+    safe_observation_output = _sanitize_trace_payload(observation.output_payload or {})
+    output_payload = {"trace_id": observation.trace_id, **safe_observation_output}
     if observation.run_id:
-        output_payload["agent_run_id"] = observation.run_id
+        output_payload["agent_run_id"] = _trace_fingerprint(observation.run_id)
     if observation.model_events:
         output_payload["model_event_count"] = len(observation.model_events)
         output_payload["model_event_summary"] = summarize_model_events(observation.model_events)
@@ -774,16 +768,19 @@ def _update_span(span: Any, observation: AgentObservation) -> None:
             observation.runtime_events
         )
     if observation.error_payload:
-        output_payload = {**output_payload, "error": observation.error_payload}
+        output_payload = {
+            **output_payload,
+            "error": _sanitize_trace_payload(observation.error_payload),
+        }
     try:
-        span.update(input=observation.input_payload, output=output_payload)
+        span.update(input=safe_input_payload, output=output_payload)
     except Exception as error:
         logger.warning("Langfuse span 更新失败: %s", type(error).__name__)
 
 
 def _create_callback_handler_instance() -> Any | None:
-    """创建 Langfuse 官方 LangChain/LangGraph callback handler。"""
-    if _client is None:
+    """仅在显式允许原始模型 I/O 时创建官方 callback，默认阻断 prompt/output 外发。"""
+    if _client is None or not _current_config().capture_model_io:
         return None
     try:
         return _get_callback_handler()()

@@ -23,6 +23,35 @@ EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-v4")
 EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "1536"))
 
 
+def _validate_embedding_response(
+    response: object,
+    *,
+    expected_count: int,
+    expected_dimensions: int,
+) -> List[List[float]]:
+    """校验第三方 embedding 返回数量和维度，避免错误向量进入 pgvector 写入路径。"""
+
+    data = list(getattr(response, "data", None) or [])
+    if len(data) != expected_count:
+        raise ValueError(
+            f"embedding 响应数量不匹配: expected={expected_count}, actual={len(data)}"
+        )
+
+    embeddings: List[List[float]] = []
+    for item in data:
+        raw_embedding = getattr(item, "embedding", None)
+        if not isinstance(raw_embedding, (list, tuple)):
+            raise ValueError("embedding 响应缺少向量数组")
+        embedding = [float(value) for value in raw_embedding]
+        if len(embedding) != expected_dimensions:
+            raise ValueError(
+                "embedding 维度不匹配: "
+                f"expected={expected_dimensions}, actual={len(embedding)}"
+            )
+        embeddings.append(embedding)
+    return embeddings
+
+
 def compute_content_hash(content: str) -> str:
     """计算内容的 SHA-256 哈希值，用于避免重复 embedding。"""
     return hashlib.sha256(content.encode("utf-8")).hexdigest()
@@ -113,7 +142,11 @@ async def generate_embedding(
             api_config=api_config,
             deadline=TaskDeadline(get_settings().embedding_timeout_seconds),
         )
-        embedding = response.data[0].embedding
+        embedding = _validate_embedding_response(
+            response,
+            expected_count=1,
+            expected_dimensions=dims,
+        )[0]
         record_external_io_event(
             ExternalIOObservationEvent(
                 event_type="external_io.completed",
@@ -181,7 +214,13 @@ async def generate_embeddings_batch(
                 api_config=api_config,
                 deadline=deadline,
             )
-            all_embeddings.extend(item.embedding for item in response.data)
+            all_embeddings.extend(
+                _validate_embedding_response(
+                    response,
+                    expected_count=len(batch),
+                    expected_dimensions=dims,
+                )
+            )
         record_external_io_event(
             ExternalIOObservationEvent(
                 event_type="external_io.completed",

@@ -125,7 +125,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                                 <KeyRound className="mt-0.5 h-4 w-4 shrink-0" />
                                 <div>
                                     <div className="font-semibold">本地 Key 安全提示</div>
-                                    <p className="mt-1 text-amber-900/80">API Key 会明文保存在浏览器 localStorage，并在执行任务时随 `api_config` 发送给后端。不要截图或共享本页；公网部署必须使用 HTTPS。</p>
+                                    <p className="mt-1 text-amber-900/80">模型名、端点和通道分配保存到 localStorage；API Key 只留在当前页面内存，刷新或关闭后清空。旧版已持久化的明文 Key 会在加载时自动删除。</p>
                                 </div>
                             </div>
                         </div>
@@ -168,7 +168,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                                             <dl className="mt-4 grid gap-2 text-xs">
                                                 <div className="flex justify-between gap-3"><dt className="text-slate-400">模型</dt><dd className="truncate font-mono text-slate-700">{model.model}</dd></div>
                                                 <div className="flex justify-between gap-3"><dt className="text-slate-400">端点</dt><dd className="truncate text-slate-700">{safeEndpointLabel(model.baseUrl)}</dd></div>
-                                                <div className="flex justify-between gap-3"><dt className="text-slate-400">Key</dt><dd className="font-mono text-slate-700">{maskApiKey(model.apiKey)}</dd></div>
+                                                <div className="flex justify-between gap-3"><dt className="text-slate-400">Key</dt><dd className="font-mono text-slate-700">{model.apiKey ? maskApiKey(model.apiKey) : '未输入（刷新后需重填）'}</dd></div>
                                             </dl>
                                         </div>
                                     ))}
@@ -203,9 +203,9 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                     </div>
 
                     <DialogFooter className="flex-col gap-3 border-t border-slate-200 bg-slate-50 px-6 py-4 sm:flex-row sm:justify-between">
-                        <div className="text-xs leading-5 text-slate-500">更改会立即保存到当前浏览器。</div>
+                        <div className="text-xs leading-5 text-slate-500">非敏感设置会立即保存；Key 仅在当前页面内存中有效。</div>
                         <div className="flex gap-2">
-                            {config.models.length > 0 && <Button variant="ghost" className="text-red-600 hover:bg-red-50 hover:text-red-700" onClick={handleClearAll}>清除全部本地 Key</Button>}
+                            {config.models.length > 0 && <Button variant="ghost" className="text-red-600 hover:bg-red-50 hover:text-red-700" onClick={handleClearAll}>清除全部连接</Button>}
                             <Button variant="outline" onClick={() => onOpenChange(false)}>完成</Button>
                         </div>
                     </DialogFooter>

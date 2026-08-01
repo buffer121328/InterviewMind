@@ -122,6 +122,8 @@ ERROR_REPORTING=false
 OPENAI_API_KEY=
 OPENAI_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 EMBEDDING_MODEL=text-embedding-v4
+# 必须与模型输出以及 PostgreSQL public.rag_chunks.embedding 的 vector(n) 一致。
+# 开发启动和 deployment readiness 会在首次索引前 fail closed，但不会自动改列或重建索引。
 EMBEDDING_DIM=1536
 
 # ----------------------------------------------------------------------------
@@ -174,6 +176,9 @@ LANGFUSE_BASE_URL=https://cloud.langfuse.com
 LANGFUSE_TRACING_ENVIRONMENT=development
 LANGFUSE_RELEASE=local
 LANGFUSE_SAMPLE_RATE=1.0
+# 安全默认：不挂载会上传完整 prompt/output 的官方 LangChain/LangGraph callback。
+# 只有在确认第三方项目的数据合规边界后才显式改为 true。
+LANGFUSE_CAPTURE_MODEL_IO=false
 # 启用 Langfuse Prompt Management，失败时自动回退本地 Prompt。
 LANGFUSE_PROMPT_MANAGEMENT_ENABLED=false
 LANGFUSE_PROMPT_LABEL=production

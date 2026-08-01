@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Iterable
@@ -19,6 +20,29 @@ EXPECTED_KEYS = {
     "optimization_focus",
     "scoring_rationale",
 }
+SENSITIVE_FIELD_NAMES = {
+    "apikey",
+    "accesstoken",
+    "refreshtoken",
+    "authorization",
+    "cookie",
+    "setcookie",
+    "password",
+    "passwd",
+    "secret",
+    "clientsecret",
+    "privatekey",
+}
+SENSITIVE_CONTENT_PATTERNS = (
+    ("private_key", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")),
+    ("bearer_token", re.compile(r"\bbearer\s+[A-Za-z0-9._~+/=-]{12,}", re.IGNORECASE)),
+    ("provider_key", re.compile(r"\b(?:sk-[A-Za-z0-9_-]{16,}|AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{20,})\b")),
+    ("jwt", re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b")),
+    ("credential_url", re.compile(r"https?://[^/\s:@]+:[^/\s@]+@", re.IGNORECASE)),
+    ("email", re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.IGNORECASE)),
+    ("phone", re.compile(r"(?<!\d)1[3-9]\d{9}(?!\d)")),
+)
+MAX_PRIVACY_FINDINGS = 20
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,6 +64,122 @@ class DatasetSyncSummary:
     total_items: int
     created_items: int
     dry_run: bool = False
+
+
+class DatasetPrivacyError(ValueError):
+    """Reject a dataset containing credential fields or likely secret/PII content before upload."""
+
+    def __init__(self, findings: list[str]) -> None:
+        """Store only JSON paths and finding categories; never include the matched values."""
+
+        self.findings = tuple(findings[:MAX_PRIVACY_FINDINGS])
+        super().__init__(
+            "dataset privacy scan failed: " + ", ".join(self.findings)
+        )
+
+
+def _normalized_field_name(value: str) -> str:
+    """Normalize a JSON field name for exact sensitive-key matching."""
+
+    return re.sub(r"[^a-z0-9]+", "", value.lower())
+
+
+def _safe_path_segment(key: str, index: int) -> str:
+    """Return a useful JSON-path segment without echoing secret-like or attacker-controlled keys."""
+
+    normalized = _normalized_field_name(key)
+    if normalized in SENSITIVE_FIELD_NAMES:
+        return "<sensitive-field>"
+    if re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]{0,39}", key) and not any(
+        pattern.search(key) for _category, pattern in SENSITIVE_CONTENT_PATTERNS
+    ):
+        return key
+    return f"field[{index}]"
+
+
+def _scan_sensitive_value(value: Any, *, path: str, findings: list[str]) -> None:
+    """Recursively scan one JSON-compatible value and append only safe path/category findings."""
+
+    if len(findings) >= MAX_PRIVACY_FINDINGS:
+        return
+    if isinstance(value, dict):
+        for key_index, (key, nested) in enumerate(value.items()):
+            key_text = str(key)
+            child_path = f"{path}.{_safe_path_segment(key_text, key_index)}"
+            if _normalized_field_name(key_text) in SENSITIVE_FIELD_NAMES:
+                findings.append(f"{child_path}:sensitive_field")
+                if len(findings) >= MAX_PRIVACY_FINDINGS:
+                    return
+            _scan_sensitive_value(nested, path=child_path, findings=findings)
+        return
+    if isinstance(value, list):
+        for index, nested in enumerate(value):
+            _scan_sensitive_value(nested, path=f"{path}[{index}]", findings=findings)
+            if len(findings) >= MAX_PRIVACY_FINDINGS:
+                return
+        return
+    if not isinstance(value, str):
+        return
+    for category, pattern in SENSITIVE_CONTENT_PATTERNS:
+        if pattern.search(value):
+            findings.append(f"{path}:{category}")
+            if len(findings) >= MAX_PRIVACY_FINDINGS:
+                return
+
+
+def validate_dataset_privacy(items: Iterable[LangfuseDatasetItemSpec]) -> None:
+    """Fail closed when a Langfuse dataset item contains credential fields, secrets, or common PII."""
+
+    findings: list[str] = []
+    for index, item in enumerate(items):
+        _scan_sensitive_value(
+            {
+                "id": item.id,
+                "input": item.input,
+                "expected_output": item.expected_output,
+                "metadata": item.metadata,
+            },
+            path=f"$[{index}]",
+            findings=findings,
+        )
+        if len(findings) >= MAX_PRIVACY_FINDINGS:
+            break
+    if findings:
+        raise DatasetPrivacyError(findings)
+
+
+def _resolve_allowed_dataset_file(path: str | Path, *, allowed_root: str | Path) -> Path:
+    """Resolve one JSON file and reject traversal or symlink escape outside the approved dataset root."""
+
+    root = Path(allowed_root).resolve(strict=True)
+    source_file = Path(path).resolve(strict=True)
+    if not root.is_dir():
+        raise ValueError("allowed dataset root is not a directory")
+    if not source_file.is_file() or source_file.suffix.lower() != ".json":
+        raise ValueError("dataset source must be a JSON file")
+    try:
+        source_file.relative_to(root)
+    except ValueError as exc:
+        raise ValueError("dataset source is outside the allowed dataset directory") from exc
+    return source_file
+
+
+def _resolve_allowed_dataset_directory(
+    path: str | Path,
+    *,
+    allowed_root: str | Path,
+) -> Path:
+    """Resolve a dataset directory and reject traversal or symlink escape from the approved root."""
+
+    root = Path(allowed_root).resolve(strict=True)
+    directory = Path(path).resolve(strict=True)
+    if not directory.is_dir():
+        raise ValueError("dataset directory does not exist")
+    try:
+        directory.relative_to(root)
+    except ValueError as exc:
+        raise ValueError("dataset directory is outside the allowed dataset root") from exc
+    return directory
 
 
 def _is_expected_key(key: str) -> bool:
@@ -135,14 +275,26 @@ def sync_dataset(
     description: str | None = None,
     client: Any | None = None,
     dry_run: bool = False,
+    confirm_upload: bool = False,
+    allowed_root: str | Path = DATASET_DIR,
 ) -> DatasetSyncSummary:
-    """Create/update a Langfuse dataset from one local golden JSON file."""
+    """Validate and optionally upload one approved local golden JSON file to Langfuse.
 
-    source_file = Path(path)
+    Non-dry-run calls require ``confirm_upload=True``.  The source must resolve
+    under ``allowed_root`` and pass the credential/PII scanner before any client
+    is created or external write is attempted.
+    """
+
+    source_file = _resolve_allowed_dataset_file(path, allowed_root=allowed_root)
     name = dataset_name or default_dataset_name(source_file)
     items = load_dataset_items(source_file)
+    validate_dataset_privacy(items)
     if dry_run:
         return DatasetSyncSummary(name, source_file.name, len(items), 0, dry_run=True)
+    if not confirm_upload:
+        raise RuntimeError(
+            "Langfuse dataset upload requires explicit confirmation; pass confirm_upload=True"
+        )
 
     langfuse_client = client or get_langfuse_client()
     if langfuse_client is None:
@@ -154,19 +306,28 @@ def sync_dataset(
             description=description or f"Imported from {source_file.name}",
             metadata={"source_file": source_file.name, "source": "agent_interview_local_golden"},
         )
-    except Exception:
-        # Dataset may already exist. Item upserts below are idempotent when ids match.
-        pass
+    except Exception as exc:
+        status_code = getattr(exc, "status_code", None)
+        response = getattr(exc, "response", None)
+        if status_code != 409 and getattr(response, "status_code", None) != 409:
+            raise RuntimeError(
+                f"Langfuse dataset creation failed: {type(exc).__name__}"
+            ) from exc
 
     created = 0
     for item in items:
-        langfuse_client.create_dataset_item(
-            dataset_name=name,
-            input=item.input,
-            expected_output=item.expected_output,
-            metadata=item.metadata,
-            id=item.id,
-        )
+        try:
+            langfuse_client.create_dataset_item(
+                dataset_name=name,
+                input=item.input,
+                expected_output=item.expected_output,
+                metadata=item.metadata,
+                id=item.id,
+            )
+        except Exception as exc:
+            raise RuntimeError(
+                f"Langfuse dataset item upload failed: {type(exc).__name__}"
+            ) from exc
         created += 1
     return DatasetSyncSummary(name, source_file.name, len(items), created)
 
@@ -176,11 +337,22 @@ def sync_all_datasets(
     dataset_dir: str | Path = DATASET_DIR,
     client: Any | None = None,
     dry_run: bool = False,
+    confirm_upload: bool = False,
+    allowed_root: str | Path = DATASET_DIR,
 ) -> list[DatasetSyncSummary]:
-    """Sync all JSON files in the local golden dataset directory."""
+    """Validate and sync JSON files from an approved local golden dataset directory."""
 
-    root = Path(dataset_dir)
-    return [sync_dataset(path, client=client, dry_run=dry_run) for path in sorted(root.glob("*.json"))]
+    root = _resolve_allowed_dataset_directory(dataset_dir, allowed_root=allowed_root)
+    return [
+        sync_dataset(
+            path,
+            client=client,
+            dry_run=dry_run,
+            confirm_upload=confirm_upload,
+            allowed_root=allowed_root,
+        )
+        for path in sorted(root.glob("*.json"))
+    ]
 
 
 def run_langfuse_experiment(
@@ -217,9 +389,18 @@ def _main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Sync local golden datasets to Langfuse")
     parser.add_argument("--dataset-dir", default=str(DATASET_DIR), help="Directory containing *.json golden datasets")
     parser.add_argument("--dry-run", action="store_true", help="Only print what would be synced")
+    parser.add_argument(
+        "--confirm-upload",
+        action="store_true",
+        help="Explicitly confirm that validated dataset content may be uploaded to Langfuse",
+    )
     args = parser.parse_args(argv)
 
-    summaries = sync_all_datasets(dataset_dir=args.dataset_dir, dry_run=args.dry_run)
+    summaries = sync_all_datasets(
+        dataset_dir=args.dataset_dir,
+        dry_run=args.dry_run,
+        confirm_upload=args.confirm_upload,
+    )
     for summary in summaries:
         print(
             json.dumps(

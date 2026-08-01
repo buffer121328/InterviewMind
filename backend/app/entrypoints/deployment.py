@@ -10,6 +10,13 @@ import redis
 from alembic.config import Config
 from alembic.script import ScriptDirectory
 
+from app.db.rag_schema import (
+    RAG_VECTOR_TYPE_SQL,
+    RagVectorSchemaError,
+    configured_embedding_dimension,
+    validate_rag_vector_type,
+)
+
 
 ROOT = Path(__file__).resolve().parents[2]
 REQUIRED_TABLES = ("agent_runs", "agent_run_events", "task_outbox")
@@ -106,13 +113,22 @@ def readiness() -> tuple[bool, dict[str, str]]:
                     "SELECT to_regclass(%s)", (f"public.{table}",)
                 ).fetchone()[0] is None
             ]
+            vector_type_row = connection.execute(RAG_VECTOR_TYPE_SQL).fetchone()
+            vector_type = vector_type_row[0] if vector_type_row else None
+        details["postgres"] = "ok"
         if revision != expected:
             details["schema"] = f"Alembic revision is {revision or 'missing'}, expected {expected}"
         elif missing_tables:
             details["schema"] = f"missing required tables: {', '.join(missing_tables)}"
         else:
-            details["postgres"] = "ok"
-            details["schema"] = "ok"
+            try:
+                validate_rag_vector_type(
+                    vector_type,
+                    expected_dimension=configured_embedding_dimension(),
+                )
+                details["schema"] = "ok"
+            except RagVectorSchemaError as exc:
+                details["schema"] = str(exc)
     except Exception as exc:
         details["postgres"] = f"unavailable: {type(exc).__name__}"
 

@@ -174,7 +174,7 @@ export function ModelFormDialog({ open, onClose, onSave, editingModel, initialVa
                     <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900">
                         <div className="flex items-start gap-2">
                             <KeyRound className="mt-0.5 h-4 w-4 shrink-0" />
-                            <p>Key 会明文保存在当前浏览器，并在执行任务时发送给本项目后端。请勿截图、共享浏览器配置或在非 HTTPS 公网环境使用。</p>
+                            <p>Key 只保留在当前页面内存中，刷新或关闭页面后需重新输入；执行任务时会随请求发送给后端。公网部署必须使用 HTTPS。</p>
                         </div>
                     </div>
 

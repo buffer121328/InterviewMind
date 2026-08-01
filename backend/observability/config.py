@@ -47,6 +47,15 @@ def _env_float(name: str, default: float) -> float:
     return default if value is None else value
 
 
+def _env_sample_rate(name: str) -> float | None:
+    """读取并约束 Langfuse 采样率，避免越界配置传入第三方 SDK。"""
+
+    value = _env_float_optional(name)
+    if value is None:
+        return None
+    return min(1.0, max(0.0, value))
+
+
 @dataclass(frozen=True)
 class LangfuseConfig:
     """数据对象，承载 `LangfuseConfig` 的结构化字段和跨模块契约；只表达数据，不在构造或序列化时执行外部调用。"""
@@ -57,6 +66,7 @@ class LangfuseConfig:
     environment: str | None = None
     release: str | None = None
     sample_rate: float | None = None
+    capture_model_io: bool = False
     prompt_management_enabled: bool = False
     prompt_label: str | None = "production"
     prompt_cache_ttl_seconds: int = 300
@@ -74,7 +84,8 @@ class LangfuseConfig:
             base_url=os.getenv("LANGFUSE_BASE_URL", "https://cloud.langfuse.com"),
             environment=os.getenv("LANGFUSE_TRACING_ENVIRONMENT") or None,
             release=os.getenv("LANGFUSE_RELEASE") or None,
-            sample_rate=_env_float_optional("LANGFUSE_SAMPLE_RATE"),
+            sample_rate=_env_sample_rate("LANGFUSE_SAMPLE_RATE"),
+            capture_model_io=_env_bool("LANGFUSE_CAPTURE_MODEL_IO"),
             prompt_management_enabled=_env_bool("LANGFUSE_PROMPT_MANAGEMENT_ENABLED"),
             prompt_label=prompt_label,
             prompt_cache_ttl_seconds=_env_int("LANGFUSE_PROMPT_CACHE_TTL_SECONDS", 300),

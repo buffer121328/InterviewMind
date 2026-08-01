@@ -7,7 +7,7 @@ import logging
 from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 
-from sqlalchemy import cast, select, update, delete, func, text
+from sqlalchemy import case, cast, func, select, text, tuple_, update
 from sqlalchemy.dialects.postgresql import JSONB, insert as pg_insert
 
 from app.db.models import async_session
@@ -44,35 +44,46 @@ class RagIndexRepo:
         """
         now = _utcnow()
         async with async_session() as db:
+            insert_stmt = pg_insert(RagChunkModel).values(
+                user_id=user_id,
+                namespace=namespace,
+                source_type=source_type,
+                source_id=source_id,
+                source_version=source_version,
+                chunk_key=chunk_key,
+                content=content,
+                content_hash=content_hash,
+                chunk_metadata=metadata or {},
+                embedding_status="pending",
+                is_active=True,
+                created_at=now,
+                updated_at=now,
+            )
+            content_changed = RagChunkModel.content_hash != insert_stmt.excluded.content_hash
             stmt = (
-                pg_insert(RagChunkModel)
-                .values(
-                    user_id=user_id,
-                    namespace=namespace,
-                    source_type=source_type,
-                    source_id=source_id,
-                    source_version=source_version,
-                    chunk_key=chunk_key,
-                    content=content,
-                    content_hash=content_hash,
-                    chunk_metadata=metadata or {},
-                    embedding_status="pending",
-                    is_active=True,
-                    created_at=now,
-                    updated_at=now,
-                )
+                insert_stmt
                 .on_conflict_do_update(
                     constraint="uq_rag_chunks_scope",
                     set_={
-                        "content": content,
-                        "content_hash": content_hash,
-                        "metadata": metadata or {},
-                        "source_version": source_version,
-                        "embedding_status": "pending",
+                        "content": insert_stmt.excluded.content,
+                        "content_hash": insert_stmt.excluded.content_hash,
+                        "metadata": insert_stmt.excluded.metadata,
+                        "source_version": insert_stmt.excluded.source_version,
+                        "embedding": case(
+                            (content_changed, None),
+                            else_=RagChunkModel.embedding,
+                        ),
+                        "embedding_model": case(
+                            (content_changed, None),
+                            else_=RagChunkModel.embedding_model,
+                        ),
+                        "embedding_status": case(
+                            (content_changed, "pending"),
+                            else_=RagChunkModel.embedding_status,
+                        ),
                         "is_active": True,
                         "updated_at": now,
                     },
-                    where=RagChunkModel.content_hash != content_hash,
                 )
                 .returning(RagChunkModel.id)
             )
@@ -173,6 +184,44 @@ class RagIndexRepo:
                     RagChunkModel.is_active == True,
                 )
                 .values(is_active=False, updated_at=_utcnow())
+            )
+            await db.commit()
+            return result.rowcount
+
+    async def deactivate_stale_chunks(
+        self,
+        user_id: str,
+        namespace: str,
+        source_type: str,
+        active_chunk_scopes: set[tuple[str, str]],
+    ) -> int:
+        """失效一次成功重建后已不存在的 chunk，不跨越 owner、namespace 或来源类型边界。
+
+        Args:
+            user_id: 当前索引 owner。
+            namespace: 当前检索命名空间。
+            source_type: 本轮已完整提取的来源类型。
+            active_chunk_scopes: 本轮仍存在的 ``(source_id, chunk_key)`` 集合。
+
+        Returns:
+            被标记为非活跃的旧 chunk 数量。
+        """
+
+        async with async_session() as db:
+            stmt = update(RagChunkModel).where(
+                RagChunkModel.user_id == user_id,
+                RagChunkModel.namespace == namespace,
+                RagChunkModel.source_type == source_type,
+                RagChunkModel.is_active == True,
+            )
+            if active_chunk_scopes:
+                stmt = stmt.where(
+                    tuple_(RagChunkModel.source_id, RagChunkModel.chunk_key).not_in(
+                        sorted(active_chunk_scopes)
+                    )
+                )
+            result = await db.execute(
+                stmt.values(is_active=False, updated_at=_utcnow())
             )
             await db.commit()
             return result.rowcount

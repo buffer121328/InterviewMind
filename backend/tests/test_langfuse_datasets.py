@@ -2,6 +2,8 @@
 
 import json
 
+import pytest
+
 
 def test_load_dataset_items_splits_input_and_expected_output(tmp_path):
     from observability.datasets import load_dataset_items
@@ -62,7 +64,13 @@ def test_sync_dataset_uses_langfuse_client(tmp_path):
     path.write_text(json.dumps([{"id": "resume-1", "resume": "R", "expected_keywords": ["Java"]}], ensure_ascii=False), encoding="utf-8")
     client = FakeClient()
 
-    summary = sync_dataset(path, dataset_name="agent-interview-resume", client=client)
+    summary = sync_dataset(
+        path,
+        dataset_name="agent-interview-resume",
+        client=client,
+        confirm_upload=True,
+        allowed_root=tmp_path,
+    )
 
     assert summary.dataset_name == "agent-interview-resume"
     assert summary.total_items == 1
@@ -70,6 +78,66 @@ def test_sync_dataset_uses_langfuse_client(tmp_path):
     assert client.datasets[0]["name"] == "agent-interview-resume"
     assert client.items[0]["id"] == "resume-1"
     assert client.items[0]["expected_output"] == {"expected_keywords": ["Java"]}
+
+
+def test_sync_dataset_requires_explicit_upload_confirmation(tmp_path):
+    """Validated content is not uploaded unless the caller explicitly confirms the external write."""
+
+    from observability.datasets import sync_dataset
+
+    class FailingClient:
+        def create_dataset(self, **_kwargs):
+            raise AssertionError("client must not be called without confirmation")
+
+    path = tmp_path / "safe.json"
+    path.write_text(json.dumps([{"id": "safe-1", "query": "FastAPI"}]), encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="explicit confirmation"):
+        sync_dataset(path, client=FailingClient(), allowed_root=tmp_path)
+
+
+def test_sync_dataset_rejects_files_outside_allowed_directory(tmp_path):
+    """Path traversal and symlink-equivalent resolved paths cannot reach the upload boundary."""
+
+    from observability.datasets import sync_dataset
+
+    allowed = tmp_path / "allowed"
+    allowed.mkdir()
+    outside = tmp_path / "outside.json"
+    outside.write_text(json.dumps([{"id": "outside"}]), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="outside the allowed"):
+        sync_dataset(outside, dry_run=True, allowed_root=allowed)
+
+
+@pytest.mark.parametrize(
+    ("payload", "category"),
+    [
+        ({"id": "secret-field", "api_key": "placeholder"}, "sensitive_field"),
+        ({"id": "secret-content", "note": "Bearer abcdefghijklmnop"}, "bearer_token"),
+        ({"id": "pii-email", "resume": "candidate@example.com"}, "email"),
+        ({"id": "pii-phone", "resume": "13812345678"}, "phone"),
+    ],
+)
+def test_sync_dataset_privacy_scanner_blocks_sensitive_content_without_echoing_value(
+    tmp_path,
+    payload,
+    category,
+):
+    """Scanner failures report only safe JSON paths/categories and never the matched secret or PII."""
+
+    from observability.datasets import DatasetPrivacyError, sync_dataset
+
+    path = tmp_path / "sensitive.json"
+    path.write_text(json.dumps([payload]), encoding="utf-8")
+
+    with pytest.raises(DatasetPrivacyError) as exc_info:
+        sync_dataset(path, dry_run=True, allowed_root=tmp_path)
+
+    assert category in str(exc_info.value)
+    for value in payload.values():
+        if isinstance(value, str) and value not in {"secret-field", "secret-content", "pii-email", "pii-phone"}:
+            assert value not in str(exc_info.value)
 
 
 def test_run_langfuse_experiment_delegates_to_client():

@@ -346,7 +346,15 @@ async def test_open_job_reuses_pinned_existing_tab_and_rejects_external_url(monk
         message="connected",
         tab_id="edge-tab-7",
     )
-    inspect = AsyncMock(return_value=status)
+    navigated_status = BossTabStatus(
+        **{
+            **status.as_dict(),
+            "current_url": "https://www.zhipin.com/job_detail/card_1-real.html",
+            "page_status": "job_detail",
+            "tab_id": "edge-tab-7",
+        }
+    )
+    inspect = AsyncMock(side_effect=[status, navigated_status])
     navigate = AsyncMock(return_value="edge-tab-7")
     monkeypatch.setattr(bridge, "_inspect_unlocked", inspect)
     monkeypatch.setattr(bridge, "_navigate_existing_tab", navigate)
@@ -381,7 +389,15 @@ async def test_send_message_uses_pinned_tab_and_requires_postcondition(monkeypat
         message="connected",
         tab_id="edge-tab-7",
     )
-    inspect = AsyncMock(return_value=status)
+    navigated_status = BossTabStatus(
+        **{
+            **status.as_dict(),
+            "current_url": "https://www.zhipin.com/job_detail/card_1-real.html",
+            "page_status": "job_detail",
+            "tab_id": "edge-tab-7",
+        }
+    )
+    inspect = AsyncMock(side_effect=[status, navigated_status])
     navigate = AsyncMock(return_value="edge-tab-7")
     execute = AsyncMock(side_effect=[
         BossTabExecution(tab_id="edge-tab-7", result=json.dumps({"status": "contact_clicked"})),
@@ -449,3 +465,53 @@ async def test_send_message_marks_unverified_click_as_ambiguous(monkeypatch):
 
     assert caught.value.code == "message_send_unverified"
     assert caught.value.request_may_have_run is True
+
+
+@pytest.mark.asyncio
+async def test_send_message_stops_before_contact_when_navigation_changes_job(monkeypatch):
+    """导航被站内重定向到其他岗位时，任何沟通点击都不得执行。"""
+    bridge = BossExistingTabBridge()
+    initial_status = BossTabStatus(
+        success=True,
+        browser_channel="chrome",
+        browser_label="Google Chrome",
+        connected=True,
+        current_url="https://www.zhipin.com/web/geek/jobs?query=agent",
+        page_status="search_ready",
+        ready_state="complete",
+        visible_card_count=2,
+        message="connected",
+        tab_id="chrome-tab-1",
+    )
+    redirected_status = BossTabStatus(
+        **{
+            **initial_status.as_dict(),
+            "current_url": "https://www.zhipin.com/job_detail/other-job.html",
+            "page_status": "job_detail",
+            "tab_id": "chrome-tab-1",
+        }
+    )
+    execute = AsyncMock()
+    monkeypatch.setattr(
+        bridge,
+        "_inspect_unlocked",
+        AsyncMock(side_effect=[initial_status, redirected_status]),
+    )
+    monkeypatch.setattr(
+        bridge,
+        "_navigate_existing_tab",
+        AsyncMock(return_value="chrome-tab-1"),
+    )
+    monkeypatch.setattr(bridge, "_execute_in_existing_tab", execute)
+    monkeypatch.setattr(bridge_module.asyncio, "sleep", AsyncMock())
+
+    with pytest.raises(BossExistingTabError) as caught:
+        await bridge.send_message(
+            source_url="https://www.zhipin.com/job_detail/card_1-real.html",
+            message_text="您好，我希望基于自己的真实项目经验进一步沟通这个岗位和团队需求。",
+            browser_channel="chrome",
+        )
+
+    assert caught.value.code == "job_navigation_mismatch"
+    assert caught.value.request_may_have_run is False
+    execute.assert_not_awaited()

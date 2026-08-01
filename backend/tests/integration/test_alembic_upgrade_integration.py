@@ -108,7 +108,7 @@ def test_alembic_upgrades_stamped_create_all_schema_to_latest(monkeypatch):
 
     _reset_public_schema(dsn)
     from app.db.models import Base
-    import deployment
+    from app.entrypoints import deployment
 
     engine = create_engine(_sync_dsn(dsn))
     try:

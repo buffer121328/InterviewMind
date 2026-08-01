@@ -399,3 +399,31 @@ async def test_send_boss_application_message_loses_atomic_claim_without_sending(
         )
 
     send.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_jobs_api_unexpected_error_does_not_echo_page_or_secret(caplog):
+    """未知 BOSS/岗位异常不得把页面正文或密钥写入响应和日志。"""
+    from fastapi import HTTPException
+
+    from app.api.jobs import _call_use_case
+
+    async def fail_with_private_page_text():
+        """模拟底层意外携带页面正文和凭据。"""
+        raise RuntimeError("private page text api_key=sk-super-secret")
+
+    with pytest.raises(HTTPException) as exc_info:
+        await _call_use_case(
+            fail_with_private_page_text,
+            "boss_browser_tab_failed",
+            "现有 BOSS 标签页操作失败",
+        )
+
+    assert exc_info.value.status_code == 500
+    assert exc_info.value.detail == {
+        "error": "boss_browser_tab_failed",
+        "message": "现有 BOSS 标签页操作失败",
+    }
+    assert "private page text" not in caplog.text
+    assert "sk-super-secret" not in caplog.text
+    assert "RuntimeError" in caplog.text

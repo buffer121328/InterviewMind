@@ -110,6 +110,11 @@ def pytest_collection_modifyitems(items):
         ("requires_postgres", "TEST_POSTGRES_DSN", "requires TEST_POSTGRES_DSN"),
         ("requires_redis", "TEST_REDIS_URL", "requires TEST_REDIS_URL"),
         ("requires_dramatiq", "TEST_REDIS_URL", "requires TEST_REDIS_URL and a Dramatiq worker"),
+        (
+            "requires_boss_browser",
+            "TEST_BOSS_BROWSER_SERVICE_URL",
+            "requires TEST_BOSS_BROWSER_SERVICE_URL and TEST_BOSS_BROWSER_SERVICE_TOKEN",
+        ),
         ("llm", "OPENAI_API_KEY", "requires OPENAI_API_KEY"),
     )
     for item in items:

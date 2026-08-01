@@ -79,14 +79,20 @@ class ModelPoolScheduler:
             return client
         except Exception as exc:
             if not self._redis_checked:
-                logging.getLogger(__name__).warning("[ModelPool] Redis 不可用，降级为进程内调度: %s", exc)
+                logging.getLogger(__name__).warning(
+                    "[ModelPool] Redis 不可用，降级为进程内调度: error_type=%s",
+                    type(exc).__name__,
+                )
             self._redis_checked = True
             self._redis_retry_after = monotonic() + 30
             return None
 
     def _redis_failed(self, exc: Exception) -> None:
         """记录 Redis 操作失败并设置临时降级窗口，避免每次模型调用都阻塞在不可用的外部依赖上。"""
-        logging.getLogger(__name__).warning("[ModelPool] Redis 操作失败，临时降级: %s", exc)
+        logging.getLogger(__name__).warning(
+            "[ModelPool] Redis 操作失败，临时降级: error_type=%s",
+            type(exc).__name__,
+        )
         self._redis = None
         self._redis_retry_after = monotonic() + 30
 

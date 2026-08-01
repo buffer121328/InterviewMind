@@ -45,11 +45,17 @@ async def lifespan(app: FastAPI):
 
     # 本地开发可自动同步 ORM 表结构；严格迁移验证时设 AUTO_CREATE_TABLES=false。
     from app.config import get_settings
-    if get_settings().auto_create_tables:
+    settings = get_settings()
+    if settings.auto_create_tables:
         from app.db.models import init_db
         await init_db()
     else:
         logger.info("AUTO_CREATE_TABLES=false，跳过 ORM 表结构自动同步，请确保已执行 Alembic 迁移")
+        from app.db.models import engine
+        from app.db.rag_schema import validate_rag_vector_schema
+
+        await validate_rag_vector_schema(engine)
+        logger.info("✓ RAG pgvector 列维度预检通过")
 
     # 确保数据目录存在
     data_dir = os.path.join(os.path.dirname(__file__), "data")

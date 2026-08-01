@@ -192,6 +192,53 @@ class _FakeRedis:
         return key in self.values
 
 
+class _FakePipeline:
+    """覆盖 reserve_order 的 WATCH/MULTI 路径，单测不模拟并发冲突。"""
+
+    def __init__(self, redis):
+        self.redis = redis
+
+    def watch(self, *_keys):
+        """记录 watch 边界。"""
+        return None
+
+    def mget(self, keys):
+        """读取共享值。"""
+        return self.redis.mget(keys)
+
+    def get(self, key):
+        """读取共享值。"""
+        return self.redis.get(key)
+
+    def multi(self):
+        """进入事务阶段。"""
+        return None
+
+    def incr(self, key):
+        """增加共享计数。"""
+        return self.redis.incr(key)
+
+    def expire(self, key, seconds):
+        """设置测试 TTL。"""
+        return self.redis.expire(key, seconds)
+
+    def execute(self):
+        """提交测试事务。"""
+        return []
+
+    def reset(self):
+        """清理测试事务。"""
+        return None
+
+
+class _TransactionalFakeRedis(_FakeRedis):
+    """提供 reserve_order 需要的 pipeline。"""
+
+    def pipeline(self):
+        """返回绑定当前共享状态的测试 pipeline。"""
+        return _FakePipeline(self)
+
+
 def test_redis_scheduler_shares_cursor_across_instances():
     redis = _FakeRedis()
     first_scheduler = llms.ModelPoolScheduler(redis_client=redis)
@@ -234,6 +281,47 @@ def test_redis_scheduler_prefers_least_inflight_member_across_instances():
     selected = second_scheduler.order("fast_pool", configs)[0]["model"]
 
     assert selected == "flash-b"
+
+
+def test_redis_reservation_preallocates_and_callback_releases_once():
+    """原子预占路径不得在 callback start 时重复增加 in-flight。"""
+    redis = _TransactionalFakeRedis()
+    scheduler = llms.ModelPoolScheduler(redis_client=redis)
+    configs = [_channel("flash-a"), _channel("flash-b")]
+
+    ordered, reserved_identity = scheduler.reserve_order("fast_pool", configs)
+
+    assert ordered[0]["model"] == "flash-a"
+    assert reserved_identity == llms._identity(configs[0])
+    assert scheduler.get_inflight(reserved_identity) == 1
+
+    callback = llms._ModelPoolCallback(
+        scheduler,
+        reserved_identity,
+        pre_reserved=True,
+    )
+    callback.on_chat_model_start(run_id="reserved-run")
+    assert scheduler.get_inflight(reserved_identity) == 1
+    callback.on_llm_end(run_id="reserved-run")
+    assert scheduler.get_inflight(reserved_identity) == 0
+
+
+def test_redis_operation_failure_degrades_without_logging_connection_secret(caplog):
+    """Redis 抖动时继续使用本地调度，日志只保留异常类型。"""
+
+    class FailingRedis(_FakeRedis):
+        def mget(self, _keys):
+            raise TimeoutError("redis://user:super-secret@redis.internal:6379")
+
+    scheduler = llms.ModelPoolScheduler(redis_client=FailingRedis())
+    configs = [_channel("flash-a"), _channel("flash-b")]
+
+    ordered = scheduler.order("fast_pool", configs)
+
+    assert ordered[0]["model"] == "flash-a"
+    assert scheduler._redis is None
+    assert "super-secret" not in caplog.text
+    assert "TimeoutError" in caplog.text
 
 
 def test_model_pool_callback_deduplicates_start_events_by_run_id():
@@ -432,6 +520,61 @@ def test_rag_embedding_service_uses_model_gateway(monkeypatch):
 
     assert captured == {"input": "hello", "model": "embed-model", "dimensions": 2, "api_config": None}
     assert embedding == [0.3, 0.4]
+
+
+@pytest.mark.asyncio
+async def test_rag_embedding_service_rejects_provider_dimension_mismatch(monkeypatch):
+    """Provider 忽略 dimensions 参数时，在进入 pgvector 前给出稳定失败。"""
+    from ai.rag import embedding_service
+
+    async def fake_create_embeddings(*_args, **_kwargs):
+        """返回错误维度的向量。"""
+        return type(
+            "EmbeddingResponse",
+            (),
+            {"data": [type("Item", (), {"embedding": [0.1, 0.2, 0.3]})()]},
+        )()
+
+    monkeypatch.setattr(
+        embedding_service.llms.model_gateway,
+        "create_embeddings",
+        fake_create_embeddings,
+    )
+
+    with pytest.raises(RuntimeError, match="embedding 生成失败"):
+        await embedding_service.generate_embedding(
+            "hello",
+            model="embed-model",
+            dimensions=2,
+        )
+
+
+@pytest.mark.asyncio
+async def test_rag_embedding_batch_rejects_missing_vectors(monkeypatch):
+    """批量响应数量不足时不得依赖 zip 静默留下部分 pending chunk。"""
+    from ai.rag import embedding_service
+
+    async def fake_create_embeddings(*_args, **_kwargs):
+        """两个输入只返回一个向量。"""
+        return type(
+            "EmbeddingResponse",
+            (),
+            {"data": [type("Item", (), {"embedding": [0.1, 0.2]})()]},
+        )()
+
+    monkeypatch.setattr(
+        embedding_service.llms.model_gateway,
+        "create_embeddings",
+        fake_create_embeddings,
+    )
+
+    with pytest.raises(RuntimeError, match="批量 embedding 生成失败"):
+        await embedding_service.generate_embeddings_batch(
+            ["first", "second"],
+            model="embed-model",
+            dimensions=2,
+            batch_size=2,
+        )
 
 
 

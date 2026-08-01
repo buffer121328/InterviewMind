@@ -305,11 +305,23 @@ class RagIndexer:
             try:
                 chunks = await extractor(user_id)
                 count = await self._index_chunks(chunks, user_id, with_embedding)
+                stale_count = await self._deactivate_stale_snapshot(
+                    user_id=user_id,
+                    source_type=source_type,
+                    chunks=chunks,
+                )
                 stats[source_type] = count
-                logger.info(f"[RAG Indexer] {source_type}: {count} chunks indexed")
+                logger.info(
+                    "[RAG Indexer] %s: indexed=%s stale_deactivated=%s",
+                    source_type,
+                    count,
+                    stale_count,
+                )
             except Exception as e:
                 logger.error(
-                    f"[RAG Indexer] {source_type} 索引失败: {e}", exc_info=True
+                    "[RAG Indexer] %s 索引失败: error_type=%s",
+                    source_type,
+                    type(e).__name__,
                 )
                 stats[source_type] = 0
 
@@ -335,6 +347,36 @@ class RagIndexer:
             索引的 chunk 数量
         """
         return await self._index_chunks(chunks, user_id, with_embedding)
+
+    async def _deactivate_stale_snapshot(
+        self,
+        *,
+        user_id: str,
+        source_type: str,
+        chunks: List[Dict[str, Any]],
+    ) -> int:
+        """在某来源完整提取和 upsert 成功后，失效本轮快照中已经消失的旧 chunk。"""
+
+        scopes_by_namespace: dict[str, set[tuple[str, str]]] = {
+            "user_private": set()
+        }
+        for chunk in chunks:
+            if str(chunk.get("source_type") or "") != source_type:
+                continue
+            namespace = str(chunk.get("namespace") or "user_private")
+            scopes_by_namespace.setdefault(namespace, set()).add(
+                (str(chunk["source_id"]), str(chunk["chunk_key"]))
+            )
+
+        stale_count = 0
+        for namespace, active_scopes in scopes_by_namespace.items():
+            stale_count += await self._repo.deactivate_stale_chunks(
+                user_id=user_id,
+                namespace=namespace,
+                source_type=source_type,
+                active_chunk_scopes=active_scopes,
+            )
+        return stale_count
 
     async def _index_chunks(
         self,
@@ -368,7 +410,8 @@ class RagIndexer:
                     )
                 except Exception as e:
                     logger.warning(
-                        f"[RAG Indexer] embedding 生成失败，降级为 pending: {e}"
+                        "[RAG Indexer] embedding 生成失败，降级为 pending: error_type=%s",
+                        type(e).__name__,
                     )
                     await self._repo.upsert_chunk(
                         user_id=user_id,
@@ -418,8 +461,11 @@ class RagIndexer:
         try:
             embeddings = await generate_embeddings_batch(texts, batch_size=batch_size)
         except Exception as e:
-            logger.error(f"[RAG Indexer] 批量 embedding 失败: {e}")
-            return 0
+            logger.error(
+                "[RAG Indexer] 批量 embedding 失败: error_type=%s",
+                type(e).__name__,
+            )
+            raise RuntimeError("待处理 embedding 批次生成失败") from e
 
         success = 0
         for chunk, emb in zip(pending, embeddings):
@@ -431,7 +477,11 @@ class RagIndexer:
                 )
                 success += 1
             except Exception as e:
-                logger.warning(f"[RAG Indexer] 更新 chunk {chunk.id} embedding 失败: {e}")
+                logger.warning(
+                    "[RAG Indexer] 更新 chunk embedding 失败: chunk_id=%s error_type=%s",
+                    chunk.id,
+                    type(e).__name__,
+                )
 
         return success
 

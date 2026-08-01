@@ -43,6 +43,7 @@ def reset_observability(monkeypatch):
         "LANGFUSE_TRACING_ENVIRONMENT",
         "LANGFUSE_RELEASE",
         "LANGFUSE_SAMPLE_RATE",
+        "LANGFUSE_CAPTURE_MODEL_IO",
         "LANGFUSE_PROMPT_MANAGEMENT_ENABLED",
         "LANGFUSE_PROMPT_LABEL",
         "LANGFUSE_PROMPT_CACHE_TTL_SECONDS",
@@ -83,12 +84,8 @@ async def test_agent_observation_records_safe_input_output_and_trace_attributes(
         attributes.append(kwargs)
         yield
 
-    class FakeCallbackHandler:
-        pass
-
     monkeypatch.setattr(observability, "_create_langfuse_client", lambda config: client)
     monkeypatch.setattr(observability, "_get_propagate_attributes", lambda: fake_propagate_attributes)
-    monkeypatch.setattr(observability, "_get_callback_handler", lambda: FakeCallbackHandler)
     monkeypatch.setenv("LANGFUSE_ENABLED", "true")
     monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk-test")
     monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-test")
@@ -101,7 +98,7 @@ async def test_agent_observation_records_safe_input_output_and_trace_attributes(
         input_payload={"resume_length": 128},
     ) as observation:
         assert observation.enabled is True
-        assert len(observability.get_langchain_callbacks()) == 1
+        assert observability.get_langchain_callbacks() == []
         observation.set_output({"changes": 2, "has_errors": False})
 
     assert client.observations[0][0] == {
@@ -112,8 +109,8 @@ async def test_agent_observation_records_safe_input_output_and_trace_attributes(
     assert attributes == [
         {
             "trace_name": "resume-pipeline",
-            "user_id": "user-1",
-            "session_id": "resume-1",
+            "user_id": observability._trace_fingerprint("user-1"),
+            "session_id": observability._trace_fingerprint("resume-1"),
             "metadata": {"agent_type": "resume", "trace_id": observation.trace_id},
         }
     ]
@@ -127,6 +124,56 @@ async def test_agent_observation_records_safe_input_output_and_trace_attributes(
             },
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_agent_observation_redacts_arbitrary_business_text_before_langfuse(monkeypatch):
+    """即使调用方误传简历、回答或密钥，根 span 也只保留长度和指纹。"""
+    import observability
+
+    client = FakeLangfuseClient()
+
+    @contextmanager
+    def fake_propagate_attributes(**_kwargs):
+        yield
+
+    monkeypatch.setattr(observability, "_create_langfuse_client", lambda config: client)
+    monkeypatch.setattr(observability, "_get_propagate_attributes", lambda: fake_propagate_attributes)
+    monkeypatch.setenv("LANGFUSE_ENABLED", "true")
+    monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk-test")
+    monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-test")
+
+    async with observability.agent_observation(
+        name="privacy-boundary",
+        agent_type="resume",
+        user_id="candidate@example.com",
+        session_id="private-session",
+        input_payload={
+            "resume_content": "候选人手机号 13800000000",
+            "api_key": "sk-private-value",
+            "mode": "optimize",
+            "sk-private-field-name-123456": "field value",
+            "missing": ["私密技能关键词"],
+        },
+    ) as observation:
+        observation.set_output({
+            "answer": "这是不应外发的面试回答",
+            "status": "completed",
+        })
+
+    update = client.observations[0][1].updates[0]
+    serialized = repr(update)
+    assert "13800000000" not in serialized
+    assert "sk-private-value" not in serialized
+    assert "sk-private-field-name-123456" not in serialized
+    assert "私密技能关键词" not in serialized
+    assert "不应外发的面试回答" not in serialized
+    assert update["input"]["resume_content"]["redacted"] is True
+    assert update["input"]["api_key"] == "***REDACTED***"
+    assert update["input"]["mode"] == "optimize"
+    assert update["input"]["missing"] == {"item_count": 1}
+    assert update["output"]["answer"]["redacted"] is True
+    assert update["output"]["status"] == "completed"
 
 
 @pytest.mark.asyncio
@@ -191,8 +238,8 @@ async def test_nested_agent_observation_reuses_root_trace_and_persists_once(monk
     assert persisted == [("run-1", root.trace_id)]
 
 
-def test_langchain_callback_is_available_without_an_agent_root(monkeypatch):
-    """Direct model workflows still create standalone Langfuse traces."""
+def test_langchain_callback_requires_explicit_raw_model_io_opt_in(monkeypatch):
+    """官方 callback 会携带完整 prompt/output，因此必须显式启用。"""
     import observability
 
     class FakeCallbackHandler:
@@ -202,6 +249,10 @@ def test_langchain_callback_is_available_without_an_agent_root(monkeypatch):
     monkeypatch.setattr(observability, "_configured", True)
     monkeypatch.setattr(observability, "_get_callback_handler", lambda: FakeCallbackHandler)
 
+    assert observability.get_langchain_callbacks() == []
+
+    monkeypatch.setenv("LANGFUSE_CAPTURE_MODEL_IO", "true")
+    monkeypatch.setattr(observability, "_config", None)
     callbacks = observability.get_langchain_callbacks()
 
     assert len(callbacks) == 1
@@ -252,16 +303,16 @@ async def test_agent_observation_links_langfuse_trace_to_agent_run(monkeypatch):
     assert attributes == [
         {
             "trace_name": "voice-interview",
-            "user_id": "user-1",
-            "session_id": "session-1",
+            "user_id": observability._trace_fingerprint("user-1"),
+            "session_id": observability._trace_fingerprint("session-1"),
             "metadata": {
                 "agent_type": "voice",
                 "trace_id": observation.trace_id,
-                "agent_run_id": "run-1",
+                "agent_run_id": observability._trace_fingerprint("run-1"),
             },
         }
     ]
-    assert client.observations[0][1].updates[0]["output"]["agent_run_id"] == "run-1"
+    assert client.observations[0][1].updates[0]["output"]["agent_run_id"] == observability._trace_fingerprint("run-1")
     assert persisted == [
         (
             "run-1",
@@ -357,7 +408,9 @@ async def test_agent_observation_preserves_business_exception(monkeypatch):
 
     update = client.observations[0][1].updates[0]
     assert update["input"] == {"question_count": 1}
-    assert update["output"]["error"] == {"type": "RuntimeError", "message": "upstream failed"}
+    assert update["output"]["error"]["type"] == "RuntimeError"
+    assert update["output"]["error"]["message"]["redacted"] is True
+    assert "upstream failed" not in repr(update["output"])
     assert "trace_id" in update["output"]
 
 
@@ -525,6 +578,20 @@ def test_langfuse_client_receives_environment_release_and_sampling(monkeypatch):
     assert captured["environment"] == "test"
     assert captured["release"] == "2026.07.23"
     assert captured["sample_rate"] == 0.25
+    assert captured["capture_model_io"] is False
+
+
+@pytest.mark.parametrize(
+    ("configured", "expected"),
+    [("-0.2", 0.0), ("1.7", 1.0), ("invalid", None)],
+)
+def test_langfuse_sampling_is_clamped_to_sdk_range(monkeypatch, configured, expected):
+    """采样率越界时收敛到 0-1，非法值不传给 SDK。"""
+    from observability.config import LangfuseConfig
+
+    monkeypatch.setenv("LANGFUSE_SAMPLE_RATE", configured)
+
+    assert LangfuseConfig.from_env().sample_rate == expected
 
 
 def test_managed_prompt_uses_langfuse_with_local_fallback(monkeypatch):
@@ -643,6 +710,7 @@ async def test_langgraph_config_uses_official_callback_and_suppresses_direct_llm
     monkeypatch.setenv("LANGFUSE_ENABLED", "true")
     monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk-test")
     monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-test")
+    monkeypatch.setenv("LANGFUSE_CAPTURE_MODEL_IO", "true")
 
     config = observability.with_langgraph_langfuse_config(
         {"configurable": {"thread_id": "thread-1"}, "metadata": {"existing": "yes"}},

@@ -47,13 +47,18 @@ async def get_session() -> AsyncSession:
 
 
 async def init_db():
-    """创建所有表（仅开发用，生产用 Alembic）"""
+    """创建开发表与索引，并在返回前校验 RAG pgvector 列维度。"""
     from sqlalchemy import text
+    from app.db.rag_schema import validate_rag_vector_connection
+
     async with engine.begin() as conn:
         # 启用 pgvector 和 pg_trgm 扩展
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
         await conn.run_sync(Base.metadata.create_all)
+
+        # create_all 不会修改已存在列的 vector(n) typmod，因此必须显式拦截维度漂移。
+        await validate_rag_vector_connection(conn)
 
         # 创建 HNSW 向量索引（需要 pgvector 扩展和表已存在）
         await conn.execute(text("""

@@ -59,8 +59,15 @@ async def _call_use_case(action: Callable[[], Awaitable[T]], error_code: str, er
     except HTTPException:
         raise
     except Exception as exc:
-        logger.error("[API] %s: %s", error_message, exc, exc_info=True)
-        raise HTTPException(status_code=500, detail={"error": error_code, "message": str(exc)}) from exc
+        logger.error(
+            "[API] %s: error_type=%s",
+            error_message,
+            type(exc).__name__,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail={"error": error_code, "message": error_message},
+        ) from exc
 
 
 
