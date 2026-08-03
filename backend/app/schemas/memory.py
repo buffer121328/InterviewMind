@@ -112,6 +112,67 @@ class MemoryDeleteAllRequest(MemoryAccessRequest):
     confirm: bool = Field(description="必须为 true 才执行删除")
 
 
+class MemoryConsolidateRequest(MemoryAccessRequest):
+    """Preview or explicitly apply historical memory consolidation."""
+
+    dry_run: bool = Field(default=True, description="true 时只生成整合预览，不修改数据")
+    confirm: bool = Field(default=False, description="实际执行时必须显式设为 true")
+    max_memories: int = Field(default=200, ge=1, le=500)
+
+
+class MemoryConsolidationOperation(BaseModel):
+    """Content-free audit summary for one historical lifecycle decision."""
+
+    memory_id: str
+    action: str
+    confidence: float = Field(ge=0, le=1)
+    reason: str = Field(max_length=240)
+
+
+class MemoryConsolidationResponse(BaseModel):
+    """Historical memory consolidation preview or apply result."""
+
+    success: bool
+    dry_run: bool
+    total_before: int = Field(ge=0)
+    total_after: int = Field(ge=0)
+    counts: dict[str, int] = Field(default_factory=dict)
+    applied_counts: dict[str, int] = Field(default_factory=dict)
+    operations: list[MemoryConsolidationOperation] = Field(default_factory=list)
+    message: Optional[str] = None
+
+
+class MemoryCleanupRequest(MemoryAccessRequest):
+    """Preview or apply the two-stage inactivity cleanup policy."""
+
+    dry_run: bool = Field(default=True, description="true 时只预览 KEEP/MARK/DELETE")
+    confirm: bool = Field(default=False, description="应用 MARK/DELETE 前必须显式为 true")
+    max_memories: int = Field(default=500, ge=1, le=1000)
+
+
+class MemoryCleanupOperation(BaseModel):
+    """Content-free retention cleanup audit item."""
+
+    memory_id: str
+    action: str
+    retention_class: str
+    reason: str = Field(max_length=240)
+    candidate_since: Optional[str] = None
+
+
+class MemoryCleanupResponse(BaseModel):
+    """Two-stage cleanup preview or application result."""
+
+    success: bool
+    dry_run: bool
+    total_before: int = Field(ge=0)
+    total_after: int = Field(ge=0)
+    counts: dict[str, int] = Field(default_factory=dict)
+    applied_counts: dict[str, int] = Field(default_factory=dict)
+    operations: list[MemoryCleanupOperation] = Field(default_factory=list)
+    message: Optional[str] = None
+
+
 class MemoryContext(BaseModel):
     """记忆上下文（注入到 prompt）"""
     context: str = Field(description="格式化后的记忆上下文")

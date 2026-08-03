@@ -3,32 +3,17 @@ import test from 'node:test';
 
 import {
     questionAnswerPoints,
+    questionFollowupAnswerPoints,
     questionSourceLabel,
 } from './questionBankPresentation.ts';
 
-test('interview-origin questions show their source and persisted answer points', () => {
-    const question = {
-        origin_session_id: 'session-1',
-        source_type: 'generated',
-        reference_answer: '旧版提示内容',
-    };
-
-    assert.equal(questionSourceLabel(question), '模拟面试');
-    assert.deepEqual(questionAnswerPoints(question), ['旧版提示内容']);
+test('question answers stay empty even when persisted content exists', () => {
+    assert.equal(questionSourceLabel({ origin_session_id: 'session-1', source_type: 'generated' }), '模拟面试');
+    assert.deepEqual(questionAnswerPoints({ reference_answer: '候选人的完整原始作答' }), []);
+    assert.deepEqual(questionAnswerPoints({ reference_answer: undefined }), []);
 });
 
-test('manual and imported questions split stored answers into review points', () => {
-    assert.equal(questionSourceLabel({ source_type: 'manual' }), '手动添加');
-    assert.equal(questionSourceLabel({ source_type: 'experience' }), '面经采集');
-    assert.deepEqual(
-        questionAnswerPoints({
-            source_type: 'manual',
-            reference_answer: `1. 先说明适用场景。\n- 再解释核心机制；最后补充取舍。`,
-        }),
-        ['先说明适用场景。', '再解释核心机制；', '最后补充取舍。'],
-    );
-});
-
-test('question answer points are empty when no usable answer exists', () => {
-    assert.deepEqual(questionAnswerPoints({ source_type: 'manual', reference_answer: '   ' }), []);
+test('follow-up answers stay empty even when persisted content exists', () => {
+    assert.deepEqual(questionFollowupAnswerPoints({ reference_answer: '追问的完整原始作答' }), []);
+    assert.deepEqual(questionFollowupAnswerPoints({ reference_answer: undefined }), []);
 });

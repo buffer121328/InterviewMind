@@ -1,6 +1,9 @@
 """将已完成模拟面试的真实问答整理为可持久化记录。"""
 
 from dataclasses import dataclass
+import json
+from json import JSONDecodeError
+import re
 from typing import Any, Iterable, Mapping
 
 
@@ -35,6 +38,63 @@ def _value(item: Any, name: str, default: Any = None) -> Any:
     return getattr(item, name, default)
 
 
+def _decode_decision_objects(content: str) -> list[Mapping[str, Any]]:
+    """连续解析相邻 JSON 对象，跳过无法解码的噪声片段。"""
+    decoder = json.JSONDecoder()
+    cursor = 0
+    decisions: list[Mapping[str, Any]] = []
+    while cursor < len(content):
+        start = content.find("{", cursor)
+        if start < 0:
+            break
+        try:
+            payload, end = decoder.raw_decode(content, start)
+        except JSONDecodeError:
+            cursor = start + 1
+            continue
+        cursor = end
+        if isinstance(payload, Mapping):
+            decisions.append(payload)
+    return decisions
+
+
+def _decision_visible_text(decision: Mapping[str, Any]) -> str:
+    """从一个模型决策对象读取候选人实际可见的推进或追问文本。"""
+    content = decision.get("content")
+    if isinstance(content, str) and content.strip():
+        return content.strip()
+    for field in ("follow_up", "advance", "end_round"):
+        value = decision.get(field)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def _strip_interview_transition(text: str) -> str:
+    """移除评价和推进过渡语，只保留最后一个以“请”开始的明确问题。"""
+    normalized = re.sub(r"\s+", " ", text).strip().strip("*\"'")
+    request_markers = list(re.finditer(r"(?:^|[。！？!?，,:：；;\s])(请(?!求))", normalized))
+    if request_markers:
+        return normalized[request_markers[-1].start(1):].strip()
+    return normalized
+
+
+def extract_candidate_question(content: str) -> str:
+    """从普通文本或拼接模型决策 JSON 中提取最后一个候选人可见问题。"""
+    source = str(content or "").strip()
+    if not source:
+        return ""
+    decisions = _decode_decision_objects(source)
+    if decisions:
+        candidate = ""
+        for decision in decisions:
+            visible_text = _decision_visible_text(decision)
+            if visible_text:
+                candidate = visible_text
+        return _strip_interview_transition(candidate)
+    return _strip_interview_transition(source)
+
+
 def build_archived_turns(
     interview_plan: list[dict[str, Any]],
     messages: Iterable[Any],
@@ -52,7 +112,9 @@ def build_archived_turns(
             continue
 
         if role == "assistant":
-            latest_assistant[question_index] = content
+            visible_question = extract_candidate_question(content)
+            if visible_question:
+                latest_assistant[question_index] = visible_question
             continue
         if role != "user":
             continue

@@ -1,7 +1,6 @@
 """Regression tests for request-scoped mem0 model configuration."""
 
 import pytest
-
 from ai.memory import service as memory_service_module
 from ai.workflows.memory import MemoryUseCases
 
@@ -75,3 +74,138 @@ async def test_failed_request_scoped_mem0_initialization_is_retried(monkeypatch)
         "request_scoped_ready": 1,
     }
     await memory_service_module.close_agent_memory_service()
+
+
+@pytest.mark.asyncio
+async def test_memory_list_applies_canonical_user_projection(monkeypatch):
+    """The memory center omits assistant noise and normalized duplicates."""
+
+    class FakeMemoryService:
+        is_enabled = True
+
+        async def get_all(self, *, user_id: str, page_size: int):
+            assert user_id == "user-1"
+            assert page_size == 20
+            return [
+                {
+                    "id": "assistant",
+                    "memory": "用户被建议每天刷题",
+                    "metadata": {"source": "chat_turn"},
+                },
+                {"id": "old", "memory": "偏好 ＦａｓｔＡＰＩ！", "metadata": {}},
+                {"id": "new", "memory": "偏好 fastapi", "metadata": {}},
+            ]
+
+    async def fake_get_service(_api_config=None):
+        return FakeMemoryService()
+
+    monkeypatch.setattr("ai.workflows.memory.get_agent_memory_service", fake_get_service)
+
+    response = await MemoryUseCases().list_memories(
+        user_id="user-1",
+        page_size=20,
+    )
+
+    assert response.total == 1
+    assert [item.id for item in response.memories] == ["old"]
+
+
+@pytest.mark.asyncio
+async def test_memory_search_applies_canonical_user_projection(monkeypatch):
+    """Prompt retrieval uses the same user-focused canonical projection."""
+
+    class FakeMemoryService:
+        is_enabled = True
+
+        async def search_memories(self, **kwargs):
+            assert kwargs == {
+                "user_id": "user-1",
+                "query": "FastAPI",
+                "limit": 5,
+                "memory_types": None,
+            }
+            return [
+                {
+                    "id": "assistant",
+                    "memory": "用户被建议每天刷题",
+                    "metadata": {"source": "chat_turn"},
+                    "score": 0.99,
+                },
+                {"id": "old", "memory": "偏好 ＦａｓｔＡＰＩ！", "metadata": {}, "score": 0.75},
+                {"id": "best", "memory": "偏好 fastapi", "metadata": {}, "score": 0.95},
+            ]
+
+    async def fake_get_service(_api_config=None):
+        return FakeMemoryService()
+
+    monkeypatch.setattr("ai.workflows.memory.get_agent_memory_service", fake_get_service)
+
+    response = await MemoryUseCases().search_memories(
+        user_id="user-1",
+        query="FastAPI",
+        limit=5,
+        memory_type=None,
+    )
+
+    assert response.total == 1
+    assert [item.id for item in response.memories] == ["best"]
+
+
+@pytest.mark.asyncio
+async def test_memory_consolidation_requires_confirmation_and_passes_request_config(monkeypatch):
+    """Historical mutation must be explicit and reuse request-scoped mem0 channels."""
+    from ai.workflows.memory import MemoryUseCaseError
+    from app.schemas.memory import MemoryConsolidateRequest
+
+    captured = []
+
+    class FakeMemoryService:
+        is_enabled = True
+
+        async def consolidate_existing_memories(self, **kwargs):
+            captured.append(kwargs)
+            return {
+                "dry_run": kwargs["dry_run"],
+                "total_before": 3,
+                "total_after": 1,
+                "counts": {"KEEP": 0, "UPDATE": 1, "DELETE": 2},
+                "applied_counts": {"UPDATE": 1, "DELETE": 2} if not kwargs["dry_run"] else {},
+                "operations": [],
+            }
+
+    async def fake_get_service(api_config=None):
+        captured.append(api_config)
+        return FakeMemoryService()
+
+    monkeypatch.setattr("ai.workflows.memory.get_agent_memory_service", fake_get_service)
+    api_config = {
+        "mem0_llm": {"api_key": "secret", "base_url": "https://llm.example/v1", "model": "memory"},
+        "mem0_embedder": {"api_key": "secret", "base_url": "https://embed.example/v1", "model": "embed"},
+    }
+
+    with pytest.raises(MemoryUseCaseError):
+        await MemoryUseCases().consolidate_memories(
+            user_id="user-1",
+            request=MemoryConsolidateRequest(
+                api_config=api_config,
+                dry_run=False,
+                confirm=False,
+            ),
+        )
+
+    response = await MemoryUseCases().consolidate_memories(
+        user_id="user-1",
+        request=MemoryConsolidateRequest(
+            api_config=api_config,
+            dry_run=True,
+            confirm=False,
+            max_memories=50,
+        ),
+    )
+
+    assert response.success is True
+    assert response.dry_run is True
+    assert captured == [
+        api_config,
+        {"user_id": "user-1", "dry_run": True, "max_memories": 50},
+    ]

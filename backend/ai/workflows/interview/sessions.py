@@ -151,12 +151,15 @@ class SessionManagementUseCases:
                 max_questions = resolve_max_questions(round_type, max_questions)
             except ValueError as exc:
                 raise SessionManagementBadRequest(message=str(exc)) from exc
-        return await self._session_repo.create_next_round(
-            parent_session_id=session_id,
-            max_questions=max_questions,
-            round_type=round_type,
-            user_id=user_id,
-        )
+        try:
+            return await self._session_repo.create_next_round(
+                parent_session_id=session_id,
+                max_questions=max_questions,
+                round_type=round_type,
+                user_id=user_id,
+            )
+        except ValueError as exc:
+            raise SessionManagementBadRequest(message=str(exc)) from exc
 
 
 session_management_use_cases = SessionManagementUseCases()

@@ -222,7 +222,7 @@ class QuestionArchiveRepo:
             source_id=archive_source_id,
             origin_session_id=session_id,
             question_text=str(plan_item.get("content") or asked_question),
-            # Interview prompts and coaching hints are not verified reference answers.
+            # 回答要点方案尚未确定，候选人原始作答只保存在 attempts 中。
             reference_answer=None,
             tags=tags,
             difficulty=str(plan_item.get("difficulty") or "medium"),

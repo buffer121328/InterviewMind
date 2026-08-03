@@ -139,6 +139,36 @@ async def trigger_session_report_analysis(
             report_data=weakness_report,
             series_id=series_id,
         )
+        if session.metadata.round_index == 3:
+            if not series_id:
+                raise ValueError("第三轮会话缺少 series_id，无法生成公司总画像")
+            rounds = await session_repo.get_series_round_profiles(series_id, user_id)
+            completed = [
+                item for item in rounds
+                if item.get("status") == "completed" and isinstance(item.get("profile"), dict)
+            ]
+            if [item.get("round_index") for item in completed] != [1, 2, 3]:
+                raise ValueError("公司总画像需要第一轮、第二轮和第三轮画像全部可用")
+
+            from ai.workflows.analysis.ability_service import get_ability_service
+            from datetime import datetime
+
+            company_candidate_profile = await get_ability_service().aggregate_company_profile(
+                [item["profile"] for item in completed],
+                api_config,
+            )
+            company_payload = {
+                "schema_version": 1,
+                "series_id": series_id,
+                "source_session_ids": [item["session_id"] for item in completed],
+                "company_info": session.metadata.company_info or "未知公司",
+                "job_description": session.metadata.job_description or "",
+                "generated_at": datetime.now().isoformat(),
+                "profile": company_candidate_profile.model_dump(),
+            }
+            if not await session_repo.save_company_profile(session_id, company_payload, user_id):
+                raise ValueError("公司总画像保存失败")
+
         from ai.workflows.interview.report_memory import (
             schedule_interview_report_memories,
         )

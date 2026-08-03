@@ -7,7 +7,11 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from app.api.deps import get_current_user_id
 from app.schemas.memory import (
     MemoryAccessRequest,
+    MemoryCleanupRequest,
+    MemoryCleanupResponse,
     MemoryCreateRequest,
+    MemoryConsolidateRequest,
+    MemoryConsolidationResponse,
     MemoryDeleteAllRequest,
     MemoryDeleteResponse,
     MemoryHistoryResponse,
@@ -18,7 +22,7 @@ from app.schemas.memory import (
     MemoryUpdateRequest,
     MemoryWriteResponse,
 )
-from ai.workflows.memory import memory_use_cases
+from ai.workflows.memory import MemoryUseCaseError, memory_use_cases
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +106,46 @@ async def search_memories_with_model_config(
     except Exception as exc:
         logger.error("搜索记忆失败: %s", type(exc).__name__)
         raise _internal_error("搜索记忆失败，请检查 mem0 模型与向量库配置") from exc
+
+
+@router.post("/consolidate", response_model=MemoryConsolidationResponse)
+async def consolidate_memories(
+    request: MemoryConsolidateRequest,
+    user_id: str = Depends(get_current_user_id),
+):
+    """Preview or explicitly apply owner-scoped historical memory consolidation."""
+    try:
+        return await memory_use_cases.consolidate_memories(
+            user_id=user_id,
+            request=request,
+        )
+    except MemoryUseCaseError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "MemoryConfirmationRequired", "message": exc.message},
+        ) from exc
+    except Exception as exc:
+        logger.error("整合长期记忆失败: %s", type(exc).__name__)
+        raise _internal_error("整合长期记忆失败，请检查 mem0 模型与向量库配置") from exc
+
+
+@router.post("/cleanup", response_model=MemoryCleanupResponse)
+async def cleanup_memories(
+    request: MemoryCleanupRequest,
+    user_id: str = Depends(get_current_user_id),
+):
+    """Preview or apply two-stage owner-scoped retention cleanup."""
+
+    try:
+        return await memory_use_cases.cleanup_memories(user_id=user_id, request=request)
+    except MemoryUseCaseError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "MemoryCleanupConfirmationRequired", "message": exc.message},
+        ) from exc
+    except Exception as exc:
+        logger.error("清理长期记忆失败: %s", type(exc).__name__)
+        raise _internal_error("清理长期记忆失败，请检查 mem0 与 Redis 配置") from exc
 
 
 @router.post("", response_model=MemoryWriteResponse)

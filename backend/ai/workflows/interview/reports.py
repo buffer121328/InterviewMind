@@ -95,11 +95,25 @@ class InterviewReportUseCases:
             weakness_report=report,
             generated_at=generated_at,
         )
+        company_profile = session.metadata.company_profile
+        if isinstance(company_profile, dict) and isinstance(company_profile.get("profile"), dict):
+            combined = company_profile["profile"]
+            markdown += "\n\n---\n\n# 公司三轮总画像\n\n"
+            markdown += f"- 公司：{company_profile.get('company_info') or '未知公司'}\n"
+            markdown += f"- 来源轮次：{len(company_profile.get('source_session_ids') or [])} 轮\n"
+            markdown += f"- 综合评价：{combined.get('overall_assessment') or '暂无'}\n"
+            strengths = combined.get("key_strengths") or []
+            weaknesses = combined.get("key_weaknesses") or []
+            if strengths:
+                markdown += "\n## 跨轮优势\n" + "".join(f"- {item}\n" for item in strengths)
+            if weaknesses:
+                markdown += "\n## 跨轮改进项\n" + "".join(f"- {item}\n" for item in weaknesses)
         return SessionMarkdownReportResponse(
             success=True,
             session_id=session_id,
             markdown=markdown,
             generated_at=generated_at or None,
+            company_profile=company_profile,
         )
 
 interview_report_use_cases = InterviewReportUseCases()

@@ -30,6 +30,7 @@ class SessionModel(Base):
     status: Mapped[str] = mapped_column(String, default="active")
     pinned: Mapped[bool] = mapped_column(Boolean, default=False)
     candidate_profile: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    company_profile: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     series_id: Mapped[str | None] = mapped_column(String, nullable=True)
     round_index: Mapped[int] = mapped_column(Integer, default=1)
     round_type: Mapped[str] = mapped_column(String, default="tech_initial")

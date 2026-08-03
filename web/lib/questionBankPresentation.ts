@@ -1,7 +1,6 @@
-import type { QuestionBankItem } from './api/questionBank.ts';
+import type { QuestionBankFollowup, QuestionBankItem } from './api/questionBank.ts';
 
 type QuestionSource = Pick<QuestionBankItem, 'origin_session_id' | 'source_type'>;
-type QuestionAnswer = Pick<QuestionBankItem, 'origin_session_id' | 'source_type' | 'reference_answer'>;
 
 /** Converts persisted source codes into user-facing provenance labels. */
 export function questionSourceLabel(item: QuestionSource): string {
@@ -17,27 +16,14 @@ export function questionSourceLabel(item: QuestionSource): string {
     return labels[item.source_type] || item.source_type || '未知来源';
 }
 
-/** Splits stored prose or list-shaped answer text into lossless, scan-friendly review points. */
-function answerPoints(value?: string): string[] {
-    const content = value?.trim();
-    if (!content) return [];
-
-    return content
-        .split(/\r?\n+/)
-        .flatMap((line) => {
-            const cleaned = line
-                .trim()
-                .replace(/^#{1,6}\s*/, '')
-                .replace(/^(?:[-*•]+|\d+[.)、]|[（(]?\d+[）)])\s*/, '')
-                .trim();
-            if (!cleaned) return [];
-            return cleaned.match(/[^。！？；;]+[。！？；;]?/g) ?? [cleaned];
-        })
-        .map((point) => point.trim())
-        .filter(Boolean);
+/** Keeps main-question answer points empty until the product-level point model is defined. */
+export function questionAnswerPoints(item: Pick<QuestionBankItem, 'reference_answer'>): string[] {
+    void item;
+    return [];
 }
 
-/** Returns persisted main-question answer content as scan-friendly review points regardless of source. */
-export function questionAnswerPoints(item: QuestionAnswer): string[] {
-    return answerPoints(item.reference_answer);
+/** Keeps follow-up answer points empty while preserving the shared card empty state. */
+export function questionFollowupAnswerPoints(item: Pick<QuestionBankFollowup, 'reference_answer'>): string[] {
+    void item;
+    return [];
 }

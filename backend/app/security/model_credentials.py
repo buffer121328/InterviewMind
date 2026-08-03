@@ -19,6 +19,7 @@ from app.security.payload_crypto import (
 )
 
 _MODEL_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
+_MEMORY_CHANNELS = ("mem0_llm", "mem0_embedder", "rag_embedding")
 
 
 class ModelCredentialError(RuntimeError):
@@ -40,6 +41,18 @@ class StoredCredentialStatus:
     model_id: str
     stored: bool
     expires_at: datetime | None
+
+
+@dataclass(frozen=True)
+class StoredModelProfile:
+    """Non-secret model connection metadata needed by backend jobs."""
+
+    model_id: str
+    base_url: str
+    model: str
+    provider: str | None = None
+    integration: str | None = None
+    pricing_key: str | None = None
 
 
 class ModelCredentialStore:
@@ -66,6 +79,23 @@ class ModelCredentialStore:
         safe_model_id = cls._validate_model_id(model_id)
         owner_hash = hashlib.sha256(user_id.encode()).hexdigest()
         return f"model-credential:v1:{owner_hash}:{safe_model_id}"
+
+    @classmethod
+    def _profile_key(cls, user_id: str, model_id: str) -> str:
+        """Build an owner-scoped encrypted model profile key."""
+
+        safe_model_id = cls._validate_model_id(model_id)
+        owner_hash = hashlib.sha256(user_id.encode()).hexdigest()
+        return f"model-credential-profile:v1:{owner_hash}:{safe_model_id}"
+
+    @staticmethod
+    def _channel_key(user_id: str, channel: str) -> str:
+        """Build an owner-scoped memory channel binding key."""
+
+        if channel not in _MEMORY_CHANNELS:
+            raise ModelCredentialError("不支持的模型通道")
+        owner_hash = hashlib.sha256(user_id.encode()).hexdigest()
+        return f"model-channel-binding:v1:{owner_hash}:{channel}"
 
     async def put(self, user_id: str, model_id: str, api_key: str) -> StoredCredentialStatus:
         """Encrypt and store one key with the configured rolling TTL."""
@@ -103,9 +133,102 @@ class ModelCredentialStore:
         """Delete one owner-scoped credential."""
 
         try:
-            return bool(await self._redis.delete(self._redis_key(user_id, model_id)))
+            safe_model_id = self._validate_model_id(model_id)
+            channel_keys = [self._channel_key(user_id, channel) for channel in _MEMORY_CHANNELS]
+            bindings = await self._redis.mget(channel_keys)
+            bound_keys = [
+                key
+                for key, value in zip(channel_keys, bindings, strict=True)
+                if value is not None
+                and (value.decode() if isinstance(value, bytes) else str(value)) == safe_model_id
+            ]
+            deleted = await self._redis.delete(
+                self._redis_key(user_id, safe_model_id),
+                self._profile_key(user_id, safe_model_id),
+                *bound_keys,
+            )
+            return bool(deleted)
         except RedisError as exc:
             raise ModelCredentialStoreUnavailable("模型凭据删除暂不可用") from exc
+
+    async def remember_model_profile(
+        self,
+        *,
+        user_id: str,
+        channel: str,
+        model_id: str,
+        base_url: str,
+        model: str,
+        provider: str | None = None,
+        integration: str | None = None,
+        pricing_key: str | None = None,
+    ) -> None:
+        """Persist bounded model metadata and its owner-scoped memory-channel binding."""
+
+        safe_model_id = self._validate_model_id(model_id)
+        clean_base_url = base_url.strip()[:2048]
+        clean_model = model.strip()[:256]
+        if not clean_base_url or not clean_model:
+            return
+        profile = {
+            "model_id": safe_model_id,
+            "base_url": clean_base_url,
+            "model": clean_model,
+            "provider": provider.strip()[:128] if isinstance(provider, str) else None,
+            "integration": integration.strip()[:128] if isinstance(integration, str) else None,
+            "pricing_key": pricing_key.strip()[:256] if isinstance(pricing_key, str) else None,
+        }
+        try:
+            encrypted_profile = encrypt_payload(profile)
+            pipeline = self._redis.pipeline(transaction=False)
+            pipeline.set(
+                self._profile_key(user_id, safe_model_id),
+                encrypted_profile,
+                ex=self._ttl_seconds,
+            )
+            pipeline.set(
+                self._channel_key(user_id, channel),
+                safe_model_id,
+                ex=self._ttl_seconds,
+            )
+            await pipeline.execute()
+        except (RedisError, TaskPayloadConfigurationError) as exc:
+            raise ModelCredentialStoreUnavailable("模型通道元数据存储暂不可用") from exc
+
+    async def resolve_channel_config(self, user_id: str, channel: str) -> dict | None:
+        """Restore one owner-scoped channel config from Redis for backend-only jobs."""
+
+        try:
+            binding = await self._redis.get(self._channel_key(user_id, channel))
+            if binding is None:
+                return None
+            model_id = binding.decode() if isinstance(binding, bytes) else str(binding)
+            safe_model_id = self._validate_model_id(model_id)
+            encrypted_profile = await self._redis.get(self._profile_key(user_id, safe_model_id))
+            if encrypted_profile is None:
+                return None
+            payload = decrypt_payload(
+                encrypted_profile.decode()
+                if isinstance(encrypted_profile, bytes)
+                else encrypted_profile
+            )
+            api_key = await self.get(user_id, safe_model_id)
+        except (RedisError, TaskPayloadConfigurationError) as exc:
+            raise ModelCredentialStoreUnavailable("模型通道配置读取暂不可用") from exc
+        if api_key is None:
+            return None
+        base_url = payload.get("base_url")
+        model = payload.get("model")
+        if not isinstance(base_url, str) or not isinstance(model, str):
+            return None
+        return {
+            "api_key": api_key,
+            "base_url": base_url,
+            "model": model,
+            "provider": payload.get("provider"),
+            "integration": payload.get("integration"),
+            "pricing_key": payload.get("pricing_key"),
+        }
 
     async def statuses(self, user_id: str, model_ids: list[str]) -> list[StoredCredentialStatus]:
         """Return existence and expiry metadata for model IDs without secrets."""

@@ -240,9 +240,22 @@ MEM0_EMBEDDING_DIMS=1536
 
 MEM0_SEARCH_LIMIT=5
 MEM0_CONTEXT_CHAR_LIMIT=1200
-# 长期记忆默认保留天数；到期记忆不再参与检索。
+# mem0 临时写入元数据的兜底保留天数；通过准入的记忆会由下面的分层策略覆盖。
 MEM0_RETENTION_DAYS=180
 MEM0_BACKGROUND_WRITE=true
+
+# 长期记忆分层清理策略。core（教育、工作、核心项目、稳定技术栈、职业方向、手动记忆）
+# 始终受保护，不因时间或低检索频率自动删除。
+MEMORY_RETENTION_DURABLE_MIN_AGE_DAYS=730
+MEMORY_RETENTION_DURABLE_INACTIVE_DAYS=365
+MEMORY_RETENTION_TRANSIENT_MIN_AGE_DAYS=120
+MEMORY_RETENTION_TRANSIENT_INACTIVE_DAYS=90
+# 达到年龄和未使用阈值后先 MARK，宽限期内再次检索/更新会取消标记。
+MEMORY_RETENTION_CLEANUP_GRACE_DAYS=30
+# 每个 owner 自动评估清理策略的最小间隔。
+MEMORY_RETENTION_CLEANUP_INTERVAL_HOURS=24
+# Redis 中访问计数、最近访问时间和候选标记的 TTL；不保存记忆或查询正文。
+MEMORY_RETENTION_STATE_TTL_DAYS=1095
 
 # ----------------------------------------------------------------------------
 # Agent 评测中心与 Eval Harness（默认关闭；评测环境禁止真实外部副作用）

@@ -21,6 +21,8 @@ export interface SessionMetadata {
     round_index?: number;
     round_type?: string;
     parent_session_id?: string;
+    series_id?: string;
+    company_profile?: Record<string, unknown> | null;
 }
 
 export interface Message {
@@ -52,6 +54,11 @@ export interface SessionListItem {
     pinned?: boolean;
     round_index?: number;
     round_type?: string;
+    series_id?: string;
+    parent_session_id?: string;
+    company_info?: string;
+    max_questions: number;
+    has_company_profile?: boolean;
 }
 
 // ============================================================================

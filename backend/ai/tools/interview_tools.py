@@ -105,6 +105,7 @@ def make_interview_tools(user_id: str, session_id: Optional[str] = None) -> List
 def make_interview_tool_executor(
     user_id: str,
     session_id: Optional[str] = None,
+    api_config: dict | None = None,
 ) -> Callable[..., Awaitable[Any]]:
     """构造绑定上下文的工具执行器，供 InterviewRuntime 使用。"""
 
@@ -145,6 +146,7 @@ def make_interview_tool_executor(
                 user_id=user_id,
                 query=query,
                 limit=int(kwargs.get("limit", 5) or 5),
+                api_config=api_config,
             )
 
         return {"error": f"Unknown tool: {tool_name}"}

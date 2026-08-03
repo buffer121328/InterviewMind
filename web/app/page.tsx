@@ -9,6 +9,7 @@ import { useSpeechToText } from "@/hooks/useSpeechToText";
 import { getUserId } from "@/hooks/useUserIdentity";
 import { API_BASE_URL } from "@/lib/api/config";
 import { parseSavedMainView, requiresApiConfig, type MainView } from "@/lib/navigation";
+import { isInterviewFinished } from "@/lib/interviewSeries";
 import { toast } from "sonner";
 import { ResumeTools } from "@/components/ResumeTools";
 import { LandingPage } from "@/components/LandingPage";
@@ -114,6 +115,14 @@ export default function InterviewPage() {
     getMimoModel,
   } = useInterviewStore();
 
+  const completedQuestionCount = interviewProgress?.current ?? currentSession?.metadata.question_count ?? 0;
+  const completedQuestionLimit = interviewProgress?.total ?? currentSession?.metadata.max_questions ?? maxQuestions;
+  const isInterviewCompleted = isInterviewFinished(
+    currentSession?.metadata.status,
+    completedQuestionCount,
+    completedQuestionLimit,
+  );
+
   // ===== 初始化 =====
   useEffect(() => {
     if (activeMainTab === 'interview') {
@@ -183,7 +192,7 @@ export default function InterviewPage() {
 
   /** Handles send; updates local UI state first and delegates server mutations through the approved API boundary. */
   const handleSend = async () => {
-    if (!input.trim() || isStreaming) return;
+    if (isInterviewCompleted || !input.trim() || isStreaming) return;
     const content = input;
     setInput("");
     await sendMessage(content);
@@ -200,7 +209,7 @@ export default function InterviewPage() {
   // ===== 消息编辑和重新生成 =====
   /** Handles edit message; updates local UI state first and delegates server mutations through the approved API boundary. */
   const handleEditMessage = async (index: number, newContent: string) => {
-    if (isStreaming) return;
+    if (isInterviewCompleted || isStreaming) return;
     // 回退到该消息之前的状态
     await rollbackChat(index);
     // 直接发送编辑后的消息
@@ -209,7 +218,7 @@ export default function InterviewPage() {
 
   /** Handles regenerate message; updates local UI state first and delegates server mutations through the approved API boundary. */
   const handleRegenerateMessage = async (aiMessageIndex: number) => {
-    if (isStreaming) return;
+    if (isInterviewCompleted || isStreaming) return;
 
     // 特殊处理：如果是第一条消息（AI开场白），则重新开始面试流程
     if (aiMessageIndex === 0) {
@@ -680,7 +689,7 @@ export default function InterviewPage() {
                   isStreaming={isStreaming}
                   isListening={isListening}
                   isExpanded={isAnswerComposerExpanded}
-                  isInterviewCompleted={Boolean(interviewProgress && interviewProgress.current >= interviewProgress.total)}
+                  isInterviewCompleted={isInterviewCompleted}
                   isLoadingHint={isLoadingHint}
                   canRequestHint={Boolean(threadId)}
                   hintContent={hintContent}
@@ -692,8 +701,7 @@ export default function InterviewPage() {
                   onStopStreaming={stopStreaming}
                 >
                     {/* 开启下一轮面试按钮 - 仅在面试完成时显示 */}
-                    {interviewProgress &&
-                      interviewProgress.current >= interviewProgress.total &&
+                    {isInterviewCompleted &&
                       currentSession?.metadata.status === 'completed' && (
                         <InterviewNextRoundBanner
                           roundIndex={currentSession.metadata.round_index ?? 1}

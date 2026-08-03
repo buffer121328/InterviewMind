@@ -8,7 +8,7 @@ from sqlalchemy import select, update, delete, func, text
 from app.db.models import async_session, SessionModel, MessageModel
 from .base import BaseService
 from .session_mgmt import SessionManagementService
-from app.domain.interview_rounds import resolve_max_questions, resolve_round_type
+from app.domain.interview_rounds import resolve_max_questions, resolve_round_type, validate_next_round_index
 from app.domain.interview_session_titles import build_interview_session_title
 
 logger = logging.getLogger(__name__)
@@ -31,9 +31,11 @@ class SessionAdvancedService(BaseService):
         round_type: Optional[str] = None,
         user_id: Optional[str] = None
     ) -> InterviewSession:
-        """从已完成的面试创建下一轮面试
+        """从已完成的 owner 会话创建唯一的下一轮面试。
 
-        自动从父会话继承 user_id，确保多轮面试的用户隔离。
+        锁定父会话后检查是否已有同轮次子会话，避免重复点击或并发请求
+        让同一系列出现多个第二轮/第三轮。第四轮、未完成父会话和重复创建
+        均通过 ``ValueError`` 返回稳定业务错误，且不会写入新会话。
         """
         parent = await self.mgmt.get_session(parent_session_id, include_resume_content=True, user_id=user_id)
 
@@ -43,16 +45,9 @@ class SessionAdvancedService(BaseService):
         if parent.metadata.status != "completed":
             raise ValueError(f"只能从已完成的面试创建下一轮（当前状态: {parent.metadata.status}）")
 
-        new_round_index = parent.metadata.round_index + 1
+        new_round_index = validate_next_round_index(parent.metadata.round_index + 1)
         new_round_type = resolve_round_type(round_type, round_index=new_round_index)
         resolved_max_questions = resolve_max_questions(new_round_type, max_questions, round_index=new_round_index)
-
-        series_id = parent.metadata.series_id
-        if not series_id:
-            series_id = str(uuid.uuid4())
-            async with async_session() as db:
-                await db.execute(update(SessionModel).where(SessionModel.session_id == parent_session_id).values(series_id=series_id))
-                await db.commit()
 
         new_session_id = str(uuid.uuid4())
         now = datetime.now()
@@ -63,17 +58,42 @@ class SessionAdvancedService(BaseService):
             round_index=new_round_index,
         )
 
-        # 获取父会话的 user_id，确保子会话归属同一用户
-        parent_user_id = None
+        # 父行锁把“检查已有子轮次”和“创建子轮次”串行化，避免并发重复分叉。
         async with async_session() as db:
-            row = (await db.execute(
-                select(SessionModel.user_id).where(SessionModel.session_id == parent_session_id)
-            )).scalar_one_or_none()
-            parent_user_id = row
+            parent_row = (
+                await db.execute(
+                    select(SessionModel.user_id, SessionModel.series_id)
+                    .where(SessionModel.session_id == parent_session_id)
+                    .with_for_update()
+                )
+            ).one_or_none()
+            if parent_row is None:
+                raise ValueError(f"父会话不存在: {parent_session_id}")
 
-        effective_user_id = user_id or parent_user_id or "default_user"
+            parent_user_id, persisted_series_id = parent_row
+            effective_user_id = user_id or parent_user_id or "default_user"
+            existing_child_id = (
+                await db.execute(
+                    select(SessionModel.session_id)
+                    .where(
+                        SessionModel.parent_session_id == parent_session_id,
+                        SessionModel.user_id == effective_user_id,
+                        SessionModel.round_index == new_round_index,
+                    )
+                    .limit(1)
+                )
+            ).scalar_one_or_none()
+            if existing_child_id:
+                raise ValueError("该轮已创建下一轮面试，请继续已有会话")
 
-        async with async_session() as db:
+            series_id = persisted_series_id or parent.metadata.series_id or str(uuid.uuid4())
+            if persisted_series_id != series_id:
+                await db.execute(
+                    update(SessionModel)
+                    .where(SessionModel.session_id == parent_session_id)
+                    .values(series_id=series_id)
+                )
+
             db.add(SessionModel(
                 session_id=new_session_id, user_id=effective_user_id, title=title, created_at=now, updated_at=now,
                 mode=parent.metadata.mode, resume_filename=parent.metadata.resume_filename, resume_content=parent.metadata.resume_content,

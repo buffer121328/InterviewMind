@@ -29,11 +29,14 @@ class MessageService(BaseService):
         audio_url: Optional[str] = None,
         user_id: Optional[str] = None
     ) -> Optional[InterviewSession]:
-        """向会话添加消息"""
-        async with async_session() as db:
-            if not await self._check_session_access(session_id, user_id):
-                return None
+        """向会话添加消息；完成或归档后拒绝继续写入。"""
+        visible_session = await self.mgmt.get_session(session_id, user_id=user_id)
+        if visible_session is None:
+            return None
+        if visible_session.metadata.status in {"completed", "archived"}:
+            raise ValueError("面试已完成，不能继续提交回答")
 
+        async with async_session() as db:
             timestamp = datetime.now()
             db.add(MessageModel(session_id=session_id, role=role, content=content, timestamp=timestamp, question_index=question_index, audio_url=audio_url))
             await db.execute(update(SessionModel).where(SessionModel.session_id == session_id).values(updated_at=timestamp))

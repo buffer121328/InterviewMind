@@ -16,14 +16,14 @@ API 集成测试
     uv run pytest tests/test_api_integration.py -v -m "llm"
 """
 
-import os
 import io
+import os
 import sys
 import types
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-from fastapi.testclient import TestClient
 
+import pytest
+from fastapi.testclient import TestClient
 
 # ============================================================================
 # 预 Mock：在 import main 前解决循环导入 & 数据库依赖
@@ -246,6 +246,21 @@ class TestHealthCheck:
         response = client.get("/docs")
         assert response.status_code == 200
         assert "swagger" in response.text.lower() or "Swagger" in response.text
+
+    def test_prefixed_docs_available(self, client):
+        """GET /api/docs returns Swagger configured for the proxied schema URL."""
+        response = client.get("/api/docs")
+
+        assert response.status_code == 200
+        assert "swagger" in response.text.lower()
+        assert "url: '/api/openapi.json'" in response.text
+
+    def test_prefixed_openapi_available(self, client):
+        """GET /api/openapi.json returns the same backend API contract."""
+        response = client.get("/api/openapi.json")
+
+        assert response.status_code == 200
+        assert response.json()["info"]["title"] == "AI 面试助手 API"
 
     def test_redoc_available(self, client):
         """GET /redoc 返回 ReDoc 文档页"""

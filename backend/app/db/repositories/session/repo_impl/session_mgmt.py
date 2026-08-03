@@ -124,7 +124,8 @@ class SessionManagementService(BaseService):
                 round_index=row.round_index or 1,
                 round_type=row.round_type,
                 parent_session_id=row.parent_session_id,
-                interview_plan=row.interview_plan if row.interview_plan else []
+                interview_plan=row.interview_plan if row.interview_plan else [],
+                company_profile=row.company_profile
             )
 
             created_at = row.created_at
@@ -191,6 +192,11 @@ class SessionManagementService(BaseService):
                 SessionModel.pinned,
                 SessionModel.round_index,
                 SessionModel.round_type,
+                SessionModel.series_id,
+                SessionModel.parent_session_id,
+                SessionModel.company_info,
+                SessionModel.max_questions,
+                SessionModel.company_profile,
                 func.count(MessageModel.id).label("message_count"),
             ).outerjoin(MessageModel, MessageModel.session_id == SessionModel.session_id).group_by(SessionModel.session_id)
             if status:
@@ -221,7 +227,12 @@ class SessionManagementService(BaseService):
                     question_count=row.question_count,
                     pinned=bool(row.pinned),
                     round_index=row.round_index or 1,
-                    round_type=row.round_type or 'tech_initial'
+                    round_type=row.round_type or 'tech_initial',
+                    series_id=row.series_id,
+                    parent_session_id=row.parent_session_id,
+                    company_info=row.company_info,
+                    max_questions=row.max_questions or 10,
+                    has_company_profile=bool(row.company_profile),
                 ))
 
             return sessions

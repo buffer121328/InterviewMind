@@ -3,26 +3,35 @@ FastAPI 主入口文件
 AI 面试助手后端服务
 """
 
-import os
+import asyncio
 import logging
+import os
 import signal
 import sys
-import asyncio
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-
-from app.api import agent_runs, chat, upload, sessions, config, voice_chat, applications, langfuse_prompts, evaluations
-from app.api.resume import router as resume_router
-from app.api.question_bank import router as question_bank_router
-from app.api.memory import router as memory_router
-from app.api.jobs import router as jobs_router
+from app.api import (
+    agent_runs,
+    applications,
+    chat,
+    config,
+    evaluations,
+    langfuse_prompts,
+    sessions,
+    upload,
+    voice_chat,
+)
 from app.api.interview_experience import router as interview_experience_router
-from app.schemas.schemas import ErrorResponse
+from app.api.jobs import router as jobs_router
+from app.api.memory import router as memory_router
+from app.api.question_bank import router as question_bank_router
+from app.api.resume import router as resume_router
 from app.security.model_credential_middleware import ModelCredentialHydrationMiddleware
 from app.security.security import redact_secrets, safe_error_message
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
+from fastapi.responses import JSONResponse
 
 # 配置日志
 logging.basicConfig(
@@ -201,8 +210,38 @@ app = FastAPI(
     title="AI 面试助手 API",
     description="基于 FastAPI + LangGraph 的智能面试系统后端",
     version="1.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
+    docs_url="/api/docs",
+    redoc_url="/api/redoc",
+    openapi_url="/api/openapi.json",
 )
+
+
+@app.get("/docs", include_in_schema=False)
+async def legacy_swagger_ui():
+    """Serve the direct-backend Swagger URL while `/api/docs` remains canonical."""
+
+    return get_swagger_ui_html(
+        openapi_url="/openapi.json",
+        title=f"{app.title} - Swagger UI",
+    )
+
+
+@app.get("/redoc", include_in_schema=False)
+async def legacy_redoc_ui():
+    """Serve the direct-backend ReDoc URL using the compatibility schema alias."""
+
+    return get_redoc_html(
+        openapi_url="/openapi.json",
+        title=f"{app.title} - ReDoc",
+    )
+
+
+@app.get("/openapi.json", include_in_schema=False)
+async def legacy_openapi_schema():
+    """Return the OpenAPI document for existing direct-backend development clients."""
+
+    return JSONResponse(app.openapi())
 
 # 凭据解析位于业务路由之前；CORS 后注册使其保持最外层并覆盖凭据错误响应。
 app.add_middleware(ModelCredentialHydrationMiddleware)
@@ -260,8 +299,8 @@ async def root():
         "message": "AI 面试助手 API",
         "version": "1.0.0",
         "status": "running",
-        "docs": "/docs",
-        "redoc": "/redoc"
+        "docs": "/api/docs",
+        "redoc": "/api/redoc"
     }
 
 
@@ -283,9 +322,9 @@ async def health_check():
 
 
 # 注册路由
-from fastapi.staticfiles import StaticFiles
 from app.api import artifacts
 from app.api.satisfaction import router as satisfaction_router
+from fastapi.staticfiles import StaticFiles
 
 # 注册路由
 app.include_router(chat.router)

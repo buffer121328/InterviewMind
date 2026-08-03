@@ -36,6 +36,7 @@ class SessionMetadata(BaseModel):
     round_type: str = Field(default="tech_initial", description="面试类型")
     parent_session_id: Optional[str] = Field(None, description="上一轮Session ID")
     interview_plan: List[Dict[str, Any]] = Field(default_factory=list, description="面试计划")
+    company_profile: Optional[Dict[str, Any]] = Field(None, description="第三轮生成的公司总画像")
 
 
 class InterviewSession(BaseModel):
@@ -62,6 +63,11 @@ class SessionListItem(BaseModel):
     # 多轮面试字段
     round_index: int = Field(default=1, description="轮次序号")
     round_type: str = Field(default="tech_initial", description="面试类型")
+    series_id: Optional[str] = Field(None, description="面试系列 ID")
+    parent_session_id: Optional[str] = Field(None, description="上一轮会话 ID")
+    company_info: Optional[str] = Field(None, description="公司信息")
+    max_questions: int = Field(default=10, description="本轮最大主问题数")
+    has_company_profile: bool = Field(default=False, description="是否已生成公司总画像")
 
 
 class SessionCreateRequest(BaseModel):
@@ -110,3 +116,4 @@ class SessionMarkdownReportResponse(BaseModel):
     markdown: str = Field(default="", description="用于预览和导出的统一 Markdown")
     generated_at: Optional[str] = Field(default=None, description="报告数据最近更新时间")
     message: Optional[str] = Field(default=None, description="报告尚不可用时的稳定提示")
+    company_profile: Optional[Dict[str, Any]] = Field(default=None, description="第三轮对应的公司总画像")

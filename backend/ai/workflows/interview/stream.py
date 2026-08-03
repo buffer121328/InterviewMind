@@ -70,6 +70,11 @@ class ChatStreamUseCases:
         session = await self._session_repo.get_session(request.thread_id, user_id=user_id)
         if session is None:
             raise ChatStreamNotFound(message="会话不存在或无权访问")
+        persisted_status = getattr(session.metadata, "status", "active")
+        persisted_count = int(getattr(session.metadata, "question_count", 0) or 0)
+        persisted_limit = int(getattr(session.metadata, "max_questions", request.max_questions) or request.max_questions)
+        if persisted_status != "active" or persisted_count >= persisted_limit:
+            raise ChatStreamBadRequest(message="面试已完成，不能继续提交回答")
         interview_plan = await self._session_repo.get_interview_plan(request.thread_id)
         hydrated_messages = []
         for msg in session.messages:

@@ -164,9 +164,10 @@ async def _build_cumulative_profile(
 async def _fetch_memory_context(user_id: str, query: str) -> str:
     """获取长期记忆上下文"""
     try:
-        from ai.memory import get_agent_memory_service, format_memory_context
+        from ai.memory import format_memory_context
+        from ai.workflows.memory import get_owner_memory_service
 
-        memory_service = await get_agent_memory_service()
+        memory_service = await get_owner_memory_service(user_id, None)
         if not memory_service.is_enabled:
             return ""
 

@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><meta name="generator" content="html-slides v0.9.4"><title>面必过 · 产品介绍 Vibe</title><style>
+@import url('https://fonts.googleapis.com/css2?family=Archivo+Black&family=IBM+Plex+Mono:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;700;900&family=Noto+Serif+SC:wght@600;700;900&display=swap');
+/* ===========================================
+   VIEWPORT FITTING: MANDATORY BASE STYLES
+   Include this ENTIRE file in every presentation.
+   These styles ensure slides fit exactly in the viewport.
+   =========================================== */
+
+/* 1. Lock html/body to viewport */
+html, body {
+    height: 100%;
+    overflow-x: hidden;
+}
+
+html {
+    scroll-snap-type: y mandatory;
+    scroll-behavior: smooth;
+}
+
+/* 2. Each slide = exact viewport height */
+.slide {
+    width: 100vw;
+    height: 100vh;
+    height: 100dvh; /* Dynamic viewport height for mobile browsers */
+    overflow: hidden; /* CRITICAL: Prevent ANY overflow */
+    scroll-snap-align: start;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+}
+
+/* 3. Content container with flex for centering */
+.slide-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    max-height: 100%;
+    overflow: hidden; /* Double-protection against overflow */
+    padding: var(--slide-padding);
+}
+
+/* 4. ALL typography uses clamp() for responsive scaling */
+:root {
+    /* Titles scale from mobile to desktop */
+    --title-size: clamp(1.5rem, 5vw, 4rem);
+    --h2-size: clamp(1.25rem, 3.5vw, 2.5rem);
+    --h3-size: clamp(1rem, 2.5vw, 1.75rem);
+
+    /* Body text */
+    --body-size: clamp(0.75rem, 1.5vw, 1.125rem);
+    --small-size: clamp(0.65rem, 1vw, 0.875rem);
+
+    /* Spacing scales with viewport */
+    --slide-padding: clamp(1rem, 4vw, 4rem);
+    --content-gap: clamp(0.5rem, 2vw, 2rem);
+    --element-gap: clamp(0.25rem, 1vw, 1rem);
+}
+
+/* 5. Cards/containers use viewport-relative max sizes */
+.card, .container, .content-box {
+    max-width: min(90vw, 1000px);
+    max-height: min(80vh, 700px);
+}
+
+/* 6. Lists auto-scale with viewport */
+.feature-list, .bullet-list {
+    gap: clamp(0.4rem, 1vh, 1rem);
+}
+
+.feature-list li, .bullet-list li {
+    font-size: var(--body-size);
+    line-height: 1.4;
+}
+
+/* 7. Grids adapt to available space */
+.grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr));
+    gap: clamp(0.5rem, 1.5vw, 1rem);
+}
+
+/* 8. Images constrained to viewport */
+img, .image-container {
+    max-width: 100%;
+    max-height: min(50vh, 400px);
+    object-fit: contain;
+}
+
+/* ===========================================
+   RESPONSIVE BREAKPOINTS
+   Aggressive scaling for smaller viewports
+   =========================================== */
+
+/* Short viewports (< 700px height) */
+@media (max-height: 700px) {
+    :root {
+        --slide-padding: clamp(0.75rem, 3vw, 2rem);
+        --content-gap: clamp(0.4rem, 1.5vw, 1rem);
+        --title-size: clamp(1.25rem, 4.5vw, 2.5rem);
+        --h2-size: clamp(1rem, 3vw, 1.75rem);
+    }
+}
+
+/* Very short viewports (< 600px height) */
+@media (max-height: 600px) {
+    :root {
+        --slide-padding: clamp(0.5rem, 2.5vw, 1.5rem);
+        --content-gap: clamp(0.3rem, 1vw, 0.75rem);
+        --title-size: clamp(1.1rem, 4vw, 2rem);
+        --body-size: clamp(0.7rem, 1.2vw, 0.95rem);
+    }
+
+    /* Hide non-essential elements */
+    .nav-dots, .keyboard-hint, .decorative {
+        display: none;
+    }
+}
+
+/* Extremely short (landscape phones, < 500px height) */
+@media (max-height: 500px) {
+    :root {
+        --slide-padding: clamp(0.4rem, 2vw, 1rem);
+        --title-size: clamp(1rem, 3.5vw, 1.5rem);
+        --h2-size: clamp(0.9rem, 2.5vw, 1.25rem);
+        --body-size: clamp(0.65rem, 1vw, 0.85rem);
+    }
+}
+
+/* Narrow viewports (< 600px width) */
+@media (max-width: 600px) {
+    :root {
+        --title-size: clamp(1.25rem, 7vw, 2.5rem);
+    }
+
+    /* Stack grids vertically */
+    .grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* ===========================================
+   REDUCED MOTION
+   Respect user preferences
+   =========================================== */
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        transition-duration: 0.2s !important;
+    }
+
+    html {
+        scroll-behavior: auto;
+    }
+}
+
+/* === SIGNAL EDITORIAL THEME === */
+*{box-sizing:border-box;margin:0;padding:0}
+:root{--ink:#090b0d;--paper:#f5f1e8;--orange:#ff5a1f;--cyan:#35e5d2;--lime:#d7ff43;--muted:#aaa69e;--font-body:'Noto Sans SC',sans-serif;--font-display:'Archivo Black','Noto Sans SC',sans-serif;--font-serif:'Noto Serif SC',serif;--font-mono:'IBM Plex Mono',monospace}
+body{font-family:var(--font-body);background:var(--ink);color:var(--paper);overscroll-behavior:none}
+.deck{width:100%}
+.slide{isolation:isolate;background:var(--ink);color:var(--paper)}
+.slide-content{width:100%;max-width:min(94vw,1320px);margin:auto;align-self:center;gap:var(--content-gap)}
+.slide::before{content:'';position:absolute;inset:0;z-index:-3;background:radial-gradient(circle at 78% 18%,rgba(53,229,210,.12),transparent 25%),linear-gradient(rgba(255,255,255,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.025) 1px,transparent 1px);background-size:auto,clamp(2.6rem,5vw,5rem) clamp(2.6rem,5vw,5rem),clamp(2.6rem,5vw,5rem) clamp(2.6rem,5vw,5rem)}
+.slide::after{content:attr(data-slide);position:absolute;right:clamp(1rem,3vw,2.5rem);top:clamp(1rem,3vw,2.2rem);font:400 clamp(.65rem,.9vw,.8rem)/1 var(--font-mono);color:rgba(245,241,232,.42)}
+.vibe-kicker{font:600 clamp(.6rem,.95vw,.82rem)/1.2 var(--font-mono);letter-spacing:.17em;text-transform:uppercase;color:var(--cyan)}
+.vibe-title{font:900 clamp(2.4rem,8.3vw,7.6rem)/.93 var(--font-display);letter-spacing:-.06em;max-width:min(94vw,1200px);text-transform:uppercase}
+.vibe-title.zh{font-family:var(--font-body);font-weight:900;text-transform:none;line-height:1.02}
+.vibe-h2{font:900 clamp(1.9rem,5.5vw,5rem)/1.04 var(--font-body);letter-spacing:-.055em;max-width:min(92vw,1120px)}
+.vibe-sub{font-size:clamp(.88rem,1.7vw,1.35rem);line-height:1.65;color:#c9c4bb;max-width:min(84vw,850px)}
+.orange-block{display:inline;background:var(--orange);color:var(--ink);box-decoration-break:clone;-webkit-box-decoration-break:clone;padding:0 clamp(.15rem,.4vw,.35rem)}
+.cyan-underline{position:relative;display:inline-block}.cyan-underline::after{content:'';position:absolute;left:0;right:0;bottom:0;height:clamp(.15rem,.35vw,.35rem);background:var(--cyan);z-index:-1;transform:rotate(-1deg)}
+.big-index{position:absolute;left:clamp(1rem,4vw,4rem);bottom:clamp(1rem,4vw,3rem);font:400 clamp(5rem,19vw,16rem)/.75 var(--font-display);color:rgba(245,241,232,.025);z-index:-1}
+.signal-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:clamp(.55rem,1.2vw,1rem);width:100%}
+.signal-card{position:relative;min-height:clamp(7.5rem,18vh,12rem);padding:clamp(.8rem,1.8vw,1.5rem);border:1px solid rgba(245,241,232,.14);background:rgba(9,11,13,.75);overflow:hidden;transition:transform .35s ease,border-color .35s ease}
+.signal-card:hover{transform:translateY(calc(-1 * clamp(.2rem,.5vw,.45rem)));border-color:var(--card-accent,var(--orange))}
+.signal-card::before{content:'';position:absolute;left:0;top:0;width:clamp(.3rem,.6vw,.55rem);height:100%;background:var(--card-accent,var(--orange))}
+.signal-card .num{font:400 clamp(1.4rem,3vw,2.4rem)/1 var(--font-display);color:var(--card-accent,var(--orange));margin-left:clamp(.4rem,.8vw,.8rem)}
+.signal-card h3{font-size:clamp(.85rem,1.5vw,1.18rem);margin:clamp(.5rem,1vw,.8rem) 0 clamp(.25rem,.55vw,.45rem) clamp(.4rem,.8vw,.8rem)}
+.signal-card p{font-size:clamp(.68rem,1vw,.88rem);line-height:1.5;color:#aaa69e;margin-left:clamp(.4rem,.8vw,.8rem)}
+.split{display:grid;grid-template-columns:1.05fr .95fr;gap:clamp(1rem,3vw,3rem);width:100%;align-items:center}
+.poster{position:relative;min-height:min(58vh,560px);border:1px solid rgba(245,241,232,.18);background:var(--paper);color:var(--ink);padding:clamp(1rem,2.7vw,2.5rem);box-shadow:clamp(.6rem,1.2vw,1rem) clamp(.6rem,1.2vw,1rem) 0 var(--orange);overflow:hidden}
+.poster::after{content:'SYSTEM / NOT CHAT';position:absolute;right:clamp(.7rem,1.5vw,1.2rem);bottom:clamp(.7rem,1.5vw,1.2rem);font:600 clamp(.55rem,.8vw,.7rem)/1 var(--font-mono);letter-spacing:.12em}
+.poster h3{font:900 clamp(1.45rem,3.5vw,3rem)/1 var(--font-body);letter-spacing:-.05em}
+.poster-lines{display:grid;gap:clamp(.45rem,1vw,.75rem);margin-top:clamp(1rem,2.5vw,2rem)}
+.poster-line{display:grid;grid-template-columns:clamp(3.6rem,7vw,6rem) 1fr;align-items:center;gap:clamp(.5rem,1vw,.9rem);font-size:clamp(.65rem,1.1vw,.9rem)}
+.poster-line b{font-family:var(--font-mono);font-size:clamp(.56rem,.8vw,.7rem);color:#555}
+.poster-bar{height:clamp(1.5rem,3.6vw,2.8rem);display:flex;align-items:center;padding:0 clamp(.45rem,1vw,.8rem);background:var(--bar,var(--orange));font-weight:900}
+.route{display:flex;align-items:center;width:100%;gap:clamp(.25rem,.8vw,.75rem)}
+.route-stop{flex:1;position:relative;padding:clamp(.75rem,1.6vw,1.25rem) clamp(.45rem,1vw,.85rem);border-top:clamp(.2rem,.4vw,.35rem) solid var(--stop,var(--orange));background:rgba(245,241,232,.05)}
+.route-stop b{display:block;font-size:clamp(.72rem,1.2vw,1rem)}.route-stop span{font:500 clamp(.52rem,.75vw,.65rem)/1.4 var(--font-mono);color:var(--muted)}
+.route-arrow{font-size:clamp(1rem,2vw,1.6rem);color:var(--cyan)}
+.statement{font:700 clamp(1.65rem,4.8vw,4.4rem)/1.2 var(--font-serif);max-width:min(90vw,1100px)}
+.statement small{display:block;margin-top:clamp(.8rem,2vw,1.5rem);font:500 clamp(.75rem,1.2vw,1rem)/1.6 var(--font-body);color:var(--muted);max-width:min(80vw,760px)}
+.stack-board{display:grid;grid-template-columns:repeat(5,1fr);width:100%;border:1px solid rgba(245,241,232,.18)}
+.stack-col{min-height:min(55vh,520px);padding:clamp(.7rem,1.4vw,1.15rem);border-right:1px solid rgba(245,241,232,.13);display:flex;flex-direction:column;gap:clamp(.45rem,1vw,.75rem);background:rgba(255,255,255,.02)}
+.stack-col:last-child{border-right:0}.stack-col:nth-child(even){background:rgba(255,90,31,.055)}
+.stack-col .label{font:600 clamp(.5rem,.75vw,.65rem)/1 var(--font-mono);color:var(--cyan);letter-spacing:.08em}
+.stack-col h3{font-size:clamp(.72rem,1.15vw,.95rem)}
+.stack-item{padding:clamp(.4rem,.8vw,.65rem);border:1px solid rgba(245,241,232,.12);font-size:clamp(.55rem,.83vw,.72rem);color:#bbb6ad;background:rgba(9,11,13,.7)}
+.guard-box{border:clamp(.18rem,.35vw,.3rem) solid var(--lime);padding:clamp(1rem,2.5vw,2.2rem);display:grid;grid-template-columns:.75fr 1.25fr;gap:clamp(1rem,2.5vw,2rem);align-items:center;background:linear-gradient(135deg,rgba(215,255,67,.08),transparent)}
+.guard-mark{font:400 clamp(4rem,11vw,9rem)/.8 var(--font-display);color:var(--lime)}
+.guard-steps{display:grid;gap:clamp(.45rem,1vw,.8rem)}.guard-step{display:grid;grid-template-columns:clamp(1.6rem,3vw,2.5rem) 1fr;gap:clamp(.45rem,1vw,.8rem);align-items:center}.guard-step i{width:clamp(1.6rem,3vw,2.5rem);aspect-ratio:1;display:grid;place-items:center;border-radius:50%;background:var(--lime);color:var(--ink);font:400 clamp(.55rem,.8vw,.7rem)/1 var(--font-display);font-style:normal}.guard-step b{font-size:clamp(.72rem,1.15vw,.95rem)}.guard-step span{font-size:clamp(.58rem,.85vw,.72rem);color:var(--muted)}
+.loop{position:relative;width:min(58vh,560px);aspect-ratio:1;border:clamp(.12rem,.25vw,.2rem) solid rgba(245,241,232,.18);border-radius:50%;display:grid;place-items:center}.loop::before{content:'';position:absolute;inset:14%;border:1px dashed rgba(53,229,210,.4);border-radius:50%;animation:spin 24s linear infinite}.loop-core{width:36%;aspect-ratio:1;border-radius:50%;display:grid;place-items:center;text-align:center;background:var(--orange);color:var(--ink);font-weight:900;font-size:clamp(.72rem,1.3vw,1rem)}.loop-label{position:absolute;padding:clamp(.3rem,.7vw,.55rem) clamp(.5rem,1vw,.8rem);background:var(--paper);color:var(--ink);font:600 clamp(.52rem,.78vw,.68rem)/1 var(--font-mono)}.loop-label.l1{top:4%;left:36%}.loop-label.l2{right:-5%;top:43%}.loop-label.l3{bottom:6%;right:24%}.loop-label.l4{bottom:18%;left:-3%}.loop-label.l5{top:22%;left:-5%}
+@keyframes spin{to{transform:rotate(360deg)}}
+.final-mark{font:400 clamp(4.5rem,18vw,16rem)/.78 var(--font-display);color:var(--orange);letter-spacing:-.08em}.final-copy{font:900 clamp(1.5rem,4vw,3.8rem)/1.08 var(--font-body);max-width:min(88vw,960px)}
+.vibe-nav{position:fixed;left:50%;bottom:clamp(.7rem,1.6vw,1.2rem);transform:translateX(-50%);z-index:9000;display:flex;gap:clamp(.3rem,.7vw,.55rem);padding:clamp(.35rem,.65vw,.5rem);background:rgba(9,11,13,.72);border:1px solid rgba(245,241,232,.12);backdrop-filter:blur(12px);border-radius:999px}.vibe-dot{width:clamp(.28rem,.5vw,.42rem);height:clamp(.28rem,.5vw,.42rem);border-radius:50%;background:rgba(245,241,232,.22);cursor:pointer;transition:.3s}.vibe-dot.active{background:var(--orange);transform:scale(1.55)}
+.vibe-progress{position:fixed;left:0;bottom:0;height:clamp(.12rem,.22vw,.2rem);background:linear-gradient(90deg,var(--orange),var(--cyan));z-index:9001;transition:width .35s ease}
+.reveal{opacity:0;transform:translateY(clamp(1rem,3vh,2rem));transition:opacity .65s ease,transform .65s cubic-bezier(.2,.8,.2,1)}.slide.active .reveal{opacity:1;transform:none}.slide.active .d1{transition-delay:.08s}.slide.active .d2{transition-delay:.18s}.slide.active .d3{transition-delay:.3s}.slide.active .d4{transition-delay:.42s}
+@media(max-width:850px){.signal-grid{grid-template-columns:repeat(2,1fr)}.split{grid-template-columns:1fr 1fr}.stack-board{grid-template-columns:repeat(3,1fr)}.stack-col:nth-child(n+4){display:none}.route{flex-wrap:wrap}.route-stop{flex:0 0 30%}.route-arrow{display:none}}
+@media(max-height:700px){.poster{min-height:min(53vh,450px)}.stack-col{min-height:min(50vh,430px)}.signal-card{min-height:clamp(6.4rem,16vh,9rem)}}
+@media(max-height:600px){.slide-content{gap:clamp(.35rem,1vw,.7rem)}.vibe-sub{line-height:1.4}.poster{min-height:min(49vh,360px)}.stack-col{min-height:min(46vh,350px)}}
+@media(max-height:500px){.vibe-nav,.vibe-progress{display:none}.poster{min-height:min(44vh,290px)}.signal-card p{line-height:1.25}.stack-col{min-height:min(42vh,280px)}}
+
+/* === INLINE EDITOR === */
+.edit-hotzone{position:fixed;top:0;left:0;width:clamp(3.5rem,7vw,5rem);height:clamp(3.5rem,7vw,5rem);z-index:10000;cursor:pointer}
+.edit-toggle,.export-toggle{position:fixed;top:clamp(.65rem,1.5vw,1.1rem);z-index:10001;border:1px solid rgba(255,255,255,.18);background:rgba(9,12,18,.88);color:#fff;border-radius:999px;padding:clamp(.45rem,.8vw,.7rem) clamp(.7rem,1.2vw,1rem);font:600 clamp(.65rem,.9vw,.82rem)/1 var(--font-body,sans-serif);backdrop-filter:blur(12px);box-shadow:0 8px 24px rgba(0,0,0,.25);transition:opacity .3s ease,transform .3s ease;opacity:0;pointer-events:none}
+.edit-toggle{left:clamp(.65rem,1.5vw,1.1rem)}
+.export-toggle{left:clamp(5.5rem,9vw,7.4rem)}
+.edit-toggle.show,.edit-toggle.active,.export-toggle.show{opacity:1;pointer-events:auto}
+.edit-toggle:hover,.export-toggle:hover{transform:translateY(-2px)}
+body.editing [data-editable]{outline:1px dashed rgba(88,166,255,.65);outline-offset:clamp(.15rem,.35vw,.3rem);cursor:text}
+body.editing [data-editable]:focus{outline:2px solid #58a6ff;background:rgba(88,166,255,.08)}
+
+</style></head><body data-storage-key="mianbigou-vibe-v1">
+<div class="vibe-progress" id="vibeProgress"></div><div class="vibe-nav" id="vibeNav"></div><div class="edit-hotzone"></div><button class="edit-toggle" id="editToggle" title="编辑模式 (E)">✎ 编辑</button><button class="export-toggle" id="exportToggle" title="导出当前版本">↓ 导出</button>
+<div class="deck" id="deck"><div class="slide active" data-slide="0">
+
+<div class="slide-content"><div class="vibe-kicker reveal d1" data-editable>MIAN BI GUO / PRODUCT STORY</div><h1 class="vibe-title zh reveal d2" data-editable>求职，<br>不该每次都<span class="orange-block">从零开始</span></h1><p class="vibe-sub reveal d3" data-editable>面必过 · 一个会记住你、理解岗位、陪你训练，并在关键行动前把控制权交还给你的 AI 求职系统。</p></div><div class="big-index">00</div>
+<script type="application/json" class="slide-notes">{"title": "求职不该每次从零开始", "script": "每次换一个工具、换一个对话，用户都要重新解释自己。面必过想解决的第一件事，就是让求职上下文可以延续，让每一次准备都成为下一次行动的基础。", "notes": ["求职上下文应该持续积累", "系统理解用户、岗位与历史表现", "关键行动仍由用户控制"]}</script>
+</div>
+<div class="slide" data-slide="1">
+
+<div class="slide-content"><div class="vibe-kicker reveal d1" data-editable>THE REAL PROBLEM</div><h2 class="vibe-h2 reveal d2" data-editable>你缺的不是建议。<br>你缺的是<span class="cyan-underline">一条完整的链路</span>。</h2><div class="signal-grid reveal d3"><div class="signal-card" style="--card-accent:var(--orange)"><div class="num">01</div><h3 data-editable>简历在一个窗口</h3><p data-editable>岗位、项目经历和改写建议彼此割裂。</p></div><div class="signal-card" style="--card-accent:var(--cyan)"><div class="num">02</div><h3 data-editable>面试在另一个窗口</h3><p data-editable>上一轮暴露的短板，没有进入下一轮训练。</p></div><div class="signal-card" style="--card-accent:var(--lime)"><div class="num">03</div><h3 data-editable>投递又是另一套流程</h3><p data-editable>生成、确认、发送和结果无法形成可信闭环。</p></div></div></div><div class="big-index">01</div>
+<script type="application/json" class="slide-notes">{"title": "真正的问题是一条断裂的链路", "script": "求职工具很多，但用户体验仍然是断裂的。简历、面试和投递分别发生，信息无法自然流动，失败也很难转化为下一次改进。", "notes": ["简历、面试、投递彼此割裂", "短板反馈没有进入下一轮训练", "结果缺少可信闭环"]}</script>
+</div>
+<div class="slide" data-slide="2">
+
+<div class="slide-content"><div class="split"><div><div class="vibe-kicker reveal d1" data-editable>ONE COCKPIT</div><h2 class="vibe-h2 reveal d2" data-editable>把所有准备，<br>放进一个<span class="orange-block">求职驾驶舱</span></h2><p class="vibe-sub reveal d3" data-editable>不是把功能堆在一起，而是让简历、JD、面试、岗位和历史表现共享同一份用户上下文。</p></div><div class="poster reveal d3"><h3 data-editable>面必过 / TODAY</h3><div class="poster-lines"><div class="poster-line"><b>PROFILE</b><div class="poster-bar" style="--bar:var(--cyan)" data-editable>经历与技能素材已沉淀</div></div><div class="poster-line"><b>JD MATCH</b><div class="poster-bar" style="--bar:var(--lime)" data-editable>发现岗位差距与关键词</div></div><div class="poster-line"><b>INTERVIEW</b><div class="poster-bar" style="--bar:var(--orange)" data-editable>继续上次的薄弱项训练</div></div><div class="poster-line"><b>NEXT</b><div class="poster-bar" style="--bar:#d8d2c7" data-editable>审阅定制简历并确认行动</div></div></div></div></div></div><div class="big-index">02</div>
+<script type="application/json" class="slide-notes">{"title": "一个求职驾驶舱", "script": "工作台的价值不是入口集中，而是上下文共享。用户的经历、岗位差距、面试短板和下一步行动，在同一个系统里持续更新。", "notes": ["统一工作台承载多个求职阶段", "模块共享用户和岗位上下文", "系统主动给出下一步行动"]}</script>
+</div>
+<div class="slide" data-slide="3">
+
+<div class="slide-content"><div class="vibe-kicker reveal d1" data-editable>THE JOURNEY</div><h2 class="vibe-h2 reveal d2" data-editable>一次求职，六个动作，<br><span class="cyan-underline">同一条记忆</span></h2><div class="route reveal d3"><div class="route-stop" style="--stop:var(--cyan)"><b data-editable>沉淀素材</b><span data-editable>经历 / 技能 / 偏好</span></div><div class="route-arrow">→</div><div class="route-stop" style="--stop:var(--lime)"><b data-editable>理解 JD</b><span data-editable>要求 / 差距 / 证据</span></div><div class="route-arrow">→</div><div class="route-stop" style="--stop:var(--orange)"><b data-editable>生成材料</b><span data-editable>简历 / 项目 / 话术</span></div><div class="route-arrow">→</div><div class="route-stop" style="--stop:var(--cyan)"><b data-editable>模拟面试</b><span data-editable>提问 / 追问 / 反馈</span></div><div class="route-arrow">→</div><div class="route-stop" style="--stop:var(--lime)"><b data-editable>确认行动</b><span data-editable>预览 / 审批 / 发送</span></div><div class="route-arrow">→</div><div class="route-stop" style="--stop:var(--orange)"><b data-editable>复盘进化</b><span data-editable>报告 / 记忆 / 评测</span></div></div></div><div class="big-index">03</div>
+<script type="application/json" class="slide-notes">{"title": "完整的求职旅程", "script": "这是一条从真实经历出发的六步链路。每一步都会使用前一步的上下文，也会为下一步留下可以复用的结果。", "notes": ["从素材到复盘的六步链路", "每一步消费并生产上下文", "历史反馈持续进入未来任务"]}</script>
+</div>
+<div class="slide" data-slide="4">
+
+<div class="slide-content"><div class="split"><div><div class="vibe-kicker reveal d1" data-editable>INTERVIEW THAT REMEMBERS</div><h2 class="vibe-h2 reveal d2" data-editable>它不是问你十道题。<br>它在<span class="orange-block">观察你怎么回答</span>。</h2><p class="vibe-sub reveal d3" data-editable>文字与语音、多轮追问、题库与 RAG、历史表现和能力画像共同决定下一步问题。</p></div><div class="poster reveal d3" style="background:var(--ink);color:var(--paper);box-shadow:clamp(.6rem,1.2vw,1rem) clamp(.6rem,1.2vw,1rem) 0 var(--cyan)"><div class="vibe-kicker" data-editable>LIVE INTERVIEW / STATE</div><h3 style="margin-top:clamp(.7rem,1.5vw,1.2rem)" data-editable>回答不是终点，<br>是下一次判断的输入。</h3><div class="poster-lines"><div class="poster-line"><b>01</b><div class="poster-bar" style="--bar:rgba(53,229,210,.22);color:var(--paper)" data-editable>理解当前回答</div></div><div class="poster-line"><b>02</b><div class="poster-bar" style="--bar:rgba(255,90,31,.3);color:var(--paper)" data-editable>判断追问或进入下一题</div></div><div class="poster-line"><b>03</b><div class="poster-bar" style="--bar:rgba(215,255,67,.22);color:var(--paper)" data-editable>沉淀能力画像与短板</div></div></div></div></div></div><div class="big-index">04</div>
+<script type="application/json" class="slide-notes">{"title": "会记住你的面试教练", "script": "面试体验的核心不是题目数量，而是系统如何理解回答、做出追问决策，并把结果沉淀为能力画像和下一轮训练目标。", "notes": ["文字与语音面试双模式", "有状态追问而非随机题目", "能力画像进入长期训练"]}</script>
+</div>
+<div class="slide" data-slide="5">
+
+<div class="slide-content"><div class="vibe-kicker reveal d1" data-editable>RESUME, WITH EVIDENCE</div><div class="statement reveal d2" data-editable>好的简历不是“写得像真的”。<br>而是每一句亮点，<span class="orange-block">都能回到真实经历</span>。<small>解析 → 分析 → 素材与证据映射 → 多 Agent 优化 → 人工审阅。系统负责放大价值，但不替用户发明价值。</small></div><div class="signal-grid reveal d3"><div class="signal-card" style="--card-accent:var(--cyan)"><div class="num">A</div><h3 data-editable>候选人素材库</h3><p data-editable>经历、技能和项目事实成为可复用资产。</p></div><div class="signal-card" style="--card-accent:var(--orange)"><div class="num">B</div><h3 data-editable>JD 定制</h3><p data-editable>围绕岗位差距重组重点，而不是统一模板。</p></div><div class="signal-card" style="--card-accent:var(--lime)"><div class="num">C</div><h3 data-editable>人工审阅</h3><p data-editable>建议、草稿和最终产物始终清晰分离。</p></div></div></div><div class="big-index">05</div>
+<script type="application/json" class="slide-notes">{"title": "有证据的简历优化", "script": "产品不追求把简历写得夸张，而是让每一个亮点都能够回到用户真实的经历和素材。模型提供策略和表达，最终决定仍然由用户完成。", "notes": ["真实经历约束简历生成", "围绕 JD 做差异化定制", "人工审阅决定最终产物"]}</script>
+</div>
+<div class="slide" data-slide="6">
+
+<div class="slide-content"><div class="split"><div><div class="vibe-kicker reveal d1" data-editable>LONG TASKS, SHORT ANXIETY</div><h2 class="vibe-h2 reveal d2" data-editable>生成可以很久。<br>等待不该<span class="cyan-underline">像一个黑盒</span>。</h2><p class="vibe-sub reveal d3" data-editable>AgentRun 让首题、简历优化、报告和岗位资产拥有统一生命周期：排队、进度、事件、取消、重试与恢复。</p></div><div class="poster reveal d3"><h3 data-editable>AGENTRUN / LIVE</h3><div class="poster-lines"><div class="poster-line"><b>QUEUED</b><div class="poster-bar" style="--bar:#d8d2c7" data-editable>任务进入队列</div></div><div class="poster-line"><b>RUNNING</b><div class="poster-bar" style="--bar:var(--orange)" data-editable>阶段与事件持续可见</div></div><div class="poster-line"><b>RECOVER</b><div class="poster-bar" style="--bar:var(--cyan)" data-editable>从检查点恢复执行</div></div><div class="poster-line"><b>RESULT</b><div class="poster-bar" style="--bar:var(--lime)" data-editable>业务结果成为最终事实</div></div></div></div></div></div><div class="big-index">06</div>
+<script type="application/json" class="slide-notes">{"title": "长任务不再是黑盒", "script": "AI 长任务可能排队、失败或中断。AgentRun 把这些变化公开给用户，并提供重试和恢复，让等待变成一个可以理解和控制的过程。", "notes": ["长任务拥有统一生命周期", "进度和事件持续可见", "支持取消、重试和断点恢复"]}</script>
+</div>
+<div class="slide" data-slide="7">
+
+<div class="slide-content"><div class="vibe-kicker reveal d1" data-editable>HUMAN IN CONTROL</div><div class="guard-box reveal d2"><div class="guard-mark">HITL</div><div><h2 class="vibe-h2" style="font-size:clamp(1.35rem,3.4vw,3rem)" data-editable>可以帮你行动。<br>不能替你越权。</h2><div class="guard-steps"><div class="guard-step"><i>1</i><div><b data-editable>声明工具与副作用</b><br><span data-editable>读、写、外部动作有不同契约</span></div></div><div class="guard-step"><i>2</i><div><b data-editable>检查权限并请求确认</b><br><span data-editable>BOSS 消息发送必须由用户批准</span></div></div><div class="guard-step"><i>3</i><div><b data-editable>幂等执行并核验结果</b><br><span data-editable>防止重复发送，不把请求成功当业务成功</span></div></div></div></div></div><p class="vibe-sub reveal d3" data-editable>不绕过验证码，不接收任意脚本，不让 Cookie、Token 或页面正文进入主后端。</p></div><div class="big-index">07</div>
+<script type="application/json" class="slide-notes">{"title": "关键行动由人控制", "script": "当 AI 进入浏览器和投递流程时，产品选择了明确的人机边界。系统可以准备和协助，但消息发送必须经过权限检查、用户确认、幂等执行和结果核验。", "notes": ["副作用工具有明确契约", "BOSS 发送必须用户确认", "凭据和页面正文不进入主后端"]}</script>
+</div>
+<div class="slide" data-slide="8">
+
+<div class="slide-content"><div class="split"><div><div class="vibe-kicker reveal d1" data-editable>MEMORY × RAG</div><h2 class="vibe-h2 reveal d2" data-editable>它<span class="orange-block">记得你</span>，<br>也知道去哪里找答案。</h2><p class="vibe-sub reveal d3" data-editable>mem0 保存偏好、经历与历史表现；题库 RAG 检索相关知识。两者经过来源分级、预算、截断和注入过滤，才进入 Agent 上下文。</p></div><div class="loop reveal d3"><div class="loop-core" data-editable>可信<br>上下文</div><span class="loop-label l1" data-editable>长期记忆</span><span class="loop-label l2" data-editable>个人题库</span><span class="loop-label l3" data-editable>面试历史</span><span class="loop-label l4" data-editable>简历素材</span><span class="loop-label l5" data-editable>岗位 JD</span></div></div></div><div class="big-index">08</div>
+<script type="application/json" class="slide-notes">{"title": "记忆与检索共同形成上下文", "script": "长期记忆负责跨会话保存用户信息，RAG 负责从题库和资料中找到相关内容。它们不是把所有信息都塞给模型，而是经过预算和安全过滤后形成可信上下文。", "notes": ["mem0 跨会话保存用户信息", "RAG 检索题库与资料", "上下文经过来源、预算和安全治理"]}</script>
+</div>
+<div class="slide" data-slide="9">
+
+<div class="slide-content"><div class="vibe-kicker reveal d1" data-editable>THE SYSTEM BACKSTAGE</div><h2 class="vibe-h2 reveal d2" data-editable>前台只需要简单。<br>复杂性，留在<span class="cyan-underline">正确的层</span>。</h2><div class="stack-board reveal d3"><div class="stack-col"><div class="label">EXPERIENCE</div><h3 data-editable>产品体验</h3><div class="stack-item" data-editable>Next.js / React</div><div class="stack-item" data-editable>文字与语音</div><div class="stack-item" data-editable>任务中心</div><div class="stack-item" data-editable>模型设置</div></div><div class="stack-col"><div class="label">WORKFLOW</div><h3 data-editable>业务编排</h3><div class="stack-item" data-editable>FastAPI</div><div class="stack-item" data-editable>Application Workflow</div><div class="stack-item" data-editable>Repository / UoW</div></div><div class="stack-col"><div class="label">AGENT</div><h3 data-editable>智能运行时</h3><div class="stack-item" data-editable>LangGraph</div><div class="stack-item" data-editable>Context Assembler</div><div class="stack-item" data-editable>Tool Guard</div><div class="stack-item" data-editable>Model Gateway</div></div><div class="stack-col"><div class="label">HARNESS</div><h3 data-editable>可恢复执行</h3><div class="stack-item" data-editable>AgentRun</div><div class="stack-item" data-editable>Redis / Dramatiq</div><div class="stack-item" data-editable>Checkpoint</div></div><div class="stack-col"><div class="label">QUALITY</div><h3 data-editable>质量闭环</h3><div class="stack-item" data-editable>Langfuse</div><div class="stack-item" data-editable>DeepEval</div><div class="stack-item" data-editable>发布门禁</div><div class="stack-item" data-editable>Guardrails</div></div></div></div><div class="big-index">09</div>
+<script type="application/json" class="slide-notes">{"title": "复杂性留在正确的层", "script": "一个简单的产品体验，背后需要清晰的系统分层。前端、业务流程、Agent、可恢复运行时和质量体系各自负责自己的事实和边界。", "notes": ["前台体验保持连贯简单", "业务、Agent 与运行时职责分离", "质量体系独立但贯穿全链路"]}</script>
+</div>
+<div class="slide" data-slide="10">
+
+<div class="slide-content"><div class="vibe-kicker reveal d1" data-editable>LEARN FROM EVERY RUN</div><div class="statement reveal d2" data-editable>一次运行完成，<br>不代表一次任务<span class="orange-block">真正成功</span>。<small>面必过区分运行成功、语义成功与完全成功。模型、工具、检索、审批和护轨事件被统一记录；失败案例进入数据集、回归检测与发布门禁。</small></div><div class="signal-grid reveal d3"><div class="signal-card" style="--card-accent:var(--cyan)"><div class="num">RUN</div><h3 data-editable>运行成功</h3><p data-editable>流程是否走完，任务是否得到终态。</p></div><div class="signal-card" style="--card-accent:var(--orange)"><div class="num">SEM</div><h3 data-editable>语义成功</h3><p data-editable>答案是否正确，是否满足案例契约。</p></div><div class="signal-card" style="--card-accent:var(--lime)"><div class="num">ALL</div><h3 data-editable>完全成功</h3><p data-editable>质量、安全、审批和可观测性共同通过。</p></div></div></div><div class="big-index">10</div>
+<script type="application/json" class="slide-notes">{"title": "从每一次运行中学习", "script": "产品不把接口返回成功当成任务成功。只有内容正确、安全边界被遵守、关键事件被记录，任务才算完全成功。失败案例会进入数据集，成为下一次发布的回归测试。", "notes": ["区分运行、语义与完全成功", "统一记录模型、工具与治理事件", "失败案例进入评测与发布门禁"]}</script>
+</div>
+<div class="slide" data-slide="11">
+
+<div class="slide-content"><div class="vibe-kicker reveal d1" data-editable>DESIGN PRINCIPLES</div><h2 class="vibe-h2 reveal d2" data-editable>真正优秀的设计，<br>是让<span class="cyan-underline">边界看得见</span>。</h2><div class="signal-grid reveal d3"><div class="signal-card" style="--card-accent:var(--orange)"><div class="num">01</div><h3 data-editable>事实有权威来源</h3><p data-editable>业务结果、队列状态、检查点与外部镜像不互相冒充。</p></div><div class="signal-card" style="--card-accent:var(--cyan)"><div class="num">02</div><h3 data-editable>失败有恢复路径</h3><p data-editable>长任务、模型、记忆与外部服务都有明确降级方式。</p></div><div class="signal-card" style="--card-accent:var(--lime)"><div class="num">03</div><h3 data-editable>行动有人工边界</h3><p data-editable>模型不能绕过后端审批、权限和投递确认。</p></div><div class="signal-card" style="--card-accent:var(--cyan)"><div class="num">04</div><h3 data-editable>上下文有预算</h3><p data-editable>不是越多越好，而是来源可信、相关且安全。</p></div><div class="signal-card" style="--card-accent:var(--lime)"><div class="num">05</div><h3 data-editable>观测保护隐私</h3><p data-editable>记录摘要、计数和状态，不上传敏感正文。</p></div><div class="signal-card" style="--card-accent:var(--orange)"><div class="num">06</div><h3 data-editable>评测进入发布</h3><p data-editable>质量回归不依赖感觉，而由数据集和硬门禁管理。</p></div></div></div><div class="big-index">11</div>
+<script type="application/json" class="slide-notes">{"title": "优秀设计让边界可见", "script": "项目优秀的地方，不是单纯堆叠功能，而是让事实、恢复、权限、上下文、隐私和质量都有明确边界。边界清楚，系统才真正可维护、可扩展、可相信。", "notes": ["业务事实与运行状态边界清楚", "恢复、安全和隐私默认受治理", "评测成为产品发布的一部分"]}</script>
+</div>
+<div class="slide" data-slide="12">
+
+<div class="slide-content"><div class="vibe-kicker reveal d1" data-editable>THE PRODUCT PROMISE</div><div class="statement reveal d2" data-editable>不是替你成为另一个人。<br>而是让你更清楚地证明：<span class="orange-block">你是谁，你能做什么，下一步该做什么。</span><small>面必过把准备、训练、行动和复盘连接成同一个长期成长系统。</small></div></div><div class="big-index">12</div>
+<script type="application/json" class="slide-notes">{"title": "产品承诺", "script": "面必过不是替用户编造一个更完美的人设，而是帮助用户理解自己的真实能力，更清楚地表达价值，并知道下一步应该训练或行动什么。", "notes": ["不替用户编造经历", "帮助用户证明真实价值", "连接准备、训练、行动与复盘"]}</script>
+</div>
+<div class="slide" data-slide="13">
+
+<div class="slide-content"><div class="vibe-kicker reveal d1" data-editable>MIAN BI GUO / 2026</div><div class="final-mark reveal d2">READY.</div><div class="final-copy reveal d3" data-editable>让准备成为系统，<br>让成长留下痕迹，<br><span class="cyan-underline">让每一次面试都不是从零开始。</span></div><p class="vibe-sub reveal d4" data-editable>面必过 · 求职全链路 AI Agent</p></div><div class="big-index">13</div>
+<script type="application/json" class="slide-notes">{"title": "结束：每次面试都不是从零开始", "script": "让准备成为系统，让成长留下痕迹，让每一次面试都不是从零开始。这就是面必过希望交付的产品体验。", "notes": ["准备成为持续系统", "成长结果长期沉淀", "每次面试都继承过去的经验"]}</script>
+</div></div>
+<script>
+
+/* === VIBE NAVIGATION === */
+var slides = Array.from(document.querySelectorAll('.slide'));
+var current = 0;
+var total = slides.length;
+var nav = document.getElementById('vibeNav');
+var progress = document.getElementById('vibeProgress');
+slides.forEach(function(_,i){var d=document.createElement('div');d.className='vibe-dot'+(i===0?' active':'');d.addEventListener('click',function(){goTo(i)});nav.appendChild(d)});
+function updateVibeUI(){document.querySelectorAll('.vibe-dot').forEach(function(d,i){d.classList.toggle('active',i===current)});progress.style.width=((current+1)/total*100)+'%'}
+function showSpeakerNotes(index){var el=slides[index].querySelector('script.slide-notes');console.clear();if(!el)return;try{var n=JSON.parse(el.textContent);console.group('%c📋 '+(index+1)+'/'+total+' · '+n.title,'font-size:16px;font-weight:bold;color:#ff5a1f');console.log('%c'+n.script,'font-size:14px;line-height:1.7;color:#35e5d2');(n.notes||[]).forEach(function(x){console.log('%c• '+x,'font-size:13px;color:#d7ff43')});console.groupEnd()}catch(e){}}
+function goTo(index){if(index<0||index>=total)return;current=index;slides.forEach(function(s,i){s.classList.toggle('active',i===current)});slides[current].scrollIntoView({behavior:'smooth',block:'start'});updateVibeUI();showSpeakerNotes(current)}
+function next(){goTo(current+1)} function prev(){goTo(current-1)}
+document.addEventListener('keydown',function(e){if(e.target.closest('[contenteditable="true"]'))return;if(e.key==='ArrowRight'||e.key==='ArrowDown'||e.key===' '||e.key==='PageDown'){e.preventDefault();next()}if(e.key==='ArrowLeft'||e.key==='ArrowUp'||e.key==='PageUp'){e.preventDefault();prev()}if(e.key==='Home'){e.preventDefault();goTo(0)}if(e.key==='End'){e.preventDefault();goTo(total-1)}});
+var touchStart=0;document.addEventListener('touchstart',function(e){touchStart=e.touches[0].clientX},{passive:true});document.addEventListener('touchend',function(e){var diff=touchStart-e.changedTouches[0].clientX;if(Math.abs(diff)>50)(diff>0?next():prev())},{passive:true});
+var wheelCD=false;document.addEventListener('wheel',function(e){if(wheelCD)return;wheelCD=true;setTimeout(function(){wheelCD=false},600);e.preventDefault();(e.deltaY>0||e.deltaX>0)?next():prev()},{passive:false});
+window.addEventListener('scroll',function(){var idx=Math.round(window.scrollY/window.innerHeight);if(idx!==current&&idx>=0&&idx<total){current=idx;slides.forEach(function(s,i){s.classList.toggle('active',i===current)});updateVibeUI();showSpeakerNotes(current)}},{passive:true});
+updateVibeUI();setTimeout(function(){showSpeakerNotes(0)},500);
+
+
+/* === INLINE EDITOR: E toggles edit mode; Ctrl/Cmd+S saves; export creates a new HTML file === */
+var editor = {
+  isActive: false,
+  storageKey: document.body.dataset.storageKey || 'html-slides-edits',
+  elements: [],
+  init: function(){
+    this.elements = Array.from(document.querySelectorAll('[data-editable]'));
+    this.elements.forEach(function(el, i){
+      if(!el.dataset.editKey) el.dataset.editKey = 'editable-' + i;
+      var saved = localStorage.getItem(editor.storageKey + ':' + el.dataset.editKey);
+      if(saved !== null) el.innerHTML = saved;
+      el.addEventListener('input', function(){
+        localStorage.setItem(editor.storageKey + ':' + el.dataset.editKey, el.innerHTML);
+      });
+    });
+  },
+  toggleEditMode: function(){
+    this.isActive = !this.isActive;
+    document.body.classList.toggle('editing', this.isActive);
+    this.elements.forEach(function(el){ el.contentEditable = editor.isActive ? 'true' : 'false'; });
+    document.getElementById('editToggle').classList.toggle('active', this.isActive);
+    document.getElementById('exportToggle').classList.toggle('show', this.isActive);
+  },
+  save: function(){
+    this.elements.forEach(function(el){ localStorage.setItem(editor.storageKey + ':' + el.dataset.editKey, el.innerHTML); });
+  },
+  exportFile: function(){
+    this.save();
+    var wasActive = this.isActive;
+    if(wasActive) this.toggleEditMode();
+    var html = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
+    var blob = new Blob([html], {type:'text/html;charset=utf-8'});
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a'); a.href = url; a.download = document.title.replace(/\s+/g,'-') + '.html'; a.click();
+    setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);
+  }
+};
+editor.init();
+var hotzone = document.querySelector('.edit-hotzone');
+var editToggle = document.getElementById('editToggle');
+var exportToggle = document.getElementById('exportToggle');
+var hideTimeout = null;
+function showEditControls(){ clearTimeout(hideTimeout); editToggle.classList.add('show'); }
+function hideEditControls(){ hideTimeout=setTimeout(function(){ if(!editor.isActive) editToggle.classList.remove('show'); },400); }
+hotzone.addEventListener('mouseenter', showEditControls); hotzone.addEventListener('mouseleave', hideEditControls);
+editToggle.addEventListener('mouseenter', showEditControls); editToggle.addEventListener('mouseleave', hideEditControls);
+hotzone.addEventListener('click', function(){ editor.toggleEditMode(); });
+editToggle.addEventListener('click', function(){ editor.toggleEditMode(); });
+exportToggle.addEventListener('click', function(){ editor.exportFile(); });
+document.addEventListener('keydown', function(e){
+  var editingText = !!e.target.closest('[contenteditable="true"]');
+  if(editingText){
+    if((e.metaKey||e.ctrlKey) && e.key.toLowerCase()==='s'){e.preventDefault();editor.save();}
+    e.stopImmediatePropagation(); return;
+  }
+  if(e.key==='e'||e.key==='E'){e.preventDefault();editor.toggleEditMode();}
+  if((e.metaKey||e.ctrlKey) && e.key.toLowerCase()==='s'){e.preventDefault();editor.save();}
+}, true);
+
+</script></body></html>

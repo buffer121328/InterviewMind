@@ -377,6 +377,7 @@ async def node_responder(state: InterviewState):
     tool_executor = make_interview_tool_executor(
         user_id=state.get("user_id", ""),
         session_id=state.get("session_id"),
+        api_config=api_config,
     )
 
     # 创建状态机

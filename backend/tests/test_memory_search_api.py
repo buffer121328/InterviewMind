@@ -11,7 +11,11 @@ class _FakeMemory:
 
     def search(self, **kwargs):
         self.calls.append(kwargs)
-        return {"results": [{"memory": "FastAPI"}]}
+        return {"results": [
+            {"id": "assistant", "memory": "用户被建议每天刷题", "metadata": {"source": "chat_turn"}},
+            {"id": "old", "memory": "偏好 ＦａｓｔＡＰＩ！", "metadata": {}, "score": 0.7},
+            {"id": "best", "memory": "偏好 fastapi", "metadata": {}, "score": 0.9},
+        ]}
 
 
 @pytest.mark.asyncio
@@ -27,7 +31,7 @@ async def test_search_memories_uses_mem0_v2_filters_and_top_k():
         limit=7,
     )
 
-    assert result == [{"memory": "FastAPI"}]
+    assert [item["id"] for item in result] == ["best"]
     assert memory.calls == [{
         "query": "后端经验",
         "top_k": 7,

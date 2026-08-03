@@ -19,11 +19,19 @@ ROUND_INDEX_DEFAULT_TYPES: Final[dict[int, str]] = {
 DEFAULT_ROUND_TYPE: Final[str] = "tech_initial"
 MIN_QUESTIONS: Final[int] = 1
 MAX_QUESTIONS: Final[int] = 20
+MAX_INTERVIEW_ROUNDS: Final[int] = 3
 SYSTEM_FALLBACK_QUESTION_SOURCE_TYPE: Final[str] = "system_fallback"
 INTERVIEW_CLOSING_MESSAGE: Final[str] = (
     "感谢你的分享，你的规划很有条理。本次面试到此结束，后续我们会尽快联系你。"
 )
 
+
+
+def validate_next_round_index(round_index: int) -> int:
+    """Validate the next round index against the product-wide three-round cap."""
+    if round_index < 2 or round_index > MAX_INTERVIEW_ROUNDS:
+        raise ValueError(f"同一家公司最多只能进行 {MAX_INTERVIEW_ROUNDS} 轮面试")
+    return round_index
 
 def valid_round_types() -> tuple[str, ...]:
     """Return the currently supported interview round types."""

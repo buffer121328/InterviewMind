@@ -1,11 +1,12 @@
 "use client";
 
 import { useMemo, useState } from 'react';
-import { Trash2, MoreHorizontal, Edit2, Pin, PinOff, Mic, Eye } from 'lucide-react';
+import { Trash2, MoreHorizontal, Edit2, Pin, PinOff, Mic, Eye, ChevronDown, ChevronRight, Building2 } from 'lucide-react';
 import { SessionListItem } from '@/store/useInterviewStore';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
+import { groupInterviewSeries, type InterviewSeriesGroup } from '@/lib/interviewSeries';
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -56,33 +57,22 @@ export function SessionList({
         await onDeleteSession(sessionId);
     };
 
-    // 会话分组逻辑
+    // 先按显式 series_id 聚合公司，再按公司系列最近更新时间分日期。
     const groupedSessions = useMemo(() => {
-        const groups: { [key: string]: SessionListItem[] } = {
-            '今天': [],
-            '昨天': [],
-            '过去7天': [],
-            '更早': []
+        const groups: Record<string, InterviewSeriesGroup<SessionListItem>[]> = {
+            '今天': [], '昨天': [], '过去7天': [], '更早': [],
         };
-
         const now = new Date();
         const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
         const yesterday = today - 86400000;
         const lastWeek = today - 86400000 * 7;
-
-        sessions.forEach(session => {
-            const date = new Date(session.updated_at).getTime();
-            if (date >= today) {
-                groups['今天'].push(session);
-            } else if (date >= yesterday) {
-                groups['昨天'].push(session);
-            } else if (date >= lastWeek) {
-                groups['过去7天'].push(session);
-            } else {
-                groups['更早'].push(session);
-            }
+        groupInterviewSeries(sessions).forEach(series => {
+            const date = new Date(series.updatedAt).getTime();
+            if (date >= today) groups['今天'].push(series);
+            else if (date >= yesterday) groups['昨天'].push(series);
+            else if (date >= lastWeek) groups['过去7天'].push(series);
+            else groups['更早'].push(series);
         });
-
         return groups;
     }, [sessions]);
 
@@ -113,13 +103,13 @@ export function SessionList({
                                 {group}
                             </h4>
                             <div className="space-y-0.5">
-                                {groupSessions.map((session) => (
-                                    <SessionItem
-                                        key={session.session_id}
-                                        session={session}
-                                        isActive={session.session_id === currentSessionId}
-                                        onSelect={() => onSessionSelect(session.session_id)}
-                                        onDelete={() => handleDelete(session.session_id)}
+                                {groupSessions.map((series) => (
+                                    <SeriesItem
+                                        key={series.key}
+                                        series={series}
+                                        currentSessionId={currentSessionId}
+                                        onSessionSelect={onSessionSelect}
+                                        onDeleteSession={handleDelete}
                                         onEdit={onEditSession}
                                         onTogglePin={onTogglePin}
                                         onViewDetails={onViewDetails}
@@ -139,6 +129,43 @@ export function SessionList({
     );
 }
 
+interface SeriesItemProps {
+    series: InterviewSeriesGroup<SessionListItem>;
+    currentSessionId?: string;
+    onSessionSelect: (sessionId: string) => void;
+    onDeleteSession: (sessionId: string) => void;
+    onEdit?: (sessionId: string, newTitle: string) => void;
+    onTogglePin?: (sessionId: string, pinned: boolean) => void;
+    onViewDetails?: (sessionId: string) => void;
+}
+
+/** Renders one explicitly linked company series and keeps later rounds behind a local disclosure control. */
+function SeriesItem({ series, currentSessionId, onSessionSelect, onDeleteSession, onEdit, onTogglePin, onViewDetails }: SeriesItemProps) {
+    const [expanded, setExpanded] = useState(series.rounds.some(item => item.session_id === currentSessionId));
+    const root = series.rounds[0];
+    const childRounds = series.rounds.slice(1);
+    if (childRounds.length === 0) {
+        return <SessionItem session={root} isActive={root.session_id === currentSessionId} onSelect={() => onSessionSelect(root.session_id)} onDelete={() => onDeleteSession(root.session_id)} onEdit={onEdit} onTogglePin={onTogglePin} onViewDetails={onViewDetails} />;
+    }
+    return (
+        <div className="rounded-lg border border-transparent bg-white/40">
+            <div className="flex items-center">
+                <button type="button" aria-label={expanded ? '收起公司面试轮次' : '展开公司面试轮次'} onClick={() => setExpanded(value => !value)} className="ml-1 rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-teal-600">
+                    {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+                </button>
+                <div className="min-w-0 flex-1">
+                    <SessionItem session={{ ...root, title: series.companyLabel }} isActive={root.session_id === currentSessionId} onSelect={() => onSessionSelect(root.session_id)} onDelete={() => onDeleteSession(root.session_id)} onEdit={onEdit} onTogglePin={onTogglePin} onViewDetails={onViewDetails} leadingIcon={<Building2 className="h-3.5 w-3.5 text-teal-600" />} />
+                </div>
+            </div>
+            {expanded && (
+                <div className="ml-5 border-l border-teal-100 pl-2">
+                    {childRounds.map(round => <SessionItem key={round.session_id} session={round} isActive={round.session_id === currentSessionId} onSelect={() => onSessionSelect(round.session_id)} onDelete={() => onDeleteSession(round.session_id)} onEdit={onEdit} onTogglePin={onTogglePin} onViewDetails={onViewDetails} nested />)}
+                </div>
+            )}
+        </div>
+    );
+}
+
 interface SessionItemProps {
     session: SessionListItem;
     isActive: boolean;
@@ -147,10 +174,12 @@ interface SessionItemProps {
     onEdit?: (sessionId: string, newTitle: string) => void;
     onTogglePin?: (sessionId: string, pinned: boolean) => void;
     onViewDetails?: (sessionId: string) => void;
+    nested?: boolean;
+    leadingIcon?: React.ReactNode;
 }
 
 /** Encapsulates session item; returns typed data or state and keeps side effects within the owning module boundary. */
-function SessionItem({ session, isActive, onSelect, onDelete, onEdit, onTogglePin, onViewDetails }: SessionItemProps) {
+function SessionItem({ session, isActive, onSelect, onDelete, onEdit, onTogglePin, onViewDetails, nested = false, leadingIcon }: SessionItemProps) {
     const [isEditing, setIsEditing] = useState(false);
     const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
     const [editTitle, setEditTitle] = useState(session.title);
@@ -208,13 +237,15 @@ function SessionItem({ session, isActive, onSelect, onDelete, onEdit, onTogglePi
         <div
             onClick={onSelect}
             className={cn(
-                "group flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer transition-all text-sm w-[226px]",
+                "group flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer transition-all text-sm w-full",
+                nested && "py-2 pl-2 text-xs",
                 isActive
                     ? "bg-gray-200/60 text-gray-900 font-medium"
                     : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
             )}
         >
 
+            {leadingIcon}
             {/* 置顶标识 */}
             {session.pinned && (
                 <Pin className="w-3.5 h-3.5 text-orange-600 flex-shrink-0" fill="currentColor" />

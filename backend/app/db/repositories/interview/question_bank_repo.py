@@ -11,6 +11,7 @@ from sqlalchemy import delete, func, select, text, update
 
 from app.db.models import async_session
 from app.db.models.interview import QuestionBankItemModel, QuestionBankImportModel, QuestionBankFollowupModel
+from app.db.repositories.interview.archive_mapper import extract_candidate_question
 
 logger = logging.getLogger(__name__)
 
@@ -361,7 +362,7 @@ class QuestionBankRepo:
         data = {
             "id": row.id,
             "parent_question_id": row.parent_question_id,
-            "question_text": row.question_text,
+            "question_text": extract_candidate_question(row.question_text) or row.question_text,
             "reference_answer": row.reference_answer,
             "trigger_condition": row.trigger_condition,
             "source_session_id": row.source_session_id,

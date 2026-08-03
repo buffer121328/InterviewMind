@@ -7,6 +7,7 @@ export interface SessionMarkdownReport {
     markdown: string;
     generated_at?: string | null;
     message?: string | null;
+    company_profile?: Record<string, unknown> | null;
 }
 
 /** Reads one owner-scoped report without exposing its underlying profile JSON or resume snapshot. */

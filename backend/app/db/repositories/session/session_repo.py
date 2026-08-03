@@ -290,6 +290,18 @@ class SessionRepo:
         """
         return await self.profile.get_series_final_profiles(limit, user_id)
 
+    async def get_series_round_profiles(self, series_id: str, user_id: str) -> List[Dict[str, Any]]:
+        """按 owner 和轮次顺序读取一个公司系列的单轮画像来源。"""
+        return await self.profile.get_series_round_profiles(series_id, user_id)
+
+    async def save_company_profile(self, session_id: str, profile_data: Dict[str, Any], user_id: str) -> bool:
+        """把公司总画像幂等保存到当前 owner 的已完成第三轮。"""
+        return await self.profile.save_company_profile(session_id, profile_data, user_id)
+
+    async def get_company_profile(self, session_id: str, user_id: str) -> Optional[Dict[str, Any]]:
+        """按 owner 读取会话关联的公司总画像，不回退到单轮画像。"""
+        return await self.profile.get_company_profile(session_id, user_id)
+
     async def save_user_profile(self, profile_data: Dict[str, Any], user_id: str) -> bool:
         """持久化 user profile；沿用调用方的事务边界，并保持 owner 校验、脱敏和提交责任不越层。
 

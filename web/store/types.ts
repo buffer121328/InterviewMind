@@ -30,6 +30,10 @@ export interface SessionMetadata {
     pinned?: boolean;
     round_index?: number;
     round_type?: InterviewType | string;
+    series_id?: string;
+    parent_session_id?: string;
+    company_info?: string;
+    company_profile?: Record<string, unknown> | null;
 }
 
 export interface InterviewSession {
@@ -53,6 +57,11 @@ export interface SessionListItem {
     pinned?: boolean;
     round_index?: number;
     round_type?: InterviewType | string;
+    series_id?: string;
+    parent_session_id?: string;
+    company_info?: string;
+    max_questions: number;
+    has_company_profile?: boolean;
 }
 
 export interface ResumeInfo {

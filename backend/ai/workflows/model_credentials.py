@@ -44,10 +44,55 @@ class ModelCredentialUseCases:
         return {"credentials": [_serialize_status(status) for status in statuses]}
 
     async def hydrate_request(self, payload: Any, user_id: str) -> Any:
-        """Replace credential references inside every api_config object with Redis secrets."""
+        """Remember safe channel metadata, then hydrate credential references from Redis."""
 
+        await self._remember_request_profiles(payload, user_id)
         await self._walk(payload, user_id, inside_api_config=False)
         return payload
+
+    async def resolve_memory_api_config(self, user_id: str) -> dict[str, Any] | None:
+        """Restore mem0 channels for owner-scoped backend jobs without browser state."""
+
+        llm = await self._store.resolve_channel_config(user_id, "mem0_llm")
+        embedder = await self._store.resolve_channel_config(user_id, "mem0_embedder")
+        if embedder is None:
+            embedder = await self._store.resolve_channel_config(user_id, "rag_embedding")
+        if llm is None or embedder is None:
+            return None
+        return {"mem0_llm": llm, "mem0_embedder": embedder}
+
+    async def _remember_request_profiles(self, value: Any, user_id: str) -> None:
+        """Persist only bounded model metadata from api_config memory channels."""
+
+        if isinstance(value, list):
+            for item in value:
+                await self._remember_request_profiles(item, user_id)
+            return
+        if not isinstance(value, dict):
+            return
+        api_config = value.get("api_config")
+        if isinstance(api_config, dict):
+            for channel in ("mem0_llm", "mem0_embedder", "rag_embedding"):
+                config = api_config.get(channel)
+                if not isinstance(config, dict):
+                    continue
+                credential_id = config.get("credential_id")
+                base_url = config.get("base_url")
+                model = config.get("model")
+                if not all(isinstance(item, str) for item in (credential_id, base_url, model)):
+                    continue
+                await self._store.remember_model_profile(
+                    user_id=user_id,
+                    channel=channel,
+                    model_id=credential_id,
+                    base_url=base_url,
+                    model=model,
+                    provider=config.get("provider"),
+                    integration=config.get("integration"),
+                    pricing_key=config.get("pricing_key"),
+                )
+        for child in value.values():
+            await self._remember_request_profiles(child, user_id)
 
     async def _walk(self, value: Any, user_id: str, *, inside_api_config: bool) -> None:
         """Recursively find api_config channels while leaving unrelated JSON untouched."""

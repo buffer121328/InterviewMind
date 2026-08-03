@@ -46,6 +46,15 @@ class AppSettings(BaseSettings):
     redis_url: str = ""
     model_credential_ttl_seconds: int = Field(default=30 * 24 * 60 * 60, ge=86_400, le=90 * 24 * 60 * 60)
 
+    # 长期记忆分层保留和两阶段清理。core 始终受保护，不提供自动删除开关。
+    memory_retention_durable_min_age_days: int = Field(default=730, ge=1, le=36_500)
+    memory_retention_durable_inactive_days: int = Field(default=365, ge=1, le=36_500)
+    memory_retention_transient_min_age_days: int = Field(default=120, ge=1, le=36_500)
+    memory_retention_transient_inactive_days: int = Field(default=90, ge=1, le=36_500)
+    memory_retention_cleanup_grace_days: int = Field(default=30, ge=1, le=365)
+    memory_retention_cleanup_interval_hours: int = Field(default=24, ge=1, le=720)
+    memory_retention_state_ttl_days: int = Field(default=3 * 365, ge=30, le=36_500)
+
     # Guardrails 仅运行本地 validator，默认 fail closed，且不使用 Guardrails Hub 或 vendor telemetry。
     guardrails_enabled: bool = True
     guardrails_fail_closed: bool = True

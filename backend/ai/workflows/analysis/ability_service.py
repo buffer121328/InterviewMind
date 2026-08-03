@@ -54,7 +54,7 @@ class AbilityAnalysisService:
 
     async def generate_overall_profile(self, user_id: str, api_config: Optional[Dict] = None) -> Dict[str, Any]:
         """
-        生成用户综合能力画像（基于最近5次面试，带时间权重）
+        生成用户综合能力画像（基于最近5个公司总画像，带时间权重）
         生成后存入数据库
 
         Args:
@@ -77,14 +77,14 @@ class AbilityAnalysisService:
                 raise ValueError(f"生成过于频繁，请等待 {remaining} 秒后再试")
 
             try:
-                # 3. 获取最近5个面试系列的最后一轮画像（避免同一系列重复计入）
+                # 3. 获取最近5个已完成公司的总画像（每家公司只计入一次）
                 recent_profiles = await self.session_repo.get_series_final_profiles(limit=5, user_id=user_id)
 
                 if not recent_profiles:
                     logger.warning("无历史面试记录，无法生成综合画像")
                     return {"profile": self._get_empty_profile()}
 
-                logger.info(f"开始聚合分析，共 {len(recent_profiles)} 个面试系列的画像")
+                logger.info(f"开始聚合分析，共 {len(recent_profiles)} 个公司的总画像")
 
                 # 4. 调用 LLM 进行时间加权聚合分析
                 profile = await self._aggregate_profiles_with_weights(recent_profiles, api_config)
@@ -113,6 +113,20 @@ class AbilityAnalysisService:
                     "profile": fallback_profile,
                     "warning": "生成失败，已显示最近一次面试结果。请稍后重试。"
                 }
+
+    async def aggregate_company_profile(
+        self,
+        round_profiles: List[Dict[str, Any]],
+        api_config: Optional[Dict] = None,
+    ) -> CandidateProfile:
+        """Aggregate exactly three ordered round profiles into one company profile.
+
+        The latest HR round receives the highest weight while the earlier rounds
+        remain visible in scores, skills, strengths, weaknesses, and evidence.
+        """
+        if len(round_profiles) != 3:
+            raise ValueError("公司总画像需要完整的三轮单轮画像")
+        return await self._aggregate_profiles_with_weights(list(reversed(round_profiles)), api_config)
 
     async def _aggregate_profiles_with_weights(
         self,

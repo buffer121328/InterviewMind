@@ -68,25 +68,33 @@ export function InterviewInputPanel({
                         </Button>
                     </div>
                 )}
-                {children}
-                <InterviewAnswerComposer
-                    input={input}
-                    onInputChange={onInputChange}
-                    onKeyDown={onKeyDown}
-                    isStreaming={isStreaming}
-                    isListening={isListening}
-                    isExpanded={isExpanded}
-                    isInterviewCompleted={isInterviewCompleted}
-                    isLoadingHint={isLoadingHint}
-                    canRequestHint={canRequestHint}
-                    hintContent={hintContent}
-                    onExpandedChange={onExpandedChange}
-                    onRequestHint={onRequestHint}
-                    onDismissHint={onDismissHint}
-                    onToggleListening={onToggleListening}
-                    onSend={onSend}
-                    onStopStreaming={onStopStreaming}
-                />
+                {isInterviewCompleted ? (
+                    children || (
+                        <div className="rounded-xl border border-teal-200 bg-teal-50 px-5 py-4">
+                            <h4 className="font-semibold text-teal-900">面试已完成！</h4>
+                            <p className="mt-1 text-sm text-teal-700">本轮回答已关闭，请查看评估或继续进行下一轮面试。</p>
+                        </div>
+                    )
+                ) : (
+                    <InterviewAnswerComposer
+                        input={input}
+                        onInputChange={onInputChange}
+                        onKeyDown={onKeyDown}
+                        isStreaming={isStreaming}
+                        isListening={isListening}
+                        isExpanded={isExpanded}
+                        isInterviewCompleted={false}
+                        isLoadingHint={isLoadingHint}
+                        canRequestHint={canRequestHint}
+                        hintContent={hintContent}
+                        onExpandedChange={onExpandedChange}
+                        onRequestHint={onRequestHint}
+                        onDismissHint={onDismissHint}
+                        onToggleListening={onToggleListening}
+                        onSend={onSend}
+                        onStopStreaming={onStopStreaming}
+                    />
+                )}
             </div>
         </div>
     );
