@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { getPromptDisplayName, getPromptFunctionalGroup } from './promptCatalog.ts';
+import { getPromptDisplayName, getPromptFunctionalGroup, getPromptLabelDisplayName } from './promptCatalog.ts';
 
 test('prompt catalog translates backend names to Chinese display names', () => {
     assert.equal(getPromptDisplayName('analysis.multi_reviewer_consensus.ability_profile'), '能力画像多评审共识汇总');
@@ -32,4 +32,18 @@ test('prompt catalog corrects stale backend fallbacks for known historical promp
 test('prompt catalog keeps unknown custom names usable', () => {
     assert.equal(getPromptDisplayName('custom.prompt'), 'custom.prompt');
     assert.equal(getPromptFunctionalGroup('custom.prompt'), '自定义提示词');
+});
+
+
+test('prompt catalog translates stable English groups and lifecycle labels', () => {
+    assert.equal(getPromptFunctionalGroup('custom.prompt', 'Interview'), '模拟面试');
+    assert.equal(getPromptFunctionalGroup('custom.prompt', 'resume generation'), '简历生成');
+    assert.equal(getPromptLabelDisplayName('latest'), '最新');
+    assert.equal(getPromptLabelDisplayName('development'), '开发');
+    assert.equal(getPromptLabelDisplayName('archived'), '已归档');
+});
+
+test('prompt catalog preserves unknown custom presentation values', () => {
+    assert.equal(getPromptFunctionalGroup('custom.prompt', 'Partner Workflow'), 'Partner Workflow');
+    assert.equal(getPromptLabelDisplayName('partner-preview'), 'partner-preview');
 });

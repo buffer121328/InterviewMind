@@ -46,6 +46,46 @@ const promptCatalog: Record<string, { displayName: string; group: string }> = {
     'jobs.card_scoring': { displayName: '岗位卡片批量匹配评分', group: '岗位处理' },
 };
 
+
+const promptFunctionalGroupLabels: Record<string, string> = {
+    interview: '模拟面试',
+    'mock interview': '模拟面试',
+    voice: '语音面试',
+    'voice interview': '语音面试',
+    analysis: '能力分析',
+    'ability analysis': '能力分析',
+    jobs: '岗位处理',
+    'job processing': '岗位处理',
+    'jd match': '岗位匹配',
+    'job match': '岗位匹配',
+    'resume generation': '简历生成',
+    'resume analysis': '简历分析',
+    'resume materials': '简历素材',
+    'resume processing': '简历处理',
+    'custom prompt': '自定义提示词',
+    'custom prompts': '自定义提示词',
+    'other builtin prompts': '其他内置提示词',
+};
+
+const promptLifecycleLabels: Record<string, string> = {
+    builtin: '内置',
+    latest: '最新',
+    draft: '草稿',
+    development: '开发',
+    dev: '开发',
+    production: '生产',
+    staging: '测试',
+    testing: '测试',
+    archived: '已归档',
+    deprecated: '已弃用',
+    experimental: '实验',
+};
+
+/** Normalizes remote enum-like text before applying a stable Chinese presentation mapping. */
+function normalizePromptPresentationValue(value: string): string {
+    return value.trim().toLowerCase().replace(/[._-]+/g, ' ').replace(/\s+/g, ' ');
+}
+
 /** Returns backend-owned Chinese text first, with the local catalog as an offline fallback. */
 export function getPromptDisplayName(name: string, backendDisplayName?: string): string {
     const backendName = backendDisplayName?.trim();
@@ -53,19 +93,22 @@ export function getPromptDisplayName(name: string, backendDisplayName?: string):
     return promptCatalog[name]?.displayName || backendName || name;
 }
 
-/** Returns the backend-owned functional group; this is intentionally not user-editable. */
+/** Returns a Chinese functional group for stable backend values while preserving unknown custom groups. */
 export function getPromptFunctionalGroup(name: string, backendFunctionalGroup?: string): string {
     const backendGroup = backendFunctionalGroup?.trim();
+    const translatedBackendGroup = backendGroup
+        ? promptFunctionalGroupLabels[normalizePromptPresentationValue(backendGroup)]
+        : undefined;
+
+    if (translatedBackendGroup === '自定义提示词') {
+        return promptCatalog[name]?.group || translatedBackendGroup;
+    }
+    if (translatedBackendGroup) return translatedBackendGroup;
     if (backendGroup && !['自定义提示词', '自定义 Prompt'].includes(backendGroup)) return backendGroup;
     return promptCatalog[name]?.group || backendGroup || '自定义提示词';
 }
 
-/** Maps technical lifecycle labels to concise Chinese labels for the prompt list. */
+/** Maps stable technical lifecycle labels to concise Chinese labels and preserves custom labels. */
 export function getPromptLabelDisplayName(label: string): string {
-    return {
-        builtin: '内置',
-        draft: '草稿',
-        production: '生产',
-        staging: '测试',
-    }[label] ?? label;
+    return promptLifecycleLabels[normalizePromptPresentationValue(label)] ?? label;
 }
