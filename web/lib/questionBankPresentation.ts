@@ -1,8 +1,7 @@
-import type { QuestionBankFollowup, QuestionBankItem } from './api/questionBank.ts';
+import type { QuestionBankItem } from './api/questionBank.ts';
 
 type QuestionSource = Pick<QuestionBankItem, 'origin_session_id' | 'source_type'>;
 type QuestionAnswer = Pick<QuestionBankItem, 'origin_session_id' | 'source_type' | 'reference_answer'>;
-type FollowupAnswer = Pick<QuestionBankFollowup, 'reference_answer'>;
 
 /** Converts persisted source codes into user-facing provenance labels. */
 export function questionSourceLabel(item: QuestionSource): string {
@@ -38,15 +37,7 @@ function answerPoints(value?: string): string[] {
         .filter(Boolean);
 }
 
-/** Returns trusted main-question content as answer points; interview hints remain intentionally hidden. */
+/** Returns persisted main-question answer content as scan-friendly review points regardless of source. */
 export function questionAnswerPoints(item: QuestionAnswer): string[] {
-    if (item.origin_session_id || item.source_type === 'generated' || item.source_type === 'interview') {
-        return [];
-    }
-    return answerPoints(item.reference_answer);
-}
-
-/** Returns persisted follow-up answer content using the same review-point presentation as the main question. */
-export function questionFollowupAnswerPoints(item: FollowupAnswer): string[] {
     return answerPoints(item.reference_answer);
 }

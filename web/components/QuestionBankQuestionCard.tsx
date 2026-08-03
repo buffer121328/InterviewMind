@@ -7,7 +7,6 @@ import { Button } from "@/components/ui/button";
 import type { QuestionBankItem } from "@/lib/api/questionBank";
 import {
     questionAnswerPoints,
-    questionFollowupAnswerPoints,
     questionSourceLabel,
 } from "@/lib/questionBankPresentation";
 import { cn } from "@/lib/utils";
@@ -43,7 +42,7 @@ function AnswerPointList({ points }: { points: string[] }) {
     );
 }
 
-/** Renders one editable question with nested follow-ups and review-oriented answer points. */
+/** Renders one editable question with main-answer review points and question-only nested follow-ups. */
 export function QuestionBankQuestionCard({
     item,
     onDelete,
@@ -138,10 +137,6 @@ export function QuestionBankQuestionCard({
                                 <p className="text-sm font-medium leading-relaxed text-stone-800">
                                     <span className="text-blue-700">追问：</span>{followup.question_text}
                                 </p>
-                                <div className="mt-2 border-t border-blue-100 pt-2">
-                                    <p className="mb-2 text-xs font-medium text-blue-700">回答要点</p>
-                                    <AnswerPointList points={questionFollowupAnswerPoints(followup)} />
-                                </div>
                             </article>
                         ))}
                     </div>

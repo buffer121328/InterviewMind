@@ -11,6 +11,10 @@ test('prompt catalog translates backend names to Chinese display names', () => {
     assert.equal(getPromptDisplayName('resume.rewrite_executor'), '简历改写执行');
     assert.equal(getPromptDisplayName('resume.material_extraction'), '简历素材抽取');
     assert.equal(getPromptFunctionalGroup('resume.material_extraction'), '简历素材');
+    assert.equal(getPromptDisplayName('analysis.aggregate_profile'), '跨场综合画像（兼容）');
+    assert.equal(getPromptFunctionalGroup('analysis.aggregate_profile'), '能力分析');
+    assert.equal(getPromptDisplayName('voice.system'), '语音面试回复');
+    assert.equal(getPromptFunctionalGroup('voice.system'), '语音面试');
 });
 
 test('prompt catalog prefers backend-owned Chinese presentation metadata', () => {
