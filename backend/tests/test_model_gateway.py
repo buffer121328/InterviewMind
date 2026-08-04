@@ -116,6 +116,7 @@ def test_failed_pool_member_enters_cooldown(monkeypatch, local_model_pool):
 class _FakeRedis:
     def __init__(self):
         self.values = {}
+        self.ttls = {}
 
     def ping(self):
         return True
@@ -144,7 +145,15 @@ class _FakeRedis:
         return len(keys)
 
     def expire(self, key, seconds):
-        return key in self.values
+        if key in self.values:
+            self.ttls[key] = seconds
+            return True
+        return False
+
+    def eval(self, _script, _numkeys, key, ttl):
+        value = self.incr(key)
+        self.expire(key, int(ttl))
+        return value
 
 
 class _FakePipeline:
@@ -204,6 +213,40 @@ def test_redis_scheduler_shares_cursor_across_instances():
     second = second_scheduler.order("fast_pool", configs)[0]["model"]
 
     assert [first, second] == ["flash-a", "flash-b"]
+
+
+def test_redis_scheduler_order_refreshes_cursor_ttl(monkeypatch):
+    """The non-transactional cursor write must never leave a persistent key."""
+
+    monkeypatch.setenv("LLM_POOL_CURSOR_TTL_SECONDS", "86400")
+    get_settings.cache_clear()
+    redis = _FakeRedis()
+    scheduler = llms.ModelPoolScheduler(redis_client=redis)
+    configs = [_channel("flash-a"), _channel("flash-b")]
+
+    scheduler.order("fast_pool", configs)
+
+    cursor_key = scheduler._cursor_key("fast_pool", configs)
+    assert redis.ttls[cursor_key] == 86_400
+    get_settings.cache_clear()
+
+
+def test_redis_scheduler_reservation_refreshes_cursor_ttl(monkeypatch):
+    """The WATCH/MULTI reservation must expire cursor and in-flight keys together."""
+
+    monkeypatch.setenv("LLM_POOL_CURSOR_TTL_SECONDS", "86400")
+    get_settings.cache_clear()
+    redis = _TransactionalFakeRedis()
+    scheduler = llms.ModelPoolScheduler(redis_client=redis)
+    configs = [_channel("flash-a"), _channel("flash-b")]
+
+    _ordered, reserved_identity = scheduler.reserve_order("fast_pool", configs)
+
+    assert reserved_identity is not None
+    cursor_key = scheduler._cursor_key("fast_pool", configs)
+    assert redis.ttls[cursor_key] == 86_400
+    assert redis.ttls[scheduler._member_key("inflight", reserved_identity)] == 600
+    get_settings.cache_clear()
 
 
 def test_redis_scheduler_shares_cooldown_and_inflight(monkeypatch):

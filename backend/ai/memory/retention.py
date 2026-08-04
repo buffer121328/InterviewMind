@@ -13,6 +13,7 @@ from redis.asyncio import Redis
 from redis.exceptions import RedisError
 
 from app.config import get_settings
+from app.redis_keys import build_redis_key
 
 SECONDS_PER_DAY = 24 * 60 * 60
 SECONDS_PER_HOUR = 60 * 60
@@ -58,15 +59,15 @@ class MemoryRetentionStore:
 
     @classmethod
     def _access_key(cls, user_id: str, memory_id: str) -> str:
-        return f"memory-retention-access:v1:{cls._owner_hash(user_id)}:{memory_id}"
+        return build_redis_key("memory_retention", "access", cls._owner_hash(user_id), memory_id)
 
     @classmethod
     def _candidate_key(cls, user_id: str, memory_id: str) -> str:
-        return f"memory-retention-candidate:v1:{cls._owner_hash(user_id)}:{memory_id}"
+        return build_redis_key("memory_retention", "candidate", cls._owner_hash(user_id), memory_id)
 
     @classmethod
     def _sweep_key(cls, user_id: str) -> str:
-        return f"memory-retention-sweep:v1:{cls._owner_hash(user_id)}"
+        return build_redis_key("memory_retention", "sweep", cls._owner_hash(user_id))
 
     async def record_access(self, user_id: str, memory_ids: list[str]) -> bool:
         """Record owner-scoped hits and cancel pending cleanup markers."""

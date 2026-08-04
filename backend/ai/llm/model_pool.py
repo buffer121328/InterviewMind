@@ -14,6 +14,7 @@ from langchain_core.callbacks.base import BaseCallbackHandler
 
 from ai.runtime.error_classification import classify_exception
 from app.config import get_settings
+from app.redis_keys import build_redis_key
 from observability import (
     estimate_model_cost,
     extract_token_usage,
@@ -101,9 +102,13 @@ class ModelPoolScheduler:
         signature = ",".join(sorted(_identity(item) for item in configs))
         return self._token(f"{pool_name}:{signature}")
 
+    def _cursor_key(self, pool_name: str, configs: list[dict]) -> str:
+        """生成不含明文池配置的 Redis 轮询游标 key。"""
+        return build_redis_key("model_pool", "cursor", self._pool_token(pool_name, configs))
+
     def _member_key(self, kind: str, identity: str) -> str:
         """生成不含明文模型配置的 Redis 成员状态 key。"""
-        return f"agent_interview:model_pool:{kind}:{self._token(identity)}"
+        return build_redis_key("model_pool", kind, self._token(identity))
 
     def order(self, pool_name: str, configs: list[dict]) -> list[dict]:
         """按冷却状态、in-flight 数量和轮询游标排列模型配置，确保故障模型被隔离且请求尽量均衡。"""
@@ -122,8 +127,14 @@ class ModelPoolScheduler:
                 inflights = [int(value or 0) for value in redis.mget(inflight_keys)]
                 min_inflight = min(inflights)
                 members = [item for item, inflight in zip(members, inflights) if inflight == min_inflight]
-                pool_token = self._pool_token(pool_name, configs)
-                cursor = redis.incr(f"agent_interview:model_pool:cursor:{pool_token}") - 1
+                cursor_key = self._cursor_key(pool_name, configs)
+                cursor = int(redis.eval(
+                    "local value = redis.call('INCR', KEYS[1]); "
+                    "redis.call('EXPIRE', KEYS[1], ARGV[1]); return value",
+                    1,
+                    cursor_key,
+                    get_settings().llm_pool_cursor_ttl_seconds,
+                )) - 1
             except Exception as exc:
                 self._redis_failed(exc)
 
@@ -162,7 +173,7 @@ class ModelPoolScheduler:
 
         cooldown_keys = [self._member_key("cooldown", _identity(item)) for item in configs]
         inflight_keys = [self._member_key("inflight", _identity(item)) for item in configs]
-        cursor_key = f"agent_interview:model_pool:cursor:{self._pool_token(pool_name, configs)}"
+        cursor_key = self._cursor_key(pool_name, configs)
         try:
             from redis.exceptions import WatchError
         except Exception:
@@ -193,10 +204,12 @@ class ModelPoolScheduler:
                         seen.add(identity)
                 selected_identity = _identity(ordered[0])
                 selected_key = self._member_key("inflight", selected_identity)
+                settings = get_settings()
                 pipe.multi()
                 pipe.incr(cursor_key)
+                pipe.expire(cursor_key, settings.llm_pool_cursor_ttl_seconds)
                 pipe.incr(selected_key)
-                pipe.expire(selected_key, get_settings().llm_pool_inflight_ttl_seconds)
+                pipe.expire(selected_key, settings.llm_pool_inflight_ttl_seconds)
                 pipe.execute()
                 return ordered, selected_identity
             except WatchError:

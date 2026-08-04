@@ -94,6 +94,8 @@ LLM_POOL_COOLDOWN_SECONDS=60
 # 多 API/Worker 共享轮询、冷却和并发计数；Redis 不可用时自动降级到进程内。
 LLM_POOL_REDIS_ENABLED=true
 LLM_POOL_INFLIGHT_TTL_SECONDS=600
+# 轮询游标空闲超过该时间后自动清理；后续使用会刷新 TTL。
+LLM_POOL_CURSOR_TTL_SECONDS=86400
 # 个人本地模式允许 Ollama/vLLM/LM Studio；公开部署时应设为 false。
 ALLOW_PRIVATE_MODEL_BASE_URLS=true
 

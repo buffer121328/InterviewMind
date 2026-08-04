@@ -16,6 +16,8 @@ from collections import defaultdict
 from enum import Enum
 from typing import Any, Dict, Tuple
 
+from app.redis_keys import build_redis_key
+
 logger = logging.getLogger(__name__)
 
 
@@ -137,7 +139,9 @@ class RedisRateLimitStore:
             user_id: 当前用户标识。
             limit_type: 经过类型边界校验的 `limit_type`；其格式和可选值由参数类型及调用流程约束。
         """
-        return f"agent-interview:browser-rate:{self._user_key(user_id)}:{limit_type.value}"
+        return build_redis_key(
+            "browser_rate_limit", "window", self._user_key(user_id), limit_type.value
+        )
 
     def _failure_key(self, user_id: str) -> str:
         """生成按用户隔离的失败计数 key，不把用户标识原文暴露在共享存储键中。
@@ -145,7 +149,7 @@ class RedisRateLimitStore:
         Args:
             user_id: 当前用户标识。
         """
-        return f"agent-interview:browser-rate:{self._user_key(user_id)}:failures"
+        return build_redis_key("browser_rate_limit", "failures", self._user_key(user_id))
 
     async def check_rate(
         self, user_id: str, limit_type: RateLimitType, *, record: bool

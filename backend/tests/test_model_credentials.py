@@ -50,13 +50,20 @@ class _FakeRedis:
 
         return self.values.get(key)
 
-    async def delete(self, key: str) -> int:
-        """Delete one stored value."""
+    async def mget(self, keys: list[str]) -> list[str | None]:
+        """Return multiple stored values."""
 
-        existed = key in self.values
-        self.values.pop(key, None)
-        self.ttls.pop(key, None)
-        return int(existed)
+        return [self.values.get(key) for key in keys]
+
+    async def delete(self, *keys: str) -> int:
+        """Delete stored values and return the number that existed."""
+
+        deleted = 0
+        for key in keys:
+            deleted += int(key in self.values)
+            self.values.pop(key, None)
+            self.ttls.pop(key, None)
+        return deleted
 
     def pipeline(self, *, transaction: bool) -> _FakePipeline:
         """Create a non-transactional TTL pipeline."""

@@ -23,7 +23,7 @@ def _pool_fixture(llms):
     ]
     identities = [llms._identity(item) for item in configs]
     scheduler = llms.ModelPoolScheduler(redis_client=None)
-    cursor_key = f"agent_interview:model_pool:cursor:{scheduler._pool_token(pool_name, configs)}"
+    cursor_key = scheduler._cursor_key(pool_name, configs)
     member_keys = [
         scheduler._member_key(kind, identity)
         for identity in identities

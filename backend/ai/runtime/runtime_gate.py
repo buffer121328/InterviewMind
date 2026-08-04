@@ -8,8 +8,10 @@ import secrets
 from dataclasses import dataclass
 from typing import Protocol
 
+from app.redis_keys import build_redis_key
 
-LOCK_KEY = "agent_interview:single_user:llm_active"
+
+LOCK_KEY = build_redis_key("runtime_gate", "active_lease")
 logger = logging.getLogger(__name__)
 
 

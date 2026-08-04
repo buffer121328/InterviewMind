@@ -12,6 +12,7 @@ from redis.asyncio import Redis
 from redis.exceptions import RedisError
 
 from app.config import get_settings
+from app.redis_keys import build_redis_key
 from app.security.payload_crypto import (
     TaskPayloadConfigurationError,
     decrypt_payload,
@@ -78,7 +79,7 @@ class ModelCredentialStore:
 
         safe_model_id = cls._validate_model_id(model_id)
         owner_hash = hashlib.sha256(user_id.encode()).hexdigest()
-        return f"model-credential:v1:{owner_hash}:{safe_model_id}"
+        return build_redis_key("model_credentials", "secret", owner_hash, safe_model_id)
 
     @classmethod
     def _profile_key(cls, user_id: str, model_id: str) -> str:
@@ -86,7 +87,7 @@ class ModelCredentialStore:
 
         safe_model_id = cls._validate_model_id(model_id)
         owner_hash = hashlib.sha256(user_id.encode()).hexdigest()
-        return f"model-credential-profile:v1:{owner_hash}:{safe_model_id}"
+        return build_redis_key("model_credentials", "profile", owner_hash, safe_model_id)
 
     @staticmethod
     def _channel_key(user_id: str, channel: str) -> str:
@@ -95,7 +96,7 @@ class ModelCredentialStore:
         if channel not in _MEMORY_CHANNELS:
             raise ModelCredentialError("不支持的模型通道")
         owner_hash = hashlib.sha256(user_id.encode()).hexdigest()
-        return f"model-channel-binding:v1:{owner_hash}:{channel}"
+        return build_redis_key("model_credentials", "channel", owner_hash, channel)
 
     async def put(self, user_id: str, model_id: str, api_key: str) -> StoredCredentialStatus:
         """Encrypt and store one key with the configured rolling TTL."""
