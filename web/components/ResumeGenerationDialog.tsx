@@ -18,9 +18,10 @@ import {
 interface ResumeGenerationDialogProps {
     isOpen: boolean;
     onClose: () => void;
-    resumeContent: string;
-    jobDescription: string;
-    optimizationResult: ResumeOptimizeResult;
+    resumeContent?: string;
+    jobDescription?: string;
+    optimizationResult?: ResumeOptimizeResult;
+    existingSessionId?: string;
     optimizationResultId?: number;
     apiConfig: ApiConfig;
     onSuccess: (resumeId: number, title: string, content: string) => void;
@@ -54,6 +55,7 @@ export function ResumeGenerationDialog({
     jobDescription,
     optimizationResult,
     optimizationResultId,
+    existingSessionId,
     apiConfig,
     onSuccess,
 }: ResumeGenerationDialogProps) {
@@ -110,6 +112,10 @@ export function ResumeGenerationDialog({
 
     /** Initializes the requirement gate, then automatically starts generation when no questions are needed. */
     async function handleInit() {
+        if (!resumeContent || !jobDescription || !optimizationResult) {
+            setError("缺少创建简历生成会话所需的工作台结果");
+            return;
+        }
         setIsLoading(true);
         setError(null);
         setStep("init");
@@ -150,7 +156,27 @@ export function ResumeGenerationDialog({
         }
     }
 
-    const initializeOnMount = useEffectEvent(() => handleInit());
+    const initializeOnMount = useEffectEvent(async () => {
+        if (!existingSessionId) {
+            await handleInit();
+            return;
+        }
+        setIsLoading(true);
+        setError(null);
+        const status = await getGenerationSessionStatus(existingSessionId);
+        if (!status) {
+            setError("补充信息会话不存在或已过期");
+        } else if (status.status !== "awaiting_input" || !status.questions.length) {
+            setError("该会话当前不接受补充回答");
+        } else {
+            setSessionId(existingSessionId);
+            setQuestions(status.questions);
+            setAnswers(status.user_answers || {});
+            if (status.progress_steps?.length) setProgressSteps(status.progress_steps);
+            setStep("question");
+        }
+        setIsLoading(false);
+    });
 
     useEffect(() => {
         void Promise.resolve().then(() => initializeOnMount());
@@ -177,7 +203,7 @@ export function ResumeGenerationDialog({
         <Dialog open={isOpen} onOpenChange={(open) => !isLoading && !open && onClose()}>
             <DialogContent className="sm:max-w-[680px] max-h-[86vh] flex flex-col">
                 <DialogHeader>
-                    <DialogTitle>生成专业简历</DialogTitle>
+                    <DialogTitle>{existingSessionId ? "继续补充简历信息" : "生成专业简历"}</DialogTitle>
                     <DialogDescription>
                         {step === "question" ? "需求分析已完成，请补充关键信息后继续。" : "以下步骤来自真实生成流程，完成后会自动打勾。"}
                     </DialogDescription>

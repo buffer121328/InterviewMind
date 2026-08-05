@@ -6,6 +6,7 @@ from sqlalchemy import select, update
 
 from app.db.models import async_session, SessionModel, UserProfileModel
 from .base import BaseService
+from app.clock import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -14,6 +15,28 @@ def build_recent_company_profiles_stmt(*, limit: int, user_id: str):
     """Build the owner-scoped query used by the cross-company ability profile."""
     return (
         select(SessionModel.company_profile)
+        .where(
+            SessionModel.user_id == user_id,
+            SessionModel.round_index == 3,
+            SessionModel.status == "completed",
+            SessionModel.company_profile.is_not(None),
+        )
+        .order_by(SessionModel.updated_at.desc())
+        .limit(limit)
+    )
+
+
+def build_recent_company_profile_records_stmt(*, limit: int, user_id: str):
+    """Build the owner-scoped query used by the growth-record source timeline."""
+    return (
+        select(
+            SessionModel.session_id,
+            SessionModel.series_id,
+            SessionModel.title,
+            SessionModel.company_info,
+            SessionModel.company_profile,
+            SessionModel.updated_at,
+        )
         .where(
             SessionModel.user_id == user_id,
             SessionModel.round_index == 3,
@@ -35,7 +58,7 @@ class ProfileService(BaseService):
                 result = await db.execute(
                     update(SessionModel)
                     .where(SessionModel.session_id == session_id, SessionModel.user_id == user_id)
-                    .values(candidate_profile=profile_data, updated_at=datetime.now())
+                    .values(candidate_profile=profile_data, updated_at=utc_now())
                 )
                 await db.commit()
                 return bool(result.rowcount)
@@ -96,7 +119,7 @@ class ProfileService(BaseService):
                     SessionModel.round_index == 3,
                     SessionModel.status == "completed",
                 )
-                .values(company_profile=profile_data, updated_at=datetime.now())
+                .values(company_profile=profile_data, updated_at=utc_now())
             )
             await db.commit()
             return bool(result.rowcount)
@@ -127,11 +150,29 @@ class ProfileService(BaseService):
                     profiles.append(profile)
             return profiles
 
+    async def get_series_final_profile_records(self, limit: int, user_id: str) -> List[Dict[str, Any]]:
+        """Return owner-scoped company-profile sources with stable timeline metadata."""
+        async with async_session() as db:
+            rows = (await db.execute(
+                build_recent_company_profile_records_stmt(limit=limit, user_id=user_id)
+            )).all()
+            return [
+                {
+                    "session_id": row.session_id,
+                    "series_id": row.series_id,
+                    "title": row.title,
+                    "company_info": row.company_info,
+                    "company_profile": row.company_profile,
+                    "updated_at": row.updated_at.isoformat() if isinstance(row.updated_at, datetime) else row.updated_at,
+                }
+                for row in rows
+            ]
+
     async def save_user_profile(self, profile_data: Dict[str, Any], user_id: str) -> bool:
         """按用户幂等写入跨公司的综合能力画像。"""
         async with async_session() as db:
             try:
-                now = datetime.now()
+                now = utc_now()
                 result = await db.execute(
                     update(UserProfileModel)
                     .where(UserProfileModel.user_id == user_id)

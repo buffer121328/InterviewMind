@@ -6,6 +6,7 @@ from sqlalchemy import select, update
 from app.db.models import async_session, MessageModel, SessionModel
 from .base import BaseService
 from .session_mgmt import SessionManagementService
+from app.clock import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +38,7 @@ class MessageService(BaseService):
             raise ValueError("面试已完成，不能继续提交回答")
 
         async with async_session() as db:
-            timestamp = datetime.now()
+            timestamp = utc_now()
             db.add(MessageModel(session_id=session_id, role=role, content=content, timestamp=timestamp, question_index=question_index, audio_url=audio_url))
             await db.execute(update(SessionModel).where(SessionModel.session_id == session_id).values(updated_at=timestamp))
             await db.commit()

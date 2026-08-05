@@ -70,3 +70,20 @@ async def test_persist_report_memories_uses_request_scoped_mem0_config(monkeypat
     for call in add_summary_memory.await_args_list:
         assert call.kwargs["user_id"] == "user-1"
         assert call.kwargs["session_id"] == "session-1"
+
+
+def test_degraded_report_does_not_create_authoritative_memories():
+    """Evidence-only fallback must not become long-term strengths or weaknesses."""
+    entries = build_report_memory_entries(
+        {
+            "generation_mode": "degraded_evidence_only",
+            "key_weaknesses": ["不应写入"],
+            "key_strengths": ["不应写入"],
+        },
+        {
+            "generation_mode": "degraded_evidence_only",
+            "improvement_actions": [{"action": "不应写入"}],
+        },
+    )
+
+    assert entries == []

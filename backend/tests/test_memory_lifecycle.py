@@ -12,13 +12,16 @@ from ai.memory.lifecycle import (
     parse_historical_plan,
     parse_incremental_plan,
 )
-from ai.memory.service import AgentMemoryService
+from ai.memory.service import (
+    INTERVIEW_MEMORY_EXTRACTION_INSTRUCTIONS,
+    AgentMemoryService,
+)
 
 
 @pytest.mark.parametrize(
     ("action", "target_id", "content"),
     [
-        ("ADD", None, None),
+        ("ADD", None, "用户主要使用 FastAPI 开发后端服务"),
         ("NONE", None, None),
         ("UPDATE", "existing-1", "用户现在主要使用 FastAPI 和 PostgreSQL"),
         ("DELETE", "existing-1", None),
@@ -34,6 +37,7 @@ def test_incremental_plan_accepts_valid_lifecycle_actions(action, target_id, con
                 "content": content,
                 "confidence": 0.96,
                 "reason": "same durable topic",
+                "retention_class": "core" if action in {"ADD", "UPDATE"} else None,
             }
         ]
     }
@@ -49,7 +53,7 @@ def test_incremental_plan_accepts_valid_lifecycle_actions(action, target_id, con
     assert plan[0].content == content
 
 
-def test_incremental_plan_falls_back_to_add_for_low_confidence_or_unowned_ids():
+def test_incremental_plan_falls_back_to_discard_for_low_confidence_or_unowned_ids():
     payload = {
         "operations": [
             {
@@ -74,19 +78,41 @@ def test_incremental_plan_falls_back_to_add_for_low_confidence_or_unowned_ids():
     )
 
     assert {operation.new_id: operation.action for operation in plan} == {
-        "new-1": LifecycleAction.ADD,
-        "new-2": LifecycleAction.ADD,
+        "new-1": LifecycleAction.DISCARD,
+        "new-2": LifecycleAction.DISCARD,
     }
 
 
-def test_incremental_plan_falls_back_to_add_for_malformed_output():
+def test_incremental_plan_falls_back_to_discard_for_malformed_output():
     plan = parse_incremental_plan(
         "not-json",
         new_ids={"new-1"},
         existing_ids={"existing-1"},
     )
 
-    assert plan[0].action is LifecycleAction.ADD
+    assert plan[0].action is LifecycleAction.DISCARD
+
+
+def test_incremental_plan_rejects_all_english_canonical_memory():
+    """自动记忆的新增或更新内容不得以全英文普通叙述入库。"""
+    payload = {
+        "operations": [{
+            "new_id": "new-1",
+            "action": "ADD",
+            "content": "The user prefers FastAPI for backend development",
+            "retention_class": "core",
+            "confidence": 0.98,
+            "reason": "durable preference",
+        }]
+    }
+
+    plan = parse_incremental_plan(
+        json.dumps(payload),
+        new_ids={"new-1"},
+        existing_ids=set(),
+    )
+
+    assert plan[0].action is LifecycleAction.DISCARD
 
 
 def test_historical_plan_defaults_to_keep_and_validates_mutations():
@@ -134,9 +160,30 @@ def test_lifecycle_prompts_use_bounded_json_records_without_secrets():
 
     assert "existing-1" in incremental
     assert "new-1" in incremental
-    assert "ADD, NONE, UPDATE, or DELETE" in incremental
+    assert "ADD, DISCARD, NONE, UPDATE, or DELETE" in incremental
     assert "KEEP, UPDATE, or DELETE" in historical
     assert "api_key" not in incremental.lower()
+    assert "普通叙述必须使用中文" in incremental
+    assert "普通叙述必须使用中文" in historical
+    assert "普通叙述必须使用中文" in INTERVIEW_MEMORY_EXTRACTION_INSTRUCTIONS
+
+
+def test_historical_plan_keeps_existing_memory_when_update_is_all_english():
+    """历史整理返回全英文规范内容时应保持原记录不变。"""
+    plan = parse_historical_plan(
+        json.dumps({
+            "operations": [{
+                "memory_id": "memory-1",
+                "action": "UPDATE",
+                "content": "The user prefers FastAPI",
+                "confidence": 0.99,
+                "reason": "rewrite",
+            }]
+        }),
+        owned_ids={"memory-1"},
+    )
+
+    assert plan[0].action is ConsolidationAction.KEEP
 
 
 class _FakeLifecycleLLM:
@@ -171,7 +218,7 @@ class _StatefulMemory:
     def get_all(self, **_kwargs):
         return {"results": list(self.records.values())}
 
-    def update(self, *, memory_id, data):
+    def update(self, *, memory_id, data, metadata=None):
         self.operations.append(("update", memory_id, data))
         self.records[memory_id]["memory"] = data
         return {"message": "updated"}
@@ -211,6 +258,7 @@ async def test_later_round_applies_lifecycle_in_fail_safe_order(action, expected
                     "content": content,
                     "confidence": 0.97,
                     "reason": "later-round lifecycle",
+                    "retention_class": "core" if action == "UPDATE" else None,
                 }
             ]
         },
@@ -230,7 +278,38 @@ async def test_later_round_applies_lifecycle_in_fail_safe_order(action, expected
 
 
 @pytest.mark.asyncio
-async def test_first_round_new_fact_skips_lifecycle_model_and_remains_addition():
+async def test_new_memory_is_admitted_with_canonical_chinese_content():
+    """ADD 应使用生命周期返回的中文规范内容覆盖临时提取文本。"""
+    memory = _StatefulMemory(
+        existing=[],
+        add_result={"results": [{"id": "new-1", "memory": "User prefers FastAPI", "metadata": {}}]},
+        lifecycle_payload={
+            "operations": [{
+                "new_id": "new-1",
+                "action": "ADD",
+                "content": "用户偏好使用 FastAPI 开发后端服务",
+                "confidence": 0.98,
+                "reason": "稳定技术偏好",
+                "retention_class": "core",
+            }]
+        },
+    )
+    service = AgentMemoryService({"version": "test"})
+    service._memory = memory
+    service._enabled = True
+
+    await service.add_interaction(
+        user_id="user-1",
+        session_id="round-1",
+        user_message="我偏好使用 FastAPI 开发后端服务",
+        assistant_message="收到。",
+    )
+
+    assert memory.records["new-1"]["memory"] == "用户偏好使用 FastAPI 开发后端服务"
+
+
+@pytest.mark.asyncio
+async def test_first_round_unclassified_candidate_is_removed_fail_closed():
     memory = _StatefulMemory(
         existing=[],
         add_result={"results": [{"id": "new-1", "memory": "用户偏好 FastAPI", "metadata": {}}]},
@@ -247,9 +326,9 @@ async def test_first_round_new_fact_skips_lifecycle_model_and_remains_addition()
         assistant_message="收到。",
     )
 
-    assert "new-1" in memory.records
-    assert memory.llm.calls == []
-    assert memory.operations == []
+    assert "new-1" not in memory.records
+    assert len(memory.llm.calls) == 1
+    assert memory.operations == [("delete", "new-1")]
 
 
 @pytest.mark.asyncio

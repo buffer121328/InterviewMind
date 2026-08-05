@@ -134,7 +134,7 @@ _redis_gate: RedisRunGate | None = None
 def get_run_gate() -> LocalRunGate | RedisRunGate:
     """同步兼容模式或未配置 Redis 时使用本地锁。"""
     global _redis_gate
-    if os.getenv("TASK_QUEUE_ENABLED", "false").lower() != "true":
+    if os.getenv("TASK_QUEUE_ENABLED", "true").lower() != "true":
         return _local_gate
 
     redis_url = os.getenv("REDIS_URL")

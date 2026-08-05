@@ -125,6 +125,15 @@ export async function createResumeWorkspaceRun(payload: Record<string, unknown>)
     });
 }
 
+/** Creates an explicit owner-scoped Ability Profile AgentRun; API keys remain inside the encrypted backend task payload. */
+export async function createAbilityProfileRun(payload: Record<string, unknown>): Promise<AgentRun | { status: 'succeeded'; result: Record<string, unknown> }> {
+    return apiRequest('/api/agent-runs/ability-profile', {
+        method: 'POST',
+        headers: { 'Idempotency-Key': crypto.randomUUID() },
+        body: JSON.stringify(payload),
+    });
+}
+
 /** Calls the backend for create interview report run; the shared API client supplies request identity and error normalization, and this helper returns the typed endpoint result. */
 export async function createInterviewReportRun(payload: Record<string, unknown>): Promise<AgentRun | { status: 'succeeded'; result: Record<string, unknown> }> {
     return apiRequest('/api/agent-runs/interview-report', {
@@ -168,4 +177,19 @@ export async function pollAgentRun(
             signal?.addEventListener('abort', onAbort, { once: true });
         });
     }
+}
+
+/** Loads the owner-scoped local performance aggregate; no model text or credentials are returned. */
+export async function getAgentPerformanceOverview(params: { days?: number; taskType?: string; agentName?: string } = {}) {
+    const query = new URLSearchParams({ days: String(params.days || 7) });
+    if (params.taskType) query.set('task_type', params.taskType);
+    if (params.agentName) query.set('agent_name', params.agentName);
+    return apiRequest<import('./agentRunTypes').AgentPerformanceOverview>(`/api/agent-runs/performance/overview?${query}`);
+}
+
+/** Lists safe local model metric events for the current owner. */
+export async function listModelMetricEvents(params: { days?: number; degradationsOnly?: boolean; limit?: number } = {}) {
+    const query = new URLSearchParams({ days: String(params.days || 7), limit: String(params.limit || 100) });
+    const path = params.degradationsOnly ? 'degradations' : 'model-events';
+    return apiRequest<{ events: import('./agentRunTypes').ModelMetricEvent[]; total: number }>(`/api/agent-runs/performance/${path}?${query}`);
 }

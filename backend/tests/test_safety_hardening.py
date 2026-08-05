@@ -116,6 +116,11 @@ async def test_resume_generation_submit_and_status_are_user_scoped(monkeypatch):
         create_inline_or_get,
     )
     monkeypatch.setattr(resume_generation.AgentRunService, "succeed", succeed)
+    monkeypatch.setattr(
+        resume_generation.session_store,
+        "get",
+        AsyncMock(return_value=SimpleNamespace(status="awaiting_input", questions=["问题"], agent_run_id=None)),
+    )
     request = SimpleNamespace(
         session_id="session-1",
         answers={"问题": "回答"},

@@ -11,6 +11,7 @@ from threading import RLock
 from typing import Literal
 
 from app.domain.agent_runs import (
+    TASK_TYPE_ABILITY_PROFILE,
     TASK_TYPE_EVALUATION_SUITE,
     TASK_TYPE_INTERVIEW_EXPERIENCE_COLLECT,
     TASK_TYPE_INTERVIEW_REPORT,
@@ -180,6 +181,23 @@ _DEFINITIONS = (
         checkpoint_policy="durable",
         graph_name="resume_generator",
         prompt_name="resume.draft_generation",
+        prompt_version="1",
+    ),
+    AgentDefinition(
+        name="ability_profile",
+        version="1",
+        task_type=TASK_TYPE_ABILITY_PROFILE,
+        title="生成综合能力画像",
+        steps=(
+            ("queued", "等待执行资源"),
+            ("loading_profiles", "读取历史公司画像"),
+            ("selecting_reviewers", "选择证据匹配的评审视角"),
+            ("aggregating_profile", "聚合综合能力画像"),
+            ("saving_profile", "保存成长档案"),
+        ),
+        checkpoint_policy="durable",
+        graph_name="ability_profile",
+        prompt_name="analysis.multi_reviewer_consensus.ability_profile",
         prompt_version="1",
     ),
     AgentDefinition(

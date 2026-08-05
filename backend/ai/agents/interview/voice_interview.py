@@ -4,6 +4,7 @@
 支持 SSE 流式输出
 """
 
+import asyncio
 import json
 import logging
 from typing import Any, AsyncGenerator, Dict, List, Literal, Optional, TypedDict
@@ -13,6 +14,7 @@ from ai.agents.interview.voice_progress import calculate_interview_progress
 from ai.agents.interview.voice_tts import generate_greeting_audio
 from ai.agents.interview.voice_utils import normalize_voice_transcript
 from ai.llm.mimo import MIMO_BASE_URL, mimo_voice_gateway
+from ai.runtime.deadlines import TaskDeadline, TaskDeadlineExceeded
 from ai.prompts.voice import (
     build_interview_voice_system_prompt as _build_system_prompt,
 )
@@ -24,6 +26,20 @@ from app.db.repositories.session.session_repo import SessionRepo
 from observability import agent_observation
 
 logger = logging.getLogger(__name__)
+
+
+async def _voice_attempt(awaitable, *, deadline: TaskDeadline):
+    """Run one ASR/chat/TTS attempt only when the shared voice deadline has safe room."""
+    settings = get_settings()
+    timeout = deadline.timeout_for_next_attempt(
+        settings.voice_interview_node_timeout_seconds,
+        minimum_required=settings.interactive_min_remaining_attempt_seconds,
+    )
+    if timeout <= 0:
+        if hasattr(awaitable, "close"):
+            awaitable.close()
+        raise TaskDeadlineExceeded("voice interview deadline exhausted")
+    return await asyncio.wait_for(awaitable, timeout=timeout)
 
 
 # ============================================================================
@@ -294,17 +310,21 @@ async def node_responder(state: VoiceInterviewState) -> AsyncGenerator[str, None
     audio_id = state.get("audio_id")
     api_config = state.get("api_config", {})
     user_id = state.get("user_id", "default_user")
+    deadline = TaskDeadline(get_settings().voice_interview_task_timeout_seconds)
 
     try:
         api_key, base_url = _get_mimo_config(api_config)
         text_message = browser_text
         if audio_base64:
             try:
-                asr_text = await mimo_voice_gateway.transcribe(
-                    audio_base64,
-                    api_key,
-                    base_url,
-                    audio_format="wav",
+                asr_text = await _voice_attempt(
+                    mimo_voice_gateway.transcribe(
+                        audio_base64,
+                        api_key,
+                        base_url,
+                        audio_format="wav",
+                    ),
+                    deadline=deadline,
                 )
                 text_message = normalize_voice_transcript(
                     asr_text,
@@ -372,7 +392,7 @@ async def node_responder(state: VoiceInterviewState) -> AsyncGenerator[str, None
 
         messages.append({"role": "user", "content": text_message})
         logger.info("[Voice] 发送 MiMo 文本请求: session=%s, msgs_len=%s", session_id, len(messages))
-        text_response = await mimo_voice_gateway.chat_text(messages, api_key, base_url)
+        text_response = await _voice_attempt(mimo_voice_gateway.chat_text(messages, api_key, base_url), deadline=deadline)
 
         # 再次计算进度，以包含 AI 刚刚给出的回复（判断 AI 是否已经进入了下一题）
         user_content = text_message if text_message else "[语音]"
@@ -389,7 +409,7 @@ async def node_responder(state: VoiceInterviewState) -> AsyncGenerator[str, None
             text_response = INTERVIEW_CLOSING_MESSAGE
 
         yield f"data: {json.dumps({'type': 'text', 'content': text_response}, ensure_ascii=False)}\n\n"
-        audio_data = await mimo_voice_gateway.synthesize(text_response, api_key, base_url)
+        audio_data = await _voice_attempt(mimo_voice_gateway.synthesize(text_response, api_key, base_url), deadline=deadline)
         yield f"data: {json.dumps({'type': 'audio', 'content': audio_data}, ensure_ascii=False)}\n\n"
         logger.info("[Voice] MiMo 拆分链路完成: text=%s字符", len(text_response))
 

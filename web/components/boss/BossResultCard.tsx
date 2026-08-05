@@ -6,7 +6,6 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import type { CapturedJobSummary } from '@/lib/api/jobs';
-import { ASSET_STATUS_LABELS } from '@/lib/bossCenter';
 import { BossGreetingEditorList } from '@/components/boss/BossGreetingEditorList';
 
 interface BossResultCardProps {
@@ -71,7 +70,7 @@ export function BossResultCard({
                         </div>
                     )}
                     <div className="flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
-                        <AlertTriangle className="h-4 w-4 shrink-0" />尚未入库：确认无误后点击上方「一键入库」写入岗位库并生成资产，或删除这张卡片。
+                        <AlertTriangle className="h-4 w-4 shrink-0" />尚未入库：确认无误后点击上方「一键入库」写入岗位库；后续可在模拟面试或简历工作台显式使用，或删除这张卡片。
                     </div>
                 </CardContent>
             </Card>
@@ -92,7 +91,6 @@ export function BossResultCard({
                         <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
                             <Badge variant="outline">{job.salary_text || "薪资未披露"}</Badge>
                             {job.city && <span className="inline-flex items-center gap-1"><MapPin className="h-3 w-3" />{job.city}</span>}
-                            {job.asset_status && <Badge variant="outline">{ASSET_STATUS_LABELS[job.asset_status] || job.asset_status}</Badge>}
                         </div>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
@@ -116,16 +114,6 @@ export function BossResultCard({
                     <div className="rounded-xl border border-slate-200 bg-white p-3">
                         <div className="text-xs font-semibold text-slate-700">当前卡片可见职位介绍</div>
                         <p className="mt-2 whitespace-pre-wrap text-xs leading-5 text-slate-600">{job.job_description}</p>
-                    </div>
-                )}
-                {["queued", "retrying", "running"].includes(job.asset_status || "") && (
-                    <div className="flex items-center gap-2 rounded-xl border border-teal-200 bg-teal-50 p-3 text-xs text-teal-800">
-                        <Loader2 className="h-4 w-4 animate-spin" />资产正在后台生成；标准 Worker 最多并行处理 5 个岗位。
-                    </div>
-                )}
-                {job.asset_status === "failed" && (
-                    <div className="flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-800">
-                        <AlertTriangle className="h-4 w-4" />资产生成失败，可在“任务运行”中查看原因并重试。
                     </div>
                 )}
                 <BossGreetingEditorList

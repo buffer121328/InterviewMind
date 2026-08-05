@@ -173,8 +173,8 @@ def test_annotation_request_rejects_secret_bearing_evidence() -> None:
 
 
 @pytest.mark.fast
-def test_evaluation_feature_flags_have_safe_defaults(monkeypatch) -> None:
-    """评测中心可只读启用，真实运行、线上抽样和强制门禁默认关闭。"""
+def test_evaluation_feature_flags_are_enabled_by_default(monkeypatch) -> None:
+    """评测中心、真实运行、线上抽样和发布门禁默认全开。"""
 
     for key in (
         "EVALUATION_CENTER_ENABLED",
@@ -186,11 +186,11 @@ def test_evaluation_feature_flags_have_safe_defaults(monkeypatch) -> None:
         monkeypatch.delenv(key, raising=False)
     settings = AppSettings(_env_file=None)
 
-    assert settings.evaluation_center_enabled is False
-    assert settings.evaluation_runs_enabled is False
-    assert settings.evaluation_langfuse_reporting_enabled is False
-    assert settings.evaluation_online_sampling_enabled is False
-    assert settings.evaluation_release_gate_mode == "off"
+    assert settings.evaluation_center_enabled is True
+    assert settings.evaluation_runs_enabled is True
+    assert settings.evaluation_langfuse_reporting_enabled is True
+    assert settings.evaluation_online_sampling_enabled is True
+    assert settings.evaluation_release_gate_mode == "enforce"
 
 
 @pytest.mark.fast
@@ -303,3 +303,92 @@ def test_evaluation_router_contains_owner_scoped_plan_endpoints() -> None:
         "/api/evaluations/case-runs/{case_run_id}/candidate-dataset",
         "/api/evaluations/online-samples/evaluate",
     } <= paths
+
+
+@pytest.mark.fast
+@pytest.mark.asyncio
+async def test_evaluation_create_run_reuses_owner_scoped_idempotent_aggregate(monkeypatch) -> None:
+    """同一 owner 与幂等键必须返回原 EvaluationRun，不能创建孤立重复聚合。"""
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from ai.workflows.evaluation import runs as runs_module
+    from ai.workflows.evaluation import service as service_module
+
+    class FakeUnitOfWork:
+        def __init__(self, _factory) -> None:
+            self.db = object()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, _exc_type, _exc, _tb) -> bool:
+            return False
+
+    stable_id = runs_module._evaluation_run_id_for_idempotency("owner-1", "same-key")
+    existing = SimpleNamespace(
+        id=stable_id,
+        suite_id="suite-1",
+        agent_run_id="agent-run-1",
+        agent_name="interview_planner",
+        agent_version="production",
+        prompt_name="interview.planner",
+        prompt_version="2",
+        model_config_hash="sha256:model",
+        dataset_version="builtin.interview-planner:v1",
+        status="succeeded",
+        baseline_run_id=None,
+        repetition_count=1,
+        include_judges=False,
+        budget={"max_concurrency": 1, "max_budget_usd": 1.0, "max_cases": 3},
+        summary={"complete_success": True},
+        started_at=None,
+        finished_at=None,
+        created_at=__import__("datetime").datetime(2026, 8, 4, 19, 0, 0),
+    )
+    repository = SimpleNamespace(
+        get_suite=AsyncMock(return_value=SimpleNamespace(id="suite-1", dataset_version_id="dataset-1")),
+        get_dataset=AsyncMock(return_value=SimpleNamespace(id="dataset-1", status="locked")),
+        get_run=AsyncMock(return_value=existing),
+        create_run=AsyncMock(),
+    )
+    monkeypatch.setattr(runs_module, "UnitOfWork", FakeUnitOfWork)
+    monkeypatch.setattr(
+        runs_module,
+        "get_settings",
+        lambda: SimpleNamespace(
+            evaluation_max_concurrency=4,
+            evaluation_default_max_budget_usd=5.0,
+        ),
+    )
+    monkeypatch.setattr(
+        service_module.EvaluationUseCases,
+        "_ensure_runs_enabled",
+        lambda _self: None,
+    )
+    monkeypatch.setattr(
+        runs_module.agent_run_use_cases,
+        "get_run",
+        AsyncMock(return_value={"run_id": "agent-run-1", "status": "succeeded"}),
+    )
+
+    result = await service_module.EvaluationUseCases(repository=repository).create_run(
+        user_id="owner-1",
+        request=EvaluationRunCreateRequest(
+            suite_id="suite-1",
+            model_config_hash="sha256:model",
+            api_config={
+                "smart": {"base_url": "http://127.0.0.1:18081/v1", "model": "mock"},
+                "fast": {"base_url": "http://127.0.0.1:18081/v1", "model": "mock"},
+            },
+            repetition_count=1,
+            max_concurrency=1,
+            max_budget_usd=1.0,
+            max_cases=3,
+        ),
+        idempotency_key="same-key",
+    )
+
+    assert result["id"] == stable_id
+    assert result["agent_run"] == {"run_id": "agent-run-1", "status": "succeeded"}
+    repository.create_run.assert_not_awaited()

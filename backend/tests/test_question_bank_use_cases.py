@@ -25,7 +25,12 @@ class _FakeQuestionRepo:
 class _FakeSessionRepo:
     def __init__(self, *, session=True, plan=None):
         self.session = SimpleNamespace(session_id="session-1") if session else None
-        self.plan = plan if plan is not None else [{"content": "解释 Redis", "hint": "内存+数据结构", "topic": "Redis", "type": "tech"}]
+        self.plan = plan if plan is not None else [{
+            "content": "解释 Redis",
+            "answer_points": ["内存访问", "高效数据结构"],
+            "topic": "Redis",
+            "type": "tech",
+        }]
 
     async def get_session(self, *_args, **_kwargs):
         return self.session
@@ -71,7 +76,29 @@ async def test_save_question_from_session_uses_plan_question():
     assert repo.created[0]["question_text"] == "解释 Redis"
     assert repo.created[0]["origin_session_id"] == "session-1"
     assert repo.created[0]["source_type"] == "generated"
-    assert repo.created[0]["reference_answer"] is None
+    assert repo.created[0]["reference_answer"] == "内存访问\n高效数据结构"
+
+
+@pytest.mark.asyncio
+async def test_save_question_from_legacy_session_uses_hint_as_reference_answer():
+    """旧会话只有 hint 时仍应保留提示内容。"""
+    use_cases = QuestionBankUseCases()
+    repo = _FakeQuestionRepo()
+    use_cases._question_bank_repo = repo
+    use_cases._session_repo = _FakeSessionRepo(plan=[{
+        "content": "解释事件循环",
+        "hint": "说明任务队列与非阻塞调度",
+        "topic": "事件循环",
+        "type": "tech",
+    }])
+
+    await use_cases.save_question_from_session(
+        session_id="session-1",
+        question_index=0,
+        user_id="user-1",
+    )
+
+    assert repo.created[0]["reference_answer"] == "说明任务队列与非阻塞调度"
 
 
 @pytest.mark.asyncio

@@ -37,7 +37,7 @@ class EvaluationScore:
 def evaluation_reporting_enabled() -> bool:
     """Return whether offline evaluation results should be sent to Langfuse."""
 
-    return os.getenv("LANGFUSE_EVAL_REPORTING_ENABLED", "false").lower() in {"1", "true", "yes"}
+    return os.getenv("LANGFUSE_EVAL_REPORTING_ENABLED", "true").lower() in {"1", "true", "yes"}
 
 
 def _metric_attr(metric: Any, name: str, default: Any = None) -> Any:

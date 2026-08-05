@@ -1,3 +1,4 @@
+import type { JobContextSnapshot } from '../jobContextHandoff';
 /**
  * 简历工具 API 类型定义
  */
@@ -135,6 +136,8 @@ export interface ResumeWorkspaceResult {
     result_id: number;
     review: ResumeReviewState;
     warnings: ResumeWorkspaceWarning[];
+    source_job_id?: number | null;
+    job_context_snapshot?: JobContextSnapshot | null;
 }
 
 /** The persisted unified-workspace payload retains pipeline fields at the top level for generation and review compatibility. */
@@ -143,6 +146,8 @@ export interface ResumeWorkspaceStoredResultData {
         version?: number;
         competition_analysis?: unknown;
         jd_matching?: unknown;
+        source_job_id?: number | null;
+        job_context_snapshot?: JobContextSnapshot | null;
     };
     jd_analysis?: unknown;
     change_items?: unknown;

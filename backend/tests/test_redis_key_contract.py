@@ -34,14 +34,8 @@ def test_application_redis_keys_use_versioned_readable_namespace() -> None:
     identity = _identity(config)
     rate_store = RedisRateLimitStore("redis://localhost:6379/0")
 
-    assert ModelCredentialStore._redis_key(user_id, model_id) == (
-        f"agent_interview:model_credentials:v1:secret:{owner_hash}:{model_id}"
-    )
-    assert ModelCredentialStore._profile_key(user_id, model_id) == (
-        f"agent_interview:model_credentials:v1:profile:{owner_hash}:{model_id}"
-    )
-    assert ModelCredentialStore._channel_key(user_id, "mem0_embedder") == (
-        f"agent_interview:model_credentials:v1:channel:{owner_hash}:mem0_embedder"
+    assert ModelCredentialStore._credential_key("deepseek-v4-flash") == (
+        "agent_interview:model_credentials:v1:deepseek-v4-flash"
     )
     assert MemoryRetentionStore._access_key(user_id, memory_id) == (
         f"agent_interview:memory_retention:v1:access:{owner_hash}:{memory_id}"
@@ -74,8 +68,7 @@ def test_redis_keys_do_not_expose_sensitive_source_values() -> None:
     config = _model_config()
     scheduler = ModelPoolScheduler(redis_client=None)
     keys = [
-        ModelCredentialStore._redis_key(user_id, "model-1"),
-        ModelCredentialStore._channel_key(user_id, "mem0_llm"),
+        ModelCredentialStore._credential_key("deepseek-v4-flash"),
         MemoryRetentionStore._access_key(user_id, "memory-1"),
         scheduler._cursor_key("reasoning_pool", [config]),
         scheduler._member_key("failures", _identity(config)),

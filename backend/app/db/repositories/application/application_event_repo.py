@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import async_session
 from app.db.models.application import ApplicationEventModel, JobApplicationModel
 from app.schemas.job_application import EventCreateRequest, ApplicationEventRow
+from app.clock import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +41,7 @@ class ApplicationEventRepo:
                 owns_session: 是否由当前方法负责 session 的提交和释放，避免嵌套事务重复处理。
             """
             try:
-                now = datetime.now()
+                now = utc_now()
                 event_time = request.event_time or now
                 if isinstance(event_time, str):
                     event_time = datetime.fromisoformat(event_time)

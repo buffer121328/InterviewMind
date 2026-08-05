@@ -10,6 +10,7 @@ from sqlalchemy import select, delete, func, and_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models.base import async_session
 from app.db.models.job_capture import CapturedJobModel
+from app.clock import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +51,7 @@ class JobCaptureRepo:
                 asset_payload=job_data.get("asset_payload"),
                 source_hash=job_data.get("source_hash", ""),
                 status=job_data.get("status", "pending"),
-                captured_at=datetime.now() if not job_data.get("captured_at") else None,
+                captured_at=utc_now() if not job_data.get("captured_at") else None,
             )
             db.add(row)
             await db.commit()
@@ -183,7 +184,7 @@ class JobCaptureRepo:
             row = result.scalar_one_or_none()
             if row:
                 row.status = status
-                row.updated_at = datetime.now()
+                row.updated_at = utc_now()
                 if owns_session:
                     await db.commit()
                 return True
@@ -225,7 +226,7 @@ class JobCaptureRepo:
                 row.match_score = max(0.0, min(float(match_score), 100.0))
             if asset_payload is not None:
                 row.asset_payload = asset_payload
-            row.updated_at = datetime.now()
+            row.updated_at = utc_now()
             if owns_session:
                 await db.commit()
             return True
@@ -261,7 +262,7 @@ class JobCaptureRepo:
             greetings[greeting_index] = greeting
             payload["greetings"] = greetings
             row.asset_payload = payload
-            row.updated_at = datetime.now()
+            row.updated_at = utc_now()
             await db.commit()
             await db.refresh(row)
             return row.to_dict()
@@ -283,7 +284,7 @@ class JobCaptureRepo:
                     CapturedJobModel.user_id == user_id,
                     CapturedJobModel.status.notin_(["applied", "applying", "manual_takeover"]),
                 )
-                .values(status="applying", updated_at=datetime.now())
+                .values(status="applying", updated_at=utc_now())
             )
             if owns_session:
                 await db.commit()

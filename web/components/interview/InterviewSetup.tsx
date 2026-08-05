@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import type { JobContextSnapshot } from "@/lib/jobContextHandoff";
 import { Upload, FileText, Loader2, AlertCircle, BrainCircuit, Maximize2, MessageSquare, Headphones, Link2, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -13,6 +14,8 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
+import { JobLibraryPickerDialog } from "@/components/interview/JobLibraryPickerDialog";
+import type { InterviewJobSelection } from "@/lib/interviewJobSelection";
 
 type InterviewMode = "text" | "voice";
 type InterviewType = "tech_initial" | "tech_deep" | "hr_comprehensive";
@@ -35,6 +38,8 @@ interface InterviewSetupProps {
     onJobDescriptionChange: (value: string) => void;
     companyInfo: string;
     onCompanyInfoChange: (value: string) => void;
+    jobContextSnapshot?: JobContextSnapshot | null;
+    onJobContextSnapshotChange: (snapshot: JobContextSnapshot | null) => void;
     maxQuestions: number;
     onMaxQuestionsChange: (value: number) => void;
     interviewType: InterviewType;
@@ -46,6 +51,7 @@ interface InterviewSetupProps {
     hasApiConfig: boolean;
     onStartInterview: (mode: InterviewMode, options?: { interviewType: InterviewType; maxQuestions: number }) => Promise<void>;
     onConfigureApi: () => void;
+    onOpenJobLibrary?: () => void;
     hasVoiceConfig?: boolean;  // 是否配置了语音模型
 }
 
@@ -57,6 +63,8 @@ export function InterviewSetup({
     onJobDescriptionChange,
     companyInfo,
     onCompanyInfoChange,
+    jobContextSnapshot,
+    onJobContextSnapshotChange,
     maxQuestions,
     onMaxQuestionsChange,
     interviewType,
@@ -68,9 +76,11 @@ export function InterviewSetup({
     hasApiConfig,
     onStartInterview,
     onConfigureApi,
+    onOpenJobLibrary,
     hasVoiceConfig = false
 }: InterviewSetupProps) {
     const [isJobDialogOpen, setIsJobDialogOpen] = useState(false);
+    const [isJobLibraryOpen, setIsJobLibraryOpen] = useState(false);
     const [tempJobDescription, setTempJobDescription] = useState("");
     const [selectedMode, setSelectedMode] = useState<InterviewMode>("text");
     const [isStartDialogOpen, setIsStartDialogOpen] = useState(false);
@@ -94,6 +104,13 @@ export function InterviewSetup({
     const handleSaveJobDescription = () => {
         onJobDescriptionChange(tempJobDescription);
         setIsJobDialogOpen(false);
+    };
+
+    /** Applies one owner-verified job-library selection to the editable interview setup. */
+    const handleSelectLibraryJob = (selection: InterviewJobSelection) => {
+        onJobContextSnapshotChange(selection.snapshot);
+        onJobDescriptionChange(selection.jobDescription);
+        onCompanyInfoChange(selection.companyInfo);
     };
 
     /** Handles start interview; updates local UI state first and delegates server mutations through the approved API boundary. */
@@ -161,10 +178,22 @@ export function InterviewSetup({
 
                 {/* 2. 职位描述 - 点击弹窗编辑 */}
                 <div className="space-y-3">
-                    <label className="text-sm font-medium text-gray-700 flex items-center gap-2">
-                        <span className="flex items-center justify-center w-5 h-5 rounded-full bg-teal-100 text-teal-600 text-xs font-bold">2</span>
-                        目标岗位
-                    </label>
+                    <div className="flex items-center justify-between gap-3">
+                        <label className="text-sm font-medium text-gray-700 flex items-center gap-2">
+                            <span className="flex items-center justify-center w-5 h-5 rounded-full bg-teal-100 text-teal-600 text-xs font-bold">2</span>
+                            目标岗位
+                        </label>
+                        <div className="flex items-center gap-2">
+                            {jobContextSnapshot && (
+                                <Button type="button" variant="ghost" size="sm" onClick={() => onJobContextSnapshotChange(null)} className="h-8 text-xs text-gray-500">
+                                    解除关联
+                                </Button>
+                            )}
+                            <Button type="button" variant="outline" size="sm" onClick={() => setIsJobLibraryOpen(true)} className="h-8 border-teal-200 text-xs text-teal-700 hover:bg-teal-50">
+                                从岗位库选择
+                            </Button>
+                        </div>
+                    </div>
 
                     <div
                         onClick={handleOpenJobDialog}
@@ -190,6 +219,33 @@ export function InterviewSetup({
                         </div>
                     </div>
                 </div>
+
+                {jobContextSnapshot && (
+                    <div className="grid gap-3 rounded-xl border border-teal-200 bg-teal-50/60 p-4 sm:grid-cols-2">
+                        <p className="text-xs font-medium text-teal-800 sm:col-span-2">已关联岗位库 #{jobContextSnapshot.source_job_id}，可继续编辑本次面试快照。</p>
+                        <div className="space-y-2">
+                            <label className="text-sm font-medium text-teal-900">公司名称</label>
+                            <input
+                                type="text"
+                                value={jobContextSnapshot.company_name}
+                                onChange={(event) => onJobContextSnapshotChange({ ...jobContextSnapshot, company_name: event.target.value })}
+                                className="w-full rounded-xl border border-teal-200 bg-white px-4 py-3 text-sm focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-50"
+                                placeholder="公司名称"
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <label className="text-sm font-medium text-teal-900">岗位名称</label>
+                            <input
+                                type="text"
+                                value={jobContextSnapshot.job_title}
+                                onChange={(event) => onJobContextSnapshotChange({ ...jobContextSnapshot, job_title: event.target.value })}
+                                className="w-full rounded-xl border border-teal-200 bg-white px-4 py-3 text-sm focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-50"
+                                placeholder="岗位名称"
+                            />
+                        </div>
+                        <p className="text-xs text-teal-700 sm:col-span-2">开始面试时会保存当前编辑后的公司、岗位与 JD 快照。</p>
+                    </div>
+                )}
 
                 {/* 2.5. 公司信息 (选填) */}
                 <div className="space-y-3">
@@ -520,6 +576,13 @@ export function InterviewSetup({
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+
+            <JobLibraryPickerDialog
+                open={isJobLibraryOpen}
+                onOpenChange={setIsJobLibraryOpen}
+                onSelect={handleSelectLibraryJob}
+                onOpenJobLibrary={onOpenJobLibrary}
+            />
         </>
     );
 }

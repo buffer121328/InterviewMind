@@ -110,3 +110,40 @@ def test_download_route_returns_404_for_another_owner(monkeypatch, tmp_path: Pat
 
     assert response.status_code == 404
     assert response.json()["detail"] == "文件不存在或无权访问"
+
+
+def test_default_artifact_storage_is_project_writable_directory(monkeypatch):
+    """Local runs must not default to the container-only read-only /app path."""
+    from app.config import get_settings
+
+    monkeypatch.delenv("ARTIFACT_STORAGE_DIR", raising=False)
+    get_settings.cache_clear()
+    try:
+        service = ArtifactService()
+        backend_root = Path(__file__).resolve().parents[1]
+        assert service._root == (backend_root / "data" / "artifacts").resolve()
+        assert not str(service._root).startswith("/app/")
+    finally:
+        get_settings.cache_clear()
+
+
+def test_export_route_sanitizes_storage_failures(monkeypatch):
+    """Filesystem failures return a stable service-unavailable response without leaking paths."""
+    from app.files.artifact_service import ArtifactStorageUnavailable
+
+    class FakeService:
+        async def export(self, _request, _user_id):
+            raise ArtifactStorageUnavailable()
+
+    monkeypatch.setattr("app.api.artifacts._service", FakeService())
+    app = FastAPI()
+    app.include_router(router)
+
+    response = TestClient(app).post(
+        "/api/artifacts/export",
+        json={"source_type": "agent_run", "source_id": "run-1", "format": "html"},
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "导出存储暂不可用，请稍后重试"
+    assert "/app/" not in response.text

@@ -7,6 +7,7 @@ mem0 配置构造模块
 import os
 import logging
 from typing import Optional, Any
+from urllib.parse import unquote, urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,61 @@ def _request_channel(api_config: Optional[dict[str, Any]], name: str) -> Optiona
     return None
 
 
+def _pgvector_connection_config() -> dict[str, Any]:
+    """Resolve pgvector from one authoritative DSN without mixing credential sources."""
+    explicit_url = _env("MEM0_PGVECTOR_URL")
+    database_url = _env("DATABASE_URL")
+    fallback_url = "postgresql://{user}:{password}@{host}:{port}/{database}".format(
+        user=_env("POSTGRES_USER", "agent_interview"),
+        password=_env("POSTGRES_PASSWORD", ""),
+        host=_env("POSTGRES_HOST", "localhost"),
+        port=_env("POSTGRES_PORT", "5432"),
+        database=_env("POSTGRES_DB", "agent_interview"),
+    )
+
+    def parse_dsn(value: str) -> dict[str, Any] | None:
+        parsed = urlparse(value.replace("postgresql+asyncpg://", "postgresql://", 1))
+        database = parsed.path.lstrip("/")
+        if parsed.scheme not in {"postgresql", "postgres"}:
+            return None
+        if not (parsed.hostname and parsed.username and database):
+            return None
+        return {
+            "host": parsed.hostname,
+            "port": parsed.port or 5432,
+            "dbname": unquote(database),
+            "user": unquote(parsed.username),
+            "password": unquote(parsed.password or ""),
+        }
+
+    if explicit_url:
+        explicit = parse_dsn(explicit_url)
+        if explicit is not None:
+            return explicit
+        logger.warning("MEM0_PGVECTOR_URL 无效，已回退到 DATABASE_URL")
+
+    authoritative = parse_dsn(database_url or fallback_url)
+    if authoritative is None:
+        raise ValueError("DATABASE_URL is not a valid PostgreSQL DSN")
+    return authoritative
+
+
+def get_mem0_database_mode() -> str:
+    """Return whether pgvector shares DATABASE_URL or uses a valid dedicated DSN."""
+    explicit_url = _env("MEM0_PGVECTOR_URL")
+    if not explicit_url:
+        return "shared"
+    parsed = urlparse(explicit_url.replace("postgresql+asyncpg://", "postgresql://", 1))
+    if (
+        parsed.scheme in {"postgresql", "postgres"}
+        and parsed.hostname
+        and parsed.username
+        and parsed.path.lstrip("/")
+    ):
+        return "dedicated"
+    return "shared"
+
+
 def get_mem0_config(api_config: Optional[dict[str, Any]] = None) -> Optional[dict]:
     """
     构造 mem0 配置字典
@@ -43,21 +99,17 @@ def get_mem0_config(api_config: Optional[dict[str, Any]] = None) -> Optional[dic
     request_configured = bool(request_llm and request_embedder)
 
     # 检查是否启用：服务端 .env 可显式启用；前端请求携带完整 mem0 通道时也启用。
-    enabled = _env("MEM0_ENABLED", "false").lower()
+    enabled = _env("MEM0_ENABLED", "true").lower()
     if enabled not in ("true", "1", "yes") and not request_configured:
         logger.info("mem0 已禁用（MEM0_ENABLED=false 且请求未携带 mem0 前端配置）")
         return None
 
-    # pgvector 配置 — 优先 MEM0_PGVECTOR_*，回退到 POSTGRES_*，再回退到硬编码默认值
+    # pgvector 默认与主数据库共用 DATABASE_URL；只有完整的 MEM0_PGVECTOR_URL 才能显式分离。
     pgvector_config = {
         "provider": "pgvector",
         "config": {
             "collection_name": _env("MEM0_PGVECTOR_COLLECTION", "mem0_memories"),
-            "host": _env("MEM0_PGVECTOR_HOST") or _env("POSTGRES_HOST", "localhost"),
-            "port": int(_env("MEM0_PGVECTOR_PORT") or _env("POSTGRES_PORT", "5432")),
-            "dbname": _env("MEM0_PGVECTOR_DBNAME") or _env("POSTGRES_DB", "agent_interview"),
-            "user": _env("MEM0_PGVECTOR_USER") or _env("POSTGRES_USER", "agent_interview"),
-            "password": _env("MEM0_PGVECTOR_PASSWORD") or _env("POSTGRES_PASSWORD", ""),
+            **_pgvector_connection_config(),
             "embedding_model_dims": int(_env("MEM0_EMBEDDING_DIMS", "1536")),
             "hnsw": True,
         },

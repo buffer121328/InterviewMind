@@ -309,7 +309,7 @@ class ContextAssembler:
             if not source.visible_to_model or not selected_text:
                 audits_by_index[original_index] = audit
                 continue
-            if contains_prompt_injection(selected_text):
+            if contains_prompt_injection(selected_text, allow_security_terms=source.trusted):
                 audit["filtered"] = True
                 audit["filter_reason"] = "prompt_injection"
                 audits_by_index[original_index] = audit

@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.user_feedback import UserFeedbackModel
+from app.clock import utc_now
 
 _MAX_ASPECTS = 20
 _MAX_ASPECT_LENGTH = 100
@@ -19,7 +20,7 @@ _MAX_ASPECT_LENGTH = 100
 def _now() -> datetime:
     """返回便于测试替换的本地时间。"""
 
-    return datetime.now()
+    return utc_now()
 
 
 def _id(prefix: str) -> str:

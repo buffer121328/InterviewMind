@@ -8,6 +8,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Header, Body, Depends
 from fastapi.responses import StreamingResponse
 
+from app.schemas.interview_report import SaveReportQuestionsRequest, SaveReportQuestionsResponse
 from app.schemas.schemas import ChatRequest, ChatStreamResponse, InterviewStartRequest, ErrorResponse, RollbackRequest, ProfileGenerateRequest
 from app.schemas.session import SessionMarkdownReportResponse
 from app.api.deps import get_current_user_id
@@ -24,6 +25,7 @@ from ai.workflows.interview.start import (
     interview_start_use_cases,
 )
 from ai.workflows.interview.reports import (
+    InterviewReportBadRequest,
     InterviewReportNotFound,
     interview_report_use_cases,
 )
@@ -165,3 +167,20 @@ async def get_session_report(
             status_code=500,
             detail={"error": "InternalServerError", "message": "获取面试报告失败"},
         ) from exc
+
+
+@router.post("/report/session/{session_id}/questions", response_model=SaveReportQuestionsResponse)
+async def save_session_report_questions(
+    session_id: str,
+    request: SaveReportQuestionsRequest,
+    user_id: str = Depends(get_current_user_id),
+):
+    """把 owner 可见报告中的选中推荐题幂等保存到题库。"""
+    try:
+        return await interview_report_use_cases.save_recommended_questions(
+            session_id=session_id, request=request, user_id=user_id
+        )
+    except InterviewReportNotFound as exc:
+        raise HTTPException(status_code=404, detail=exc.message) from exc
+    except InterviewReportBadRequest as exc:
+        raise HTTPException(status_code=400, detail=exc.message) from exc

@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { Loader2, RefreshCw, AlertCircle, CheckCircle2, Check, Brain, Wand2, Lightbulb } from 'lucide-react';
-import { getOverallProfile, generateProfile, type AbilityProfile } from '@/lib/api/profile';
+import { getOverallProfile, generateProfile, type AbilityProfile, type AbilityProfileSource } from '@/lib/api/profile';
+import { normalizeAbilityGrowth } from '@/lib/abilityGrowth';
 import { AbilityRadarChart } from './RadarChart';
 import { Button } from './ui/button';
 import { getRequestApiConfig } from '@/store/interviewFacade';
@@ -29,7 +30,11 @@ export function AbilityProfileView() {
     const [loading, setLoading] = useState(true);
     const [generating, setGenerating] = useState(false);
     const [generatedAt, setGeneratedAt] = useState<string | null>(null);
+    const [sources, setSources] = useState<AbilityProfileSource[]>([]);
+    const [dimensionChanges, setDimensionChanges] = useState<Record<string, number>>({});
+    const [sampleCount, setSampleCount] = useState(0);
     const [error, setError] = useState<string | null>(null);
+    const [runStage, setRunStage] = useState<string | null>(null);
 
     useEffect(() => {
         let active = true;
@@ -37,13 +42,12 @@ export function AbilityProfileView() {
         void getOverallProfile().then((response) => {
             if (!active) return;
 
-            if (response.success && response.profile) {
-                setProfile(response.profile);
-                setGeneratedAt(response.generated_at || null);
-            } else {
-                setProfile(null);
-                setGeneratedAt(null);
-            }
+            const growth = normalizeAbilityGrowth(response);
+            setProfile(growth.profile);
+            setGeneratedAt(growth.generatedAt);
+            setSources(growth.sources);
+            setDimensionChanges(growth.dimensionChanges);
+            setSampleCount(growth.sampleCount);
             setLoading(false);
         });
 
@@ -66,15 +70,22 @@ export function AbilityProfileView() {
             return;
         }
 
-        const response = await generateProfile(apiConfig);
+        const response = await generateProfile(apiConfig, (run) => {
+            setRunStage(run.plan.find(step => step.status === 'running')?.title || run.stage);
+        });
 
         if (response.success && response.profile) {
-            setProfile(response.profile);
-            setGeneratedAt(new Date().toISOString());
+            const refreshed = normalizeAbilityGrowth(await getOverallProfile());
+            setProfile(refreshed.profile || response.profile);
+            setGeneratedAt(refreshed.generatedAt || new Date().toISOString());
+            setSources(refreshed.sources);
+            setDimensionChanges(refreshed.dimensionChanges);
+            setSampleCount(refreshed.sampleCount);
         } else {
             setError(response.message || '生成失败，请稍后重试');
         }
         setGenerating(false);
+        setRunStage(null);
     }
 
     // 加载状态
@@ -94,9 +105,9 @@ export function AbilityProfileView() {
                 <div className="w-16 h-16 bg-teal-50 rounded-full flex items-center justify-center mb-4">
                     <Brain className="w-8 h-8 text-teal-600" />
                 </div>
-                <h3 className="text-lg font-semibold text-gray-900 mb-2">尚未生成能力画像</h3>
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">尚未生成成长档案</h3>
                 <p className="text-sm text-gray-500 text-center mb-6 max-w-sm">
-                    完成面试后，点击下方按钮生成您的综合能力评估报告
+                    完成公司系列面试后，可显式生成综合能力画像并在这里持续查看来源与变化
                 </p>
                 <Button
                     onClick={handleGenerate}
@@ -106,12 +117,12 @@ export function AbilityProfileView() {
                     {generating ? (
                         <>
                             <Loader2 className="w-4 h-4 animate-spin" />
-                            生成中...
+                            {runStage || '生成中...'}
                         </>
                     ) : (
                         <>
                             <Wand2 className="w-4 h-4" />
-                            生成能力画像
+                            生成成长档案
                         </>
                     )}
                 </Button>
@@ -132,7 +143,7 @@ export function AbilityProfileView() {
                 {/* 标题和操作栏 */}
                 <div className="flex items-center justify-between">
                     <div>
-                        <h2 className="text-xl font-bold text-gray-900">能力评分</h2>
+                        <h2 className="text-xl font-bold text-gray-900">成长档案</h2>
                         {generatedAt && (
                             <p className="text-xs text-gray-500 mt-1">
                                 生成时间: {new Date(generatedAt).toLocaleString('zh-CN')}
@@ -149,7 +160,7 @@ export function AbilityProfileView() {
                         {generating ? (
                             <>
                                 <Loader2 className="w-4 h-4 animate-spin" />
-                                重新生成中...
+                                {runStage || '重新生成中...'}
                             </>
                         ) : (
                             <>
@@ -166,6 +177,37 @@ export function AbilityProfileView() {
                         {error}
                     </div>
                 )}
+
+                <div className="grid gap-4 md:grid-cols-[180px_1fr]">
+                    <div className="rounded-2xl border border-teal-100 bg-teal-50/70 p-5">
+                        <p className="text-xs font-medium text-teal-700">画像样本</p>
+                        <p className="mt-2 text-3xl font-bold text-teal-900">{sampleCount}</p>
+                        <p className="mt-1 text-xs leading-5 text-teal-700">{sampleCount >= 2 ? '可比较最近两次公司画像变化' : '样本不足时不生成趋势'}</p>
+                    </div>
+                    <div className="rounded-2xl border border-slate-200 bg-white p-5">
+                        <h3 className="text-sm font-semibold text-slate-900">最近维度变化</h3>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                            {PROFILE_DIMENSIONS.map(({ key, label }) => {
+                                const delta = dimensionChanges[key];
+                                return <span key={key} className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-700">{label} {delta == null ? '—' : `${delta > 0 ? '+' : ''}${delta}`}</span>;
+                            })}
+                        </div>
+                    </div>
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-white p-5">
+                    <h3 className="text-sm font-semibold text-slate-900">画像来源时间线</h3>
+                    {sources.length === 0 ? <p className="mt-3 text-sm text-slate-500">暂无已完成的公司级画像来源。</p> : (
+                        <div className="mt-3 space-y-3">
+                            {sources.map(source => (
+                                <div key={source.session_id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-100 bg-slate-50 px-4 py-3">
+                                    <div><p className="text-sm font-medium text-slate-900">{source.title}</p><p className="text-xs text-slate-500">会话 {source.session_id}</p></div>
+                                    <span className="text-xs text-slate-500">{source.completed_at ? new Date(source.completed_at).toLocaleString('zh-CN') : '-'}</span>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
 
                 {/* 深色仪表盘区域 */}
                 <div className="bg-[#0F172A] rounded-2xl border border-gray-800 p-8 relative overflow-hidden shadow-xl">

@@ -4,6 +4,7 @@
 
 from typing import List, Optional, Dict, Any, Literal
 from pydantic import BaseModel, Field
+from app.schemas.job_context import JobContextSnapshot
 from app.schemas.schemas import ApiConfig
 
 
@@ -35,6 +36,7 @@ class ResumeWorkspaceRequest(BaseModel):
     include_overall_profile: bool = Field(default=False, description="是否在优化时使用当前用户能力画像")
     mode: Literal["fast", "balanced", "quality"] = Field(default="balanced", description="内容优化模式")
     api_config: Optional[ApiConfig] = Field(default=None, description="经过模型网关处理的模型配置")
+    job_context_snapshot: Optional[JobContextSnapshot] = Field(default=None, description="来源岗位与本次实际使用的上下文快照")
 
 
 class ResumeAnalyzeRequest(BaseModel):
@@ -138,6 +140,8 @@ class ResumeWorkspaceResult(BaseModel):
     content_optimization: ResumeOptimizeResult
     review: Dict[str, Any] = Field(default_factory=dict, description="高风险优化项的持久化人工审阅状态")
     warnings: List[str] = Field(default_factory=list)
+    source_job_id: Optional[int] = None
+    job_context_snapshot: Optional[JobContextSnapshot] = None
 
 
 class ResumeWorkspaceRunResponse(BaseModel):

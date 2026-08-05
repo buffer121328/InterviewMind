@@ -8,6 +8,8 @@ import {
     ChevronDown,
     ExternalLink,
     FileText,
+    FileDown,
+    Eye,
     HeartHandshake,
     Loader2,
     MessageSquare,
@@ -41,10 +43,14 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from 'sonner';
 import { openJobInExistingBossTab, type BossBrowserChannel } from '@/lib/api/jobs';
+import { getGeneratedResume, getGeneratedResumes, type GeneratedResumeItem } from '@/lib/api/resume';
+import { ResumePreviewDialog } from '@/components/ResumePreviewDialog';
+import { downloadResumeMarkdown } from '@/lib/applicationResumeAsset';
 import type {
     ApplicationEvent,
     UpdateApplicationRequest,
 } from '@/lib/api/applications';
+import { setApplicationResume } from '@/lib/api/applications';
 
 interface Props {
     applicationId: number | null;
@@ -126,6 +132,10 @@ export function ApplicationDetailDrawer({ applicationId, onClose }: Props) {
     const [noteText, setNoteText] = useState('');
     const [bossBrowserChannel, setBossBrowserChannel] = useState<BossBrowserChannel>('msedge');
     const [openingBoss, setOpeningBoss] = useState(false);
+    const [resumeOptions, setResumeOptions] = useState<GeneratedResumeItem[]>([]);
+    const [selectedResumeId, setSelectedResumeId] = useState<string>('');
+    const [linkingResume, setLinkingResume] = useState(false);
+    const [previewResume, setPreviewResume] = useState<{ id: number; title: string; content: string } | null>(null);
 
     useEffect(() => {
         if (applicationId != null) {
@@ -136,6 +146,13 @@ export function ApplicationDetailDrawer({ applicationId, onClose }: Props) {
     }, [applicationId, selectApplication, clearCurrentApplication]);
 
     useEffect(() => {
+        let active = true;
+        if (applicationId == null) return;
+        void getGeneratedResumes(100).then(items => { if (active) setResumeOptions(items); });
+        return () => { active = false; };
+    }, [applicationId]);
+
+    useEffect(() => {
         if (currentApplication?.id === applicationId) {
             queueMicrotask(() => {
                 setDraft({
@@ -143,8 +160,6 @@ export function ApplicationDetailDrawer({ applicationId, onClose }: Props) {
                     job_title: currentApplication.job_title,
                     job_description: currentApplication.job_description ?? '',
                     channel: currentApplication.channel ?? '',
-                    generated_resume_id:
-                        currentApplication.generated_resume_id == null ? undefined : currentApplication.generated_resume_id,
                     latest_status: currentApplication.latest_status,
                     priority: currentApplication.priority,
                     notes: currentApplication.notes ?? '',
@@ -168,7 +183,6 @@ export function ApplicationDetailDrawer({ applicationId, onClose }: Props) {
         if (draft.job_title !== currentApplication.job_title) changes.job_title = draft.job_title?.trim();
         if ((draft.job_description ?? '') !== (currentApplication.job_description ?? '')) changes.job_description = draft.job_description?.trim();
         if ((draft.channel ?? '') !== (currentApplication.channel ?? '')) changes.channel = draft.channel?.trim();
-        if ((draft.generated_resume_id ?? null) !== currentApplication.generated_resume_id) changes.generated_resume_id = draft.generated_resume_id;
         if ((draft.latest_status ?? '') !== currentApplication.latest_status) changes.latest_status = draft.latest_status;
         if ((draft.priority ?? '') !== currentApplication.priority) changes.priority = draft.priority;
         if ((draft.notes ?? '') !== (currentApplication.notes ?? '')) changes.notes = draft.notes?.trim();
@@ -198,6 +212,31 @@ export function ApplicationDetailDrawer({ applicationId, onClose }: Props) {
         await handleQuickEvent('note', { note: noteText.trim() });
         setNoteText('');
         setShowNoteComposer(false);
+    }
+
+    /** Replaces or clears the linked resume through the owner-scoped application endpoint. */
+    async function handleSetResume(resumeId: number | null) {
+        if (!applicationId) return;
+        setLinkingResume(true);
+        const updated = await setApplicationResume(applicationId, resumeId);
+        if (updated) {
+            toast.success(resumeId ? '已更换关联简历' : '已解除关联简历');
+            setSelectedResumeId('');
+            await selectApplication(applicationId);
+        } else {
+            toast.error('关联简历更新失败，请确认该简历仍属于当前账户');
+        }
+        setLinkingResume(false);
+    }
+
+    /** Opens one selected owner-scoped generated resume in the existing preview dialog. */
+    async function handlePreviewResume(resumeId: number) {
+        const resume = await getGeneratedResume(resumeId);
+        if (!resume?.content) {
+            toast.error('简历不可用或无权访问');
+            return;
+        }
+        setPreviewResume({ id: resume.id, title: resume.title, content: resume.content });
     }
 
     /** Reuses the existing logged-in BOSS tab for this tracked captured job; it never sends a message. */
@@ -324,9 +363,32 @@ export function ApplicationDetailDrawer({ applicationId, onClose }: Props) {
                                                         <option value="low">low</option>
                                                     </select>
                                                 </div>
-                                                <div className="grid gap-1.5">
-                                                    <Label>关联简历 ID</Label>
-                                                    <Input type="number" value={draft.generated_resume_id ?? ''} onChange={(e) => setDraft((p) => ({ ...p, generated_resume_id: e.target.value === '' ? undefined : Number(e.target.value) }))} placeholder="简历编号" />
+                                                <div className="grid gap-2 rounded-xl border border-slate-200 bg-white p-4">
+                                                    <div className="flex items-center justify-between gap-2">
+                                                        <Label>关联简历资产</Label>
+                                                        {currentApplication?.linked_resume && <span className="text-xs text-slate-500">版本 #{currentApplication?.linked_resume.id}</span>}
+                                                    </div>
+                                                    {currentApplication?.linked_resume ? (
+                                                        <div className="rounded-lg bg-slate-50 p-3">
+                                                            <p className="text-sm font-medium text-slate-900">{currentApplication?.linked_resume.title}</p>
+                                                            <p className="mt-1 line-clamp-2 text-xs text-slate-500">{currentApplication?.linked_resume.job_description || '未记录目标岗位'}</p>
+                                                            <p className="mt-1 text-xs text-slate-400">{formatTime(currentApplication?.linked_resume.created_at)}</p>
+                                                            <div className="mt-3 flex flex-wrap gap-2">
+                                                                <Button type="button" size="sm" variant="outline" onClick={() => void handlePreviewResume(currentApplication?.linked_resume!.id)}><Eye className="mr-1 h-3.5 w-3.5" />预览</Button>
+                                                                <Button type="button" size="sm" variant="outline" onClick={() => downloadResumeMarkdown(currentApplication?.linked_resume!)}><FileDown className="mr-1 h-3.5 w-3.5" />下载 Markdown</Button>
+                                                                <Button type="button" size="sm" variant="ghost" disabled={linkingResume} onClick={() => void handleSetResume(null)}>解除关联</Button>
+                                                            </div>
+                                                        </div>
+                                                    ) : (
+                                                        <p className="text-xs text-slate-500">尚未关联可用简历；历史裸 ID 不会被直接展示。</p>
+                                                    )}
+                                                    <div className="flex gap-2">
+                                                        <select value={selectedResumeId} onChange={event => setSelectedResumeId(event.target.value)} className="h-10 min-w-0 flex-1 rounded-md border border-input bg-background px-3 text-sm">
+                                                            <option value="">选择当前账户的生成简历</option>
+                                                            {resumeOptions.map(item => <option key={item.id} value={item.id}>{item.title} · #{item.id}</option>)}
+                                                        </select>
+                                                        <Button type="button" variant="outline" disabled={!selectedResumeId || linkingResume} onClick={() => void handleSetResume(Number(selectedResumeId))}>{linkingResume ? <Loader2 className="h-4 w-4 animate-spin" /> : '更换'}</Button>
+                                                    </div>
                                                 </div>
                                                 <div className="grid gap-1.5">
                                                     <Label>备注</Label>
@@ -456,6 +518,8 @@ export function ApplicationDetailDrawer({ applicationId, onClose }: Props) {
                     </div>
                 </aside>
             </div>
+
+            {previewResume && <ResumePreviewDialog isOpen title={previewResume.title} content={previewResume.content} resumeId={previewResume.id} onClose={() => setPreviewResume(null)} />}
 
             <AlertDialog open={openDelete} onOpenChange={setOpenDelete}>
                 <AlertDialogContent>

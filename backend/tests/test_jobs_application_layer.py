@@ -110,7 +110,7 @@ async def test_list_jobs_normalizes_nullable_database_fields(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_export_job_creates_pending_application_with_selected_greeting(monkeypatch):
-    """一键导出应保留岗位链接、文案和定制简历，并统一使用待投递状态。"""
+    """一键导出应保留岗位链接和文案，但不得自动关联历史定制简历。"""
     from types import SimpleNamespace
 
     from ai.workflows.jobs import use_cases as jobs
@@ -159,7 +159,8 @@ async def test_export_job_creates_pending_application_with_selected_greeting(mon
     assert created_request.latest_status == "saved"
     assert created_request.send_status == "pending"
     assert created_request.captured_job_id == 7
-    assert created_request.custom_resume_id == 19
+    assert not hasattr(created_request, "custom_resume_id")
+    assert not hasattr(created_request, "generated_resume_id")
     assert created_request.source_url.endswith("card_7-real.html")
     assert "我有真实的 Python Agent 项目经验" in created_request.greeting_text
 

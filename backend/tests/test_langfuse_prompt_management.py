@@ -312,11 +312,11 @@ def test_router_lists_langfuse_cloud_prompts(monkeypatch):
 
 
 def test_service_is_unavailable_when_management_flag_is_disabled(monkeypatch):
-    """Credentials alone do not enable this optional management surface."""
+    """An explicit false value still disables the default-enabled management surface."""
     monkeypatch.setenv("LANGFUSE_ENABLED", "true")
     monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk-test")
     monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-test")
-    monkeypatch.delenv("LANGFUSE_PROMPT_MANAGEMENT_ENABLED", raising=False)
+    monkeypatch.setenv("LANGFUSE_PROMPT_MANAGEMENT_ENABLED", "false")
 
     with pytest.raises(PromptManagementUnavailable):
         LangfusePromptManagementService()._client()
@@ -359,7 +359,15 @@ def test_router_creates_cloud_versions_and_uses_an_explicit_production_action(mo
                 prompt="Draft {{candidate}}.",
             )
 
+    async def allow_promotion(**_kwargs):
+        """Keep this route-delegation test independent from release-gate persistence."""
+        return {"mode": "enforce", "allowed": True, "warning": None}
+
     monkeypatch.setattr("app.api.langfuse_prompts._service", lambda: FakeService())
+    monkeypatch.setattr(
+        "app.api.langfuse_prompts.evaluation_use_cases.validate_prompt_promotion",
+        allow_promotion,
+    )
     app = FastAPI()
     app.include_router(router)
     client = TestClient(app)

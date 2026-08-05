@@ -14,6 +14,7 @@ import {
 } from '@/lib/api/sessions';
 import { deleteSessionAudios } from '@/lib/audioStorage';
 import type { SessionListItem, InterviewSession, Message, InterviewProgress } from '../types';
+import type { JobContextSnapshot } from '@/lib/jobContextHandoff';
 
 // ============================================================================
 // 类型定义
@@ -46,6 +47,7 @@ type GetState = () => SessionSlice & {
     messages: Message[];
     jobDescription: string;
     companyInfo: string;
+    jobContextSnapshot: JobContextSnapshot | null;
     resume: { filename: string; original_name: string; content: string } | null;
     interviewProgress: InterviewProgress | null;
     maxQuestions: number;
@@ -92,6 +94,8 @@ export const createSessionSlice = (set: SetState, get: GetState): SessionSlice =
                 messages: session.messages || [],
                 isVoiceMode: false, // 默认进入回顾模式，不自动开启实时通话
                 jobDescription: session.metadata.job_description || '',
+                companyInfo: session.metadata.company_info || '',
+                jobContextSnapshot: session.metadata.job_context_snapshot || null,
                 interviewProgress: {
                     current: session.metadata.question_count,
                     total: session.metadata.max_questions
@@ -116,6 +120,7 @@ export const createSessionSlice = (set: SetState, get: GetState): SessionSlice =
             isVoiceMode: false,
             jobDescription: '',
             companyInfo: '',
+            jobContextSnapshot: null,
             resume: null,
             interviewProgress: null,
             maxQuestions: 5,

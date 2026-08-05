@@ -8,13 +8,16 @@ from pydantic import BaseModel, Field, model_validator
 from datetime import datetime
 
 from app.domain.interview_rounds import resolve_max_questions, resolve_round_type
+from app.schemas.job_context import JobContextSnapshot
+from app.schemas.interview_report import StructuredInterviewProfile, StructuredWeaknessReport
+from app.clock import utc_now
 
 
 class MessageItem(BaseModel):
     """单条消息模型"""
     role: Literal["user", "assistant", "system"] = Field(..., description="消息角色")
     content: str = Field(..., description="消息内容")
-    timestamp: str = Field(default_factory=lambda: datetime.now().isoformat(), description="消息时间戳")
+    timestamp: str = Field(default_factory=lambda: utc_now().isoformat(), description="消息时间戳")
     question_index: int = Field(default=0, description="对应的问题序号")
     audio_url: Optional[str] = Field(None, description="音频URL或ID")
 
@@ -26,6 +29,8 @@ class SessionMetadata(BaseModel):
     resume_content: Optional[str] = Field(None, description="简历全文内容")
     job_description: Optional[str] = Field(None, description="岗位描述")
     company_info: Optional[str] = Field(None, description="公司信息")
+    source_job_id: Optional[int] = Field(None, description="来源岗位 ID")
+    job_context_snapshot: Optional[JobContextSnapshot] = Field(None, description="创建面试时的岗位上下文快照")
     question_count: int = Field(default=0, description="当前主线题目进度（已完成题数/下一题索引）")
     max_questions: int = Field(default=10, ge=1, le=20, description="最大问题数量")
     status: Literal["active", "completed", "archived"] = Field(default="active", description="会话状态")
@@ -43,8 +48,8 @@ class InterviewSession(BaseModel):
     """面试会话完整模型"""
     session_id: str = Field(..., description="会话ID (thread_id)")
     title: str = Field(..., description="会话标题")
-    created_at: str = Field(default_factory=lambda: datetime.now().isoformat(), description="创建时间")
-    updated_at: str = Field(default_factory=lambda: datetime.now().isoformat(), description="更新时间")
+    created_at: str = Field(default_factory=lambda: utc_now().isoformat(), description="创建时间")
+    updated_at: str = Field(default_factory=lambda: utc_now().isoformat(), description="更新时间")
     metadata: SessionMetadata = Field(..., description="会话元数据")
     messages: List[MessageItem] = Field(default_factory=list, description="消息列表")
 
@@ -117,3 +122,5 @@ class SessionMarkdownReportResponse(BaseModel):
     generated_at: Optional[str] = Field(default=None, description="报告数据最近更新时间")
     message: Optional[str] = Field(default=None, description="报告尚不可用时的稳定提示")
     company_profile: Optional[Dict[str, Any]] = Field(default=None, description="第三轮对应的公司总画像")
+    profile: Optional[StructuredInterviewProfile] = Field(default=None, description="结构化能力画像")
+    weakness_report: Optional[StructuredWeaknessReport] = Field(default=None, description="结构化短板、证据与行动")

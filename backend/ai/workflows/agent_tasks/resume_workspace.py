@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai.runtime.deadlines import TaskDeadline
 from ai.workflows.agent_tasks.types import DeferredExecutionResult, ProgressCallback
+from ai.workflows.jobs.job_context import normalize_owned_job_context_snapshot
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -38,6 +39,8 @@ def _public_workspace_result(result_id: int, result_data: dict[str, Any]) -> dic
         "content_optimization": pipeline_to_optimize_result(result_data).model_dump(),
         "review": public_review_state(result_data),
         "warnings": result_data.get("errors") or [],
+        "source_job_id": workspace.get("source_job_id"),
+        "job_context_snapshot": workspace.get("job_context_snapshot"),
     }
 
 
@@ -193,6 +196,9 @@ async def execute_resume_workspace(
 
     agent_run_id = str(payload.get("_agent_run_id") or "")
     resume_repo = get_resume_repo()
+    job_context_snapshot = await normalize_owned_job_context_snapshot(
+        payload.get("job_context_snapshot"), user_id=user_id
+    )
     if agent_run_id:
         existing = await resume_repo.get_result_by_agent_run_id(agent_run_id, user_id)
         if existing:
@@ -204,6 +210,8 @@ async def execute_resume_workspace(
     api_config = payload.get("api_config")
     resume_content = payload["resume_content"]
     job_description = payload["job_description"]
+    if job_context_snapshot is not None:
+        job_context_snapshot["job_description"] = job_description
     mode = str(payload.get("mode") or "balanced")
     deadline = TaskDeadline(float(get_settings().resume_workspace_task_timeout_seconds))
     bundle = assemble_resume_context(
@@ -248,6 +256,10 @@ async def execute_resume_workspace(
     if _checkpoint_matches(optimization_checkpoint, bundle.cache_identity):
         optimization_result = dict(optimization_checkpoint.get("optimization_result") or {})
         if optimization_result:
+            workspace = optimization_result.setdefault("workspace", {})
+            if job_context_snapshot is not None:
+                workspace["source_job_id"] = job_context_snapshot["source_job_id"]
+                workspace["job_context_snapshot"] = job_context_snapshot
             await progress("content_optimization")
             await progress("saving_result")
             return await _deferred_or_persist(
@@ -358,6 +370,8 @@ async def execute_resume_workspace(
         "cache_identity": bundle.cache_identity,
         "competition_analysis": competition_analysis,
         "jd_matching": jd_matching,
+        "source_job_id": job_context_snapshot["source_job_id"] if job_context_snapshot else None,
+        "job_context_snapshot": job_context_snapshot,
     }
     await _save_checkpoint(
         checkpoint_service,

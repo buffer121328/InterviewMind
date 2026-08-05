@@ -53,10 +53,11 @@ function safeEndpointLabel(baseUrl: string) {
 /** Formats the Redis credential expiry as a compact user-facing status. */
 function credentialLabel(model: ModelConfig): string {
     if (!model.credentialStored) return '未保存或已过期';
-    if (!model.credentialExpiresAt) return '已安全保存';
+    if (!model.credentialExpiresAt) return '已保存';
     const remainingMs = new Date(model.credentialExpiresAt).getTime() - Date.now();
+    if (!Number.isFinite(remainingMs) || remainingMs <= 0) return '已过期';
     const remainingDays = Math.max(1, Math.ceil(remainingMs / 86_400_000));
-    return `已安全保存（约 ${remainingDays} 天）`;
+    return `已保存（约 ${remainingDays} 天，使用时自动续期）`;
 }
 
 /** Renders the settings dialog UI and coordinates its typed props, local state, and approved backend interactions. */
@@ -66,16 +67,17 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     const [showModelForm, setShowModelForm] = useState(false);
     const [editingModel, setEditingModel] = useState<ModelConfig | undefined>();
     const [sourceModel, setSourceModel] = useState<ModelConfig | undefined>();
-    const modelIdsKey = useMemo(() => config.models.map(model => model.id).sort().join(','), [config.models]);
+    const modelKeys = useMemo(() => config.models.map(model => ({ modelName: model.model, legacyId: model.id })), [config.models]);
+    const modelKeysToken = useMemo(() => modelKeys.map(item => `${item.modelName}\u0000${item.legacyId}`).sort().join(','), [modelKeys]);
 
     useEffect(() => {
-        if (!open || !modelIdsKey) return;
+        if (!modelKeysToken) return;
         let cancelled = false;
-        void fetchModelCredentialStatuses(modelIdsKey.split(',')).then(statuses => {
+        void fetchModelCredentialStatuses(modelKeys).then(statuses => {
             if (cancelled) return;
-            const byId = new Map(statuses.map(status => [status.model_id, status]));
+            const byModelName = new Map(statuses.map(status => [status.model_name, status]));
             config.models.forEach(model => {
-                const status = byId.get(model.id);
+                const status = byModelName.get(model.model);
                 store.updateModel(model.id, {
                     apiKey: '',
                     credentialStored: status?.stored === true,
@@ -86,9 +88,9 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
             if (!cancelled) toast.error('无法读取模型 Key 状态，请检查 Redis 与后端配置');
         });
         return () => { cancelled = true; };
-        // Model metadata changes do not require another vault status request.
+        // Only technical model-name changes require another Redis status request.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [open, modelIdsKey]);
+    }, [modelKeysToken]);
 
     /** Handles add; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleAdd = () => {
@@ -117,7 +119,18 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
         const safeModelData = { ...modelData, apiKey: '' };
         if (editingModel) {
             if (apiKey) {
-                const status = await saveModelCredential(editingModel.id, apiKey);
+                const status = await saveModelCredential(modelData.model, {
+                    apiKey,
+                    sourceModel: editingModel.model,
+                    legacyId: editingModel.id,
+                });
+                safeModelData.credentialStored = status.stored;
+                safeModelData.credentialExpiresAt = status.expires_at || undefined;
+            } else if (modelData.model !== editingModel.model && editingModel.credentialStored) {
+                const status = await saveModelCredential(modelData.model, {
+                    sourceModel: editingModel.model,
+                    legacyId: editingModel.id,
+                });
                 safeModelData.credentialStored = status.stored;
                 safeModelData.credentialExpiresAt = status.expires_at || undefined;
             } else {
@@ -129,7 +142,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
             const created = store.addModel({ ...safeModelData, credentialStored: false });
             if (!created) throw new Error('无法创建模型连接');
             try {
-                const status = await saveModelCredential(created.id, apiKey);
+                const status = await saveModelCredential(created.model, { apiKey, legacyId: created.id });
                 store.updateModel(created.id, {
                     apiKey: '',
                     credentialStored: status.stored,
@@ -150,7 +163,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     const handleDelete = async (model: ModelConfig) => {
         if (window.confirm(`确认删除模型连接「${model.name}」？相关通道分配会同时清空。`)) {
             try {
-                await deleteModelCredential(model.id);
+                await deleteModelCredential(model.model, model.id);
                 store.deleteModel(model.id);
             } catch (error) {
                 toast.error('删除模型 Key 失败', { description: error instanceof Error ? error.message : undefined });
@@ -161,7 +174,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     /** Handles clear all; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleClearAll = async () => {
         if (!window.confirm('确认清除全部模型连接和 Redis 中的 API Key？此操作无法撤销。')) return;
-        const results = await Promise.allSettled(config.models.map(model => deleteModelCredential(model.id)));
+        const results = await Promise.allSettled(config.models.map(model => deleteModelCredential(model.model, model.id)));
         const failedIds = new Set(results.flatMap((result, index) => result.status === 'rejected' ? [config.models[index].id] : []));
         config.models.filter(model => !failedIds.has(model.id)).forEach(model => store.deleteModel(model.id));
         if (failedIds.size) toast.error(`${failedIds.size} 个模型 Key 删除失败，连接已保留`);
@@ -196,8 +209,8 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                             <div className="flex items-start gap-2">
                                 <KeyRound className="mt-0.5 h-4 w-4 shrink-0" />
                                 <div>
-                                    <div className="font-semibold">Key 安全存储</div>
-                                    <p className="mt-1 text-amber-900/80">模型名、端点和通道分配保存在当前浏览器；API Key 加密后按用户存入 Redis，有效期 30 天，前端不会读取或持久化明文。</p>
+                                    <div className="font-semibold">本地 Key 映射</div>
+                                    <p className="mt-1 text-amber-900/80">模型名、端点和通道分配保存在当前浏览器；Redis 只按技术模型名保存对应的明文 API Key；默认 30 天滑动 TTL，保存、状态检查或业务使用时自动续期。前端不会重新读取或持久化 Key。</p>
                                 </div>
                             </div>
                         </div>
@@ -275,7 +288,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                     </div>
 
                     <DialogFooter className="flex-col gap-3 border-t border-slate-200 bg-slate-50 px-6 py-4 sm:flex-row sm:justify-between">
-                        <div className="text-xs leading-5 text-slate-500">Key 加密保存于 Redis 30 天；业务请求仅发送凭据引用。</div>
+                        <div className="text-xs leading-5 text-slate-500">Redis 仅保存“技术模型名 → API Key”，无 Hash 和 UUID；默认 30 天滑动 TTL，业务请求不发送明文 Key。</div>
                         <div className="flex gap-2">
                             {config.models.length > 0 && <Button variant="ghost" className="text-red-600 hover:bg-red-50 hover:text-red-700" onClick={() => void handleClearAll()}>清除全部连接</Button>}
                             <Button variant="outline" onClick={() => onOpenChange(false)}>完成</Button>

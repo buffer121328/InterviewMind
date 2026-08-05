@@ -24,7 +24,7 @@ from .rag import RagChunkModel
 from .application import JobApplicationModel, ApplicationEventModel
 from .jd import JdAnalysisResultModel
 from .job_capture import CapturedJobModel
-from .agent_run import AgentRunEventModel, AgentRunModel, TaskOutboxModel
+from .agent_run import AgentRunEventModel, AgentRunModel, ModelMetricEventModel, TaskOutboxModel
 from .artifact import ArtifactModel
 from .user_feedback import UserFeedbackModel
 from .evaluation import (
@@ -61,7 +61,7 @@ __all__ = [
     # job capture
     "CapturedJobModel",
     # agent runs
-    "AgentRunModel", "AgentRunEventModel", "TaskOutboxModel",
+    "AgentRunModel", "AgentRunEventModel", "ModelMetricEventModel", "TaskOutboxModel",
     # private generated exports
     "ArtifactModel",
     # user satisfaction feedback

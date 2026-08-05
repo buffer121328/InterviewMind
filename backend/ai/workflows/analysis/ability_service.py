@@ -6,11 +6,11 @@
 import asyncio
 import logging
 from collections import Counter
-from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from ai.runtime.context_assembler import ContextAssembler, ContextSource
 from ai.runtime.deadlines import TaskDeadline
+from app.clock import utc_now
 from app.config import get_settings
 from app.db.repositories.session.session_repo import SessionRepo
 from app.schemas.candidate_profile import CandidateProfile, DimensionScore
@@ -126,6 +126,8 @@ class AbilityAnalysisService:
         """
         if len(round_profiles) != 3:
             raise ValueError("公司总画像需要完整的三轮单轮画像")
+        if any(profile.get("generation_mode") == "degraded_evidence_only" for profile in round_profiles):
+            raise ValueError("公司总画像需要三轮均具备模型评审评分")
         return await self._aggregate_profiles_with_weights(list(reversed(round_profiles)), api_config)
 
     async def _aggregate_profiles_with_weights(
@@ -245,12 +247,22 @@ class AbilityAnalysisService:
         try:
             from ai.workflows.analysis.multi_reviewer import run_multi_reviewer_map_reduce
 
+            from ai.workflows.analysis.reviewer_contexts import select_ability_reviewers
+
+            reviewer_perspectives = select_ability_reviewers(selected)
+            if not reviewer_perspectives:
+                return self._get_empty_profile()
             consensus = await run_multi_reviewer_map_reduce(
                 mode="ability_profile",
                 review_context=assembled.model_context,
+                reviewer_perspectives=reviewer_perspectives,
                 api_config=api_config,
                 deadline=TaskDeadline(float(get_settings().ability_profile_task_timeout_seconds)),
-                call_metadata=assembled.model_event_fields(),
+                call_metadata={
+                    **assembled.model_event_fields(),
+                    "reviewer_selection": list(reviewer_perspectives),
+                    "reviewer_selection_policy": "evidence_coverage.v1",
+                },
             )
             narrative = AbilityConsensusOutput.model_validate(consensus.output)
             logger.info(
@@ -265,7 +277,7 @@ class AbilityAnalysisService:
             **dimensions,
             skill_tags=[item for item, _count in skill_counter.most_common(20)],
             total_questions_analyzed=total_questions,
-            last_updated=datetime.now().isoformat(),
+            last_updated=utc_now().isoformat(),
             overall_assessment=narrative.overall_assessment,
             key_strengths=narrative.key_strengths or local_strengths,
             key_weaknesses=narrative.key_weaknesses or local_weaknesses,
@@ -297,7 +309,7 @@ class AbilityAnalysisService:
             collaboration=DimensionScore(score=0, evidence="暂无数据"),
             skill_tags=[],
             overall_assessment="暂无面试记录，请先进行模拟面试。",
-            last_updated=datetime.now().isoformat()
+            last_updated=utc_now().isoformat()
         )
 
 

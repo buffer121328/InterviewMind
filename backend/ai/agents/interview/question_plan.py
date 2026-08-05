@@ -2,6 +2,8 @@
 
 from typing import Any, Iterable
 
+from .answer_points import ensure_question_answer_points
+
 
 def normalize_candidate(candidate: dict[str, Any]) -> dict[str, Any] | None:
     """规范化 `candidate`。
@@ -12,17 +14,18 @@ def normalize_candidate(candidate: dict[str, Any]) -> dict[str, Any] | None:
     content = str(candidate.get("question_text") or candidate.get("content") or "").strip()
     if not content:
         return None
-    item = {
+    item = ensure_question_answer_points({
         "topic": str(candidate.get("target_skill") or candidate.get("topic") or "题库题"),
         "content": content,
         "type": str(candidate.get("question_type") or candidate.get("type") or "tech"),
+        "answer_points": candidate.get("answer_points"),
         "hint": str(candidate.get("reference_answer") or candidate.get("hint") or ""),
         "source_type": str(candidate.get("source_type") or "question_bank"),
         "source_id": candidate.get("source_id"),
         "tags": candidate.get("tags") if isinstance(candidate.get("tags"), list) else [],
         "difficulty": str(candidate.get("difficulty") or "medium"),
         "followups": candidate.get("followups") if isinstance(candidate.get("followups"), list) else [],
-    }
+    })
     if candidate.get("id") is not None:
         item["question_bank_item_id"] = candidate["id"]
     return item
@@ -64,7 +67,7 @@ def merge_question_plan(
         if not content or key in seen:
             continue
         seen.add(key)
-        merged.append(dict(item))
+        merged.append(ensure_question_answer_points(item))
         if len(merged) >= max_questions:
             break
     for index, item in enumerate(merged, start=1):

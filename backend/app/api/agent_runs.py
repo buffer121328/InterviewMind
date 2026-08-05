@@ -12,7 +12,8 @@ from fastapi.responses import JSONResponse
 from app.api.deps import create_sse_response, get_current_user_id
 from app.schemas.job_schemas import AssetGenerateRequest, CaptureRecommendationsRequest
 from app.schemas.resume_schemas import ResumeOptimizeRequest, ResumeWorkspaceRequest, ResumeWorkspaceRunResponse
-from app.schemas.schemas import InterviewReportRunRequest, InterviewStartRequest
+from app.schemas.schemas import InterviewReportRunRequest, InterviewStartRequest, ProfileGenerateRequest
+from ai.runtime.agent_runs.performance import performance_overview, query_performance, serialize_model_metric_event
 from ai.workflows.agent_runs import (
     AgentRunUseCaseError,
     agent_run_use_cases,
@@ -95,6 +96,25 @@ async def create_resume_workspace_run(
             payload=request_payload,
             user_id=user_id,
             idempotency_key=idempotency_key or fallback_key,
+        )
+        return _response(result.payload, result.status_code)
+    except AgentRunUseCaseError as exc:
+        _raise_use_case_error(exc)
+
+
+@router.post("/ability-profile")
+async def create_ability_profile_run(
+    request: ProfileGenerateRequest | None = None,
+    user_id: str = Depends(get_current_user_id),
+    idempotency_key: Optional[str] = Header(default=None, alias="Idempotency-Key"),
+):
+    """Create an explicit recoverable Ability Profile AgentRun."""
+    payload = request.model_dump(mode="json") if request else {}
+    try:
+        result = await agent_run_use_cases.create_ability_profile(
+            payload=payload,
+            user_id=user_id,
+            idempotency_key=idempotency_key or f"ability-profile:{user_id}:{uuid.uuid4()}",
         )
         return _response(result.payload, result.status_code)
     except AgentRunUseCaseError as exc:
@@ -208,6 +228,53 @@ async def list_grouped_agent_runs(
         )
     except AgentRunUseCaseError as exc:
         _raise_use_case_error(exc)
+
+
+@router.get("/performance/overview")
+async def get_agent_performance_overview(
+    days: int = Query(default=7, ge=1, le=90),
+    task_type: Optional[str] = Query(default=None),
+    agent_name: Optional[str] = Query(default=None),
+    user_id: str = Depends(get_current_user_id),
+):
+    """Return owner-scoped P50/P95, amplification, fallback, timeout and integrity metrics."""
+    return await performance_overview(
+        user_id=user_id, days=days, task_type=task_type, agent_name=agent_name
+    )
+
+
+@router.get("/performance/model-events")
+async def list_model_metric_events(
+    days: int = Query(default=7, ge=1, le=90),
+    task_type: Optional[str] = Query(default=None),
+    agent_name: Optional[str] = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+    user_id: str = Depends(get_current_user_id),
+):
+    """List paginated credential-free model events for the current owner."""
+    rows, total, _statuses = await query_performance(
+        user_id=user_id, days=days, task_type=task_type, agent_name=agent_name,
+        limit=limit, offset=offset,
+    )
+    return {"events": [serialize_model_metric_event(row) for row in rows], "total": total, "limit": limit, "offset": offset}
+
+
+@router.get("/performance/degradations")
+async def list_agent_degradations(
+    days: int = Query(default=7, ge=1, le=90),
+    task_type: Optional[str] = Query(default=None),
+    agent_name: Optional[str] = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+    user_id: str = Depends(get_current_user_id),
+):
+    """List failed, skipped, fallback, timeout and context-overflow model events."""
+    rows, total, _statuses = await query_performance(
+        user_id=user_id, days=days, task_type=task_type, agent_name=agent_name,
+        degradations_only=True, limit=limit, offset=offset,
+    )
+    return {"events": [serialize_model_metric_event(row) for row in rows], "total": total, "limit": limit, "offset": offset}
 
 
 @router.get("/{run_id}")

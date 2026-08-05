@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field, model_validator
 from enum import Enum
 
 from app.domain.interview_rounds import resolve_max_questions, resolve_round_type
+from app.schemas.job_context import JobContextSnapshot
 
 
 # ============================================================================
@@ -16,7 +17,7 @@ from app.domain.interview_rounds import resolve_max_questions, resolve_round_typ
 
 class ModelChannelConfig(BaseModel):
     """单个通道的模型配置；provider 字段只用于路由和观测，不包含凭据。"""
-    credential_id: Optional[str] = Field(default=None, description="Redis 中的用户隔离凭据引用")
+    credential_id: Optional[str] = Field(default=None, description="Redis 中的技术模型名凭据引用")
     api_key: str = Field(default="", description="由后端凭据中间件注入，前端业务请求不得直接填写")
     base_url: str = Field(..., description="API Base URL")
     model: str = Field(..., description="模型名称")
@@ -131,6 +132,7 @@ class InterviewStartRequest(BaseModel):
     resume_filename: str = Field(default="", description="简历文件名")
     job_description: Optional[str] = Field(default=None, description="岗位描述（下一轮面试时可从数据库加载）")
     company_info: str = Field(default="未知", description="公司背景信息")
+    job_context_snapshot: Optional[JobContextSnapshot] = Field(default=None, description="来源岗位与实际编辑上下文快照")
     max_questions: int | None = Field(default=None, ge=1, le=20, description="最大问题数量；不传时按面试类型默认")
     round_type: str = Field(default="tech_initial", description="面试类型：tech_initial/tech_deep/hr_comprehensive")
 

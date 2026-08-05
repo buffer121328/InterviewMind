@@ -91,3 +91,69 @@ async def test_event_generator_emits_execution_plan(monkeypatch):
     }
     assert completed == {"save_answer", "analyze_answer", "generate_response", "update_progress"}
     assert lease.released is True
+
+
+class _CompletingRepo:
+    def __init__(self):
+        self.completed = False
+        self.messages = []
+
+    async def add_message(self, **kwargs):
+        if self.completed:
+            raise ValueError("面试已完成，不能继续提交回答")
+        self.messages.append((kwargs["role"], kwargs["content"]))
+        return None
+
+    async def update_session(self, **_kwargs):
+        return None
+
+
+class _CompletingGraph:
+    def __init__(self, repo: _CompletingRepo):
+        self.repo = repo
+
+    async def astream_events(self, *_args, **_kwargs):
+        yield {
+            "event": "on_chain_end",
+            "metadata": {"langgraph_node": "responder"},
+            "data": {"output": {
+                "messages": [{"role": "assistant", "content": "本轮面试结束"}],
+                "question_count": 5,
+                "max_questions": 5,
+                "current_question_index": 5,
+            }},
+        }
+        self.repo.completed = True
+        yield {
+            "event": "on_chain_end",
+            "metadata": {"langgraph_node": "summary"},
+            "data": {"output": {"question_count": 5, "max_questions": 5}},
+        }
+
+
+@pytest.mark.asyncio
+async def test_final_response_is_saved_before_summary_completes_session(monkeypatch):
+    """The closing answer must be persisted before the summary node locks the session."""
+    monkeypatch.setattr("ai.memory.should_skip_write", lambda *_args: True)
+    repo = _CompletingRepo()
+    use_cases = ChatStreamUseCases()
+    use_cases._session_repo = repo
+
+    lines = [
+        line
+        async for line in use_cases._event_generator(
+            _CompletingGraph(repo),
+            {"current_question_index": 0, "max_questions": 5},
+            {},
+            "session-completing",
+            "我的回答",
+            "user-1",
+            _Lease(),
+        )
+    ]
+    events = [_decode(line) for line in lines]
+
+    assert [item[0] for item in repo.messages] == ["user", "assistant"]
+    assert repo.messages[-1] == ("assistant", "本轮面试结束")
+    assert not [event for event in events if event["type"] == "error"]
+    assert events[-1]["type"] == "done"

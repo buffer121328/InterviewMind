@@ -184,7 +184,7 @@ export function ModelFormDialog({ open, onClose, onSave, editingModel, initialVa
                     <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900">
                         <div className="flex items-start gap-2">
                             <KeyRound className="mt-0.5 h-4 w-4 shrink-0" />
-                            <p>Key 会加密保存到 Redis 30 天，前端只保留保存状态和凭据引用；业务请求不会携带明文 Key。公网部署仍必须使用 HTTPS。</p>
+                            <p>Redis 只保存“技术模型名 → API Key”，不保存 Hash、UUID 或连接 Profile；默认 30 天滑动 TTL，使用时自动续期。请勿把 Redis 暴露到公网。</p>
                         </div>
                     </div>
 

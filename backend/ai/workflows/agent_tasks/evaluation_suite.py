@@ -84,11 +84,12 @@ async def execute_evaluation_suite(
         run_snapshot = {
             "agent_name": run.agent_name,
             "model_config_hash": run.model_config_hash,
+            "dataset_version": run.dataset_version,
             "prompt_name": run.prompt_name,
             "prompt_version": run.prompt_version,
             "repetition_count": run.repetition_count,
             "include_judges": run.include_judges,
-            "baseline_summary": {},
+            "baseline_snapshot": {},
             "max_budget_usd": float(run.budget.get("max_budget_usd") or 0),
             "human_review_rate": float(run.budget.get("human_review_rate") or 0),
         }
@@ -97,7 +98,13 @@ async def execute_evaluation_suite(
                 uow.db, run_id=run.baseline_run_id, user_id=user_id
             )
             if baseline is not None:
-                run_snapshot["baseline_summary"] = dict(baseline.summary or {})
+                run_snapshot["baseline_snapshot"] = {
+                    "summary": dict(baseline.summary or {}),
+                    "dataset_version": baseline.dataset_version,
+                    "agent_name": baseline.agent_name,
+                    "model_config_hash": baseline.model_config_hash,
+                    "run_id": baseline.id,
+                }
 
     await progress("starting_cases")
     runner = AgentEvalRunner(adapter_registry=build_production_agent_registry())
@@ -495,46 +502,16 @@ async def execute_evaluation_suite(
         "budget_exhausted": budget_exhausted,
         "progress": 1.0,
     }
-    baseline_summary = dict(run_snapshot["baseline_summary"] or {})
-    if baseline_summary:
-        baseline_metrics = dict(baseline_summary.get("metrics") or {})
-        current_metrics = dict(summary["metrics"])
-        metric_deltas = {
-            name: float(current_metrics[name]) - float(value)
-            for name, value in baseline_metrics.items()
-            if name in current_metrics and value is not None
-        }
-        complete_delta = (
-            float(summary["complete_success_rate"])
-            - float(baseline_summary.get("complete_success_rate") or 0)
-            if summary["complete_success_rate"] is not None
-            else None
+    baseline_snapshot = dict(run_snapshot["baseline_snapshot"] or {})
+    if baseline_snapshot:
+        summary["baseline_comparison"] = build_baseline_comparison(
+            current_summary=summary,
+            current_dataset_version=str(run_snapshot["dataset_version"]),
+            current_agent_name=str(run_snapshot["agent_name"]),
+            current_model_config_hash=str(run_snapshot["model_config_hash"]),
+            baseline_snapshot=baseline_snapshot,
         )
-        latency_delta = (
-            float(summary["p95_latency_ms"])
-            - float(baseline_summary.get("p95_latency_ms") or 0)
-            if summary["p95_latency_ms"] is not None
-            else None
-        )
-        baseline_token_total = float(baseline_summary.get("token_total") or 0)
-        token_delta_percent = (
-            (float(summary["token_total"]) - baseline_token_total)
-            / baseline_token_total
-            if baseline_token_total > 0
-            else None
-        )
-        regression_count = sum(
-            metric_delta_is_regression(name, delta)
-            for name, delta in metric_deltas.items()
-        )
-        regression_count += complete_delta is not None and complete_delta < 0
-        summary["regression_count"] = int(regression_count)
-        summary["baseline_comparison"] = {
-            "metric_deltas": metric_deltas,
-            "complete_success_rate_delta": complete_delta,
-            "p95_latency_ms_delta": latency_delta,
-            "token_total_delta_percent": token_delta_percent,
-        }
+        summary["regression_count"] = int(summary["baseline_comparison"].get("regression_count") or 0)
     await progress("saving_results")
     async with UnitOfWork(async_session) as uow:
         run = await repository.get_run(
@@ -580,3 +557,38 @@ async def _cancel_requested(payload: dict[str, Any], user_id: str) -> bool:
         return False
     run = await AgentRunService().get(agent_run_id, user_id)
     return run is not None and run.status in {"cancel_requested", "cancelled"}
+
+
+def build_baseline_comparison(
+    *, current_summary: dict[str, Any], current_dataset_version: str,
+    current_agent_name: str, current_model_config_hash: str,
+    baseline_snapshot: dict[str, Any],
+) -> dict[str, Any]:
+    """Compare only the same dataset and Agent while recording both model configs."""
+    reasons: list[str] = []
+    if baseline_snapshot.get("dataset_version") != current_dataset_version:
+        reasons.append("dataset_version_mismatch")
+    if baseline_snapshot.get("agent_name") != current_agent_name:
+        reasons.append("agent_name_mismatch")
+    result: dict[str, Any] = {
+        "comparable": not reasons,
+        "incomparable_reasons": reasons,
+        "baseline_run_id": baseline_snapshot.get("run_id"),
+        "current_model_config_hash": current_model_config_hash,
+        "baseline_model_config_hash": baseline_snapshot.get("model_config_hash"),
+    }
+    if reasons:
+        result["regression_count"] = 0
+        return result
+    baseline_summary = dict(baseline_snapshot.get("summary") or {})
+    baseline_metrics = dict(baseline_summary.get("metrics") or {})
+    current_metrics = dict(current_summary.get("metrics") or {})
+    metric_deltas = {name: float(current_metrics[name]) - float(value) for name, value in baseline_metrics.items() if name in current_metrics and value is not None}
+    complete_delta = (float(current_summary["complete_success_rate"]) - float(baseline_summary.get("complete_success_rate") or 0) if current_summary.get("complete_success_rate") is not None else None)
+    latency_delta = (float(current_summary["p95_latency_ms"]) - float(baseline_summary.get("p95_latency_ms") or 0) if current_summary.get("p95_latency_ms") is not None else None)
+    baseline_tokens = float(baseline_summary.get("token_total") or 0)
+    token_delta = ((float(current_summary.get("token_total") or 0) - baseline_tokens) / baseline_tokens if baseline_tokens > 0 else None)
+    regression_count = sum(metric_delta_is_regression(name, delta) for name, delta in metric_deltas.items())
+    regression_count += complete_delta is not None and complete_delta < 0
+    result.update({"metric_deltas": metric_deltas, "complete_success_rate_delta": complete_delta, "p95_latency_ms_delta": latency_delta, "token_total_delta_percent": token_delta, "regression_count": int(regression_count)})
+    return result

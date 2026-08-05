@@ -11,6 +11,7 @@ from sqlalchemy import delete, func, select, String
 
 from app.db.models import async_session
 from app.db.models.resume import CandidateMaterialModel
+from app.clock import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +58,7 @@ class CandidateMaterialRepo:
         """
         async with async_session() as db:
             try:
-                now = datetime.now()
+                now = utc_now()
                 db_obj = CandidateMaterialModel(
                     user_id=user_id,
                     material_type=material_type,
@@ -193,7 +194,7 @@ class CandidateMaterialRepo:
                     obj.confidence_score = confidence_score
                 if is_verified is not None:
                     obj.is_verified = is_verified
-                obj.updated_at = datetime.now()
+                obj.updated_at = utc_now()
 
                 await db.commit()
                 updated = True

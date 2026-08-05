@@ -50,6 +50,9 @@ export function buildVoiceStartRequestPayload(sessionId: string, apiConfig: NonN
         resume_filename: state.resume?.filename,
         job_description: state.jobDescription,
         company_info: state.companyInfo,
+        job_context_snapshot: state.jobContextSnapshot
+            ? { ...state.jobContextSnapshot, job_description: state.jobDescription }
+            : null,
         max_questions: state.maxQuestions,
         round_type: state.interviewType,
         question_bank_count: state.questionBankCount,

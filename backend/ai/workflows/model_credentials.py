@@ -1,4 +1,4 @@
-"""Use cases for encrypted Redis model credentials."""
+"""Use cases for the minimal local model-name API-key store."""
 
 from __future__ import annotations
 
@@ -9,115 +9,143 @@ from app.security.model_credentials import ModelCredentialStore, StoredCredentia
 
 
 def _serialize_status(status: StoredCredentialStatus) -> dict[str, object]:
-    """Serialize non-sensitive status metadata for the API boundary."""
+    """Serialize status metadata without returning API keys."""
 
     return {
-        "model_id": status.model_id,
+        "model_name": status.model_name,
         "stored": status.stored,
         "expires_at": status.expires_at.isoformat() if isinstance(status.expires_at, datetime) else None,
     }
 
 
 class ModelCredentialUseCases:
-    """Coordinate storage and request-time credential hydration."""
+    """Coordinate model-name persistence and request-time API-key hydration."""
 
     def __init__(self, store: ModelCredentialStore) -> None:
-        """Create use cases around an injected credential store."""
-
         self._store = store
 
-    async def put(self, user_id: str, model_id: str, api_key: str) -> dict[str, object]:
-        """Persist one key and return metadata only."""
+    async def put(
+        self,
+        user_id: str,
+        model_name: str,
+        *,
+        api_key: str | None,
+        source_model: str | None,
+        legacy_id: str | None,
+    ) -> dict[str, object]:
+        """Save a new API key or move an existing model-name key."""
 
-        return _serialize_status(await self._store.put(user_id, model_id, api_key))
+        if api_key and api_key.strip():
+            status = await self._store.put(
+                user_id,
+                model_name,
+                api_key,
+                legacy_id=legacy_id,
+            )
+        elif source_model:
+            status = await self._store.move(
+                user_id,
+                source_model,
+                model_name,
+                legacy_id=legacy_id,
+            )
+        else:
+            raise ValueError("必须提供 API Key 或原模型名称")
+        return _serialize_status(status)
 
-    async def delete(self, user_id: str, model_id: str) -> dict[str, object]:
-        """Delete one credential without exposing prior content."""
+    async def delete(
+        self,
+        user_id: str,
+        model_name: str,
+        *,
+        legacy_id: str | None = None,
+    ) -> dict[str, object]:
+        """Delete one model-name API-key String."""
 
-        deleted = await self._store.delete(user_id, model_id)
-        return {"model_id": model_id, "deleted": deleted}
+        deleted = await self._store.delete(user_id, model_name, legacy_id=legacy_id)
+        return {"model_name": model_name, "deleted": deleted}
 
-    async def statuses(self, user_id: str, model_ids: list[str]) -> dict[str, object]:
-        """Return secret-free status metadata for known local models."""
+    async def statuses(
+        self,
+        user_id: str,
+        models: list[tuple[str, str | None]],
+    ) -> dict[str, object]:
+        """Return secret-free status metadata for technical model names."""
 
-        statuses = await self._store.statuses(user_id, model_ids)
+        statuses = await self._store.statuses(user_id, models)
         return {"credentials": [_serialize_status(status) for status in statuses]}
 
-    async def hydrate_request(self, payload: Any, user_id: str) -> Any:
-        """Remember safe channel metadata, then hydrate credential references from Redis."""
+    async def hydrate_request(
+        self,
+        payload: Any,
+        user_id: str,
+        *,
+        allowed_channels: frozenset[str] | None = None,
+    ) -> Any:
+        """Hydrate only request-relevant model-name references."""
 
-        await self._remember_request_profiles(payload, user_id)
-        await self._walk(payload, user_id, inside_api_config=False)
+        await self._walk(
+            payload,
+            user_id,
+            inside_api_config=False,
+            allowed_channels=allowed_channels,
+        )
         return payload
 
-    async def resolve_memory_api_config(self, user_id: str) -> dict[str, Any] | None:
-        """Restore mem0 channels for owner-scoped backend jobs without browser state."""
-
-        llm = await self._store.resolve_channel_config(user_id, "mem0_llm")
-        embedder = await self._store.resolve_channel_config(user_id, "mem0_embedder")
-        if embedder is None:
-            embedder = await self._store.resolve_channel_config(user_id, "rag_embedding")
-        if llm is None or embedder is None:
-            return None
-        return {"mem0_llm": llm, "mem0_embedder": embedder}
-
-    async def _remember_request_profiles(self, value: Any, user_id: str) -> None:
-        """Persist only bounded model metadata from api_config memory channels."""
+    async def _walk(
+        self,
+        value: Any,
+        user_id: str,
+        *,
+        inside_api_config: bool,
+        allowed_channels: frozenset[str] | None,
+    ) -> None:
+        """Hydrate model-name references, optionally restricting top-level channels."""
 
         if isinstance(value, list):
             for item in value:
-                await self._remember_request_profiles(item, user_id)
-            return
-        if not isinstance(value, dict):
-            return
-        api_config = value.get("api_config")
-        if isinstance(api_config, dict):
-            for channel in ("mem0_llm", "mem0_embedder", "rag_embedding"):
-                config = api_config.get(channel)
-                if not isinstance(config, dict):
-                    continue
-                credential_id = config.get("credential_id")
-                base_url = config.get("base_url")
-                model = config.get("model")
-                if not all(isinstance(item, str) for item in (credential_id, base_url, model)):
-                    continue
-                await self._store.remember_model_profile(
-                    user_id=user_id,
-                    channel=channel,
-                    model_id=credential_id,
-                    base_url=base_url,
-                    model=model,
-                    provider=config.get("provider"),
-                    integration=config.get("integration"),
-                    pricing_key=config.get("pricing_key"),
+                await self._walk(
+                    item,
+                    user_id,
+                    inside_api_config=inside_api_config,
+                    allowed_channels=allowed_channels,
                 )
-        for child in value.values():
-            await self._remember_request_profiles(child, user_id)
-
-    async def _walk(self, value: Any, user_id: str, *, inside_api_config: bool) -> None:
-        """Recursively find api_config channels while leaving unrelated JSON untouched."""
-
-        if isinstance(value, list):
-            for item in value:
-                await self._walk(item, user_id, inside_api_config=inside_api_config)
             return
         if not isinstance(value, dict):
             return
-        if inside_api_config and isinstance(value.get("credential_id"), str):
-            credential_id = value["credential_id"]
-            api_key = await self._store.get(user_id, credential_id)
+        if inside_api_config and isinstance(value.get("model"), str):
+            model_name = value["model"]
+            legacy_id = value.get("legacy_credential_id")
+            api_key = await self._store.get(
+                user_id,
+                model_name,
+                legacy_id=legacy_id if isinstance(legacy_id, str) else None,
+            )
             if api_key is None:
-                raise ModelCredentialErrorForRequest(credential_id)
+                raise ModelCredentialErrorForRequest(model_name)
             value["api_key"] = api_key
         for key, child in value.items():
-            await self._walk(child, user_id, inside_api_config=inside_api_config or key == "api_config")
+            if key == "api_config" and isinstance(child, dict) and allowed_channels is not None:
+                for channel, channel_config in child.items():
+                    if channel in allowed_channels:
+                        await self._walk(
+                            channel_config,
+                            user_id,
+                            inside_api_config=True,
+                            allowed_channels=allowed_channels,
+                        )
+                continue
+            await self._walk(
+                child,
+                user_id,
+                inside_api_config=inside_api_config or key == "api_config",
+                allowed_channels=allowed_channels,
+            )
 
 
 class ModelCredentialErrorForRequest(RuntimeError):
-    """A request references a missing or expired credential."""
+    """A request references a missing local model-name API key."""
 
-    def __init__(self, credential_id: str) -> None:
-        """Record only the non-secret credential identifier."""
-
-        super().__init__("模型 API Key 未保存或已过期，请在模型设置中重新填写")
-        self.credential_id = credential_id
+    def __init__(self, model_name: str) -> None:
+        super().__init__(f"模型 {model_name} 的 API Key 未保存，请在模型设置中填写")
+        self.credential_id = model_name

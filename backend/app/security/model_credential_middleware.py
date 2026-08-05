@@ -9,7 +9,13 @@ from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from ai.workflows.model_credentials import ModelCredentialErrorForRequest, ModelCredentialUseCases
-from app.security.model_credentials import InvalidModelCredentialId, ModelCredentialError, get_model_credential_store
+from app.security.model_credentials import (
+    InvalidModelCredentialId,
+    ModelCredentialError,
+    get_model_credential_store,
+)
+
+MEMORY_CREDENTIAL_CHANNELS = frozenset({"mem0_llm", "mem0_embedder", "rag_embedding"})
 
 _EXCLUDED_PATH_PREFIXES = (
     "/api/config/validate",
@@ -45,7 +51,12 @@ class ModelCredentialHydrationMiddleware:
         user_id = self._header(scope, b"x-user-id") or "default_user"
         try:
             use_cases = ModelCredentialUseCases(get_model_credential_store())
-            await use_cases.hydrate_request(payload, user_id)
+            allowed_channels = self._allowed_channels(scope, payload)
+            await use_cases.hydrate_request(
+                payload,
+                user_id,
+                allowed_channels=allowed_channels,
+            )
         except ModelCredentialErrorForRequest as exc:
             response = JSONResponse(status_code=401, content={"detail": str(exc)})
             await response(scope, receive, send)
@@ -62,6 +73,25 @@ class ModelCredentialHydrationMiddleware:
         hydrated_body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode()
         hydrated_scope = self._with_content_length(scope, len(hydrated_body))
         await self.app(hydrated_scope, self._replacement_receive(hydrated_body, receive), send)
+
+
+    @staticmethod
+    def _allowed_channels(scope: Scope, payload: Any) -> frozenset[str] | None:
+        """Limit memory routes to the LLM and the selected embedding fallback channel."""
+
+        path = str(scope.get("path", ""))
+        if path != "/api/memory" and not path.startswith("/api/memory/"):
+            return None
+        channels = {"mem0_llm"}
+        api_config = payload.get("api_config") if isinstance(payload, dict) else None
+        if not isinstance(api_config, dict):
+            return frozenset(channels)
+        embedder = api_config.get("mem0_embedder")
+        if isinstance(embedder, dict) and embedder.get("base_url") and embedder.get("model"):
+            channels.add("mem0_embedder")
+        else:
+            channels.add("rag_embedding")
+        return frozenset(channels) & MEMORY_CREDENTIAL_CHANNELS
 
     @staticmethod
     def _should_inspect(scope: Scope) -> bool:

@@ -102,7 +102,8 @@ class ResumeMaterialUseCases:
                 trusted=True,
                 required=True,
                 max_chars=10_000,
-                truncation_strategy="sections",
+                # PDF/DOCX extraction is plain text rather than Markdown; keep both ends when clipping.
+                truncation_strategy="head_tail",
             )
         ])
         if not assembled.model_context:

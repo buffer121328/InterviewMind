@@ -16,6 +16,7 @@ from app.db.models.session import MessageModel, SessionModel
 from app.db.repositories.interview.archive_mapper import build_archived_turns
 from app.db.repositories.interview.rag_index_repo import get_rag_index_repo
 from app.domain.interview_rounds import SYSTEM_FALLBACK_QUESTION_SOURCE_TYPE
+from app.clock import utc_now
 
 
 def should_persist_plan_question(plan_item: dict[str, Any]) -> bool:
@@ -52,7 +53,7 @@ class QuestionArchiveRepo:
             ).scalars().all()
             plan = list(session.interview_plan or [])
             turns = build_archived_turns(plan, messages)
-            now = datetime.now()
+            now = utc_now()
             counts = {"questions": 0, "followups": 0, "attempts": 0}
 
             for turn in turns:

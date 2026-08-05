@@ -189,8 +189,8 @@ async def test_nested_agent_observation_reuses_root_trace_and_persists_once(monk
         yield
 
     class FakeRunService:
-        async def record_observation(self, run_id, *, trace_id):
-            persisted.append((run_id, trace_id))
+        async def record_observation(self, run_id, **kwargs):
+            persisted.append((run_id, kwargs["trace_id"]))
 
     monkeypatch.setattr(observability, "_create_langfuse_client", lambda config: client)
     monkeypatch.setattr(observability, "_get_propagate_attributes", lambda: fake_propagate_attributes)
@@ -252,8 +252,8 @@ async def test_agent_observation_links_langfuse_trace_to_agent_run(monkeypatch):
         yield
 
     class FakeRunService:
-        async def record_observation(self, run_id, *, trace_id):
-            persisted.append((run_id, trace_id))
+        async def record_observation(self, run_id, **kwargs):
+            persisted.append((run_id, kwargs["trace_id"]))
 
     monkeypatch.setattr(observability, "_create_langfuse_client", lambda config: client)
     monkeypatch.setattr(observability, "_get_propagate_attributes", lambda: fake_propagate_attributes)
@@ -341,8 +341,8 @@ async def test_agent_observation_does_not_persist_fake_trace_without_langfuse(mo
     persisted = []
 
     class FakeRunService:
-        async def record_observation(self, run_id, *, trace_id):
-            persisted.append((run_id, trace_id))
+        async def record_observation(self, run_id, **kwargs):
+            persisted.append((run_id, kwargs["trace_id"]))
 
     monkeypatch.setattr(observability, "_get_agent_run_service", lambda: FakeRunService())
 

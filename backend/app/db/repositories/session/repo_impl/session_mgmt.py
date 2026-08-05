@@ -14,6 +14,7 @@ from app.db.models import async_session, SessionModel, MessageModel
 from app.domain.interview_rounds import resolve_max_questions, resolve_round_type
 from app.domain.interview_session_titles import build_interview_session_title
 from .base import BaseService
+from app.clock import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,8 @@ class SessionManagementService(BaseService):
         resume_content: Optional[str] = None,
         job_description: Optional[str] = None,
         company_info: Optional[str] = None,
+        source_job_id: Optional[int] = None,
+        job_context_snapshot: Optional[Dict[str, Any]] = None,
         max_questions: int | None = None,
         round_type: str = "tech_initial",
         user_id: str = "default_user"
@@ -36,7 +39,7 @@ class SessionManagementService(BaseService):
         """创建新会话"""
         round_type = resolve_round_type(round_type)
         max_questions = resolve_max_questions(round_type, max_questions)
-        now = datetime.now()
+        now = utc_now()
         if title is None:
             title = build_interview_session_title(
                 started_at=now,
@@ -58,6 +61,8 @@ class SessionManagementService(BaseService):
                     resume_content=resume_content,
                     job_description=job_description,
                     company_info=company_info,
+                    source_job_id=source_job_id,
+                    job_context_snapshot=job_context_snapshot,
                     question_count=0,
                     max_questions=max_questions,
                     status='active',
@@ -116,6 +121,8 @@ class SessionManagementService(BaseService):
                 resume_content=resume_content,
                 job_description=row.job_description,
                 company_info=row.company_info if row.company_info else None,
+                source_job_id=row.source_job_id,
+                job_context_snapshot=row.job_context_snapshot,
                 question_count=row.question_count,
                 max_questions=row.max_questions,
                 status=row.status,
@@ -152,7 +159,7 @@ class SessionManagementService(BaseService):
         async with async_session() as db:
             if not await self._check_session_access(session_id, user_id):
                 return None
-            values: Dict[str, Any] = {"updated_at": datetime.now()}
+            values: Dict[str, Any] = {"updated_at": utc_now()}
             if title is not None:
                 values["title"] = title
 

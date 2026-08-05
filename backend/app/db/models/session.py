@@ -24,6 +24,8 @@ class SessionModel(Base):
     resume_content: Mapped[str | None] = mapped_column(Text, nullable=True)
     job_description: Mapped[str | None] = mapped_column(Text, nullable=True)
     company_info: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_job_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    job_context_snapshot: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     interview_plan: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     question_count: Mapped[int] = mapped_column(Integer, default=0)
     max_questions: Mapped[int] = mapped_column(Integer, default=10)

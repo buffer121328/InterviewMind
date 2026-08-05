@@ -1,4 +1,9 @@
-"""岗位投递资产 AgentRun 业务任务。"""
+"""岗位投递资产 AgentRun 兼容任务。
+
+该执行器仅用于恢复或重试本变更上线前已经持久化的 ``job_assets`` 运行。
+新岗位入库不再创建此任务；确认没有 queued/running 存量运行后应在独立清理
+变更中删除注册、执行器和旧编排器。
+"""
 
 from sqlalchemy.ext.asyncio import AsyncSession
 

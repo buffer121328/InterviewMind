@@ -363,59 +363,68 @@ class RagIndexer:
         user_id: str,
         with_embedding: bool,
     ) -> int:
-        """内部方法：写入 chunk 到 rag_chunks 表"""
+        """Write one source snapshot using persistent reuse before bounded batch generation."""
         if not chunks:
             return 0
 
-        count = 0
-        for chunk in chunks:
-            content = chunk["content"]
-            content_hash = compute_content_hash(content)
-
-            if with_embedding:
-                try:
-                    embedding = await generate_embedding(content)
-                    await self._repo.upsert_chunk_with_embedding(
-                        user_id=user_id,
-                        namespace=chunk.get("namespace", "user_private"),
-                        source_type=chunk["source_type"],
-                        source_id=chunk["source_id"],
-                        chunk_key=chunk["chunk_key"],
-                        content=content,
-                        content_hash=content_hash,
-                        embedding=embedding,
-                        embedding_model=self._config["model"],
-                        metadata=chunk.get("metadata", {}),
-                    )
-                except Exception as e:
-                    logger.warning(
-                        "[RAG Indexer] embedding 生成失败，降级为 pending: error_type=%s",
-                        type(e).__name__,
-                    )
-                    await self._repo.upsert_chunk(
-                        user_id=user_id,
-                        namespace=chunk.get("namespace", "user_private"),
-                        source_type=chunk["source_type"],
-                        source_id=chunk["source_id"],
-                        chunk_key=chunk["chunk_key"],
-                        content=content,
-                        content_hash=content_hash,
-                        metadata=chunk.get("metadata", {}),
-                    )
-            else:
-                await self._repo.upsert_chunk(
+        contents = [str(chunk["content"]) for chunk in chunks]
+        content_hashes = [compute_content_hash(content) for content in contents]
+        embeddings: list[list[float]] | None = None
+        if with_embedding:
+            reusable: dict[str, list[float]] = {}
+            loader = getattr(self._repo, "get_reusable_embeddings", None)
+            if loader is not None:
+                reusable = await loader(
                     user_id=user_id,
-                    namespace=chunk.get("namespace", "user_private"),
-                    source_type=chunk["source_type"],
-                    source_id=chunk["source_id"],
-                    chunk_key=chunk["chunk_key"],
-                    content=content,
-                    content_hash=content_hash,
-                    metadata=chunk.get("metadata", {}),
+                    content_hashes=set(content_hashes),
+                    embedding_model=self._config["model"],
+                    dimensions=self._config.get("dimensions"),
                 )
-            count += 1
+            missing_hashes: list[str] = []
+            missing_texts: list[str] = []
+            for content_hash, content in zip(content_hashes, contents):
+                if content_hash not in reusable and content_hash not in missing_hashes:
+                    missing_hashes.append(content_hash)
+                    missing_texts.append(content)
+            try:
+                if missing_texts:
+                    generated = await generate_embeddings_batch(
+                        missing_texts,
+                        model=self._config["model"],
+                        dimensions=self._config.get("dimensions"),
+                        batch_size=min(20, max(1, len(missing_texts))),
+                    )
+                    if len(generated) != len(missing_texts):
+                        raise ValueError("embedding batch result count mismatch")
+                    reusable.update(dict(zip(missing_hashes, generated)))
+                embeddings = [reusable[content_hash] for content_hash in content_hashes]
+            except Exception as exc:
+                logger.warning(
+                    "[RAG Indexer] 批量 embedding 失败，整批降级为 pending: error_type=%s",
+                    type(exc).__name__,
+                )
+                embeddings = None
 
-        return count
+        for index, chunk in enumerate(chunks):
+            common = {
+                "user_id": user_id,
+                "namespace": chunk.get("namespace", "user_private"),
+                "source_type": chunk["source_type"],
+                "source_id": chunk["source_id"],
+                "chunk_key": chunk["chunk_key"],
+                "content": contents[index],
+                "content_hash": content_hashes[index],
+                "metadata": chunk.get("metadata", {}),
+            }
+            if embeddings is not None:
+                await self._repo.upsert_chunk_with_embedding(
+                    **common,
+                    embedding=embeddings[index],
+                    embedding_model=self._config["model"],
+                )
+            else:
+                await self._repo.upsert_chunk(**common)
+        return len(chunks)
 
     async def process_pending_embeddings(
         self,

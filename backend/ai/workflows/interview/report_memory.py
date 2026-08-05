@@ -30,6 +30,11 @@ def build_report_memory_entries(
 ) -> list[tuple[str, str]]:
     """Build bounded, de-duplicated mem0 entries from persisted report artifacts."""
     profile_data = profile.model_dump() if hasattr(profile, "model_dump") else dict(profile or {})
+    if (
+        profile_data.get("generation_mode") == "degraded_evidence_only"
+        or weakness_report.get("generation_mode") == "degraded_evidence_only"
+    ):
+        return []
     weaknesses = _clean_texts(profile_data.get("key_weaknesses"))
     strengths = _clean_texts(profile_data.get("key_strengths"))
 
@@ -135,13 +140,18 @@ def schedule_interview_report_memories(
         weakness_report: Persisted weakness-report artifact.
         api_config: Request-scoped mem0 configuration.
     """
-    task = asyncio.create_task(persist_interview_report_memories(
-        user_id=user_id,
-        session_id=session_id,
-        profile=profile,
-        weakness_report=weakness_report,
-        api_config=api_config,
-    ))
+    from ai.runtime.background_tasks import create_background_task
+
+    task = create_background_task(
+        persist_interview_report_memories(
+            user_id=user_id,
+            session_id=session_id,
+            profile=profile,
+            weakness_report=weakness_report,
+            api_config=api_config,
+        ),
+        name=f"report-memory:{session_id}",
+    )
     _BACKGROUND_MEMORY_TASKS.add(task)
 
     def discard(completed: asyncio.Task[int]) -> None:

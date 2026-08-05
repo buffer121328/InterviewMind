@@ -149,6 +149,8 @@ class TestAgentMemoryConfigBehavior:
             "MEM0_PGVECTOR_DBNAME": "",
             "MEM0_PGVECTOR_USER": "",
             "MEM0_PGVECTOR_PASSWORD": "",
+            "MEM0_PGVECTOR_URL": "",
+            "DATABASE_URL": "",
             "POSTGRES_DB": "custom_db",
             "POSTGRES_USER": "custom_user",
             "POSTGRES_PASSWORD": "custom_pass",
@@ -163,18 +165,17 @@ class TestAgentMemoryConfigBehavior:
         assert pg_cfg["user"] == "custom_user"
         assert pg_cfg["password"] == "custom_pass"
 
-    def test_mem0_explicit_env_overrides_postgres_fallback(self):
-        """MEM0_PGVECTOR_* env vars should take precedence over POSTGRES_*."""
+    def test_mem0_component_env_does_not_override_authoritative_database_url(self):
+        """Legacy component variables cannot silently drift from the main database identity."""
         env = {
             "MEM0_ENABLED": "true",
             "MEM0_LLM_API_KEY": "llm-key",
             "MEM0_EMBEDDER_API_KEY": "embedder-key",
-            "MEM0_PGVECTOR_DBNAME": "mem0专属",
-            "MEM0_PGVECTOR_USER": "mem0user",
-            "MEM0_PGVECTOR_PASSWORD": "mem0pass",
-            "POSTGRES_DB": "agent_interview",
-            "POSTGRES_USER": "agent_interview",
-            "POSTGRES_PASSWORD": "cheng123",
+            "MEM0_PGVECTOR_URL": "",
+            "MEM0_PGVECTOR_DBNAME": "stale_db",
+            "MEM0_PGVECTOR_USER": "stale_user",
+            "MEM0_PGVECTOR_PASSWORD": "stale_password",
+            "DATABASE_URL": "postgresql://main_user:main_pass@main-db:5432/main_db",
         }
         with patch.dict(os.environ, env, clear=False):
             import ai.memory.config as mem_cfg
@@ -182,9 +183,9 @@ class TestAgentMemoryConfigBehavior:
             config = mem_cfg.get_mem0_config()
 
         pg_cfg = config["vector_store"]["config"]
-        assert pg_cfg["dbname"] == "mem0专属"
-        assert pg_cfg["user"] == "mem0user"
-        assert pg_cfg["password"] == "mem0pass"
+        assert pg_cfg["dbname"] == "main_db"
+        assert pg_cfg["user"] == "main_user"
+        assert pg_cfg["password"] == "main_pass"
 
     def test_mem0_embedder_falls_back_to_rag_embedding_env(self):
         """mem0 embedder should reuse RAG OpenAI-compatible env when dedicated values are empty."""
@@ -292,3 +293,56 @@ class TestInitPyCommentUpdate:
         assert "uv run" not in content, (
             "__init__.py comment still references 'uv run'"
         )
+
+
+def test_mem0_pgvector_uses_authoritative_database_url(monkeypatch):
+    """Without an explicit mem0 DSN, pgvector must use the same database identity as SQLAlchemy."""
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        "postgresql+asyncpg://main_user:main%20pass@db.internal:6543/main_db",
+    )
+    monkeypatch.delenv("MEM0_PGVECTOR_URL", raising=False)
+    monkeypatch.setenv("MEM0_PGVECTOR_HOST", "stale-host")
+    monkeypatch.setenv("MEM0_PGVECTOR_DBNAME", "stale-db")
+    monkeypatch.setenv("MEM0_PGVECTOR_USER", "stale-user")
+    monkeypatch.setenv("MEM0_PGVECTOR_PASSWORD", "stale-password")
+    monkeypatch.setenv("MEM0_LLM_API_KEY", "llm-key")
+    monkeypatch.setenv("MEM0_EMBEDDER_API_KEY", "embedder-key")
+
+    import ai.memory.config as mem_cfg
+
+    config = mem_cfg.get_mem0_config()
+
+    assert config is not None
+    pg_cfg = config["vector_store"]["config"]
+    assert pg_cfg["host"] == "db.internal"
+    assert pg_cfg["port"] == 6543
+    assert pg_cfg["dbname"] == "main_db"
+    assert pg_cfg["user"] == "main_user"
+    assert pg_cfg["password"] == "main pass"
+
+
+def test_mem0_pgvector_allows_complete_explicit_dsn(monkeypatch):
+    """A dedicated pgvector database is accepted only through one complete explicit DSN."""
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        "postgresql://main_user:main_pass@main-db:5432/main_db",
+    )
+    monkeypatch.setenv(
+        "MEM0_PGVECTOR_URL",
+        "postgresql://memory_user:memory%20pass@memory-db:6432/memory_db",
+    )
+    monkeypatch.setenv("MEM0_LLM_API_KEY", "llm-key")
+    monkeypatch.setenv("MEM0_EMBEDDER_API_KEY", "embedder-key")
+
+    import ai.memory.config as mem_cfg
+
+    config = mem_cfg.get_mem0_config()
+
+    assert config is not None
+    pg_cfg = config["vector_store"]["config"]
+    assert pg_cfg["host"] == "memory-db"
+    assert pg_cfg["port"] == 6432
+    assert pg_cfg["dbname"] == "memory_db"
+    assert pg_cfg["user"] == "memory_user"
+    assert pg_cfg["password"] == "memory pass"

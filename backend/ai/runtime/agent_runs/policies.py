@@ -12,6 +12,7 @@ _RETRY_POLICIES: dict[str, RunRetryPolicy] = {
     "resume_workspace": "whole_run_retry",
     "resume_generation": "checkpoint_resume_only",
     "interview_report": "whole_run_retry",
+    "ability_profile": "whole_run_retry",
     "job_assets": "whole_run_retry",
     "evaluation_suite": "whole_run_retry",
     "job_recommendation_capture": "whole_run_retry",

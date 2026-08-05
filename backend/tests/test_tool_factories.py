@@ -48,7 +48,7 @@ class TestInterviewToolExecutor:
         )
         profile_mock.assert_awaited_once_with(user_id="user-1")
         history_mock.assert_awaited_once_with(user_id="user-1", session_id="session-1")
-        memory_mock.assert_awaited_once_with(user_id="user-1", query="项目经验", limit=5)
+        memory_mock.assert_awaited_once_with(user_id="user-1", query="项目经验", limit=5, api_config=None)
 
 
 class TestResumeToolFactory:

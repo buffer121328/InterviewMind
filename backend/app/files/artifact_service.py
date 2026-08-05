@@ -5,16 +5,16 @@ from __future__ import annotations
 import hashlib
 import html
 import json
-import os
 import re
 import tempfile
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 import fitz
 from sqlalchemy import select
 
+from app.config import get_settings
 from app.db.models import (
     AgentRunModel,
     ArtifactModel,
@@ -27,6 +27,7 @@ from app.db.models import (
 )
 from app.domain.interview_reports import build_interview_report_markdown
 from app.schemas.artifacts import ArtifactExportRequest
+from app.clock import utc_now
 
 _SAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
 _MIME = {"html": "text/html; charset=utf-8", "pdf": "application/pdf"}
@@ -36,17 +37,21 @@ class ArtifactNotFound(Exception):
     """Raised when an export source or artifact is unavailable to the current owner."""
 
 
+class ArtifactStorageUnavailable(Exception):
+    """Raised when the private artifact volume cannot accept a write."""
+
+
 class ArtifactService:
     """Render owner-scoped persisted reports to private files and serve them only after DB checks."""
 
     def __init__(self, storage_dir: str | None = None) -> None:
         """Use the configured volume directory, never the publicly mounted static directory."""
-        self._root = Path(storage_dir or os.getenv("ARTIFACT_STORAGE_DIR", "/app/data/artifacts")).resolve()
+        self._root = Path(storage_dir or get_settings().artifact_storage_dir).resolve()
 
     @staticmethod
     def _now() -> datetime:
         """Return a shared timestamp for metadata writes."""
-        return datetime.now()
+        return utc_now()
 
     @staticmethod
     def _safe_filename(title: str, extension: str) -> str:
@@ -186,7 +191,7 @@ class ArtifactService:
     def _resume_html_document(cls, title: str, markdown: str) -> str:
         """Render generated resume Markdown as a styled standalone A4 document."""
         body = cls._markdown_html(markdown)
-        exported_at = datetime.now().strftime("%Y-%m-%d %H:%M")
+        exported_at = utc_now().strftime("%Y-%m-%d %H:%M")
         return (
             "<!doctype html><html lang='zh-CN'><head><meta charset='utf-8'>"
             f"<meta name='viewport' content='width=device-width,initial-scale=1'><title>{html.escape(title)}</title>"
@@ -199,7 +204,7 @@ class ArtifactService:
     def _html_document(title: str, report: dict[str, Any]) -> str:
         """Render a self-contained escaped generic report document."""
         body = html.escape(json.dumps(report, ensure_ascii=False, indent=2, default=str))
-        return f"<!doctype html><html lang='zh-CN'><head><meta charset='utf-8'><title>{html.escape(title)}</title><style>body{{font-family:Arial,'Microsoft YaHei',sans-serif;max-width:900px;margin:40px auto;color:#172033;line-height:1.65}}h1{{border-bottom:2px solid #0f766e;padding-bottom:12px}}pre{{white-space:pre-wrap;word-break:break-word;background:#f8fafc;padding:20px;border-radius:10px}}</style></head><body><h1>{html.escape(title)}</h1><p>导出时间：{datetime.now().strftime('%Y-%m-%d %H:%M')}</p><pre>{body}</pre></body></html>"
+        return f"<!doctype html><html lang='zh-CN'><head><meta charset='utf-8'><title>{html.escape(title)}</title><style>body{{font-family:Arial,'Microsoft YaHei',sans-serif;max-width:900px;margin:40px auto;color:#172033;line-height:1.65}}h1{{border-bottom:2px solid #0f766e;padding-bottom:12px}}pre{{white-space:pre-wrap;word-break:break-word;background:#f8fafc;padding:20px;border-radius:10px}}</style></head><body><h1>{html.escape(title)}</h1><p>导出时间：{utc_now().strftime('%Y-%m-%d %H:%M')}</p><pre>{body}</pre></body></html>"
 
     @staticmethod
     def _plain_inline_markdown(text: str) -> str:
@@ -381,11 +386,17 @@ class ArtifactService:
         filename = self._safe_filename(title, request.format)
         storage_key = f"{hashlib.sha256(user_id.encode()).hexdigest()[:16]}/{request.source_type}/{request.source_id}/{digest[:16]}-{filename}"
         path = self._path(storage_key)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as temporary:
-            temporary.write(content)
-            temporary_path = Path(temporary.name)
-        temporary_path.replace(path)
+        temporary_path: Path | None = None
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as temporary:
+                temporary.write(content)
+                temporary_path = Path(temporary.name)
+            temporary_path.replace(path)
+        except OSError as exc:
+            if temporary_path is not None:
+                temporary_path.unlink(missing_ok=True)
+            raise ArtifactStorageUnavailable() from exc
         now = self._now()
         async with async_session() as session:
             existing = await session.scalar(select(ArtifactModel).where(ArtifactModel.user_id == user_id, ArtifactModel.source_type == request.source_type, ArtifactModel.source_id == request.source_id, ArtifactModel.format == request.format).with_for_update())

@@ -11,6 +11,7 @@ from ai.workflows.agent_tasks.types import (
     TaskExecutor,
 )
 from app.domain.agent_runs import (
+    TASK_TYPE_ABILITY_PROFILE,
     TASK_TYPE_EVALUATION_SUITE,
     TASK_TYPE_INTERVIEW_REPORT,
     TASK_TYPE_INTERVIEW_START,
@@ -20,6 +21,13 @@ from app.domain.agent_runs import (
     TASK_TYPE_RESUME_WORKSPACE,
 )
 from observability import agent_observation
+
+
+async def _execute_ability_profile(payload: dict, user_id: str, progress: ProgressCallback) -> ExecutionResult:
+    """延迟导入并执行综合能力画像任务。"""
+    from ai.workflows.agent_tasks.ability_profile import execute_ability_profile
+
+    return await execute_ability_profile(payload, user_id, progress)
 
 
 async def _execute_interview_start(payload: dict, user_id: str, progress: ProgressCallback) -> ExecutionResult:
@@ -82,6 +90,7 @@ async def _execute_evaluation_suite(
 
 
 EXECUTORS: dict[str, TaskExecutor] = {
+    TASK_TYPE_ABILITY_PROFILE: _execute_ability_profile,
     TASK_TYPE_EVALUATION_SUITE: _execute_evaluation_suite,
     TASK_TYPE_INTERVIEW_START: _execute_interview_start,
     TASK_TYPE_RESUME_OPTIMIZE: _execute_resume_optimize,

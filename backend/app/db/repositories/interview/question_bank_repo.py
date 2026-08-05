@@ -12,6 +12,7 @@ from sqlalchemy import delete, func, select, text, update
 from app.db.models import async_session
 from app.db.models.interview import QuestionBankItemModel, QuestionBankImportModel, QuestionBankFollowupModel
 from app.db.repositories.interview.archive_mapper import extract_candidate_question
+from app.clock import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +39,7 @@ class QuestionBankRepo:
     ) -> int:
         """创建题库条目"""
         async with async_session() as db:
-            now = datetime.now()
+            now = utc_now()
             obj = QuestionBankItemModel(
                 user_id=user_id,
                 source_type=source_type,
@@ -60,6 +61,39 @@ class QuestionBankRepo:
             await db.refresh(obj)
             logger.info(f"创建题库条目: ID={obj.id}, user={user_id}")
             return obj.id
+
+
+    async def create_report_question_if_absent(
+        self,
+        *,
+        user_id: str,
+        question_text: str,
+        source_id: str,
+        origin_session_id: str,
+    ) -> tuple[int, bool]:
+        """Create one report-derived question once per owner, source session, and normalized source id."""
+        async with async_session() as db:
+            stmt = select(QuestionBankItemModel.id).where(
+                QuestionBankItemModel.user_id == user_id,
+                QuestionBankItemModel.source_type == "interview_report",
+                QuestionBankItemModel.source_id == source_id,
+                QuestionBankItemModel.origin_session_id == origin_session_id,
+            )
+            existing_id = (await db.execute(stmt)).scalar_one_or_none()
+            if existing_id is not None:
+                return int(existing_id), False
+            now = utc_now()
+            obj = QuestionBankItemModel(
+                user_id=user_id, source_type="interview_report", source_id=source_id,
+                origin_session_id=origin_session_id, question_text=question_text,
+                reference_answer=None, tags=["面试复盘"], difficulty="medium",
+                target_skill=None, question_type="tech", is_verified=False,
+                usage_count=0, created_at=now, updated_at=now,
+            )
+            db.add(obj)
+            await db.commit()
+            await db.refresh(obj)
+            return int(obj.id), True
 
     async def get_item(self, item_id: int, user_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """获取题库条目"""
@@ -165,7 +199,7 @@ class QuestionBankRepo:
         values = {k: v for k, v in kwargs.items() if k in allowed_fields}
         if not values:
             return False
-        values['updated_at'] = datetime.now()
+        values['updated_at'] = utc_now()
         async with async_session() as db:
             stmt = (
                 update(QuestionBankItemModel)
@@ -194,7 +228,7 @@ class QuestionBankRepo:
             await db.execute(
                 update(QuestionBankItemModel)
                 .where(QuestionBankItemModel.id == item_id)
-                .values(usage_count=QuestionBankItemModel.usage_count + 1, updated_at=datetime.now())
+                .values(usage_count=QuestionBankItemModel.usage_count + 1, updated_at=utc_now())
             )
             await db.commit()
 
@@ -308,7 +342,7 @@ class QuestionBankRepo:
     ) -> int:
         """保存导入记录"""
         async with async_session() as db:
-            now = datetime.now()
+            now = utc_now()
             obj = QuestionBankImportModel(
                 user_id=user_id,
                 import_source=import_source,

@@ -81,7 +81,7 @@ async def _persist_agent_observation(observation: "AgentObservation") -> None:
     """
     # A locally generated UUID is only an execution correlation fallback.  It is
     # not a Langfuse trace and must never make Run Center render a broken link.
-    if not observation.enabled or not observation.run_id:
+    if not observation.run_id or (not observation.enabled and not observation.model_events):
         return
     try:
         import observability
@@ -89,7 +89,9 @@ async def _persist_agent_observation(observation: "AgentObservation") -> None:
         service = observability._get_agent_run_service()
         await service.record_observation(
             observation.run_id,
-            trace_id=observation.trace_id,
+            observation_id=observation.trace_id,
+            trace_id=observation.trace_id if observation.enabled else None,
+            model_events=observation.model_events or [],
         )
     except Exception as error:
         logger.warning("AgentRun 观测持久化失败: %s", type(error).__name__)

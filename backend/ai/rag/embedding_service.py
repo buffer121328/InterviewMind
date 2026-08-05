@@ -7,6 +7,7 @@ import asyncio
 import hashlib
 import logging
 import os
+from collections import OrderedDict
 from time import perf_counter
 from typing import List, Optional
 
@@ -21,6 +22,39 @@ logger = logging.getLogger(__name__)
 # 配置（可通过环境变量覆盖）
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-v4")
 EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "1536"))
+_EMBEDDING_CACHE_MAX_ITEMS = 512
+_embedding_cache: "OrderedDict[str, List[float]]" = OrderedDict()
+
+
+def _embedding_cache_key(text: str, *, model: str, dimensions: int, api_config: Optional[dict]) -> str:
+    """Build a credential-free cache key scoped to provider, model, dimensions, and normalized text."""
+    channel = (api_config or {}).get("rag_embedding") or {}
+    provider = str(channel.get("base_url") or "environment")
+    normalized = " ".join(text.split())
+    payload = f"{provider}\0{model}\0{dimensions}\0{normalized}"
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def clear_embedding_cache() -> None:
+    """Clear the process-local bounded embedding cache for tests and lifecycle resets."""
+    _embedding_cache.clear()
+
+
+def _cache_get(key: str) -> List[float] | None:
+    """Return a defensive copy and refresh LRU order when a vector is cached."""
+    value = _embedding_cache.get(key)
+    if value is None:
+        return None
+    _embedding_cache.move_to_end(key)
+    return list(value)
+
+
+def _cache_put(key: str, value: List[float]) -> None:
+    """Store a defensive vector copy and evict the oldest bounded-cache entry."""
+    _embedding_cache[key] = list(value)
+    _embedding_cache.move_to_end(key)
+    while len(_embedding_cache) > _EMBEDDING_CACHE_MAX_ITEMS:
+        _embedding_cache.popitem(last=False)
 
 
 def _validate_embedding_response(
@@ -179,34 +213,36 @@ async def generate_embeddings_batch(
     batch_size: int = 20,
     api_config: Optional[dict] = None,
 ) -> List[List[float]]:
-    """在一个独立总 deadline 内分批生成 embedding。
-
-    Args:
-        texts: 文本列表。
-        model: embedding 模型名称。
-        dimensions: 输出维度。
-        batch_size: 每批大小。
-        api_config: 请求级 embedding 配置。
-
-    Returns:
-        与输入顺序一致的向量列表。
-
-    Raises:
-        RuntimeError: 任一批次失败或总 deadline 耗尽。
-    """
+    """Generate ordered embeddings with bounded batching, de-duplication, and LRU reuse."""
     if not texts:
         return []
+    if any(not text or not text.strip() for text in texts):
+        raise ValueError("embedding 输入文本不能为空")
 
     selected_model = model or EMBEDDING_MODEL
     dims = dimensions or EMBEDDING_DIM
     deadline = TaskDeadline(get_settings().embedding_timeout_seconds)
-    all_embeddings: List[List[float]] = []
     started_at = perf_counter()
     call_id = new_runtime_event_id("embedding_batch")
+    keys = [
+        _embedding_cache_key(text, model=selected_model, dimensions=dims, api_config=api_config)
+        for text in texts
+    ]
+    resolved: dict[str, List[float]] = {}
+    misses: list[tuple[str, str]] = []
+    seen_misses: set[str] = set()
+    for key, text in zip(keys, texts):
+        cached = _cache_get(key)
+        if cached is not None:
+            resolved[key] = cached
+        elif key not in seen_misses:
+            seen_misses.add(key)
+            misses.append((key, text))
 
     try:
-        for index in range(0, len(texts), batch_size):
-            batch = texts[index:index + batch_size]
+        for index in range(0, len(misses), max(1, batch_size)):
+            batch_pairs = misses[index:index + max(1, batch_size)]
+            batch = [text for _key, text in batch_pairs]
             response = await _embedding_call(
                 batch,
                 model=selected_model,
@@ -214,13 +250,15 @@ async def generate_embeddings_batch(
                 api_config=api_config,
                 deadline=deadline,
             )
-            all_embeddings.extend(
-                _validate_embedding_response(
-                    response,
-                    expected_count=len(batch),
-                    expected_dimensions=dims,
-                )
+            vectors = _validate_embedding_response(
+                response,
+                expected_count=len(batch),
+                expected_dimensions=dims,
             )
+            for (key, _text), vector in zip(batch_pairs, vectors):
+                resolved[key] = vector
+                _cache_put(key, vector)
+        all_embeddings = [list(resolved[key]) for key in keys]
         record_external_io_event(
             ExternalIOObservationEvent(
                 event_type="external_io.completed",
@@ -231,6 +269,8 @@ async def generate_embeddings_batch(
                 duration_ms=max(0, int((perf_counter() - started_at) * 1000)),
                 item_count=len(texts),
                 result_count=len(all_embeddings),
+                cache_hit=not misses,
+                strategy=f"batch_cache:misses={len(misses)}",
             )
         )
         return all_embeddings

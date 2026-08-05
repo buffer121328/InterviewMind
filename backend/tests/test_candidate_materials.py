@@ -2,9 +2,12 @@
 候选人素材库 API 测试
 """
 
+import json
+from types import SimpleNamespace
+from typing import Any
+
 import pytest
 from fastapi.testclient import TestClient
-from types import SimpleNamespace
 
 # 导入主应用
 from app.main import app
@@ -96,6 +99,62 @@ def assembly_services(monkeypatch):
 class TestCandidateMaterialsAPI:
     """候选人素材库 API 测试类"""
     
+    @pytest.mark.asyncio
+    async def test_import_plain_text_resume_with_agent_security_terms(
+        self, material_repo, monkeypatch
+    ):
+        """Keep trusted plain-text resume evidence visible to the extraction model."""
+        from ai.workflows.resume import materials as resume_materials
+
+        captured: dict[str, Any] = {}
+
+        async def fake_invoke_text(messages, api_config, **kwargs):
+            captured["prompt"] = messages[0].content
+            captured["api_config"] = api_config
+            captured["kwargs"] = kwargs
+            return SimpleNamespace(
+                content=json.dumps(
+                    {
+                        "materials": [
+                            {
+                                "material_type": "tech_stack",
+                                "title": "Agent 工程能力",
+                                "content": (
+                                    "熟悉 Prompt Engineering、RAG、Agent Runtime 与 Tool Registry。"
+                                ),
+                                "tags": ["Agent", "RAG"],
+                            }
+                        ]
+                    },
+                    ensure_ascii=False,
+                )
+            )
+
+        monkeypatch.setattr(resume_materials.llms, "invoke_text", fake_invoke_text)
+
+        result = await resume_materials.resume_material_use_cases.import_materials_from_resume(
+            request={
+                "resume_content": (
+                    "候选人个人简历\n专业技能\n"
+                    "熟悉 Prompt Engineering、RAG、Agent Runtime、System Prompt 防护和 Tool Registry。\n"
+                    "项目经历\n实现可恢复任务、长期记忆和评测闭环。"
+                ),
+                "api_config": {
+                    "smart": {
+                        "api_key": "test-key",
+                        "base_url": "https://example.com/v1",
+                        "model": "test-model",
+                    }
+                },
+            },
+            user_id="resume-owner",
+        )
+
+        assert result["success"] is True
+        assert len(result["material_ids"]) == 1
+        assert "Prompt Engineering" in str(captured["prompt"])
+        assert captured["kwargs"]["channel"] == "smart"
+
     def test_create_material_success(self, material_repo):
         """测试创建素材成功"""
         # 准备

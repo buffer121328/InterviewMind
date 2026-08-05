@@ -34,6 +34,15 @@ from ai.workflows.evaluation.serializers import (
 from ai.workflows.evaluation.service import EvaluationUseCaseError
 
 
+def _evaluation_run_id_for_idempotency(user_id: str, idempotency_key: str) -> str:
+    """Derive a stable owner-scoped EvaluationRun id from the API idempotency key."""
+
+    digest = hashlib.sha256(
+        f"{user_id}\0{TASK_TYPE_EVALUATION_SUITE}\0{idempotency_key}".encode()
+    ).hexdigest()[:32]
+    return f"erun_{digest}"
+
+
 class RunUseCasesMixin:
     """Run 子域应用用例：一键/高级运行、案例筛选与取消重试事件。"""
 
@@ -115,6 +124,13 @@ class RunUseCasesMixin:
         settings = get_settings()
         if request.max_concurrency > settings.evaluation_max_concurrency:
             raise EvaluationUseCaseError("评测并发超过服务端上限", status_code=400)
+        stable_run_id = (
+            _evaluation_run_id_for_idempotency(user_id, idempotency_key)
+            if idempotency_key
+            else None
+        )
+        existing_payload: dict[str, Any] | None = None
+        existing_agent_run_id: str | None = None
         async with UnitOfWork(async_session) as uow:
             suite = await self.repository.get_suite(
                 uow.db, suite_id=request.suite_id, user_id=user_id
@@ -152,25 +168,49 @@ class RunUseCasesMixin:
                     self._not_found("基线评测运行不存在或无权访问")
                 if baseline.status != "succeeded":
                     raise EvaluationUseCaseError("基线评测尚未完成", status_code=409)
-            run = await self.repository.create_run(
-                uow.db,
-                user_id=user_id,
-                suite=suite,
-                agent_version=request.agent_version,
-                prompt_name=request.prompt_name,
-                prompt_version=request.prompt_version,
-                model_config_hash=request.model_config_hash,
-                baseline_run_id=request.baseline_run_id,
-                repetition_count=request.repetition_count,
-                include_judges=request.include_judges,
-                budget={
-                    "max_concurrency": request.max_concurrency,
-                    "max_budget_usd": request.max_budget_usd,
-                    "max_cases": request.max_cases,
-                    "human_review_rate": request.human_review_rate,
-                },
+            run = (
+                await self.repository.get_run(
+                    uow.db, run_id=stable_run_id, user_id=user_id
+                )
+                if stable_run_id
+                else None
             )
+            if run is None:
+                run = await self.repository.create_run(
+                    uow.db,
+                    user_id=user_id,
+                    suite=suite,
+                    agent_version=request.agent_version,
+                    prompt_name=request.prompt_name,
+                    prompt_version=request.prompt_version,
+                    model_config_hash=request.model_config_hash,
+                    baseline_run_id=request.baseline_run_id,
+                    repetition_count=request.repetition_count,
+                    include_judges=request.include_judges,
+                    budget={
+                        "max_concurrency": request.max_concurrency,
+                        "max_budget_usd": request.max_budget_usd,
+                        "max_cases": request.max_cases,
+                        "human_review_rate": request.human_review_rate,
+                    },
+                    run_id=stable_run_id,
+                )
+            elif run.agent_run_id:
+                existing_payload = _run(run)
+                existing_agent_run_id = run.agent_run_id
             evaluation_run_id = run.id
+
+        if existing_payload is not None and existing_agent_run_id is not None:
+            try:
+                existing_payload["agent_run"] = await agent_run_use_cases.get_run(
+                    run_id=existing_agent_run_id,
+                    user_id=user_id,
+                )
+            except AgentRunUseCaseError as exc:
+                raise EvaluationUseCaseError(
+                    exc.message, status_code=exc.status_code
+                ) from exc
+            return existing_payload
 
         payload = {
             "evaluation_run_id": evaluation_run_id,

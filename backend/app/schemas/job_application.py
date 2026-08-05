@@ -72,7 +72,6 @@ class ApplicationCreateRequest(BaseModel):
     job_title: str = Field(..., min_length=1, max_length=200, description="岗位名称")
     job_description: Optional[str] = Field(None, description="岗位描述 (JD)")
     channel: Optional[str] = Field(None, max_length=100, description="投递渠道")
-    generated_resume_id: Optional[int] = Field(None, description="关联简历产物 ID")
     latest_status: Optional[str] = Field('saved', description="初始状态")
     priority: Optional[str] = Field('medium', description="优先级")
     notes: Optional[str] = Field(None, description="备注")
@@ -82,7 +81,6 @@ class ApplicationCreateRequest(BaseModel):
     captured_job_id: Optional[int] = None
     greeting_text: Optional[str] = Field(None, max_length=500)
     send_status: Optional[str] = Field(None, max_length=50)
-    custom_resume_id: Optional[int] = None
 
 
 class ApplicationUpdateRequest(BaseModel):
@@ -91,7 +89,6 @@ class ApplicationUpdateRequest(BaseModel):
     job_title: Optional[str] = Field(None, min_length=1, max_length=200, description="岗位名称")
     job_description: Optional[str] = Field(None, description="岗位描述")
     channel: Optional[str] = Field(None, max_length=100, description="投递渠道")
-    generated_resume_id: Optional[int] = Field(None, description="关联简历产物 ID")
     latest_status: Optional[str] = Field(None, description="当前状态")
     priority: Optional[str] = Field(None, description="优先级")
     notes: Optional[str] = Field(None, description="备注")
@@ -104,6 +101,22 @@ class EventCreateRequest(BaseModel):
     event_type: str = Field(..., description="事件类型")
     event_time: Optional[str] = Field(None, description="事件时间（默认当前时间）")
     event_data: Optional[Dict[str, Any]] = Field(default_factory=dict, description="事件附加数据")
+
+
+class ApplicationResumeLinkRequest(BaseModel):
+    """Replace or clear the owner-scoped generated resume linked to an application."""
+
+    resume_id: Optional[int] = Field(default=None, ge=1, description="生成简历 ID；null 表示解除关联")
+
+
+class LinkedResumeAsset(BaseModel):
+    """Owner-scoped generated resume metadata embedded in an application detail."""
+
+    id: int
+    title: str
+    job_description: Optional[str] = None
+    content: str
+    created_at: str
 
 
 # ============================================================================
@@ -149,6 +162,7 @@ class ApplicationDetail(BaseModel):
     greeting_text: Optional[str] = None
     send_status: Optional[str] = None
     custom_resume_id: Optional[int] = None
+    linked_resume: Optional[LinkedResumeAsset] = None
     created_at: str
     updated_at: str
     events: List[ApplicationEventRow] = Field(default_factory=list, description="事件流水")

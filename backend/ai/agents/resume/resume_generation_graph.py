@@ -21,6 +21,14 @@ from ai.agents.resume.resume_generation_review import (
     node_finalize_and_review,
     node_verify_final,
 )
+from ai.agents.resume.resume_sections import (
+    build_section_checkpoint,
+    merge_section_patch,
+    parse_resume_sections,
+    render_resume_sections,
+    reusable_sections,
+    select_retry_sections,
+)
 from ai.agents.resume.resume_generation_support import (
     bounded_generation_sources as _bounded_generation_sources,
     compact_optimization_result as _compact_optimization_result,
@@ -69,6 +77,8 @@ class ResumeGenerationState(TypedDict):
     fact_check_result: Optional[dict]
     review_result: Optional[dict]
     iteration_count: int
+    generation_checkpoint: Optional[dict]
+    retried_sections: List[str]
 
     # 输出
     final_markdown: str
@@ -92,8 +102,8 @@ async def node_analyze_needs(state: ResumeGenerationState) -> dict:
     stage_context = _bounded_generation_sources(
         stage="needs_analysis",
         sources=[
-            ("resume", resume_content, 6000, "sections"),
-            ("job_description", job_description, 3200, "head_tail"),
+            ("resume", resume_content, 6000, "authoritative"),
+            ("job_description", job_description, 3200, "authoritative"),
             ("optimization", _compact_optimization_result(optimization_result), 2600, "head_tail"),
         ],
     )
@@ -139,6 +149,15 @@ async def node_generate_draft(state: ResumeGenerationState) -> dict:
     optimization_result = state.get("optimization_result") or {}
     user_answers = state.get("user_answers", {})
     review_result = state.get("review_result")
+    reusable = reusable_sections(
+        state.get("generation_checkpoint"),
+        resume_content=resume_content,
+        job_description=job_description,
+    )
+    retry_sections = select_retry_sections(
+        list((review_result or {}).get("issues") or []),
+        available_sections=reusable,
+    )
     template_style = state.get("template_style", "professional")
     api_config = state.get("api_config")
 
@@ -181,10 +200,10 @@ async def node_generate_draft(state: ResumeGenerationState) -> dict:
     stage_context = _bounded_generation_sources(
         stage="draft_generation",
         sources=[
-            ("resume", resume_content, 8000, "sections"),
-            ("job_description", job_description, 3600, "head_tail"),
+            ("resume", resume_content, 8000, "authoritative"),
+            ("job_description", job_description, 3600, "authoritative"),
             ("optimization", _compact_optimization_result(optimization_result), 2800, "head_tail"),
-            ("user_answers", user_answers, 1200, "head_tail"),
+            ("user_answers", user_answers, 1200, "authoritative"),
         ],
     )
     user_info_section = ""
@@ -216,11 +235,35 @@ async def node_generate_draft(state: ResumeGenerationState) -> dict:
         # 清理可能的代码块包裹
         draft = clean_markdown_response(draft)
 
-        logger.info(f"初稿生成完成 (含适度包装): {len(draft)} 字符")
-        return {"draft_content": draft}
+        generated_sections = parse_resume_sections(draft)
+        if retry_sections and reusable:
+            patch = {section_id: generated_sections[section_id] for section_id in retry_sections if section_id in generated_sections}
+            draft = render_resume_sections(merge_section_patch(reusable, patch))
+        checkpoint = build_section_checkpoint(
+            markdown=draft,
+            resume_content=resume_content,
+            job_description=job_description,
+        )
+        logger.info(
+            "初稿生成完成: chars=%s sections=%s targeted_retry=%s",
+            len(draft),
+            len(checkpoint["sections"]),
+            list(retry_sections),
+        )
+        return {
+            "draft_content": draft,
+            "generation_checkpoint": checkpoint,
+            "retried_sections": list(retry_sections),
+        }
     except Exception as e:
         logger.error("初稿生成节点失败: %s", type(e).__name__)
-        return {"draft_content": f"生成失败: {type(e).__name__}"}
+        if reusable:
+            return {
+                "draft_content": render_resume_sections(reusable),
+                "generation_checkpoint": state.get("generation_checkpoint"),
+                "retried_sections": list(retry_sections),
+            }
+        raise RuntimeError("简历初稿生成失败") from e
 
 
 async def node_optimize_draft(state: ResumeGenerationState) -> dict:
@@ -251,7 +294,7 @@ async def node_optimize_draft(state: ResumeGenerationState) -> dict:
             ("resume_facts", fact_sheet.model_dump(), 5200, "head_tail"),
             ("draft", draft_content, 8500, "sections"),
             ("jd_match", match_map.model_dump(), 2200, "head_tail"),
-            ("user_answers", user_answers, 1100, "head_tail"),
+            ("user_answers", user_answers, 1100, "authoritative"),
         ],
     )
     prompt = build_draft_optimization_prompt(

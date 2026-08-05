@@ -68,3 +68,41 @@ async def test_add_event_to_application_uses_unit_of_work_session(monkeypatch):
 
     assert result["success"] is True
     assert calls == [{"application_id": 7, "request": request, "session": fake_session}]
+
+
+@pytest.mark.fast
+def test_application_detail_mapping_does_not_trigger_async_lazy_event_load():
+    """A freshly committed row may not have events loaded; response mapping must not issue implicit I/O."""
+    from datetime import datetime
+
+    from app.db.repositories.application.job_application_repo import JobApplicationRepo
+
+    class FreshApplicationRow:
+        id = 11
+        user_id = "user-1"
+        company_name = "示例科技"
+        job_title = "Python 工程师"
+        job_description = None
+        channel = "job_library"
+        generated_resume_id = None
+        latest_status = "saved"
+        priority = "medium"
+        notes = None
+        source_platform = "manual"
+        source_url = None
+        external_job_id = None
+        captured_job_id = 7
+        greeting_text = None
+        send_status = "pending"
+        custom_resume_id = None
+        created_at = datetime(2026, 8, 4, 8, 0, 0)
+        updated_at = datetime(2026, 8, 4, 8, 0, 0)
+
+        @property
+        def events(self):
+            raise RuntimeError("relationship access would trigger async lazy loading")
+
+    detail = JobApplicationRepo()._row_to_detail(FreshApplicationRow())
+
+    assert detail.id == 11
+    assert detail.events == []

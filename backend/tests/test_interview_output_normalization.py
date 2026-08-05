@@ -28,6 +28,20 @@ def test_plan_source_string_is_normalized_without_retry():
     }]
 
 
+def test_interview_question_items_accept_ordered_answer_points():
+    """规划结构应保存内部回答要点，且不会把它们拼进问题正文。"""
+    item = InterviewQuestionItem.model_validate({
+        "id": 1,
+        "topic": "Redis",
+        "content": "Redis 为什么快？",
+        "type": "tech",
+        "answer_points": ["说明内存访问与数据结构", "补充单线程事件循环的边界"],
+    })
+
+    assert item.answer_points == ["说明内存访问与数据结构", "补充单线程事件循环的边界"]
+    assert "内存访问" not in item.content
+
+
 def test_extract_latest_assistant_content_ignores_raw_candidates():
     """转换层只读取图节点最终消息，不拼接结构化输出重试候选。"""
     output = {
@@ -76,6 +90,7 @@ async def test_planner_uses_fast_channel_and_canonical_intro(monkeypatch):
     assert calls[0]["max_retries"] == 1
     assert plan[0]["content"] == "请做一个简短的自我介绍，包括你的教育背景和工作经历。"
     assert plan[0]["source_type"] == SYSTEM_FALLBACK_QUESTION_SOURCE_TYPE
+    assert "教育与工作经历" in plan[0]["answer_points"][0]
 
 
 @pytest.mark.asyncio
@@ -130,6 +145,7 @@ def test_round_fallback_plan_is_exact_length_and_distinct_from_initial_round():
         item["source_type"] == SYSTEM_FALLBACK_QUESTION_SOURCE_TYPE
         for item in plan
     )
+    assert all(item["answer_points"] for item in plan)
 
 
 @pytest.mark.asyncio
@@ -170,3 +186,4 @@ async def test_partial_model_plan_is_filled_to_requested_round_length(monkeypatc
         item["source_type"] == SYSTEM_FALLBACK_QUESTION_SOURCE_TYPE
         for item in plan[1:]
     )
+    assert all(item["answer_points"] for item in plan)

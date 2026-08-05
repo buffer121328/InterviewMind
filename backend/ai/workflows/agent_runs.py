@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.domain.agent_runs import (
+    TASK_TYPE_ABILITY_PROFILE,
     TASK_TYPE_INTERVIEW_REPORT,
     TASK_TYPE_INTERVIEW_START,
     TASK_TYPE_JOB_ASSETS,
@@ -146,6 +147,21 @@ class AgentRunUseCases:
                 raise AgentRunNotFound("会话不存在或无权访问", status_code=404)
         return await self.create_queued_run(
             task_type=TASK_TYPE_RESUME_WORKSPACE,
+            payload=payload,
+            user_id=user_id,
+            idempotency_key=idempotency_key,
+        )
+
+    async def create_ability_profile(
+        self,
+        *,
+        payload: dict[str, Any],
+        user_id: str,
+        idempotency_key: str,
+    ) -> AgentRunResponse:
+        """Create one explicit owner-scoped ability-profile run."""
+        return await self.create_queued_run(
+            task_type=TASK_TYPE_ABILITY_PROFILE,
             payload=payload,
             user_id=user_id,
             idempotency_key=idempotency_key,

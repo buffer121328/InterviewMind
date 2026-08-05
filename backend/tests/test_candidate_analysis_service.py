@@ -101,21 +101,42 @@ async def test_session_analysis_runs_four_parallel_reviewers_then_reduces(monkey
 
 
 @pytest.mark.asyncio
-async def test_session_analysis_propagates_when_all_reviewers_fail(monkeypatch):
-    """The report task fails rather than fabricating consensus when every reviewer is unavailable."""
+async def test_session_analysis_builds_evidence_bounded_report_when_all_reviewers_fail(monkeypatch):
+    """All-reviewer failure must complete with real Q&A evidence and no invented scores."""
 
     async def fail_invoke(*_args, **_kwargs):
         raise RuntimeError("model failed")
 
     monkeypatch.setattr("ai.llm.llm_utils.invoke_structured", fail_invoke)
-    with pytest.raises(RuntimeError, match="all parallel reviewers failed"):
-        await SessionReportAnalysisService().generate_session_report(
-            session_id="session-1",
-            resume="resume",
-            job_description="jd",
-            company_info="company",
-            qa_history=[{"question": "Q", "answer": "A"}],
-        )
+    profile, weakness = await SessionReportAnalysisService().generate_session_report(
+        session_id="session-1",
+        resume="resume",
+        job_description="jd",
+        company_info="company",
+        qa_history=[{"question": "请介绍 Agent 项目", "answer": "我实现了 RAG 和审批恢复。"}],
+    )
+
+    assert profile.generation_mode == "degraded_evidence_only"
+    assert profile.recommendation is None
+    assert profile.confidence is None
+    assert profile.skill_tags == []
+    assert set(profile.missing_dimensions) == {
+        "professional_competence",
+        "execution_results",
+        "logic_problem_solving",
+        "communication",
+        "growth_potential",
+        "collaboration",
+    }
+    for dimension in profile.missing_dimensions:
+        assert getattr(profile, dimension).score is None
+    assert weakness["generation_mode"] == "degraded_evidence_only"
+    assert weakness["degradation_reason"] == "all_reviewers_failed"
+    assert weakness["consensus_method"] == "deterministic_evidence_fallback"
+    assert weakness["question_evidence"][0]["question_summary"] == "请介绍 Agent 项目"
+    assert weakness["question_evidence"][0]["candidate_claims"] == ["我实现了 RAG 和审批恢复。"]
+    assert len(weakness["reviewer_assessments"]) == 4
+    assert all(item["status"] == "error" for item in weakness["reviewer_assessments"])
 
 
 def test_weakness_output_accepts_missing_optional_model_fields():
@@ -173,7 +194,7 @@ async def test_ability_profile_uses_same_parallel_reviewer_consensus(monkeypatch
         "total_questions_analyzed": 3,
     }])
 
-    assert len(reviewer_calls) == 4
+    assert set(reviewer_calls) == {"technical_depth", "communication"}
     assert profile.professional_competence.score == 8
     assert profile.overall_assessment == "多视角共识：能力稳定。"
     assert profile.confidence == 0.75

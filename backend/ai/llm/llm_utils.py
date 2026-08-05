@@ -79,6 +79,7 @@ def _record_attempt_failure(
         "error_category": classified.category.value,
         "error_code": classified.code,
         "failure_type": classified.failure_type.value,
+        "timeout_scope": "model" if classified.failure_type.value == "timeout" else None,
         "duration_ms": duration_ms,
         "model_duration_ms": duration_ms,
         "total_duration_ms": duration_ms,
@@ -143,6 +144,7 @@ async def _invoke_with_fallback(
                         "deadline_ms": task_deadline.deadline_ms,
                         "deadline_remaining_ms": task_deadline.remaining_ms,
                         "failure_type": "timeout",
+                        "timeout_scope": "task",
                         "error_type": "TaskDeadlineExceeded",
                     })
                     last_error = TaskDeadlineExceeded("task deadline exhausted before next model attempt")

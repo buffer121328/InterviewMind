@@ -51,7 +51,7 @@ async def node_fact_check(state: Mapping[str, Any]) -> dict[str, Any]:
         sources=[
             ("resume_facts", fact_sheet.model_dump(), 6000, "head_tail"),
             ("draft", draft_content, 9000, "sections"),
-            ("user_answers", user_answers, 1000, "head_tail"),
+            ("user_answers", user_answers, 1000, "authoritative"),
         ],
     )
     try:
@@ -164,7 +164,7 @@ async def node_verify_final(state: Mapping[str, Any]) -> dict[str, Any]:
         sources=[
             ("resume_facts", fact_sheet.model_dump(), 6000, "head_tail"),
             ("final_resume", final_markdown, 9000, "sections"),
-            ("user_answers", user_answers, 1000, "head_tail"),
+            ("user_answers", user_answers, 1000, "authoritative"),
         ],
     )
     try:

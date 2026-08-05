@@ -1,23 +1,43 @@
-"""Schemas for encrypted model credential persistence."""
+"""Schemas for the minimal local model-name to API-key Redis store."""
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class ModelCredentialPutRequest(BaseModel):
-    """Accept one model API key for encrypted Redis storage."""
+    """Save a new API key or move an existing model-name key without exposing it."""
 
-    api_key: str = Field(min_length=1, max_length=16_384)
+    model_name: str = Field(min_length=1, max_length=256)
+    api_key: str | None = Field(default=None, max_length=16_384)
+    source_model: str | None = Field(default=None, max_length=256)
+    legacy_id: str | None = Field(default=None, max_length=128)
+
+    @model_validator(mode="after")
+    def validate_write_source(self):
+        """Require either a newly entered API key or an existing source model."""
+
+        if not (self.api_key and self.api_key.strip()) and not (
+            self.source_model and self.source_model.strip()
+        ):
+            raise ValueError("必须提供 API Key 或原模型名称")
+        return self
+
+
+class ModelCredentialLookup(BaseModel):
+    """Identify one technical model name and its previous UI UUID for migration."""
+
+    model_name: str = Field(min_length=1, max_length=256)
+    legacy_id: str | None = Field(default=None, max_length=128)
 
 
 class ModelCredentialStatusRequest(BaseModel):
-    """Request credential availability for locally known model IDs."""
+    """Request API-key availability for locally configured technical model names."""
 
-    model_ids: list[str] = Field(default_factory=list, max_length=200)
+    models: list[ModelCredentialLookup] = Field(default_factory=list, max_length=200)
 
 
 class ModelCredentialStatus(BaseModel):
-    """Expose credential metadata without ever returning the secret."""
+    """Expose API-key availability without returning the secret."""
 
-    model_id: str
+    model_name: str
     stored: bool
     expires_at: str | None = None

@@ -6,7 +6,6 @@ import logging
 from dataclasses import dataclass
 
 from ai.memory import get_agent_memory_service
-from ai.workflows.model_credentials import ModelCredentialUseCases
 from app.domain.memory import (
     MEMORY_DISABLED_MESSAGE,
     canonicalize_memory_records,
@@ -29,23 +28,27 @@ from app.schemas.memory import (
     MemoryUpdateRequest,
     MemoryWriteResponse,
 )
-from app.security.model_credentials import ModelCredentialError, get_model_credential_store
 
 logger = logging.getLogger(__name__)
 
 
-async def get_owner_memory_service(user_id: str, api_config: dict | None):
-    """Resolve request config first, then owner-scoped Redis channel bindings."""
+def _memory_unavailable_message(memory_service) -> str:
+    """Return a stable sanitized diagnosis without exposing credentials or DSNs."""
+    category = getattr(memory_service, "readiness_category", "initialization_failed")
+    return {
+        "model_channels_missing": MEMORY_DISABLED_MESSAGE,
+        "database_authentication_failed": "mem0 数据库认证失败，请检查 DATABASE_URL 或 MEM0_PGVECTOR_URL",
+        "database_unavailable": "mem0 数据库连接不可用，请检查数据库运行状态",
+        "vector_schema_error": "mem0 向量表结构未就绪，请检查 pgvector 与向量维度",
+        "not_initialized": "mem0 尚未初始化，请稍后重试",
+    }.get(category, "mem0 初始化失败，请检查服务配置")
 
-    resolved_config = api_config
-    if resolved_config is None:
-        try:
-            resolved_config = await ModelCredentialUseCases(
-                get_model_credential_store()
-            ).resolve_memory_api_config(user_id)
-        except ModelCredentialError as exc:
-            logger.warning("无法恢复用户 mem0 通道配置: %s", type(exc).__name__)
-    return await get_agent_memory_service(resolved_config)
+
+async def get_owner_memory_service(user_id: str, api_config: dict | None):
+    """Use request model config, or fall back to server environment settings."""
+
+    del user_id
+    return await get_agent_memory_service(api_config)
 
 
 @dataclass(slots=True)
@@ -73,7 +76,7 @@ class MemoryUseCases:
                 memories=[],
                 total=0,
                 user_id=user_id,
-                message=MEMORY_DISABLED_MESSAGE,
+                message=_memory_unavailable_message(memory_service),
             )
 
         records = await memory_service.get_all(user_id=user_id, page_size=page_size)
@@ -103,7 +106,7 @@ class MemoryUseCases:
                 memories=[],
                 query=query,
                 total=0,
-                message=MEMORY_DISABLED_MESSAGE,
+                message=_memory_unavailable_message(memory_service),
             )
 
         memory_types = [memory_type] if memory_type else None
@@ -131,7 +134,7 @@ class MemoryUseCases:
                 success=True,
                 history=[],
                 memory_id=memory_id,
-                message=MEMORY_DISABLED_MESSAGE,
+                message=_memory_unavailable_message(memory_service),
             )
 
         records = await memory_service.history(user_id=user_id, memory_id=memory_id)
@@ -159,7 +162,7 @@ class MemoryUseCases:
                 dry_run=request.dry_run,
                 total_before=0,
                 total_after=0,
-                message=MEMORY_DISABLED_MESSAGE,
+                message=_memory_unavailable_message(memory_service),
             )
 
         result = await memory_service.consolidate_existing_memories(
@@ -187,7 +190,7 @@ class MemoryUseCases:
                 dry_run=request.dry_run,
                 total_before=0,
                 total_after=0,
-                message=MEMORY_DISABLED_MESSAGE,
+                message=_memory_unavailable_message(memory_service),
             )
         result = await memory_service.cleanup_stale_memories(
             user_id=user_id,
@@ -206,7 +209,7 @@ class MemoryUseCases:
         api_config = request.api_config.model_dump() if request.api_config else None
         memory_service = await get_owner_memory_service(user_id, api_config)
         if not memory_service.is_enabled:
-            return MemoryWriteResponse(success=False, message=MEMORY_DISABLED_MESSAGE)
+            return MemoryWriteResponse(success=False, message=_memory_unavailable_message(memory_service))
         result = await memory_service.add_memory(
             user_id=user_id,
             content=request.content,
@@ -228,7 +231,7 @@ class MemoryUseCases:
         api_config = request.api_config.model_dump() if request.api_config else None
         memory_service = await get_owner_memory_service(user_id, api_config)
         if not memory_service.is_enabled:
-            return MemoryWriteResponse(success=False, message=MEMORY_DISABLED_MESSAGE)
+            return MemoryWriteResponse(success=False, message=_memory_unavailable_message(memory_service))
         result = await memory_service.update_memory(
             user_id=user_id,
             memory_id=memory_id,
@@ -248,7 +251,7 @@ class MemoryUseCases:
         """Delete one owner-scoped memory through the request-scoped mem0 client."""
         memory_service = await get_owner_memory_service(user_id, api_config)
         if not memory_service.is_enabled:
-            return MemoryDeleteResponse(success=False, message=MEMORY_DISABLED_MESSAGE)
+            return MemoryDeleteResponse(success=False, message=_memory_unavailable_message(memory_service))
 
         deleted = await memory_service.delete(user_id=user_id, memory_id=memory_id)
         if deleted:
@@ -275,7 +278,7 @@ class MemoryUseCases:
         api_config = request.api_config.model_dump() if request.api_config else None
         memory_service = await get_owner_memory_service(user_id, api_config)
         if not memory_service.is_enabled:
-            return MemoryDeleteResponse(success=False, message=MEMORY_DISABLED_MESSAGE)
+            return MemoryDeleteResponse(success=False, message=_memory_unavailable_message(memory_service))
 
         deleted = await memory_service.delete_all(user_id=user_id, confirm=True)
         if deleted:

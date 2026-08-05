@@ -20,6 +20,7 @@ from app.domain.interview_rounds import (
 )
 from app.schemas.llm_outputs import HintOutput, PlanOutput, SimplePlanOutput
 
+from .answer_points import ensure_question_answer_points
 from .context_compaction import PlannerContextBundle, assemble_planner_context
 
 logger = logging.getLogger(__name__)
@@ -399,10 +400,12 @@ async def generate_interview_plan(
         if not interview_plan:
             logger.warning("[Planner] LLM 返回空计划，使用当前轮次的默认问题兜底。")
         elif round_type == "tech_initial" and output_format == "full":
+            canonical_intro = ensure_question_answer_points(DEFAULT_QUESTIONS[0])
             interview_plan[0].update({
-                "topic": DEFAULT_QUESTIONS[0]["topic"],
-                "content": DEFAULT_QUESTIONS[0]["content"],
-                "type": DEFAULT_QUESTIONS[0]["type"],
+                "topic": canonical_intro["topic"],
+                "content": canonical_intro["content"],
+                "type": canonical_intro["type"],
+                "answer_points": canonical_intro["answer_points"],
                 "source_type": SYSTEM_FALLBACK_QUESTION_SOURCE_TYPE,
                 "fallback_reason": "canonical_intro",
             })
@@ -438,7 +441,7 @@ async def generate_interview_plan(
             except Exception as e:
                 logger.error(f"[Planner] 保存面试计划失败: {e}")
 
-        return interview_plan
+        return [ensure_question_answer_points(item) for item in interview_plan]
 
     except Exception as exc:
         logger.error(
@@ -550,7 +553,7 @@ def _get_default_questions(
         for item in questions:
             item["source_type"] = SYSTEM_FALLBACK_QUESTION_SOURCE_TYPE
             item["fallback_reason"] = "local_default_question"
-    return questions
+    return [ensure_question_answer_points(item) for item in questions]
 
 
 def _ensure_plan_question_count(
@@ -603,7 +606,7 @@ def _ensure_plan_question_count(
     if output_format == "full":
         for index, item in enumerate(normalized, start=1):
             item["id"] = index
-    return normalized
+    return [ensure_question_answer_points(item) for item in normalized]
 
 
 # ============================================================================
@@ -669,8 +672,10 @@ async def _generate_hints_async(
         for i, q in enumerate(interview_plan):
             if i < len(hints_list):
                 q["hint"] = hints_list[i]
+                q["answer_points"] = ensure_question_answer_points({"hint": hints_list[i]})["answer_points"]
             else:
                 q["hint"] = "可以结合自身经验，从实际案例出发进行回答。"
+                q["answer_points"] = ensure_question_answer_points(q)["answer_points"]
 
         # 更新数据库
         from app.db.repositories.session.session_repo import SessionRepo

@@ -204,6 +204,7 @@ class ChatStreamUseCases:
         ]
         emitted_steps: set[tuple[str, str]] = set()
         emitted_response_nodes: set[str] = set()
+        response_persisted = False
         run_event_sequence = 0
 
         def stream_event(event_type: str, payload) -> str:
@@ -292,6 +293,20 @@ class ChatStreamUseCases:
                             content = extract_latest_assistant_content(output)
                             if content:
                                 emitted_response_nodes.add(node_name)
+                                if node_name == "responder" and not response_persisted:
+                                    response_question_index = (
+                                        output.get("current_question_index", final_question_index)
+                                        if isinstance(output, dict)
+                                        else final_question_index
+                                    )
+                                    await self._session_repo.add_message(
+                                        session_id=thread_id,
+                                        role="assistant",
+                                        content=content,
+                                        question_index=response_question_index,
+                                        user_id=user_id,
+                                    )
+                                    response_persisted = True
                                 step = step_event("analyze_answer", "completed")
                                 if step:
                                     yield step
@@ -332,13 +347,14 @@ class ChatStreamUseCases:
                     event = run_event("run.stage.changed", "saving_response")
                     if event:
                         yield event
-                await self._session_repo.add_message(
-                    session_id=thread_id,
-                    role="assistant",
-                    content=ai_response_content,
-                    question_index=final_question_index,
-                    user_id=user_id,
-                )
+                if not response_persisted:
+                    await self._session_repo.add_message(
+                        session_id=thread_id,
+                        role="assistant",
+                        content=ai_response_content,
+                        question_index=final_question_index,
+                        user_id=user_id,
+                    )
                 await self._write_memory_background(
                     thread_id,
                     user_message,

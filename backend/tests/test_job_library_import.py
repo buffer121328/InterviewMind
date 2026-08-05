@@ -1,18 +1,9 @@
-"""
-岗位一键入库测试
+"""岗位一键入库的确定性持久化与输入边界测试。"""
 
-验证：待入库卡片保存进岗位库、去重、资产任务调度、部分失败明细与输入边界。
-"""
-
-from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from pydantic import ValidationError
-
-from app.db.models.agent_run import AgentRunModel
-
-VALID_BOSS_SEARCH_URL = "https://www.zhipin.com/web/geek/jobs?city=101280600&query=agent"
 
 
 def make_imported_card(index: int = 1) -> dict[str, object]:
@@ -36,76 +27,91 @@ def _backend_capture_log_dir(monkeypatch, tmp_path):
     monkeypatch.setenv("ARTIFACT_STORAGE_DIR", str(tmp_path))
 
 
-class TestImportSavesAndSchedules:
-    """一键入库：保存岗位并调度可恢复资产任务。"""
+class TestDeterministicImport:
+    """一键入库只保存岗位，不进入模型或 Agent 任务边界。"""
 
     @pytest.mark.asyncio
-    async def test_import_saves_jobs_and_enqueues_recoverable_asset_tasks(self, monkeypatch):
-        """每个成功入库的岗位都应创建 job_assets 可恢复任务并记录资产跟踪。"""
+    async def test_import_saves_job_without_scheduling_model_work(self, monkeypatch):
+        """成功入库不得创建 AgentRun、Outbox 调度或同步资产生成。"""
         from ai.runtime.agent_runs import outbox
         from ai.runtime.agent_runs import service as run_service_module
+        from ai.workflows.jobs import job_asset_orchestrator
         from ai.workflows.jobs.job_capture_service import import_cards_to_library
 
-        now = datetime.now()
-        run = AgentRunModel(
-            id="asset-run-1",
-            user_id="user-1",
-            task_type="job_assets",
-            status="queued",
-            stage="queued",
-            idempotency_key="asset-key",
-            payload_encrypted="encrypted",
-            result=None,
-            error_message=None,
-            attempts=0,
-            created_at=now,
-            updated_at=now,
-            started_at=None,
-            finished_at=None,
-        )
-        create_or_get = AsyncMock(return_value=(run, True))
-        monkeypatch.setattr(run_service_module, "task_queue_enabled", lambda: True)
-        monkeypatch.setattr(
-            run_service_module.AgentRunService,
-            "create_or_get",
-            create_or_get,
-        )
-        dispatch_pending = AsyncMock(return_value=(1, 0))
+        create_or_get = AsyncMock()
+        dispatch_pending = AsyncMock()
+        generate_assets = AsyncMock()
+        monkeypatch.setattr(run_service_module.AgentRunService, "create_or_get", create_or_get)
         monkeypatch.setattr(outbox, "dispatch_pending_outbox", dispatch_pending)
+        monkeypatch.setattr(job_asset_orchestrator, "generate_assets", generate_assets)
+        monkeypatch.setattr(run_service_module, "task_queue_enabled", lambda: True)
 
-        fake_job_repo = MagicMock()
-        fake_job_repo.update_asset_tracking = AsyncMock(return_value=True)
-        with (
-            patch(
-                "ai.workflows.jobs.job_capture_service._normalize_and_save",
-                new=AsyncMock(return_value={"success": True, "job_id": 7}),
-            ),
-            patch(
-                "app.db.repositories.jobs.job_capture_repo.get_job_capture_repo",
-                return_value=fake_job_repo,
-            ),
+        with patch(
+            "ai.workflows.jobs.job_capture_service._normalize_and_save",
+            new=AsyncMock(return_value={"success": True, "job_id": 7}),
         ):
             result = await import_cards_to_library(
                 user_id="user-1",
                 cards=[make_imported_card()],
-                resume_content="候选人简历",
-                api_config={"smart": {"model": "mock"}, "fast": {"model": "mock"}},
             )
 
         assert result["success"] is True
         assert result["total"] == 1
         assert result["duplicates"] == 0
-        assert result["jobs"][0]["job_id"] == 7
-        assert result["jobs"][0]["asset_run_id"] == "asset-run-1"
-        assert result["jobs"][0]["asset_status"] == "queued"
-        assert result["jobs"][0]["match_score"] == 86.5
-        create_or_get.assert_awaited_once()
-        dispatch_pending.assert_awaited_once_with(limit=50)
-        fake_job_repo.update_asset_tracking.assert_awaited_once()
+        assert result["jobs"][0] == {
+            "job_id": 7,
+            "source_url": make_imported_card()["source_url"],
+            "company_name": "示例科技 1",
+            "company_size_text": "100-499人",
+            "job_title": "Agent 工程师 1",
+            "job_description": "负责 Agent 产品及 Python 服务端开发工作",
+            "salary_text": "20-30K",
+            "city": "深圳",
+            "match_score": 86.5,
+            "custom_resume_id": None,
+            "greetings": [],
+            "risk_flags": [],
+            "asset_run_id": None,
+            "asset_status": None,
+        }
+        create_or_get.assert_not_awaited()
+        dispatch_pending.assert_not_awaited()
+        generate_assets.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_import_twenty_jobs_without_derived_tasks(self, monkeypatch):
+        """批量入库上限场景保存 20 个岗位且不放大为 20 个资产任务。"""
+        from ai.runtime.agent_runs import service as run_service_module
+        from ai.workflows.jobs import job_asset_orchestrator
+        from ai.workflows.jobs.job_capture_service import import_cards_to_library
+
+        create_or_get = AsyncMock()
+        generate_assets = AsyncMock()
+        monkeypatch.setattr(run_service_module.AgentRunService, "create_or_get", create_or_get)
+        monkeypatch.setattr(job_asset_orchestrator, "generate_assets", generate_assets)
+
+        normalize = AsyncMock(
+            side_effect=[{"success": True, "job_id": index} for index in range(1, 21)]
+        )
+        with patch(
+            "ai.workflows.jobs.job_capture_service._normalize_and_save",
+            new=normalize,
+        ):
+            result = await import_cards_to_library(
+                user_id="user-1",
+                cards=[make_imported_card(index) for index in range(1, 21)],
+            )
+
+        assert result["success"] is True
+        assert result["total"] == 20
+        assert len(result["jobs"]) == 20
+        assert normalize.await_count == 20
+        create_or_get.assert_not_awaited()
+        generate_assets.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_import_reuses_existing_job_and_counts_duplicate(self):
-        """按来源哈希去重：重复卡片复用岗位库记录，不再重复入库。"""
+        """按来源哈希去重时复用岗位库记录且不派生任务。"""
         from ai.workflows.jobs.job_capture_service import import_cards_to_library
 
         with patch(
@@ -120,26 +126,21 @@ class TestImportSavesAndSchedules:
             result = await import_cards_to_library(
                 user_id="user-1",
                 cards=[make_imported_card()],
-                resume_content="候选人简历",
-                api_config={"smart": {"model": "mock"}},
             )
 
         assert result["success"] is True
         assert result["total"] == 1
         assert result["duplicates"] == 1
         assert result["jobs"][0]["job_id"] == 3
-
-
-class TestImportFailures:
-    """一键入库失败与部分失败语义。"""
+        assert result["jobs"][0]["asset_run_id"] is None
 
     @pytest.mark.asyncio
-    async def test_import_partial_failure_keeps_failed_details(self):
-        """部分卡片保存失败时返回失败明细，且失败卡片不进入 jobs。"""
+    async def test_import_returns_partial_failure_details(self):
+        """单张卡片保存失败时返回失败明细，且失败卡片不进入 jobs。"""
         from ai.workflows.jobs.job_capture_service import import_cards_to_library
 
-        def fake_save(card, _user_id, _platform, source_url="", source_text=""):
-            if card["job_title"].endswith("2"):
+        async def fake_save(card, _user_id, _platform, source_url="", source_text=""):
+            if str(card["job_title"]).endswith("2"):
                 return {"success": False, "message": "岗位信息不完整"}
             return {"success": True, "job_id": 7}
 
@@ -150,8 +151,6 @@ class TestImportFailures:
             result = await import_cards_to_library(
                 user_id="user-1",
                 cards=[make_imported_card(1), make_imported_card(2)],
-                resume_content="候选人简历",
-                api_config={"smart": {"model": "mock"}},
             )
 
         assert result["total"] == 1
@@ -176,8 +175,6 @@ class TestImportFailures:
                     **make_imported_card(),
                     "source_url": "https://example.com/job_detail/card1.html",
                 }],
-                resume_content="候选人简历",
-                api_config={"smart": {"model": "mock"}},
             )
 
         assert result["success"] is False
@@ -197,8 +194,6 @@ class TestImportFailures:
             result = await import_cards_to_library(
                 user_id="user-1",
                 cards=[{**make_imported_card(), "job_title": "Agent 实习生"}],
-                resume_content="Python Agent",
-                api_config={"smart": {"model": "mock"}},
             )
 
         assert result["success"] is False
@@ -210,16 +205,15 @@ class TestImportBoundaries:
     """入库请求的 schema 与用例边界。"""
 
     def test_import_request_requires_one_to_twenty_official_cards(self):
-        """请求只接受 1-20 张 BOSS 官方岗位链接卡片，越界直接拒绝。"""
+        """请求只接受 1-20 张官方岗位卡片且不要求模型相关字段。"""
         from app.schemas.job_schemas import JobLibraryImportRequest
 
-        base = {
-            "resume_content": "candidate resume",
-            "cards": [make_imported_card()],
-        }
+        base = {"cards": [make_imported_card()]}
         request = JobLibraryImportRequest(**base)
         assert len(request.cards) == 1
         assert request.cards[0].preliminary_match_score == 86.5
+        assert not hasattr(request, "resume_content")
+        assert not hasattr(request, "api_config")
         with pytest.raises(ValidationError):
             JobLibraryImportRequest(**{**base, "cards": []})
         with pytest.raises(ValidationError):
@@ -243,35 +237,20 @@ class TestImportBoundaries:
                     "cards": [{**make_imported_card(), "preliminary_match_score": 101}],
                 }
             )
-
-    @pytest.mark.asyncio
-    async def test_import_use_case_requires_api_config(self):
-        """缺少模型通道配置时用例直接拒绝，不触达服务层。"""
-        from app.schemas.job_schemas import JobLibraryImportRequest
-        from ai.workflows.jobs import JobBadRequest, jobs_use_cases
-
-        request = JobLibraryImportRequest(
-            resume_content="candidate resume",
-            cards=[make_imported_card()],
-        )
-        assert request.api_config is None
-        with pytest.raises(JobBadRequest):
-            await jobs_use_cases.import_cards_to_library(
-                request=request,
-                user_id="user-1",
+        with pytest.raises(ValidationError):
+            JobLibraryImportRequest(
+                **{**base, "resume_content": "legacy", "api_config": {"smart": {}}}
             )
 
     @pytest.mark.asyncio
-    async def test_import_use_case_passes_cards_to_service(self):
-        """用例把 schema 卡片原样交给服务层，并透传简历与城市。"""
+    async def test_import_use_case_passes_only_cards_and_city_to_service(self):
+        """用例只把确定性入库字段交给服务层。"""
         from app.schemas.job_schemas import JobLibraryImportRequest
         from ai.workflows.jobs import jobs_use_cases
 
         request = JobLibraryImportRequest(
-            resume_content="candidate resume",
             city="101280600",
             cards=[make_imported_card()],
-            api_config={"smart": {"model": "mock"}, "fast": {"model": "mock"}},
         )
         service_mock = AsyncMock(return_value={
             "success": True,
@@ -294,7 +273,28 @@ class TestImportBoundaries:
         service_mock.assert_awaited_once_with(
             user_id="user-1",
             cards=[card.model_dump() for card in request.cards],
-            resume_content="candidate resume",
-            api_config=request.api_config,
             city="101280600",
         )
+
+class TestHistoricalAssetCompatibility:
+    """历史岗位资产仍可读取，但新入库不创建新资产。"""
+
+    def test_job_detail_response_preserves_historical_custom_resume_payload(self):
+        """岗位详情序列化不得丢弃历史 custom_resume_id 或人工编辑内容。"""
+        from app.schemas.job_schemas import JobDetailResponse
+
+        response = JobDetailResponse(job={
+            "id": 9,
+            "company_name": "历史公司",
+            "job_title": "历史岗位",
+            "asset_payload": {
+                "custom_resume_id": 88,
+                "custom_resume_preview": "用户历史简历内容",
+                "greetings": [{"tone": "professional", "message_text": "历史文案"}],
+            },
+        })
+
+        payload = response.model_dump()["job"]["asset_payload"]
+        assert payload["custom_resume_id"] == 88
+        assert payload["custom_resume_preview"] == "用户历史简历内容"
+        assert payload["greetings"][0]["message_text"] == "历史文案"

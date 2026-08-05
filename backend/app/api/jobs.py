@@ -105,7 +105,7 @@ async def import_cards_to_library(
     request: JobLibraryImportRequest,
     user_id: str = Depends(get_current_user_id),
 ):
-    """把用户确认的待入库卡片真正写入岗位库并调度可恢复资产任务。"""
+    """把用户确认的待入库卡片确定性写入岗位库，不调度模型或后台资产任务。"""
     return await _call_use_case(
         lambda: jobs_use_cases.import_cards_to_library(request=request, user_id=user_id),
         "job_import_failed",

@@ -20,7 +20,6 @@ from ai.runtime.context_assembler import (
 )
 from ai.runtime.deadlines import TaskDeadline
 from app.config import get_settings
-from app.security.security import safe_error_message
 from integrations.boss.existing_tab_bridge import normalize_company_size_text
 from integrations.boss.security import (
     is_allowed_boss_job_url,
@@ -326,7 +325,7 @@ async def capture_from_imported_cards(
         cards = cards[:top_n]
 
     # 采集阶段不保存岗位：返回排序后的待入库卡片，
-    # 用户确认后在岗位中心「一键入库」写入岗位库并调度资产任务。
+    # 用户确认后在岗位中心「一键入库」只写入岗位库，不调度模型或资产任务。
     results: list = []
     for card in cards:
         company = card.get("company_name", "")
@@ -366,14 +365,13 @@ async def capture_from_imported_cards(
 async def import_cards_to_library(
     user_id: str,
     cards: list[dict[str, Any]],
-    resume_content: str,
-    api_config: Optional[dict] = None,
     city: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """保存用户确认的待入库卡片并为每个岗位调度可恢复资产任务。
+    """确定性保存用户确认的待入库卡片，不触发任何模型或后台任务。
 
-    按来源哈希去重；重复卡片复用岗位库记录，资产任务经幂等键复用，
-    因此失败后重试不会产生重复岗位或重复资产任务。
+    岗位按来源哈希去重；重复卡片复用已有岗位记录。历史资产字段只在读取
+    既有记录时保留，本入口不会创建或更新 AgentRun、Resume Generation、
+    Greeting、JD 分析或资产跟踪状态。
     """
     valid_cards = _sanitize_cards(cards)
     if not valid_cards:
@@ -399,9 +397,13 @@ async def import_cards_to_library(
         source_url = str(card.get("source_url") or "")
         match_score = card.get("preliminary_match_score")
 
-        logger.info(f"[JobCapture] 入库 [{idx}/{len(valid_cards)}]: {company} - {title}")
-
-        # 岗位卡片标准化 + 入库（按来源哈希去重）
+        logger.info(
+            "[JobCapture] 确定性入库 [%s/%s]: %s - %s",
+            idx,
+            len(valid_cards),
+            company,
+            title,
+        )
         try:
             cap = await _normalize_and_save(
                 {
@@ -414,12 +416,12 @@ async def import_cards_to_library(
                 source_url=source_url,
                 source_text=jd_text,
             )
-        except Exception as e:
-            logger.warning(f"[JobCapture] 卡片 {idx} 入库失败: {e}")
+        except Exception as exc:
+            logger.warning("[JobCapture] 卡片 %s 入库失败: %s", idx, type(exc).__name__)
             failures.append({
                 "company_name": company,
                 "job_title": title,
-                "reason": str(e),
+                "reason": str(exc),
                 "source_url": source_url,
             })
             continue
@@ -442,105 +444,10 @@ async def import_cards_to_library(
                 "source_url": source_url,
             })
             continue
+
         job_id = int(raw_job_id)
         if cap.get("is_duplicate"):
             duplicates += 1
-
-        # 调度可恢复资产任务：JD分析 + 定制简历 + 打招呼文案
-        asset_result = None
-        risk_flags: list = []
-        custom_resume_id = None
-        greetings: list = []
-        asset_run_id = None
-        asset_status = None
-
-        try:
-            from ai.runtime.agent_runs.service import (
-                AgentRunService,
-                task_queue_enabled,
-            )
-            from app.domain.agent_runs import TASK_TYPE_JOB_ASSETS
-
-            if task_queue_enabled():
-                from ai.runtime.agent_runs.outbox import dispatch_pending_outbox
-
-                run_service = AgentRunService()
-                resume_token = sha256(resume_content.encode()).hexdigest()[:16]
-                run, created = await run_service.create_or_get(
-                    user_id=user_id,
-                    task_type=TASK_TYPE_JOB_ASSETS,
-                    payload={
-                        "job_id": job_id,
-                        "resume_content": resume_content,
-                        "api_config": api_config,
-                        "include_project_rewrite": False,
-                        "template_style": "professional",
-                    },
-                    idempotency_key=f"capture-assets:{job_id}:{resume_token}",
-                )
-                if created:
-                    _, failed = await dispatch_pending_outbox(limit=50)
-                    if failed:
-                        logger.warning(
-                            "[JobCapture] 岗位资产任务等待 Outbox 重试: run_id=%s",
-                            run.id,
-                        )
-                asset_run_id = run.id
-                asset_status = run.status
-                from app.db.repositories.jobs.job_capture_repo import get_job_capture_repo
-                await get_job_capture_repo().update_asset_tracking(
-                    int(job_id),
-                    user_id,
-                    asset_run_id=run.id,
-                    asset_status=run.status,
-                    match_score=match_score,
-                )
-                asset_result = run.result or {}
-                assets_data = asset_result.get("assets") if isinstance(asset_result, dict) else None
-                if isinstance(assets_data, dict):
-                    risk_flags = list(assets_data.get("risk_flags") or [])
-                    jd_analysis = assets_data.get("jd_analysis") or {}
-                    if isinstance(jd_analysis, dict):
-                        match_score = jd_analysis.get("overall_match_score")
-                    custom_resume_id = assets_data.get("custom_resume_id")
-                    greetings = list(assets_data.get("greetings") or [])
-            else:
-                from ai.workflows.jobs.job_asset_orchestrator import (
-                    generate_assets,
-                )
-
-                asset_result = await generate_assets(
-                    job_id=int(job_id),
-                    user_id=user_id,
-                    resume_content=resume_content,
-                    api_config=api_config,
-                )
-                asset_status = "succeeded" if asset_result.get("success") else "failed"
-                if asset_result.get("success") and asset_result.get("assets"):
-                    assets_obj = asset_result["assets"]
-                    risk_flags = list(assets_obj.risk_flags or [])
-                    if assets_obj.jd_analysis:
-                        match_score = assets_obj.jd_analysis.get("overall_match_score")
-                    custom_resume_id = assets_obj.custom_resume_id
-                    for g in (assets_obj.greetings or []):
-                        greetings.append({
-                            "tone": g.tone,
-                            "message_text": g.message_text,
-                            "highlights_used": g.highlights_used,
-                            "risk_notes": g.risk_notes,
-                        })
-                    from app.db.repositories.jobs.job_capture_repo import get_job_capture_repo
-                    await get_job_capture_repo().update_asset_tracking(
-                        int(job_id),
-                        user_id,
-                        asset_status=asset_status,
-                        match_score=match_score,
-                        asset_payload=assets_obj.model_dump(),
-                    )
-        except Exception as e:
-            logger.warning(f"[JobCapture] 卡片 {idx} 资产生成失败: {e}")
-            asset_status = "failed"
-            risk_flags.append(f"资产生成失败: {safe_error_message(e)}")
 
         results.append({
             "job_id": job_id,
@@ -552,23 +459,23 @@ async def import_cards_to_library(
             "salary_text": salary,
             "city": city_val,
             "match_score": match_score,
-            "custom_resume_id": custom_resume_id,
-            "greetings": greetings,
-            "risk_flags": risk_flags,
-            "asset_run_id": asset_run_id,
-            "asset_status": asset_status,
+            "custom_resume_id": None,
+            "greetings": [],
+            "risk_flags": [],
+            "asset_run_id": None,
+            "asset_status": None,
         })
 
-    msg = f"共入库 {len(results)} 个岗位"
+    message = f"共入库 {len(results)} 个岗位"
     if duplicates:
-        msg += f"，其中 {duplicates} 个已存在并复用"
+        message += f"，其中 {duplicates} 个已存在并复用"
     if failures:
-        msg += f"，{len(failures)} 个失败"
+        message += f"，{len(failures)} 个失败"
     return {
         "success": len(results) > 0,
         "total": len(results),
         "duplicates": duplicates,
         "jobs": results,
         "failed": failures,
-        "message": msg,
+        "message": message,
     }

@@ -312,6 +312,7 @@ def test_production_agent_definitions_are_registered():
         "job_assets",
         "job_recommendation_capture",
         "evaluation_suite",
+        "ability_profile",
     }
     assert definitions["interview_start"].checkpoint_policy == "durable"
     assert definitions["interview_turn"].checkpoint_policy == "durable"
@@ -327,6 +328,7 @@ def test_production_agent_definitions_are_registered():
             "resume_workspace",
             "job_recommendation_capture",
             "evaluation_suite",
+            "ability_profile",
         }:
             assert definition.graph_name in graph_registry.names()
         if definition.task_type != "evaluation_suite":

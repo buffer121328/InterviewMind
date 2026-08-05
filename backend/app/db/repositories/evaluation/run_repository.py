@@ -31,6 +31,7 @@ class RunRepositoryMixin:
             repetition_count: int,
             include_judges: bool,
             budget: dict[str, Any],
+            run_id: str | None = None,
         ) -> EvaluationRunModel:
             """创建 EvaluationRun；敏感 api_config 由 AgentRun 加密载荷持有。"""
 
@@ -40,7 +41,7 @@ class RunRepositoryMixin:
             if dataset is None:
                 raise LookupError("dataset not found")
             run = EvaluationRunModel(
-                id=_id("erun"),
+                id=run_id or _id("erun"),
                 user_id=user_id,
                 suite_id=suite.id,
                 agent_run_id=None,

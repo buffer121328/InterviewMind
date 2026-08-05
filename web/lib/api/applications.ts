@@ -18,6 +18,14 @@ export interface ApplicationEvent {
     created_at: string;
 }
 
+export interface LinkedResumeAsset {
+    id: number;
+    title: string;
+    job_description: string | null;
+    content: string;
+    created_at: string;
+}
+
 export interface JobApplication {
     id: number;
     user_id: string;
@@ -36,6 +44,7 @@ export interface JobApplication {
     greeting_text: string | null;
     send_status: string | null;
     custom_resume_id: number | null;
+    linked_resume: LinkedResumeAsset | null;
     created_at: string;
     updated_at: string;
     events: ApplicationEvent[];
@@ -65,7 +74,6 @@ export interface CreateApplicationRequest {
     job_title: string;
     job_description?: string;
     channel?: string;
-    generated_resume_id?: number;
     latest_status?: string;
     priority?: string;
     notes?: string;
@@ -75,7 +83,6 @@ export interface CreateApplicationRequest {
     captured_job_id?: number;
     greeting_text?: string;
     send_status?: string;
-    custom_resume_id?: number;
 }
 
 export interface UpdateApplicationRequest {
@@ -83,7 +90,6 @@ export interface UpdateApplicationRequest {
     job_title?: string;
     job_description?: string;
     channel?: string;
-    generated_resume_id?: number;
     latest_status?: string;
     priority?: string;
     notes?: string;
@@ -194,6 +200,23 @@ export async function updateApplication(
         return response.application;
     } catch (error) {
         console.error('更新投递记录失败:', error);
+        return null;
+    }
+}
+
+/** Replaces or clears the owner-scoped generated resume linked to an application. */
+export async function setApplicationResume(
+    applicationId: number,
+    resumeId: number | null,
+): Promise<JobApplication | null> {
+    try {
+        const response = await apiRequest<{ success: boolean; application: JobApplication }>(
+            `/api/applications/${applicationId}/resume`,
+            { method: 'PUT', body: JSON.stringify({ resume_id: resumeId }) },
+        );
+        return response.application;
+    } catch (error) {
+        console.error('更新关联简历失败:', error);
         return null;
     }
 }

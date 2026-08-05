@@ -3,6 +3,7 @@
 from types import SimpleNamespace
 
 import pytest
+from unittest.mock import AsyncMock
 
 
 @pytest.mark.asyncio
@@ -140,11 +141,16 @@ async def test_generation_workflow_owns_agent_run_lifecycle(monkeypatch):
     monkeypatch.setattr(generation.AgentRunService, "fail", fail)
     monkeypatch.setattr(generation, "submit_user_answers", submit)
     monkeypatch.setattr(generation, "agent_observation", observe)
+    monkeypatch.setattr(
+        generation.session_store,
+        "get",
+        AsyncMock(return_value=SimpleNamespace(status="awaiting_input", questions=["q"], agent_run_id=None)),
+    )
 
     response = await generation.ResumeGenerationUseCases().submit_generation_answers(
         request=SimpleNamespace(
             session_id="generation-1",
-            answers={},
+            answers={"q": "a"},
             api_config=SimpleNamespace(model_dump=lambda: {"fast": {"model": "mock"}}),
         ),
         user_id="owner-1",
@@ -164,6 +170,6 @@ async def test_generation_workflow_owns_agent_run_lifecycle(monkeypatch):
             "user_id": "owner-1",
             "session_id": "generation-1",
             "run_id": "run-resume-1",
-            "input_payload": {"answer_count": 0},
+            "input_payload": {"answer_count": 1},
         }
     ]

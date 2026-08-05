@@ -94,6 +94,18 @@ def build_interview_report_markdown(
             f" · 更新时间：{_inline(generated_at)}"
         ),
         "",
+    ]
+    if profile_data.get("generation_mode") == "degraded_evidence_only":
+        missing = [
+            label for key, label in _PROFILE_DIMENSIONS
+            if key in _items(profile_data.get("missing_dimensions"))
+        ]
+        lines.extend([
+            "> ⚠️ 本报告为证据受限降级模式：仅保留已持久化问答，未生成能力评分。",
+            f"> 未评分维度：{'、'.join(missing) if missing else '全部能力维度'}",
+            "",
+        ])
+    lines.extend([
         "## 综合评价",
         "",
         _inline(profile_data.get("overall_assessment")),
@@ -102,7 +114,7 @@ def build_interview_report_markdown(
         "",
         "## 能力画像",
         "",
-    ]
+    ])
 
     for key, label in _PROFILE_DIMENSIONS:
         dimension = _record(profile_data.get(key))
@@ -177,3 +189,46 @@ def build_interview_report_markdown(
     priority_order = [_inline(value) for value in _items(weakness_data.get("priority_order"))]
     lines.append(" → ".join(priority_order) if priority_order else "暂无建议顺序。")
     return "\n".join(lines).strip() + "\n"
+
+
+def build_structured_interview_report(profile: object, weakness_report: object) -> tuple[dict, dict]:
+    """Map persisted report containers to the bounded public structured contract."""
+    profile_data = _record(_record(profile).get("profile") or profile)
+    weakness_data = _record(_record(weakness_report).get("report_data") or weakness_report)
+    dimensions = {
+        key: _record(profile_data.get(key))
+        for key, _label in _PROFILE_DIMENSIONS
+        if _record(profile_data.get(key))
+    }
+    public_profile = {
+        "overall_assessment": str(profile_data.get("overall_assessment") or ""),
+        "recommendation": str(profile_data.get("recommendation") or ""),
+        "dimensions": dimensions,
+        "skill_tags": [value for value in _items(profile_data.get("skill_tags")) if isinstance(value, str)],
+        "key_strengths": [value for value in _items(profile_data.get("key_strengths")) if isinstance(value, str)],
+        "key_weaknesses": [value for value in _items(profile_data.get("key_weaknesses")) if isinstance(value, str)],
+        "generation_mode": str(profile_data.get("generation_mode") or "model_reviewed"),
+        "missing_dimensions": [
+            value for value in _items(profile_data.get("missing_dimensions")) if isinstance(value, str)
+        ],
+    }
+    public_weakness = {
+        key: [item for item in (_record(value) for value in _items(weakness_data.get(key))) if item]
+        for key in ("question_evidence", "weakness_categories", "question_failures", "improvement_actions")
+    }
+    public_weakness["recommended_questions"] = [
+        value for value in _items(weakness_data.get("recommended_questions")) if isinstance(value, str)
+    ]
+    public_weakness["priority_order"] = [
+        value for value in _items(weakness_data.get("priority_order")) if isinstance(value, str)
+    ]
+    public_weakness["generation_mode"] = str(
+        weakness_data.get("generation_mode") or "model_reviewed"
+    )
+    public_weakness["degradation_reason"] = str(
+        weakness_data.get("degradation_reason") or ""
+    )
+    public_weakness["missing_dimensions"] = [
+        value for value in _items(weakness_data.get("missing_dimensions")) if isinstance(value, str)
+    ]
+    return public_profile, public_weakness

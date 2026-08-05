@@ -13,27 +13,37 @@ except ModuleNotFoundError:  # pragma: no cover - 轻量测试环境
     ToolMessage = Any
 
 
-_INJECTION_PATTERNS = tuple(
+_COMMAND_INJECTION_PATTERNS = tuple(
     re.compile(pattern, re.IGNORECASE | re.DOTALL)
     for pattern in (
         r"ignore\s+(all\s+)?(previous|prior|above)\s+instructions?",
         r"reveal\s+(the\s+)?(system|developer)\s+(prompt|message)",
-        r"\b(prompt\s*injection|jailbreak)\b",
         r"忽略.{0,16}(之前|以上|原有).{0,16}(指令|提示词|规则)",
         r"(泄露|输出|显示).{0,16}(系统|开发者).{0,16}(提示词|指令|消息)",
         r"<\|(?:im_start|system|assistant)\|>",
     )
 )
+_SECURITY_TERM_PATTERNS = (
+    re.compile(r"\b(prompt\s*injection|jailbreak)\b", re.IGNORECASE | re.DOTALL),
+)
+_INJECTION_PATTERNS = _COMMAND_INJECTION_PATTERNS + _SECURITY_TERM_PATTERNS
 
 
-def contains_prompt_injection(value: Any) -> bool:
-    """递归检查工具输出中的高置信度注入特征。"""
+def contains_prompt_injection(value: Any, *, allow_security_terms: bool = False) -> bool:
+    """Recursively detect executable injection; trusted documents may name security concepts."""
+    patterns = _COMMAND_INJECTION_PATTERNS if allow_security_terms else _INJECTION_PATTERNS
     if isinstance(value, str):
-        return any(pattern.search(value) for pattern in _INJECTION_PATTERNS)
+        return any(pattern.search(value) for pattern in patterns)
     if isinstance(value, dict):
-        return any(contains_prompt_injection(item) for item in value.values())
+        return any(
+            contains_prompt_injection(item, allow_security_terms=allow_security_terms)
+            for item in value.values()
+        )
     if isinstance(value, (list, tuple)):
-        return any(contains_prompt_injection(item) for item in value)
+        return any(
+            contains_prompt_injection(item, allow_security_terms=allow_security_terms)
+            for item in value
+        )
     return False
 
 

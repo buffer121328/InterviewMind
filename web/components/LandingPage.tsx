@@ -295,7 +295,7 @@ export function LandingPage({ onNavigate, onOpenSettings }: LandingPageProps) {
                 先连接你的模型通道
               </div>
               <h2 className="mt-4 text-2xl font-semibold">准备好后，从一场定向面试开始。</h2>
-              <p className="mt-3 max-w-2xl text-sm leading-7 text-teal-50/70">API Key 加密保存到 Redis 30 天；前端业务请求只发送凭据引用，后端统一解析。请勿截图或共享设置，公网部署请使用 HTTPS。</p>
+              <p className="mt-3 max-w-2xl text-sm leading-7 text-teal-50/70">API Key 按技术模型名保存在本机 Redis，默认 30 天滑动 TTL，并在使用时续期；前端业务请求只发送凭据引用。Redis 仅用于本地个人部署，不要暴露到公网。</p>
             </div>
             <div className="mt-7 flex flex-col gap-3 sm:flex-row lg:mt-0">
               <Button variant="outline" className="border-white/20 bg-white/5 text-white hover:bg-white/10 hover:text-white" onClick={onOpenSettings}>

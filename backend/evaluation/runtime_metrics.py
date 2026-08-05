@@ -47,6 +47,13 @@ class RuntimeGovernanceSnapshot:
     memory_adopted_count: int
     memory_write_observed_count: int
     memory_write_duplicate_count: int
+    model_logical_call_count: int
+    model_physical_request_count: int
+    model_fallback_count: int
+    model_timeout_count: int
+    model_durations: tuple[int, ...]
+    authoritative_context_count: int
+    authoritative_truncated_count: int
 
     def as_counts(self) -> dict[str, object]:
         """返回 Worker、API 与测试复用的稳定计数键。"""
@@ -81,6 +88,13 @@ class RuntimeGovernanceSnapshot:
             "memory_adopted_count": self.memory_adopted_count,
             "memory_write_observed_count": self.memory_write_observed_count,
             "memory_write_duplicate_count": self.memory_write_duplicate_count,
+            "model_logical_call_count": self.model_logical_call_count,
+            "model_physical_request_count": self.model_physical_request_count,
+            "model_fallback_count": self.model_fallback_count,
+            "model_timeout_count": self.model_timeout_count,
+            "model_durations": list(self.model_durations),
+            "authoritative_context_count": self.authoritative_context_count,
+            "authoritative_truncated_count": self.authoritative_truncated_count,
         }
 
     def metric_values(self) -> dict[str, float | None]:
@@ -128,6 +142,11 @@ class RuntimeGovernanceSnapshot:
                 self.memory_write_duplicate_count,
                 self.memory_write_observed_count,
             ),
+            "model.call_amplification": _ratio(self.model_physical_request_count, self.model_logical_call_count),
+            "model.fallback_rate": _ratio(self.model_fallback_count, self.model_physical_request_count),
+            "model.timeout_rate": _ratio(self.model_timeout_count, self.model_physical_request_count),
+            "model.p95_latency_ms": _percentile(self.model_durations, 0.95),
+            "context.authoritative_truncation_rate": _ratio(self.authoritative_truncated_count, self.authoritative_context_count),
         }
 
 
@@ -183,6 +202,10 @@ def summarize_record_governance(record: AgentEvalRecord) -> RuntimeGovernanceSna
         and "memory" in str(call.target_namespace or "").lower()
     ]
     memory_write_duplicates = len(memory_write_keys) - len(set(memory_write_keys))
+    model_events = [event for event in record.events if event.event_type.startswith("llm.request.")]
+    model_started = [event for event in model_events if event.event_type == "llm.request.started"]
+    model_terminal = [event for event in model_events if event.event_type in {"llm.request.completed", "llm.request.failed"}]
+    authoritative_events = [event for event in model_events if "authoritative_source_truncated" in event.payload_summary]
     return RuntimeGovernanceSnapshot(
         trace_complete=record.observability.trace_completeness.complete,
         trace_completeness_score=record.observability.trace_completeness.score,
@@ -239,6 +262,13 @@ def summarize_record_governance(record: AgentEvalRecord) -> RuntimeGovernanceSna
         memory_adopted_count=sum(item.adopted is True for item in memory_searches),
         memory_write_observed_count=len(memory_write_keys),
         memory_write_duplicate_count=memory_write_duplicates,
+        model_logical_call_count=sum(int(event.payload_summary.get("attempt") or 1) == 1 and int(event.payload_summary.get("fallback_index") or 0) == 0 for event in model_started),
+        model_physical_request_count=len(model_started),
+        model_fallback_count=sum(int(event.payload_summary.get("fallback_index") or 0) > 0 for event in model_started),
+        model_timeout_count=sum(event.payload_summary.get("failure_type") == "timeout" for event in model_events),
+        model_durations=tuple(int(event.payload_summary.get("total_duration_ms") or event.payload_summary.get("duration_ms") or 0) for event in model_terminal),
+        authoritative_context_count=len(authoritative_events),
+        authoritative_truncated_count=sum(event.payload_summary.get("authoritative_source_truncated") is True for event in authoritative_events),
     )
 
 

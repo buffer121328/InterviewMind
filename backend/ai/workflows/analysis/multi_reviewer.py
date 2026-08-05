@@ -85,6 +85,7 @@ class _ReviewState(TypedDict, total=False):
 
     mode: ReviewMode
     context: str
+    contexts: dict[str, str]
     reviewer: ReviewerSpec
     reviewers: tuple[ReviewerSpec, ...]
     assessments: Annotated[list[ReviewerAssessment], operator.add]
@@ -101,7 +102,7 @@ def _dispatch_reviewers(state: _ReviewState) -> list[Send]:
             "review_one",
             {
                 "mode": state["mode"],
-                "context": state["context"],
+                "context": state.get("contexts", {}).get(reviewer.perspective, state["context"]),
                 "reviewer": reviewer,
                 "api_config": state.get("api_config"),
                 "deadline": state.get("deadline"),
@@ -151,8 +152,8 @@ async def _review_one(state: _ReviewState) -> dict[str, Any]:
     return {"assessments": [assessment]}
 
 
-async def _reduce_reviews(state: _ReviewState) -> dict[str, Any]:
-    """Synthesize reviewer outputs into one schema-validated consensus artifact."""
+async def _compose_narrative(state: _ReviewState) -> dict[str, Any]:
+    """Compose one evidence-grounded narrative, resolving conflicts and partial reviewer failure."""
     from ai.prompts.analysis import build_multi_reviewer_consensus_prompt
 
     assessments = list(state.get("assessments", []))
@@ -184,9 +185,10 @@ async def _reduce_reviews(state: _ReviewState) -> dict[str, Any]:
         deadline=state.get("deadline"),
         call_metadata={
             **state.get("call_metadata", {}),
-            "stage": f"{state['mode']}.consensus_reduce",
+            "stage": f"{state['mode']}.narrative_composer",
             "reviewer_count": len(assessments),
             "successful_reviewer_count": len(successful),
+            "failed_reviewers": [item.perspective for item in assessments if item.status == "error"],
         },
     )
     return {"output": output}
@@ -196,9 +198,9 @@ def build_multi_reviewer_graph():
     """Build the side-effect-free LangGraph Send map-reduce evaluator."""
     graph = StateGraph(_ReviewState)
     graph.add_node("review_one", _review_one)
-    graph.add_node("reduce", _reduce_reviews)
+    graph.add_node("compose_narrative", _compose_narrative)
     graph.add_conditional_edges(START, _dispatch_reviewers)
-    graph.add_edge("review_one", "reduce")
+    graph.add_edge("review_one", "compose_narrative")
     return graph.compile()
 
 
@@ -212,14 +214,22 @@ async def run_multi_reviewer_map_reduce(
     api_config: dict[str, Any] | None,
     deadline: TaskDeadline | None,
     call_metadata: dict[str, Any] | None = None,
+    review_contexts: dict[str, str] | None = None,
+    reviewer_perspectives: tuple[ReviewPerspective, ...] | None = None,
 ) -> ReviewMapReduceResult:
-    """Run four parallel reviewers and one reducer under a shared task deadline."""
+    """Run selected perspective reviewers and one Narrative Composer under a shared deadline."""
+    selected_reviewers = tuple(
+        reviewer for reviewer in _REVIEWERS
+        if reviewer_perspectives is None or reviewer.perspective in reviewer_perspectives
+    )
+    if not selected_reviewers:
+        raise ValueError("at least one reviewer perspective is required")
     graph_config = with_langgraph_langfuse_config(
         {"metadata": {"evaluation_mode": "parallel_map_reduce"}},
         run_name=f"{mode}-multi-reviewer",
         metadata={
             "agent_type": mode,
-            "reviewer_count": len(_REVIEWERS),
+            "reviewer_count": len(selected_reviewers),
         },
     )
     with langgraph_langfuse_scope("callbacks" in graph_config):
@@ -227,7 +237,8 @@ async def run_multi_reviewer_map_reduce(
             {
                 "mode": mode,
                 "context": review_context,
-                "reviewers": _REVIEWERS,
+                "contexts": dict(review_contexts or {}),
+                "reviewers": selected_reviewers,
                 "assessments": [],
                 "api_config": api_config,
                 "deadline": deadline,

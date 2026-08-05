@@ -228,8 +228,32 @@ async def test_resume_workspace_executor_persists_parent_and_reuses_after_crash(
     monkeypatch.setitem(sys.modules, matcher_module.__name__, matcher_module)
     monkeypatch.setitem(sys.modules, orchestrator_module.__name__, orchestrator_module)
 
+    async def normalize_job_context(snapshot, *, user_id):
+        assert user_id == "owner-1"
+        return dict(snapshot)
+
+    job_context_snapshot = {
+        "source_job_id": 42,
+        "source_platform": "boss",
+        "source_url": "https://www.zhipin.com/job/42",
+        "company_name": "编辑后的公司",
+        "company_size_text": "100-499人",
+        "job_title": "编辑后的岗位",
+        "job_description": "编辑后的 JD",
+        "salary_text": "30-40K",
+        "city": "上海",
+        "imported_at": "2026-08-04T09:00:00",
+    }
+    monkeypatch.setattr(resume_workspace, "normalize_owned_job_context_snapshot", normalize_job_context)
+
     result = await resume_workspace.execute_resume_workspace(
-        {"_agent_run_id": "workspace-run", "resume_content": "resume", "job_description": "jd", "session_ids": []},
+        {
+            "_agent_run_id": "workspace-run",
+            "resume_content": "resume",
+            "job_description": "编辑后的 JD",
+            "session_ids": [],
+            "job_context_snapshot": job_context_snapshot,
+        },
         "owner-1",
         progress,
     )
@@ -242,10 +266,21 @@ async def test_resume_workspace_executor_persists_parent_and_reuses_after_crash(
     assert public_result["review"]["status"] == "pending"
     assert save_calls[0]["result_type"] == "optimize"
     assert save_calls[0]["agent_run_id"] == "workspace-run"
+    workspace = save_calls[0]["result_data"]["workspace"]
+    assert workspace["source_job_id"] == 42
+    assert workspace["job_context_snapshot"]["job_description"] == "编辑后的 JD"
+    assert public_result["source_job_id"] == 42
+    assert public_result["job_context_snapshot"]["job_title"] == "编辑后的岗位"
 
     setattr(orchestrator_module, "run_pipeline", unexpected_pipeline)
     retried = await resume_workspace.execute_resume_workspace(
-        {"_agent_run_id": "workspace-run", "resume_content": "resume", "job_description": "jd", "session_ids": []},
+        {
+            "_agent_run_id": "workspace-run",
+            "resume_content": "resume",
+            "job_description": "编辑后的 JD",
+            "session_ids": [],
+            "job_context_snapshot": job_context_snapshot,
+        },
         "owner-1",
         progress,
     )

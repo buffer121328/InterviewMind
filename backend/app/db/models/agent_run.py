@@ -9,7 +9,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -107,6 +107,43 @@ class AgentRunEventModel(Base):
         UniqueConstraint("run_id", "sequence", name="uq_agent_run_event_sequence"),
         # 复合索引：加速按 run_id 查询所有事件并按时间排序（replay / 推送场景）
         Index("idx_agent_run_events_run_created", "run_id", "created_at"),
+    )
+
+
+class ModelMetricEventModel(Base):
+    """Persist one credential-free model metric event for owner-scoped aggregation.
+
+    The payload is restricted by ``observability.record_model_event`` to numeric,
+    short scalar, and low-cardinality audit fields. Model input/output text and
+    authentication material are never accepted by this table.
+    """
+
+    __tablename__ = "model_metric_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(String, nullable=False)
+    run_id: Mapped[str] = mapped_column(
+        String, ForeignKey("agent_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    observation_id: Mapped[str] = mapped_column(String, nullable=False)
+    trace_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    event_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    agent_name: Mapped[str] = mapped_column(String, nullable=False, default="unknown")
+    task_type: Mapped[str] = mapped_column(String, nullable=False)
+    stage: Mapped[str | None] = mapped_column(String, nullable=True)
+    event_type: Mapped[str] = mapped_column(String, nullable=False)
+    is_degradation: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    payload: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "run_id", "observation_id", "event_index",
+            name="uq_model_metric_event_observation_index",
+        ),
+        Index("idx_model_metric_events_owner_created", "user_id", "created_at"),
+        Index("idx_model_metric_events_run_created", "run_id", "created_at"),
+        Index("idx_model_metric_events_owner_degradation", "user_id", "is_degradation", "created_at"),
     )
 
 

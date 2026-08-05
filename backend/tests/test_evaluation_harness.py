@@ -328,6 +328,13 @@ def test_worker_governance_counts_cover_tool_dependency_approval_and_retrieval()
         "memory_adopted_count": 0,
         "memory_write_observed_count": 0,
         "memory_write_duplicate_count": 0,
+        "model_logical_call_count": 0,
+        "model_physical_request_count": 0,
+        "model_fallback_count": 0,
+        "model_timeout_count": 0,
+        "model_durations": [],
+        "authoritative_context_count": 0,
+        "authoritative_truncated_count": 0,
     }
 
 

@@ -12,6 +12,7 @@ from sqlalchemy.dialects.postgresql import insert
 
 from app.db.models import async_session
 from app.db.models.interview import WeaknessReportModel
+from app.clock import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +45,7 @@ class WeaknessReportRepo:
         """
         async with async_session() as db:
             try:
-                now = datetime.now()
+                now = utc_now()
                 stmt = insert(WeaknessReportModel).values(
                     user_id=user_id,
                     session_id=session_id,

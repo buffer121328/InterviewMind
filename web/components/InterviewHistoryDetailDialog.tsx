@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
+import { toast } from 'sonner';
 import {
     AlertTriangle,
     BarChart3,
@@ -26,7 +27,8 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
 import { DialogueReview } from '@/components/DialogueReview';
 import { getSessionDetail, type SessionDetail } from '@/lib/api/sessions';
-import { getSessionInterviewReport, type SessionMarkdownReport } from '@/lib/api/interviewReport';
+import { getSessionInterviewReport, saveSessionReportQuestions, type SessionMarkdownReport } from '@/lib/api/interviewReport';
+import { buildTargetedInterviewHandoff, normalizeStructuredInterviewReport, type TargetedInterviewHandoff } from '@/lib/interviewReportStructured';
 import {
     createInterviewReportRun,
     listAgentRuns,
@@ -44,6 +46,7 @@ interface InterviewHistoryDetailDialogProps {
     onOpenChange: (open: boolean) => void;
     /** Allows report buttons to land directly on the Markdown preview. */
     initialTab?: InterviewDialogTab;
+    onStartTargetedInterview?: (handoff: TargetedInterviewHandoff) => void;
 }
 
 const ACTIVE_RUN_STATUSES = new Set<AgentRun['status']>([
@@ -97,9 +100,13 @@ export function InterviewHistoryDetailDialog({
     open,
     onOpenChange,
     initialTab = 'overview',
+    onStartTargetedInterview,
 }: InterviewHistoryDetailDialogProps) {
     const [session, setSession] = useState<SessionDetail | null>(null);
     const [report, setReport] = useState<SessionMarkdownReport | null>(null);
+    const [reportView, setReportView] = useState<'structured' | 'markdown'>('structured');
+    const [selectedQuestionIndices, setSelectedQuestionIndices] = useState<number[]>([]);
+    const [savingQuestions, setSavingQuestions] = useState(false);
     const [reportRun, setReportRun] = useState<AgentRun | null>(null);
     const [loading, setLoading] = useState(true);
     const [submitting, setSubmitting] = useState(false);
@@ -217,6 +224,23 @@ export function InterviewHistoryDetailDialog({
         }
     }, [report?.success, sessionId]);
 
+    const structuredReport = useMemo(() => normalizeStructuredInterviewReport(report), [report]);
+    const recommendedQuestions = structuredReport.weaknessReport.recommendedQuestions;
+    const handleSaveQuestions = useCallback(async () => {
+        if (!sessionId || !selectedQuestionIndices.length) return;
+        setSavingQuestions(true);
+        try { const result = await saveSessionReportQuestions(sessionId, selectedQuestionIndices); toast.success(`已加入 ${result.saved_count} 道题，跳过 ${result.skipped_count} 道重复题`); }
+        catch (cause) { toast.error(cause instanceof Error ? cause.message : '加入题库失败'); }
+        finally { setSavingQuestions(false); }
+    }, [selectedQuestionIndices, sessionId]);
+    const handleTargetedInterview = useCallback(() => {
+        if (!sessionId || !onStartTargetedInterview) return;
+        const selected = selectedQuestionIndices.length ? selectedQuestionIndices.map(index => recommendedQuestions[index]).filter(Boolean) : recommendedQuestions;
+        const weaknesses = structuredReport.weaknessReport.weaknessCategories.map(item => String(item.category || '')).filter(Boolean);
+        onStartTargetedInterview(buildTargetedInterviewHandoff(sessionId, weaknesses, selected));
+        onOpenChange(false);
+    }, [onOpenChange, onStartTargetedInterview, recommendedQuestions, selectedQuestionIndices, sessionId, structuredReport.weaknessReport.weaknessCategories]);
+
     const dialogueMessages = useMemo(() => normalizedDialogue(session), [session]);
     const answeredCount = useMemo(
         () => dialogueMessages.filter(message => message.role === 'user').length,
@@ -298,7 +322,7 @@ export function InterviewHistoryDetailDialog({
                             <div className="flex h-full min-h-0 flex-col">
                                 <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 px-6 py-3">
                                     <div>
-                                        <p className="text-sm font-medium text-gray-900">Markdown 预览</p>
+                                        <p className="text-sm font-medium text-gray-900">结构化面试复盘</p>
                                         <p className="text-xs text-gray-500">
                                             {report?.generated_at ? `更新时间：${formatDate(report.generated_at)}` : '能力画像与短板地图将合并生成'}
                                         </p>
@@ -308,6 +332,9 @@ export function InterviewHistoryDetailDialog({
                                             {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
                                             {report?.success ? '重新生成' : '生成报告'}
                                         </Button>
+                                        {report?.success && <Button variant="outline" size="sm" onClick={() => setReportView(value => value === 'structured' ? 'markdown' : 'structured')}>{reportView === 'structured' ? '查看 Markdown' : '查看结构化复盘'}</Button>}
+                                        {report?.success && selectedQuestionIndices.length > 0 && <Button variant="outline" size="sm" onClick={() => void handleSaveQuestions()} disabled={savingQuestions}>{savingQuestions ? '保存中...' : '加入题库'}</Button>}
+                                        {report?.success && onStartTargetedInterview && recommendedQuestions.length > 0 && <Button size="sm" onClick={handleTargetedInterview}>开始专项面试</Button>}
                                         <Button variant="outline" size="sm" onClick={() => void handleDownload('html')} disabled={!report?.success || exportingFormat !== null}>
                                             {exportingFormat === 'html' ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileCode2 className="h-4 w-4" />}下载 HTML
                                         </Button>
@@ -321,9 +348,19 @@ export function InterviewHistoryDetailDialog({
                                 )}
                                 <ScrollArea className="min-h-0 flex-1 bg-slate-100/70">
                                     {report?.success && report.markdown ? (
-                                        <article className="prose prose-slate mx-auto my-6 min-h-[297mm] w-[min(100%,210mm)] max-w-none bg-white px-8 py-10 shadow-sm sm:px-14">
-                                            <ReactMarkdown>{report.markdown}</ReactMarkdown>
-                                        </article>
+                                        reportView === 'markdown' ? (
+                                            <article className="prose prose-slate mx-auto my-6 min-h-[297mm] w-[min(100%,210mm)] max-w-none bg-white px-8 py-10 shadow-sm sm:px-14"><ReactMarkdown>{report.markdown}</ReactMarkdown></article>
+                                        ) : (
+                                            <div className="mx-auto my-6 w-[min(100%,900px)] space-y-5 px-4">
+                                                <ReportSection title="综合结论"><p>{structuredReport.profile.overall_assessment || '暂无综合结论'}</p><p className="mt-2 text-sm text-teal-700">{structuredReport.profile.recommendation}</p></ReportSection>
+                                                <ReportSection title="能力画像"><div className="grid gap-3 sm:grid-cols-2">{Object.entries(structuredReport.profile.dimensions).map(([key, value]) => <div key={key} className="rounded-lg bg-slate-50 p-3"><strong>{key}</strong><p className="text-sm">评分：{String(value.score ?? '-')}</p><p className="text-xs text-slate-500">{String(value.evidence ?? value.reason ?? '')}</p></div>)}</div></ReportSection>
+                                                <ReportSection title="重点短板">{structuredReport.weaknessReport.weaknessCategories.map((item, index) => <div key={index} className="mb-2 rounded-lg border border-amber-200 bg-amber-50 p-3"><strong>{String(item.category || '未分类')}</strong><p className="text-sm">{String(item.description || '')}</p></div>)}</ReportSection>
+                                                <ReportSection title="典型问答">{structuredReport.weaknessReport.questionFailures.map((item, index) => <div key={index} className="mb-3"><strong>{String(item.question || `问题 ${index + 1}`)}</strong><p className="text-sm text-rose-700">{String(item.issue || '')}</p><p className="text-sm text-slate-600">{String(item.better_example || '')}</p></div>)}</ReportSection>
+                                                <ReportSection title="逐题证据">{structuredReport.weaknessReport.questionEvidence.map((item, index) => <div key={index} className="mb-2 rounded-lg bg-slate-50 p-3"><strong>{String(item.question_id || `Q${index + 1}`)} · {String(item.question_summary || '')}</strong><p className="text-xs text-slate-500">缺失证据：{Array.isArray(item.missing_evidence) ? item.missing_evidence.join('、') : '-'}</p></div>)}</ReportSection>
+                                                <ReportSection title="改进行动"><ol className="list-decimal space-y-2 pl-5">{structuredReport.weaknessReport.improvementActions.map((item, index) => <li key={index}>{String(item.action || '')} <span className="text-xs text-slate-400">{String(item.estimated_effort || '')}</span></li>)}</ol></ReportSection>
+                                                <ReportSection title="推荐练习题"><div className="space-y-2">{recommendedQuestions.map((question, index) => <label key={index} className="flex gap-3 rounded-lg border border-slate-200 bg-white p-3"><input type="checkbox" checked={selectedQuestionIndices.includes(index)} onChange={() => setSelectedQuestionIndices(current => current.includes(index) ? current.filter(value => value !== index) : [...current, index])} /><span>{question}</span></label>)}</div></ReportSection>
+                                            </div>
+                                        )
                                     ) : (
                                         <div className="flex min-h-80 flex-col items-center justify-center p-10 text-center">
                                             <BarChart3 className="h-10 w-10 text-gray-300" />
@@ -340,6 +377,8 @@ export function InterviewHistoryDetailDialog({
         </Dialog>
     );
 }
+
+function ReportSection({ title, children }: { title: string; children: React.ReactNode }) { return <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm"><h3 className="mb-3 font-semibold text-slate-900">{title}</h3>{children}</section>; }
 
 /** Renders one compact overview metric card. */
 function InfoCard({ label, value }: { label: string; value: string }) {

@@ -25,6 +25,7 @@ from observability.runtime_events import (
 
 from .config import (
     get_mem0_config,
+    get_mem0_database_mode,
     get_mem0_retention_days,
     get_mem0_search_limit,
 )
@@ -51,24 +52,18 @@ from .retention import (
 logger = logging.getLogger(__name__)
 
 INTERVIEW_MEMORY_EXTRACTION_INSTRUCTIONS = """
-Long-term memory is a compact reusable candidate profile, not a transcript summary.
-Extract only explicit, durable user-authored information that is likely to remain useful
-across future interview sessions. Prefer no memory when uncertain and at most two candidates
-from one turn.
+长期记忆是紧凑、可复用的候选人画像，不是对话摘要。只提取用户明确表达、跨未来面试仍有价值的稳定信息；不确定时不生成，每轮最多两个候选记忆。
 
-Eligible categories:
-- identity/education or stable work history;
-- one canonical summary per named project or work experience;
-- stable technical stack or verified capability;
-- explicit career direction, durable preference, constraint, or long-term goal;
-- a weakness only when the user explicitly identifies it as recurring.
+语言规则：普通叙述必须使用中文；仅技术栈、产品名、协议名、组织名等必要专有名词可以保留英文原文。不得用完整英文句子描述用户事实。
 
-Never extract assistant-authored facts, scores, strengths, feedback, coaching advice,
-recommended answer structures, temporary interview performance, generic lessons,
-hypothetical examples, acknowledgements, or component-level project details that belong
-inside an existing project summary. Do not infer personality or durable weaknesses from one
-answer. When the user adds another detail about an existing project/stack/goal, produce a
-candidate suitable for consolidating that canonical topic rather than a standalone fragment.
+允许的类别：
+- 身份、教育背景或稳定工作经历；
+- 每个有名称的项目或工作经历保留一条规范摘要；
+- 稳定技术栈或已验证能力；
+- 明确的职业方向、长期偏好、约束或目标；
+- 仅当用户明确说明其反复出现时，才记录短板。
+
+禁止提取助手生成的事实、评分、优势、反馈、辅导建议、回答模板、临时面试表现、通用经验、假设示例、寒暄确认，或本应合并进既有项目摘要的组件级细节。不得从一次回答推断人格或长期短板。用户补充既有项目、技术栈或目标时，应生成适合合并到该规范主题的候选记忆，而不是独立碎片。
 """.strip()
 
 # mem0 upstream enables anonymous PostHog telemetry by default.  Keep this
@@ -79,6 +74,34 @@ os.environ.setdefault("MEM0_TELEMETRY", "False")
 # 全局单例
 _agent_memory_service: Optional["AgentMemoryService"] = None
 _agent_memory_services: dict[str, "AgentMemoryService"] = {}
+_last_memory_readiness_category: str | None = None
+
+
+def classify_memory_initialization_error(exc: BaseException) -> str:
+    """Map dependency failures to stable credential-free readiness categories."""
+    text = f"{type(exc).__name__} {exc}".casefold()
+    if any(token in text for token in (
+        "password authentication failed",
+        "invalidpassword",
+        "authenticationerror",
+        "authentication failed",
+    )):
+        return "database_authentication_failed"
+    if any(token in text for token in (
+        "type vector does not exist",
+        "undefinedobject",
+        "vector dimension",
+        "embedding_model_dims",
+    )):
+        return "vector_schema_error"
+    if any(token in text for token in (
+        "connection refused",
+        "connection timed out",
+        "could not connect",
+        "operationalerror",
+    )):
+        return "database_unavailable"
+    return "initialization_failed"
 
 
 async def _run_mem0_call(
@@ -216,6 +239,7 @@ class AgentMemoryService:
         self._memory = None
         self._enabled = config is not None
         self._initialization_error: str | None = None
+        self._readiness_category = "not_initialized" if config is not None else "model_channels_missing"
 
     async def initialize(self) -> bool:
         """Initialize the mem0 client and return whether it is ready for requests."""
@@ -233,6 +257,7 @@ class AgentMemoryService:
                 self._config
             )
             self._initialization_error = None
+            self._readiness_category = "ready"
             logger.info("✓ AgentMemoryService 初始化成功")
             return True
         except Exception as exc:
@@ -240,6 +265,7 @@ class AgentMemoryService:
             self._enabled = False
             self._memory = None
             self._initialization_error = type(exc).__name__
+            self._readiness_category = classify_memory_initialization_error(exc)
             return False
 
     @property
@@ -252,6 +278,11 @@ class AgentMemoryService:
     def initialization_error(self) -> str | None:
         """Return only the safe exception type from the latest initialization attempt."""
         return self._initialization_error
+
+    @property
+    def readiness_category(self) -> str:
+        """Return one stable sanitized readiness category for API diagnostics."""
+        return self._readiness_category
 
     async def search_memories(
         self,
@@ -308,16 +339,21 @@ class AgentMemoryService:
                 ]
 
             memories = canonicalize_memory_records(memories)[:search_limit]
-            retention_store = get_memory_retention_store()
-            if retention_store is not None:
-                await retention_store.record_access(
-                    user_id,
-                    [
-                        memory["id"]
-                        for memory in memories
-                        if isinstance(memory.get("id"), str)
-                    ],
-                )
+            try:
+                retention_store = get_memory_retention_store()
+                if retention_store is not None:
+                    await retention_store.record_access(
+                        user_id,
+                        [
+                            memory["id"]
+                            for memory in memories
+                            if isinstance(memory.get("id"), str)
+                        ],
+                    )
+            except Exception as exc:
+                # Access telemetry is best-effort; Redis/readiness drift must not
+                # erase an otherwise successful owner-scoped mem0 search.
+                logger.warning("记忆访问状态记录失败: %s", type(exc).__name__)
 
             _record_mem0_event(
                 operation="mem0.search",
@@ -525,12 +561,12 @@ class AgentMemoryService:
         for operation in operations:
             if operation.action is LifecycleAction.ADD:
                 record = new_by_id.get(operation.new_id)
-                if record and operation.retention_class:
+                if record and operation.retention_class and operation.content:
                     metadata = dict(record.get("metadata") or {})
                     metadata.update(_retention_class_metadata(operation.retention_class))
                     admitted = await self._update_memory_record(
                         operation.new_id,
-                        record["memory"],
+                        operation.content,
                         metadata,
                     )
                     if admitted:
@@ -1020,7 +1056,7 @@ async def get_agent_memory_service(api_config: Optional[dict[str, Any]] = None) 
     无 api_config 时返回服务端 .env 单例；有前端配置时按配置缓存实例，
     支持不同用户/浏览器使用不同的 mem0 LLM 和 Embedding Key。
     """
-    global _agent_memory_service
+    global _agent_memory_service, _last_memory_readiness_category
 
     config = get_mem0_config(api_config)
     if api_config is None:
@@ -1030,6 +1066,7 @@ async def get_agent_memory_service(api_config: Optional[dict[str, Any]] = None) 
         await candidate.initialize()
         # Failed initialization must not poison the process singleton forever.
         # A later request may arrive after PostgreSQL or model configuration recovers.
+        _last_memory_readiness_category = candidate.readiness_category
         if candidate.is_enabled:
             _agent_memory_service = candidate
         else:
@@ -1042,6 +1079,7 @@ async def get_agent_memory_service(api_config: Optional[dict[str, Any]] = None) 
         candidate = AgentMemoryService(config)
         await candidate.initialize()
         service = candidate
+    _last_memory_readiness_category = service.readiness_category
     if service.is_enabled:
         _agent_memory_services[cache_key] = service
     else:
@@ -1052,18 +1090,37 @@ async def get_agent_memory_service(api_config: Optional[dict[str, Any]] = None) 
 def get_agent_memory_runtime_status() -> dict[str, Any]:
     """Return a credential-free snapshot of mem0 readiness in this process."""
     server_ready = bool(_agent_memory_service and _agent_memory_service.is_enabled)
+    request_scoped_ready = sum(
+        1 for service in _agent_memory_services.values() if service.is_enabled
+    )
+    if server_ready:
+        readiness_category = "ready"
+    elif request_scoped_ready:
+        readiness_category = "request_scoped_ready"
+    elif _last_memory_readiness_category:
+        readiness_category = _last_memory_readiness_category
+    else:
+        try:
+            readiness_category = (
+                "model_channels_missing"
+                if get_mem0_config() is None
+                else "not_initialized"
+            )
+        except Exception:
+            readiness_category = "initialization_failed"
     return {
         "mode": "server" if server_ready else "request_scoped",
         "server_ready": server_ready,
-        "request_scoped_ready": sum(
-            1 for service in _agent_memory_services.values() if service.is_enabled
-        ),
+        "request_scoped_ready": request_scoped_ready,
+        "readiness_category": readiness_category,
+        "database_mode": get_mem0_database_mode(),
     }
 
 
 async def close_agent_memory_service() -> None:
     """Clear all process-local mem0 clients without exposing request credentials."""
-    global _agent_memory_service
+    global _agent_memory_service, _last_memory_readiness_category
     _agent_memory_service = None
+    _last_memory_readiness_category = None
     _agent_memory_services.clear()
     logger.info("✓ AgentMemoryService 已关闭")

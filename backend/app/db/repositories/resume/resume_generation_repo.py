@@ -13,6 +13,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.db.models import async_session
 from app.db.models.resume import GeneratedResumeModel
+from app.clock import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -92,7 +93,7 @@ class SessionStore:
         """
         from app.db.models.resume import ResumeGenerationSessionModel
 
-        now = datetime.now()
+        now = utc_now()
         row = ResumeGenerationSessionModel(
             id=session_id,
             created_at=now,
@@ -129,7 +130,7 @@ class SessionStore:
             row = await db.scalar(stmt)
             if not row:
                 return None
-            if datetime.now() - row.updated_at > self._ttl:
+            if utc_now() - row.updated_at > self._ttl:
                 await db.delete(row)
                 await db.commit()
                 return None
@@ -147,10 +148,10 @@ class SessionStore:
 
         allowed = {
             "questions", "user_answers", "review_result", "iteration_count", "draft_content",
-            "final_markdown", "generated_resume_id", "status",
+            "final_markdown", "generated_resume_id", "agent_run_id", "status",
         }
         values = {key: value for key, value in kwargs.items() if key in allowed}
-        values["updated_at"] = datetime.now()
+        values["updated_at"] = utc_now()
         async with async_session() as db:
             stmt = select(ResumeGenerationSessionModel).where(ResumeGenerationSessionModel.id == session_id).with_for_update()
             if user_id is not None:
@@ -234,7 +235,7 @@ class ResumeGenerationRepo:
                     content=content,
                     generation_session_id=generation_session_id,
                     agent_run_id=agent_run_id,
-                    created_at=datetime.now(),
+                    created_at=utc_now(),
                 )
                 db.add(db_obj)
                 await db.commit()

@@ -1,7 +1,8 @@
-/** Pure request serializer for Redis-backed model credential references. */
+/** Pure request serializer for model-name Redis credential references. */
 
 interface ModelCredentialReferenceSource {
     id: string;
+    name: string;
     baseUrl: string;
     model: string;
     provider: string;
@@ -12,6 +13,8 @@ interface ModelCredentialReferenceSource {
 
 export interface ModelCredentialRequestConfig {
     credential_id: string;
+    legacy_credential_id: string;
+    name: string;
     base_url: string;
     model: string;
     provider?: string;
@@ -19,10 +22,12 @@ export interface ModelCredentialRequestConfig {
     pricing_key?: string;
 }
 
-/** Serializes one model as a credential reference; plaintext keys never enter business payloads. */
+/** Uses the technical model name as the Redis reference; the UUID is migration-only. */
 export function modelConfigForRequest(model: ModelCredentialReferenceSource): ModelCredentialRequestConfig {
     return {
-        credential_id: model.id,
+        credential_id: model.model,
+        legacy_credential_id: model.id,
+        name: model.name,
         base_url: model.baseUrl,
         model: model.model,
         provider: model.provider,

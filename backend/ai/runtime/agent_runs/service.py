@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai.runtime.agent_runs.outbox import enqueue_agent_run_outbox
 from ai.runtime.agent_runs.policies import allows_whole_run_retry
-from app.db.models import AgentRunEventModel, AgentRunModel, SessionModel, async_session
+from app.db.models import AgentRunEventModel, AgentRunModel, ModelMetricEventModel, SessionModel, async_session
 from app.db.unit_of_work import UnitOfWork
 from app.domain.agent_definitions import get_agent_definition, get_agent_definitions
 from app.domain.agent_runs import (
@@ -27,6 +27,7 @@ from app.domain.agent_runs import (
 )
 from app.security.security import redact_secrets
 from app.security.payload_crypto import decrypt_payload, encrypt_payload
+from app.clock import utc_now
 
 TASK_DEFINITIONS: dict[str, dict] = {
     definition.task_type: {"title": definition.title, "steps": definition.steps}
@@ -35,12 +36,12 @@ TASK_DEFINITIONS: dict[str, dict] = {
 
 def task_queue_enabled() -> bool:
     """判断是否启用异步任务队列。"""
-    return os.getenv("TASK_QUEUE_ENABLED", "false").lower() == "true"
+    return os.getenv("TASK_QUEUE_ENABLED", "true").lower() == "true"
 
 
 def _now() -> datetime:
     """当前时间快照（便于测试替换）。"""
-    return datetime.now()
+    return utc_now()
 
 
 def _queue_wait_ms(run: AgentRunModel, now: datetime) -> int:
@@ -225,17 +226,59 @@ class AgentRunService:
         self,
         run_id: str,
         *,
-        trace_id: str,
+        observation_id: str | None = None,
+        trace_id: str | None = None,
+        model_events: list[dict[str, Any]] | None = None,
     ) -> None:
-        """Persist only the Langfuse trace link on the AgentRun."""
+        """Persist a Trace link and credential-free model metrics without blocking the run.
+
+        ``observation_id`` is always local and supports idempotent writes. ``trace_id``
+        is stored on the AgentRun only when Langfuse actually created the trace.
+        """
         async with UnitOfWork(async_session) as uow:
             session = uow.db
             run = await session.get(AgentRunModel, run_id, with_for_update=True)
             if not run:
                 return
 
-            run.trace_id = trace_id
+            if trace_id:
+                run.trace_id = trace_id
             run.updated_at = _now()
+            if not model_events:
+                return
+            observation_id = observation_id or trace_id or f"legacy:{run_id}"
+            existing = await session.scalar(
+                select(func.count(ModelMetricEventModel.id)).where(
+                    ModelMetricEventModel.run_id == run_id,
+                    ModelMetricEventModel.observation_id == observation_id,
+                )
+            )
+            if existing:
+                return
+            now = _now()
+            for event_index, event in enumerate(model_events):
+                payload = _sanitize_governance_payload(event)
+                event_type = str(payload.get("event_type") or "unknown")
+                is_degradation = (
+                    event_type in {"llm.request.failed", "llm.request.skipped"}
+                    or int(payload.get("fallback_index") or 0) > 0
+                    or bool(payload.get("authoritative_source_truncated"))
+                    or bool(payload.get("truncated_sources"))
+                )
+                session.add(ModelMetricEventModel(
+                    user_id=run.user_id,
+                    run_id=run.id,
+                    observation_id=observation_id,
+                    trace_id=trace_id,
+                    event_index=event_index,
+                    agent_name=str(payload.get("agent_name") or run.agent_name or "unknown"),
+                    task_type=run.task_type,
+                    stage=str(payload.get("stage") or run.stage)[:160],
+                    event_type=event_type[:160],
+                    is_degradation=is_degradation,
+                    payload=payload,
+                    created_at=now,
+                ))
 
     async def create_or_get(
         self,

@@ -39,16 +39,21 @@ def _credential_error(exc: ModelCredentialError) -> HTTPException:
     return HTTPException(status_code=status_code, detail=str(exc))
 
 
-@router.put("/credentials/{model_id}")
+@router.put("/credentials")
 async def put_model_credential(
-    model_id: str,
     request: ModelCredentialPutRequest,
     user_id: str = Depends(get_current_user_id),
 ):
-    """Encrypt and save one user-scoped model API key for thirty days."""
+    """Save one model-name to API-key Redis String."""
 
     try:
-        return await _credential_use_cases().put(user_id, model_id, request.api_key)
+        return await _credential_use_cases().put(
+            user_id,
+            request.model_name,
+            api_key=request.api_key,
+            source_model=request.source_model,
+            legacy_id=request.legacy_id,
+        )
     except (InvalidModelCredentialId, ModelCredentialError) as exc:
         raise _credential_error(exc) from exc
 
@@ -58,22 +63,28 @@ async def get_model_credential_statuses(
     request: ModelCredentialStatusRequest,
     user_id: str = Depends(get_current_user_id),
 ):
-    """Return Redis availability and expiry metadata without returning API keys."""
+    """Return local Redis availability without returning API keys."""
 
     try:
-        return await _credential_use_cases().statuses(user_id, request.model_ids)
+        return await _credential_use_cases().statuses(
+            user_id,
+            [(item.model_name, item.legacy_id) for item in request.models],
+        )
     except (InvalidModelCredentialId, ModelCredentialError) as exc:
         raise _credential_error(exc) from exc
 
 
-@router.delete("/credentials/{model_id}")
+@router.delete("/credentials")
 async def delete_model_credential(
-    model_id: str,
+    model_name: str,
+    legacy_id: str | None = None,
     user_id: str = Depends(get_current_user_id),
 ):
-    """Delete one user-scoped model API key from Redis."""
+    """Delete one model-name API-key String from Redis."""
 
     try:
-        return await _credential_use_cases().delete(user_id, model_id)
+        return await _credential_use_cases().delete(
+            user_id, model_name, legacy_id=legacy_id
+        )
     except (InvalidModelCredentialId, ModelCredentialError) as exc:
         raise _credential_error(exc) from exc

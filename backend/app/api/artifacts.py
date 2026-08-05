@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 
 from app.api.deps import get_current_user_id
-from app.files.artifact_service import ArtifactNotFound, ArtifactService
+from app.files.artifact_service import ArtifactNotFound, ArtifactService, ArtifactStorageUnavailable
 from app.schemas.artifacts import ArtifactExportRequest, ArtifactResponse
 
 router = APIRouter(prefix="/api/artifacts", tags=["Artifacts"])
@@ -23,6 +23,11 @@ async def export_artifact(request: ArtifactExportRequest, user_id: str = Depends
         return _response(await _service.export(request, user_id))
     except (ArtifactNotFound, ValueError) as exc:
         raise HTTPException(status_code=404, detail="报告不存在或无权导出") from exc
+    except ArtifactStorageUnavailable as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="导出存储暂不可用，请稍后重试",
+        ) from exc
 
 
 @router.get("/{artifact_id}/download")

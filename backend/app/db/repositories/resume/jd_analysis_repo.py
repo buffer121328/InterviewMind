@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import async_session
 from app.db.models.jd import JdAnalysisResultModel
+from app.clock import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -101,7 +102,7 @@ class JDAnalysisRepo:
             resume_source_id: resume source 标识。
             owns_session: 是否由当前方法负责 session 的提交和释放，避免嵌套事务重复处理。
         """
-        now = datetime.now()
+        now = utc_now()
         db_obj = JdAnalysisResultModel(
             user_id=user_id,
             resume_source_type=resume_source_type,

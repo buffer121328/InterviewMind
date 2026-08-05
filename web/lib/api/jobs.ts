@@ -190,9 +190,7 @@ export interface JobLibraryImportCard {
 
 export interface JobLibraryImportRequest {
     cards: JobLibraryImportCard[];
-    resume_content: string;
     city?: string;
-    api_config?: ApiConfig;
 }
 
 export interface JobImportFailedItem {
@@ -261,8 +259,8 @@ export async function getJobDetail(jobId: number): Promise<JobDetailResponse> {
 }
 
 /**
- * 把用户确认的待入库卡片真正写入岗位库并调度可恢复资产任务。
- * 保存按来源哈希去重，重复岗位复用既有记录；失败卡片在响应中返回明细。
+ * 把用户确认的待入库卡片确定性写入岗位库。
+ * 保存按来源哈希去重，重复岗位复用既有记录；不会调度模型或后台资产任务。
  *
  * POST /api/jobs/import
  */

@@ -41,11 +41,19 @@ import {
     mergeAssetRun,
     replaceResultGreeting,
 } from "@/lib/bossCenter";
+import { buildJobContextSnapshot, type JobContextSnapshot } from "@/lib/jobContextHandoff";
 import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
 import { useInterviewStore } from "@/store/useInterviewStore";
 
-/** Main岗位中心：复用现有登录标签页采集，并管理可编辑投递资产。 */
-export function BossCenter() {
+interface BossCenterProps {
+    initialJobId?: number | null;
+    onInitialJobConsumed?: () => void;
+    onUseInInterview: (snapshot: JobContextSnapshot) => void;
+    onImportToResume: (snapshot: JobContextSnapshot) => void;
+}
+
+/** Main岗位中心：复用现有登录标签页采集，并管理可编辑岗位资料。 */
+export function BossCenter({ initialJobId, onInitialJobConsumed, onUseInInterview, onImportToResume }: BossCenterProps) {
     const resume = useInterviewStore(state => state.resume);
     const uploadResume = useInterviewStore(state => state.uploadResume);
     const getApiConfigForRequest = useInterviewStore(state => state.getApiConfigForRequest);
@@ -399,12 +407,10 @@ export function BossCenter() {
         }
     };
 
-    /** 一键入库：把全部待入库卡片写入岗位库并调度资产任务；成功后卡片从结果区消失。 */
+    /** 一键入库：只保存岗位与初筛信息；成功后卡片从结果区消失且不触发模型任务。 */
     const handleImportAll = async () => {
         const pending = results.filter(job => job.job_id == null);
         if (pending.length === 0) return;
-        const apiConfig = requireApiConfig();
-        if (!apiConfig) return;
         setActionKey("import:all");
         try {
             const response = await importCardsToLibrary({
@@ -418,9 +424,7 @@ export function BossCenter() {
                     source_url: job.source_url || "",
                     preliminary_match_score: job.match_score ?? undefined,
                 })),
-                resume_content: resumeContent.trim(),
                 city: city || undefined,
-                api_config: apiConfig,
             });
             const failedUrls = new Set(response.failed.map(item => item.source_url));
             setResults(current => current.filter(job => (
@@ -445,6 +449,11 @@ export function BossCenter() {
         setResults(current => current.filter(item => item.source_url !== job.source_url));
         toast.success("已删除待入库卡片");
     };
+
+    useEffect(() => {
+        if (!initialJobId) return;
+        void handleOpenJobDetail(initialJobId).finally(() => onInitialJobConsumed?.());
+    }, [initialJobId, onInitialJobConsumed]);
 
     /** Persists one edited greeting while keeping result cards and the open detail dialog synchronized. */
     const handleSaveGreeting = async (jobId: number, greetingIndex: number, messageText: string) => {
@@ -612,6 +621,12 @@ export function BossCenter() {
                 error={detailError}
                 actionKey={actionKey}
                 onOpenExistingBossTab={jobId => void handleOpenExistingBossTab(jobId)}
+                onUseInInterview={() => {
+                    if (selectedJob) onUseInInterview(buildJobContextSnapshot(selectedJob));
+                }}
+                onImportToResume={() => {
+                    if (selectedJob) onImportToResume(buildJobContextSnapshot(selectedJob));
+                }}
                 onSaveGreeting={(jobId, greetingIndex, messageText) => void handleSaveGreeting(jobId, greetingIndex, messageText)}
                 onExportGreeting={(jobId, greetingIndex, messageText) => void handleExportApplication(jobId, greetingIndex, messageText)}
                 onEditGreeting={updateSelectedGreeting}

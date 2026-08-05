@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import async_session
 from app.db.models.resume import ResumeResultModel
+from app.clock import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -128,7 +129,7 @@ class ResumeRepo:
             include_profile=include_profile,
             result_data=result_data,
             agent_run_id=agent_run_id,
-            created_at=datetime.now(),
+            created_at=utc_now(),
         )
         db.add(db_obj)
         await db.flush()

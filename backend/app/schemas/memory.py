@@ -7,13 +7,21 @@
 from typing import Optional
 from pydantic import BaseModel, Field
 
-from app.schemas.schemas import ApiConfig
+from app.schemas.schemas import ModelChannelConfig
+
+
+class MemoryApiConfig(BaseModel):
+    """Only the request-scoped model channels used by mem0."""
+
+    mem0_llm: Optional[ModelChannelConfig] = None
+    mem0_embedder: Optional[ModelChannelConfig] = None
+    rag_embedding: Optional[ModelChannelConfig] = None
 
 
 class MemoryAccessRequest(BaseModel):
     """Request-scoped mem0 model channels; credentials are used in memory only and are never persisted."""
 
-    api_config: Optional[ApiConfig] = Field(
+    api_config: Optional[MemoryApiConfig] = Field(
         default=None,
         description="前端模型设置中的 mem0 LLM/Embedding 通道",
     )

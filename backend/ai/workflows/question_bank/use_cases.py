@@ -3,15 +3,17 @@
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from app.domain.question_bank import normalize_import_filename, question_file_source_id
+from ai.agents.interview.answer_points import format_question_answer_points
 from app.db.repositories.interview.question_bank_repo import QuestionBankRepo
 from app.db.repositories.session.session_repo import SessionRepo
+from app.domain.question_bank import normalize_import_filename, question_file_source_id
 from app.schemas.question_bank import (
     QuestionBankCreateRequest,
     QuestionBankImportRequest,
     QuestionFileCandidate,
     QuestionFilePreviewResponse,
 )
+
 from .import_parser import parse_question_document
 
 
@@ -245,7 +247,7 @@ class QuestionBankUseCases:
         return await self._question_bank_repo.create_item(
             user_id=user_id,
             question_text=question.get("content", ""),
-            reference_answer=None,
+            reference_answer=format_question_answer_points(question),
             tags=[question.get("topic", "")],
             difficulty="medium",
             target_skill=question.get("topic"),

@@ -163,7 +163,7 @@ def _register_builtin_prompts() -> None:
     )
 
     for spec in (
-        PromptSpec("interview.planner", "2", build_planner_prompt, "面试题目规划", PLANNER_PROMPT),
+        PromptSpec("interview.planner", "3", build_planner_prompt, "面试题目规划", PLANNER_PROMPT),
         PromptSpec("interview.opening", "1", build_opening_prompt, "面试开场", OPENING_PROMPT),
         PromptSpec("interview.evaluating", "2", build_evaluating_prompt, "面试回答评估与推进", EVALUATING_PROMPT),
         PromptSpec("interview.hints", "1", build_hints_prompt, "面试回答提示", HINTS_PROMPT),

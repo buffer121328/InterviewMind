@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Awaitable, Callable, Mapping
-from datetime import datetime
 from hashlib import sha256
 from typing import Any, Dict, List, Optional
 
@@ -16,6 +15,7 @@ from ai.runtime.context_assembler import (
     ContextSource,
 )
 from ai.runtime.deadlines import TaskDeadline
+from app.clock import utc_now
 from app.config import get_settings
 from app.schemas.candidate_profile import CandidateProfile, DimensionScore
 from app.schemas.llm_outputs import (
@@ -30,6 +30,22 @@ logger = logging.getLogger(__name__)
 
 REPORT_CHECKPOINT_VERSION = "analysis.question_evidence.v1"
 ReportCheckpointCallback = Callable[[dict[str, Any]], Awaitable[None]]
+
+
+_PROFILE_DIMENSIONS = (
+    "professional_competence",
+    "execution_results",
+    "logic_problem_solving",
+    "communication",
+    "growth_potential",
+    "collaboration",
+)
+_REVIEW_PERSPECTIVES = (
+    "technical_depth",
+    "communication",
+    "job_fit",
+    "factual_risk",
+)
 
 
 class SessionReportAnalysisService:
@@ -92,6 +108,23 @@ class SessionReportAnalysisService:
                     deadline=deadline,
                 )
                 mode = "chunked"
+        except RuntimeError as exc:
+            if str(exc) == "all parallel reviewers failed":
+                profile, weakness_payload = self._build_degraded_report(qa_history)
+                logger.warning(
+                    "[SessionReportAnalysis] 所有评审器不可用，已生成证据受限降级报告: "
+                    "session=%s qa_count=%s",
+                    session_id,
+                    len(qa_history),
+                )
+                return profile, weakness_payload
+            logger.error(
+                "[SessionReportAnalysis] 生成面试评估失败: session=%s error=%s",
+                session_id,
+                type(exc).__name__,
+                exc_info=True,
+            )
+            raise
         except Exception as exc:
             logger.error(
                 "[SessionReportAnalysis] 生成面试评估失败: session=%s error=%s",
@@ -138,12 +171,28 @@ class SessionReportAnalysisService:
             qa_text=qa_text,
             include_qa=True,
         )
+        from ai.workflows.analysis.reviewer_contexts import build_reviewer_contexts
+
+        reviewer_contexts = build_reviewer_contexts(
+            resume=resume,
+            job_description=job_description,
+            company_info=company_info,
+            evidence=[
+                {
+                    "question_id": f"Q{index + 1}",
+                    "question_summary": str(item.get("question") or ""),
+                    "candidate_claims": [str(item.get("answer") or "")],
+                }
+                for index, item in enumerate(qa_history)
+            ],
+        )
         review_result = await run_multi_reviewer_map_reduce(
             mode="session_report",
             review_context=assembled.model_context,
+            review_contexts=reviewer_contexts,
             api_config=api_config,
             deadline=deadline,
-            call_metadata=assembled.model_event_fields(),
+            call_metadata={**assembled.model_event_fields(), "review_context_policy": "perspective_specific.v1"},
         )
         result = SessionInterviewReportOutput.model_validate(review_result.output)
         evidence = self._normalize_evidence(result.question_evidence, qa_history)
@@ -280,12 +329,21 @@ class SessionReportAnalysisService:
                 truncation_strategy="head_tail",
             ),
         ])
+        from ai.workflows.analysis.reviewer_contexts import build_reviewer_contexts
+
+        reviewer_contexts = build_reviewer_contexts(
+            resume=resume,
+            job_description=job_description,
+            company_info=company_info,
+            evidence=evidence,
+        )
         review_result = await run_multi_reviewer_map_reduce(
             mode="session_report",
             review_context=final_context.model_context,
+            review_contexts=reviewer_contexts,
             api_config=api_config,
             deadline=deadline,
-            call_metadata=final_context.model_event_fields(),
+            call_metadata={**final_context.model_event_fields(), "review_context_policy": "perspective_specific.v1"},
         )
         result = SessionInterviewReportOutput.model_validate(review_result.output)
         assessments = [item.model_dump(exclude_none=True) for item in review_result.assessments]
@@ -373,6 +431,89 @@ class SessionReportAnalysisService:
             cache_version="2026-07-29.phase3.evidence.v1",
         ).assemble(sources)
 
+    @classmethod
+    def _build_degraded_report(
+        cls,
+        qa_history: List[Dict[str, str]],
+    ) -> tuple[CandidateProfile, Dict[str, Any]]:
+        """Build a deterministic report from persisted Q&A without inventing scores."""
+
+        evidence = cls._normalize_evidence([], qa_history)
+        missing_note = "模型评审不可用，未生成能力评分；请补充可验证的背景、行动和结果。"
+        evidence = [
+            item.model_copy(update={"missing_evidence": [missing_note], "score_or_signal": None})
+            for item in evidence
+        ]
+
+        def unscored_dimension() -> DimensionScore:
+            return DimensionScore(
+                score=None,
+                evidence="仅保留已持久化问答，当前未形成该维度评分。",
+                reason="所有并行评审器均不可用，禁止推断或填充分数。",
+                improvement_tip="模型恢复后基于同一组问答重新生成报告。",
+            )
+
+        profile = CandidateProfile(
+            professional_competence=unscored_dimension(),
+            execution_results=unscored_dimension(),
+            logic_problem_solving=unscored_dimension(),
+            communication=unscored_dimension(),
+            growth_potential=unscored_dimension(),
+            collaboration=unscored_dimension(),
+            skill_tags=[],
+            total_questions_analyzed=len(qa_history),
+            last_updated=utc_now().isoformat(),
+            overall_assessment=(
+                f"本报告以证据受限降级模式生成，仅保留 {len(qa_history)} 组已持久化问答；"
+                "所有能力维度均未评分。"
+            ),
+            key_strengths=[],
+            key_weaknesses=[],
+            recommendation=None,
+            confidence=None,
+            generation_mode="degraded_evidence_only",
+            missing_dimensions=list(_PROFILE_DIMENSIONS),
+        )
+        question_failures = [
+            {
+                "question": item.question_summary,
+                "user_answer": item.candidate_claims[0] if item.candidate_claims else "",
+                "issue": "模型评审不可用，当前无法判断回答质量或形成能力评分。",
+                "better_example": "补充真实背景、行动、结果和可验证指标后重新生成报告。",
+            }
+            for item in evidence
+        ]
+        weakness_payload: Dict[str, Any] = {
+            "question_evidence": [item.model_dump() for item in evidence],
+            "weakness_categories": [],
+            "question_failures": question_failures,
+            "improvement_actions": [{
+                "action": "为现有回答补充可验证的背景、行动、结果和量化指标",
+                "priority": 1,
+                "estimated_effort": "按实际情况补充",
+            }],
+            "recommended_questions": [item.question_summary for item in evidence if item.question_summary],
+            "priority_order": ["补充可验证证据", "模型恢复后重新生成报告"],
+            "reviewer_assessments": [
+                {
+                    "perspective": perspective,
+                    "status": "error",
+                    "error_type": "ReviewerUnavailable",
+                    "score": None,
+                    "confidence": 0,
+                    "evidence_refs": [],
+                    "strengths": [],
+                    "concerns": ["该视角评审不可用，未生成结论"],
+                }
+                for perspective in _REVIEW_PERSPECTIVES
+            ],
+            "consensus_method": "deterministic_evidence_fallback",
+            "generation_mode": "degraded_evidence_only",
+            "degradation_reason": "all_reviewers_failed",
+            "missing_dimensions": list(_PROFILE_DIMENSIONS),
+        }
+        return profile, weakness_payload
+
     @staticmethod
     def _normalize_evidence(
         evidence: List[QuestionEvidence],
@@ -456,7 +597,7 @@ class SessionReportAnalysisService:
             collaboration=dimension(result.collaboration),
             skill_tags=result.skill_tags,
             total_questions_analyzed=total_questions,
-            last_updated=datetime.now().isoformat(),
+            last_updated=utc_now().isoformat(),
             overall_assessment=result.overall_assessment,
             key_strengths=result.key_strengths,
             key_weaknesses=result.key_weaknesses,

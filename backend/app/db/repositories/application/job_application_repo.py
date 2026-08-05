@@ -20,6 +20,7 @@ from app.schemas.job_application import (
     ApplicationDetail,
     ApplicationEventRow,
 )
+from app.clock import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +39,7 @@ class JobApplicationRepo:
         session: AsyncSession | None = None,
     ) -> ApplicationDetail:
         """创建投递记录并返回详情；传入 session 时由外层 UnitOfWork 统一提交。"""
-        now = datetime.now()
+        now = utc_now()
 
         async def _create(db: AsyncSession, *, owns_session: bool) -> ApplicationDetail:
             """创建投递记录并写入数据库；沿用调用方 owner 和事务约束，不在仓储层触发 BOSS 投递。
@@ -53,7 +54,7 @@ class JobApplicationRepo:
                 job_title=request.job_title,
                 job_description=request.job_description,
                 channel=request.channel,
-                generated_resume_id=request.generated_resume_id,
+                generated_resume_id=None,
                 latest_status=request.latest_status or "saved",
                 priority=request.priority or "medium",
                 notes=request.notes,
@@ -63,7 +64,7 @@ class JobApplicationRepo:
                 captured_job_id=request.captured_job_id,
                 greeting_text=request.greeting_text,
                 send_status=request.send_status or "pending",
-                custom_resume_id=request.custom_resume_id or request.generated_resume_id,
+                custom_resume_id=None,
                 created_at=now,
                 updated_at=now,
             )
@@ -148,7 +149,7 @@ class JobApplicationRepo:
                         JobApplicationModel.send_status.in_(("pending", "failed")),
                     ),
                 )
-                .values(send_status="sending", updated_at=datetime.now())
+                .values(send_status="sending", updated_at=utc_now())
             )
             await db.commit()
             return result.rowcount == 1
@@ -175,7 +176,6 @@ class JobApplicationRepo:
                 ("job_title", request.job_title),
                 ("job_description", request.job_description),
                 ("channel", request.channel),
-                ("generated_resume_id", request.generated_resume_id),
                 ("latest_status", request.latest_status),
                 ("priority", request.priority),
                 ("notes", request.notes),
@@ -191,10 +191,35 @@ class JobApplicationRepo:
             if not changed:
                 return await self.get_application(application_id, user_id)
 
-            obj.updated_at = datetime.now()
+            obj.updated_at = utc_now()
             await db.commit()
             await db.refresh(obj)
             return await self.get_application(application_id, user_id)
+
+    async def set_linked_resume(
+        self,
+        *,
+        application_id: int,
+        user_id: str,
+        resume_id: Optional[int],
+    ) -> Optional[ApplicationDetail]:
+        """Replace or clear resume references on one owner-scoped application."""
+        async with async_session() as db:
+            row = await db.scalar(
+                select(JobApplicationModel)
+                .where(
+                    JobApplicationModel.id == application_id,
+                    JobApplicationModel.user_id == user_id,
+                )
+                .with_for_update()
+            )
+            if not row:
+                return None
+            row.generated_resume_id = resume_id
+            row.custom_resume_id = None
+            row.updated_at = utc_now()
+            await db.commit()
+        return await self.get_application(application_id, user_id)
 
     async def delete_application(self, application_id: int, user_id: str) -> bool:
         """删除投递记录"""
@@ -265,7 +290,10 @@ class JobApplicationRepo:
             custom_resume_id=row.custom_resume_id,
             created_at=row.created_at.isoformat() if isinstance(row.created_at, datetime) else row.created_at,
             updated_at=row.updated_at.isoformat() if isinstance(row.updated_at, datetime) else row.updated_at,
-            events=[self._event_row_to_model(event) for event in getattr(row, "events", [])],
+            events=[
+                self._event_row_to_model(event)
+                for event in row.__dict__.get("events", [])
+            ],
         )
 
     def _event_row_to_model(self, row: ApplicationEventModel) -> ApplicationEventRow:

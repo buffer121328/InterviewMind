@@ -16,6 +16,11 @@ class InterviewQuestionItem(BaseModel):
     id: int = Field(description="题目序号")
     topic: str = Field(description="考察主题，如Java并发")
     content: str = Field(description="具体的问题描述")
+    answer_points: List[str] = Field(
+        default_factory=list,
+        description="内部回答要点，普通叙述使用中文，不直接拼入候选人可见问题",
+        max_length=5,
+    )
     type: str = Field(description="题目类型：intro, tech, behavior, system_design")
     target_skill: Optional[str] = Field(default=None, description="目标技能")
     sources: List[Dict[str, Any]] = Field(default_factory=list, description="证据来源")
@@ -50,6 +55,11 @@ class SimpleQuestionItem(BaseModel):
     """简单格式的面试问题（用于语音面试等）"""
     topic: str = Field(description="考察主题")
     content: str = Field(description="具体问题内容")
+    answer_points: List[str] = Field(
+        default_factory=list,
+        description="内部回答要点，普通叙述使用中文",
+        max_length=5,
+    )
 
 
 class SimplePlanOutput(BaseModel):

@@ -11,7 +11,6 @@ import {
     Gauge,
     Play,
     Scale,
-    ShieldCheck,
     Sparkles,
     TriangleAlert,
 } from 'lucide-react';
@@ -20,6 +19,7 @@ import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
+import { ContextualHelpIcon } from '@/components/ContextualHelpIcon';
 import {
     evaluationApi,
     type EvaluationAgentName,
@@ -173,10 +173,9 @@ export function QuickEvaluationPanel({
                         自动读取模型设置，创建并锁定内置 Dataset Version，复用内置 Suite 与 Rubric，然后进入可恢复 AgentRun。
                     </p>
                 </div>
-                <div className="rounded-xl border border-white/80 bg-white/85 px-4 py-3 text-xs text-slate-600 shadow-sm">
-                    <div className="flex items-center gap-2 font-medium text-slate-800"><ShieldCheck className="h-4 w-4 text-teal-600" />凭据安全边界</div>
-                    <p className="mt-1">API Key 不在页面展示；只随本次请求发送，并由后端加密进入任务载荷。</p>
-                </div>
+                <ContextualHelpIcon id="credential-boundary" label="凭据安全边界">
+                    API Key 不在页面展示；只随本次请求发送，并由后端加密进入任务载荷。
+                </ContextualHelpIcon>
             </div>
         </section>
 

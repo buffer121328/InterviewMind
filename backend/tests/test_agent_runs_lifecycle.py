@@ -315,8 +315,9 @@ async def test_succeed_with_result_writer_uses_same_uow_session(monkeypatch):
 @pytest.mark.asyncio
 async def test_record_observation_persists_trace_only(monkeypatch):
     from ai.runtime.agent_runs import service as service_module
+    from app.clock import utc_now
 
-    now = datetime.now()
+    now = utc_now()
     run = AgentRunModel(
         id="run-obs", user_id="user-1", task_type="voice_interview_turn", status="running", stage="generating_response",
         idempotency_key="voice-turn", payload_encrypted="encrypted", result=None, error_message=None,

@@ -10,9 +10,9 @@ from ai.agents.resume.resume_generation_sessions import (
 )
 from ai.agents.resume.resume_review import public_review_state
 from ai.runtime.agent_runs.service import AgentRunService
-from app.db.repositories.resume.resume_generation_repo import get_generation_repo
+from app.db.repositories.resume.resume_generation_repo import get_generation_repo, session_store
 from app.db.repositories.resume.resume_repo import get_resume_repo
-from app.domain.agent_runs import TASK_TYPE_RESUME_GENERATION
+from app.domain.agent_runs import TASK_TYPE_JOB_ASSETS, TASK_TYPE_RESUME_GENERATION
 from app.schemas.resume_schemas import (
     GeneratedResumeItem,
     GeneratedResumesResponse,
@@ -125,6 +125,11 @@ class ResumeGenerationUseCases:
         if not request.api_config:
             raise ResumeGenerationBadRequest(message="请先配置 API Key")
         run_service = AgentRunService()
+        await self._validate_answer_submission(
+            request=request,
+            user_id=user_id,
+            run_service=run_service,
+        )
         run, _created = await run_service.create_inline_or_get(
             user_id=user_id,
             payload={"generation_session_id": request.session_id},
@@ -180,6 +185,35 @@ class ResumeGenerationUseCases:
             title=result.get("title"),
             content=result.get("content"),
         )
+
+    async def _validate_answer_submission(
+        self,
+        *,
+        request: ResumeGenerateSubmitRequest,
+        user_id: str,
+        run_service: AgentRunService,
+    ) -> None:
+        """Reject submissions outside an owner-scoped waiting Resume Generation session."""
+        session = await session_store.get(request.session_id, user_id=user_id)
+        if session is None:
+            raise ResumeGenerationNotFound(message="会话不存在或已过期")
+        if session.status != "awaiting_input" or not session.questions:
+            raise ResumeGenerationConflict(message="该会话当前不接受补充回答")
+        expected = set(session.questions)
+        submitted = {
+            question
+            for question, answer in request.answers.items()
+            if isinstance(answer, str) and answer.strip()
+        }
+        if submitted != expected or set(request.answers) != expected:
+            raise ResumeGenerationBadRequest(message="请完整回答服务端返回的全部补充问题")
+        if session.agent_run_id:
+            source_run = await run_service.get(session.agent_run_id, user_id)
+            if source_run is None or source_run.task_type not in {
+                TASK_TYPE_RESUME_GENERATION,
+                TASK_TYPE_JOB_ASSETS,
+            }:
+                raise ResumeGenerationConflict(message="会话关联的任务类型不允许继续简历生成")
 
     async def get_generation_session_status(self, *, session_id: str, user_id: str) -> dict[str, object]:
         """读取 generation session status，并通过 owner 校验限制可见范围；资源不存在或状态不合法时返回稳定的业务结果或异常。

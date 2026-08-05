@@ -9,6 +9,7 @@ from typing import Callable, Iterable
 from sqlalchemy import select
 
 from app.db.models import TaskOutboxModel, async_session
+from app.clock import utc_now
 
 AGENT_RUN_EXECUTE_TOPIC = "agent_run.execute"
 PENDING_STATUSES = {"pending", "failed"}
@@ -16,7 +17,7 @@ PENDING_STATUSES = {"pending", "failed"}
 
 def _now() -> datetime:
     """当前时间快照（便于测试替换）。"""
-    return datetime.now()
+    return utc_now()
 
 
 def next_retry_at(now: datetime, attempts: int) -> datetime:

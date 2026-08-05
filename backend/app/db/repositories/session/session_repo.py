@@ -44,6 +44,8 @@ class SessionRepo:
         resume_content: Optional[str] = None,
         job_description: Optional[str] = None,
         company_info: Optional[str] = None,
+        source_job_id: Optional[int] = None,
+        job_context_snapshot: Optional[Dict[str, Any]] = None,
         max_questions: int | None = None,
         round_type: str = "tech_initial",
         user_id: str = "default_user"
@@ -58,6 +60,8 @@ class SessionRepo:
             resume_content: 经过类型边界校验的 `resume_content`；其格式和可选值由参数类型及调用流程约束。
             job_description: 经过类型边界校验的 `job_description`；其格式和可选值由参数类型及调用流程约束。
             company_info: 经过类型边界校验的 `company_info`；其格式和可选值由参数类型及调用流程约束。
+            source_job_id: owner 可见的来源岗位标识。
+            job_context_snapshot: 经过 owner 归一化后的岗位上下文快照。
             max_questions: 经过类型边界校验的 `max_questions`；其格式和可选值由参数类型及调用流程约束。
             round_type: 经过类型边界校验的 `round_type`；其格式和可选值由参数类型及调用流程约束。
             user_id: 当前用户标识。
@@ -70,6 +74,8 @@ class SessionRepo:
             resume_content=resume_content,
             job_description=job_description,
             company_info=company_info,
+            source_job_id=source_job_id,
+            job_context_snapshot=job_context_snapshot,
             max_questions=max_questions,
             round_type=round_type,
             user_id=user_id
@@ -289,6 +295,10 @@ class SessionRepo:
             user_id: 当前用户标识。
         """
         return await self.profile.get_series_final_profiles(limit, user_id)
+
+    async def get_series_final_profile_records(self, limit: int, user_id: str) -> List[Dict[str, Any]]:
+        """Return owner-scoped company-profile records for the growth timeline."""
+        return await self.profile.get_series_final_profile_records(limit, user_id)
 
     async def get_series_round_profiles(self, series_id: str, user_id: str) -> List[Dict[str, Any]]:
         """按 owner 和轮次顺序读取一个公司系列的单轮画像来源。"""

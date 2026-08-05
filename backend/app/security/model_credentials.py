@@ -1,267 +1,248 @@
-"""User-isolated encrypted model credentials backed by Redis."""
+"""Minimal local model-name to API-key storage backed by Redis Strings."""
 
 from __future__ import annotations
 
-import hashlib
 import re
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from functools import lru_cache
+from typing import Any
 
 from redis.asyncio import Redis
 from redis.exceptions import RedisError
 
 from app.config import get_settings
 from app.redis_keys import build_redis_key
-from app.security.payload_crypto import (
-    TaskPayloadConfigurationError,
-    decrypt_payload,
-    encrypt_payload,
-)
 
-_MODEL_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
-_MEMORY_CHANNELS = ("mem0_llm", "mem0_embedder", "rag_embedding")
+_LEGACY_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 
 
 class ModelCredentialError(RuntimeError):
-    """Base error for model credential persistence and lookup."""
+    """Base error for local model API-key persistence and lookup."""
 
 
 class InvalidModelCredentialId(ModelCredentialError):
-    """The supplied local model identifier is unsafe or malformed."""
+    """The supplied model name or legacy identifier is unsafe or malformed."""
 
 
 class ModelCredentialStoreUnavailable(ModelCredentialError):
-    """Redis or credential encryption is not configured or available."""
+    """Redis model API-key storage is not configured or available."""
 
 
 @dataclass(frozen=True)
 class StoredCredentialStatus:
-    """Non-sensitive credential status returned to callers."""
+    """Non-sensitive API-key status returned to callers."""
 
-    model_id: str
+    model_name: str
     stored: bool
     expires_at: datetime | None
 
 
-@dataclass(frozen=True)
-class StoredModelProfile:
-    """Non-secret model connection metadata needed by backend jobs."""
+def _text(value: Any) -> str | None:
+    """Decode one Redis scalar into text."""
 
-    model_id: str
-    base_url: str
-    model: str
-    provider: str | None = None
-    integration: str | None = None
-    pricing_key: str | None = None
+    if value is None:
+        return None
+    return value.decode() if isinstance(value, bytes) else str(value)
 
 
 class ModelCredentialStore:
-    """Encrypt API keys before storing them in owner-scoped Redis keys."""
+    """Store one sliding-TTL Redis String per technical model name."""
 
-    def __init__(self, redis_client: Redis, ttl_seconds: int) -> None:
-        """Create a credential store using an injected async Redis client."""
-
+    def __init__(self, redis_client: Redis, ttl_seconds: int = 30 * 24 * 60 * 60) -> None:
         self._redis = redis_client
         self._ttl_seconds = ttl_seconds
 
     @staticmethod
-    def _validate_model_id(model_id: str) -> str:
-        """Validate and return a model ID that is safe for credential lookup."""
+    def _validate_model_name(model_name: str) -> str:
+        """Keep model names readable while rejecting empty/control-character keys."""
 
-        if not _MODEL_ID_PATTERN.fullmatch(model_id):
-            raise InvalidModelCredentialId("模型连接 ID 格式无效")
-        return model_id
-
-    @classmethod
-    def _redis_key(cls, user_id: str, model_id: str) -> str:
-        """Build a non-reversible user-scoped Redis key."""
-
-        safe_model_id = cls._validate_model_id(model_id)
-        owner_hash = hashlib.sha256(user_id.encode()).hexdigest()
-        return build_redis_key("model_credentials", "secret", owner_hash, safe_model_id)
-
-    @classmethod
-    def _profile_key(cls, user_id: str, model_id: str) -> str:
-        """Build an owner-scoped encrypted model profile key."""
-
-        safe_model_id = cls._validate_model_id(model_id)
-        owner_hash = hashlib.sha256(user_id.encode()).hexdigest()
-        return build_redis_key("model_credentials", "profile", owner_hash, safe_model_id)
+        if not isinstance(model_name, str):
+            raise InvalidModelCredentialId("模型名称格式无效")
+        cleaned = model_name.strip()
+        if not cleaned or len(cleaned) > 256 or any(ord(char) < 32 for char in cleaned):
+            raise InvalidModelCredentialId("模型名称格式无效")
+        return cleaned
 
     @staticmethod
-    def _channel_key(user_id: str, channel: str) -> str:
-        """Build an owner-scoped memory channel binding key."""
+    def _validate_legacy_id(legacy_id: str) -> str:
+        """Validate the previous UI UUID used only during one-time migration."""
 
-        if channel not in _MEMORY_CHANNELS:
-            raise ModelCredentialError("不支持的模型通道")
-        owner_hash = hashlib.sha256(user_id.encode()).hexdigest()
-        return build_redis_key("model_credentials", "channel", owner_hash, channel)
+        if not _LEGACY_ID_PATTERN.fullmatch(legacy_id):
+            raise InvalidModelCredentialId("旧模型连接 ID 格式无效")
+        return legacy_id
 
-    async def put(self, user_id: str, model_id: str, api_key: str) -> StoredCredentialStatus:
-        """Encrypt and store one key with the configured rolling TTL."""
+    @classmethod
+    def _credential_key(cls, model_name: str) -> str:
+        """Return `agent_interview:model_credentials:v1:<model_name>`."""
 
+        return build_redis_key("model_credentials", cls._validate_model_name(model_name))
+
+    @classmethod
+    def _legacy_hash_key(cls, legacy_id: str) -> str:
+        """Return the previous UUID Hash key used only for migration cleanup."""
+
+        return build_redis_key("model_credentials", "model", cls._validate_legacy_id(legacy_id))
+
+    @staticmethod
+    def _legacy_channels_key() -> str:
+        """Return the previous channels Hash key used only for cleanup."""
+
+        return build_redis_key("model_credentials", "channels")
+
+    async def _migrate_legacy(self, model_name: str, legacy_id: str | None) -> str | None:
+        """Move one previous UUID Hash API key into the model-name String key."""
+
+        key = self._credential_key(model_name)
+        try:
+            current = _text(await self._redis.get(key))
+            if not legacy_id:
+                if current and current.strip():
+                    await self._redis.expire(key, self._ttl_seconds)
+                    return current.strip()
+                return None
+
+            legacy_key = self._legacy_hash_key(legacy_id)
+            if current and current.strip():
+                await self._redis.expire(key, self._ttl_seconds)
+                await self._redis.delete(legacy_key, self._legacy_channels_key())
+                return current.strip()
+
+            legacy_api_key = _text(await self._redis.hget(legacy_key, "api_key"))
+            if not legacy_api_key or not legacy_api_key.strip():
+                return None
+
+            await self._redis.set(
+                key, legacy_api_key.strip(), ex=self._ttl_seconds, nx=True
+            )
+            migrated = _text(await self._redis.get(key))
+            if migrated and migrated.strip():
+                await self._redis.expire(key, self._ttl_seconds)
+                await self._redis.delete(legacy_key, self._legacy_channels_key())
+                return migrated.strip()
+            return None
+        except RedisError as exc:
+            raise ModelCredentialStoreUnavailable("旧模型 Key 迁移暂不可用") from exc
+
+    async def put(
+        self,
+        user_id: str,
+        model_name: str,
+        api_key: str,
+        *,
+        legacy_id: str | None = None,
+    ) -> StoredCredentialStatus:
+        """Set one plaintext API-key String and remove its previous UUID Hash."""
+
+        del user_id
         secret = api_key.strip()
         if not secret:
             raise ModelCredentialError("API Key 不能为空")
+        key = self._credential_key(model_name)
         try:
-            encrypted = encrypt_payload({"api_key": secret})
-            await self._redis.set(self._redis_key(user_id, model_id), encrypted, ex=self._ttl_seconds)
-        except (RedisError, TaskPayloadConfigurationError) as exc:
-            raise ModelCredentialStoreUnavailable("模型凭据存储暂不可用") from exc
+            await self._redis.set(key, secret, ex=self._ttl_seconds)
+            if legacy_id:
+                await self._redis.delete(
+                    self._legacy_hash_key(legacy_id),
+                    self._legacy_channels_key(),
+                )
+        except RedisError as exc:
+            raise ModelCredentialStoreUnavailable("模型 API Key 存储暂不可用") from exc
         return StoredCredentialStatus(
-            model_id=model_id,
+            model_name=model_name.strip(),
             stored=True,
-            expires_at=datetime.now(UTC) + timedelta(seconds=self._ttl_seconds),
+            expires_at=datetime.now(timezone.utc) + timedelta(seconds=self._ttl_seconds),
         )
 
-    async def get(self, user_id: str, model_id: str) -> str | None:
-        """Resolve and decrypt one owner-scoped model API key."""
-
-        try:
-            encrypted = await self._redis.get(self._redis_key(user_id, model_id))
-            if encrypted is None:
-                return None
-            payload = decrypt_payload(encrypted.decode() if isinstance(encrypted, bytes) else encrypted)
-        except (RedisError, TaskPayloadConfigurationError) as exc:
-            raise ModelCredentialStoreUnavailable("模型凭据读取暂不可用") from exc
-        api_key = payload.get("api_key")
-        if not isinstance(api_key, str) or not api_key:
-            raise ModelCredentialStoreUnavailable("模型凭据内容无效")
-        return api_key
-
-    async def delete(self, user_id: str, model_id: str) -> bool:
-        """Delete one owner-scoped credential."""
-
-        try:
-            safe_model_id = self._validate_model_id(model_id)
-            channel_keys = [self._channel_key(user_id, channel) for channel in _MEMORY_CHANNELS]
-            bindings = await self._redis.mget(channel_keys)
-            bound_keys = [
-                key
-                for key, value in zip(channel_keys, bindings, strict=True)
-                if value is not None
-                and (value.decode() if isinstance(value, bytes) else str(value)) == safe_model_id
-            ]
-            deleted = await self._redis.delete(
-                self._redis_key(user_id, safe_model_id),
-                self._profile_key(user_id, safe_model_id),
-                *bound_keys,
-            )
-            return bool(deleted)
-        except RedisError as exc:
-            raise ModelCredentialStoreUnavailable("模型凭据删除暂不可用") from exc
-
-    async def remember_model_profile(
+    async def move(
         self,
-        *,
         user_id: str,
-        channel: str,
-        model_id: str,
-        base_url: str,
-        model: str,
-        provider: str | None = None,
-        integration: str | None = None,
-        pricing_key: str | None = None,
-    ) -> None:
-        """Persist bounded model metadata and its owner-scoped memory-channel binding."""
+        source_model: str,
+        target_model: str,
+        *,
+        legacy_id: str | None = None,
+    ) -> StoredCredentialStatus:
+        """Rename a model key without returning its API key to the frontend."""
 
-        safe_model_id = self._validate_model_id(model_id)
-        clean_base_url = base_url.strip()[:2048]
-        clean_model = model.strip()[:256]
-        if not clean_base_url or not clean_model:
-            return
-        profile = {
-            "model_id": safe_model_id,
-            "base_url": clean_base_url,
-            "model": clean_model,
-            "provider": provider.strip()[:128] if isinstance(provider, str) else None,
-            "integration": integration.strip()[:128] if isinstance(integration, str) else None,
-            "pricing_key": pricing_key.strip()[:256] if isinstance(pricing_key, str) else None,
-        }
-        try:
-            encrypted_profile = encrypt_payload(profile)
-            pipeline = self._redis.pipeline(transaction=False)
-            pipeline.set(
-                self._profile_key(user_id, safe_model_id),
-                encrypted_profile,
-                ex=self._ttl_seconds,
-            )
-            pipeline.set(
-                self._channel_key(user_id, channel),
-                safe_model_id,
-                ex=self._ttl_seconds,
-            )
-            await pipeline.execute()
-        except (RedisError, TaskPayloadConfigurationError) as exc:
-            raise ModelCredentialStoreUnavailable("模型通道元数据存储暂不可用") from exc
-
-    async def resolve_channel_config(self, user_id: str, channel: str) -> dict | None:
-        """Restore one owner-scoped channel config from Redis for backend-only jobs."""
-
-        try:
-            binding = await self._redis.get(self._channel_key(user_id, channel))
-            if binding is None:
-                return None
-            model_id = binding.decode() if isinstance(binding, bytes) else str(binding)
-            safe_model_id = self._validate_model_id(model_id)
-            encrypted_profile = await self._redis.get(self._profile_key(user_id, safe_model_id))
-            if encrypted_profile is None:
-                return None
-            payload = decrypt_payload(
-                encrypted_profile.decode()
-                if isinstance(encrypted_profile, bytes)
-                else encrypted_profile
-            )
-            api_key = await self.get(user_id, safe_model_id)
-        except (RedisError, TaskPayloadConfigurationError) as exc:
-            raise ModelCredentialStoreUnavailable("模型通道配置读取暂不可用") from exc
+        api_key = await self.get(user_id, source_model, legacy_id=legacy_id)
         if api_key is None:
-            return None
-        base_url = payload.get("base_url")
-        model = payload.get("model")
-        if not isinstance(base_url, str) or not isinstance(model, str):
-            return None
-        return {
-            "api_key": api_key,
-            "base_url": base_url,
-            "model": model,
-            "provider": payload.get("provider"),
-            "integration": payload.get("integration"),
-            "pricing_key": payload.get("pricing_key"),
-        }
+            raise ModelCredentialError("原模型 API Key 未保存")
+        status = await self.put(user_id, target_model, api_key)
+        if self._credential_key(source_model) != self._credential_key(target_model):
+            try:
+                await self._redis.delete(self._credential_key(source_model))
+            except RedisError as exc:
+                raise ModelCredentialStoreUnavailable("旧模型 API Key 删除暂不可用") from exc
+        return status
 
-    async def statuses(self, user_id: str, model_ids: list[str]) -> list[StoredCredentialStatus]:
-        """Return existence and expiry metadata for model IDs without secrets."""
+    async def get(
+        self,
+        user_id: str,
+        model_name: str,
+        *,
+        legacy_id: str | None = None,
+    ) -> str | None:
+        """Read one API key by technical model name, migrating an old UUID Hash if supplied."""
 
-        unique_ids = list(dict.fromkeys(model_ids))
-        keys = [self._redis_key(user_id, model_id) for model_id in unique_ids]
-        if not keys:
-            return []
+        del user_id
+        return await self._migrate_legacy(model_name, legacy_id)
+
+    async def delete(
+        self,
+        user_id: str,
+        model_name: str,
+        *,
+        legacy_id: str | None = None,
+    ) -> bool:
+        """Delete the model-name String and any supplied previous UUID Hash."""
+
+        del user_id
+        keys = [self._credential_key(model_name), self._legacy_channels_key()]
+        if legacy_id:
+            keys.append(self._legacy_hash_key(legacy_id))
         try:
-            pipeline = self._redis.pipeline(transaction=False)
-            for key in keys:
-                pipeline.ttl(key)
-            ttls = await pipeline.execute()
+            return bool(await self._redis.delete(*keys))
         except RedisError as exc:
-            raise ModelCredentialStoreUnavailable("模型凭据状态查询暂不可用") from exc
-        now = datetime.now(UTC)
-        return [
-            StoredCredentialStatus(
-                model_id=model_id,
-                stored=ttl > 0,
-                expires_at=now + timedelta(seconds=ttl) if ttl > 0 else None,
+            raise ModelCredentialStoreUnavailable("模型 API Key 删除暂不可用") from exc
+
+    async def statuses(
+        self,
+        user_id: str,
+        models: list[tuple[str, str | None]],
+    ) -> list[StoredCredentialStatus]:
+        """Return status per model name and opportunistically migrate old UUID Hashes."""
+
+        statuses: list[StoredCredentialStatus] = []
+        seen: set[str] = set()
+        for model_name, legacy_id in models:
+            safe_name = self._validate_model_name(model_name)
+            if safe_name in seen:
+                continue
+            seen.add(safe_name)
+            api_key = await self.get(user_id, safe_name, legacy_id=legacy_id)
+            statuses.append(
+                StoredCredentialStatus(
+                    model_name=safe_name,
+                    stored=bool(api_key),
+                    expires_at=(
+                        datetime.now(timezone.utc) + timedelta(seconds=self._ttl_seconds)
+                        if api_key
+                        else None
+                    ),
+                )
             )
-            for model_id, ttl in zip(unique_ids, ttls, strict=True)
-        ]
+        return statuses
 
 
 @lru_cache(maxsize=1)
 def get_model_credential_store() -> ModelCredentialStore:
-    """Build the process-wide Redis credential store from application settings."""
+    """Build the process-wide local Redis model-name API-key store."""
 
     settings = get_settings()
     if not settings.redis_url:
         raise ModelCredentialStoreUnavailable("REDIS_URL 未配置")
     client = Redis.from_url(settings.redis_url, decode_responses=False)
-    return ModelCredentialStore(client, settings.model_credential_ttl_seconds)
+    return ModelCredentialStore(
+        client,
+        ttl_seconds=settings.model_credential_ttl_seconds,
+    )

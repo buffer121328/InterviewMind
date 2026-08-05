@@ -50,20 +50,21 @@ def test_build_score_from_boolean_metric_dict():
     assert score.data_type == "BOOLEAN"
 
 
-def test_report_score_is_opt_in(monkeypatch):
+def test_report_score_is_enabled_by_default_and_can_be_disabled(monkeypatch):
     from observability.evaluation_reporting import EvaluationScore, report_score
 
     calls = []
     monkeypatch.setattr("observability.evaluation_reporting.record_score", lambda **kwargs: calls.append(kwargs) or True)
     monkeypatch.delenv("LANGFUSE_EVAL_REPORTING_ENABLED", raising=False)
 
-    assert report_score(EvaluationScore(name="eval.test", value=1.0)) is False
-    assert calls == []
-
-    monkeypatch.setenv("LANGFUSE_EVAL_REPORTING_ENABLED", "true")
     assert report_score(EvaluationScore(name="eval.test", value=1.0, trace_id="trace-1")) is True
     assert calls[0]["name"] == "eval.test"
     assert calls[0]["trace_id"] == "trace-1"
+
+    calls.clear()
+    monkeypatch.setenv("LANGFUSE_EVAL_REPORTING_ENABLED", "false")
+    assert report_score(EvaluationScore(name="eval.test", value=1.0)) is False
+    assert calls == []
 
 
 def test_report_metrics_summarizes_success(monkeypatch):

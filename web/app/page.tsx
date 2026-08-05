@@ -10,6 +10,8 @@ import { getUserId } from "@/hooks/useUserIdentity";
 import { API_BASE_URL } from "@/lib/api/config";
 import { parseSavedMainView, requiresApiConfig, type MainView } from "@/lib/navigation";
 import { isInterviewFinished } from "@/lib/interviewSeries";
+import type { JobContextSnapshot } from "@/lib/jobContextHandoff";
+import type { TargetedInterviewHandoff } from "@/lib/interviewReportStructured";
 import { toast } from "sonner";
 import { ResumeTools } from "@/components/ResumeTools";
 import { LandingPage } from "@/components/LandingPage";
@@ -64,6 +66,9 @@ export default function InterviewPage() {
   const [selectedApplicationId, setSelectedApplicationId] = useState<number | null>(null);
   const [historyDetailSessionId, setHistoryDetailSessionId] = useState<string | null>(null);
   const [historyDetailInitialTab, setHistoryDetailInitialTab] = useState<'overview' | 'dialogue' | 'report'>('overview');
+  const [resumeJobContext, setResumeJobContext] = useState<JobContextSnapshot | null>(null);
+  const [resumeGenerationSessionId, setResumeGenerationSessionId] = useState<string | null>(null);
+  const [initialBossJobId, setInitialBossJobId] = useState<number | null>(null);
 
   useEffect(() => {
     localStorage.setItem("activeMainTab", activeMainTab);
@@ -82,6 +87,7 @@ export default function InterviewPage() {
     resume,
     jobDescription,
     companyInfo,
+    jobContextSnapshot,
     interviewProgress,
     maxQuestions,
     interviewType,
@@ -100,9 +106,11 @@ export default function InterviewPage() {
     selectSession,
     setJobDescription,
     setCompanyInfo,
+    setJobContextSnapshot,
     setMaxQuestions,
     setInterviewType,
     setQuestionBankCount,
+    setExperienceQuestions,
     uploadResume,
     startInterview,
     sendMessage,
@@ -404,6 +412,73 @@ export default function InterviewPage() {
     setHistoryDetailSessionId(sessionId);
   };
 
+
+  /** Keeps the imported interview snapshot and the model-facing company context synchronized while editing. */
+  const handleInterviewJobContextChange = (snapshot: JobContextSnapshot | null) => {
+    setJobContextSnapshot(snapshot);
+    if (snapshot) {
+      setCompanyInfo([
+        snapshot.company_name && `公司：${snapshot.company_name}`,
+        snapshot.job_title && `目标岗位：${snapshot.job_title}`,
+        snapshot.company_size_text && `公司规模：${snapshot.company_size_text}`,
+      ].filter(Boolean).join("\n"));
+    }
+  };
+
+  /** Opens an editable专项面试 setup from persisted report recommendations without creating a run. */
+  const handleStartTargetedInterview = (handoff: TargetedInterviewHandoff) => {
+    useInterviewStore.getState().createNewSession();
+    setJobContextSnapshot(null);
+    setJobDescription(handoff.trainingGoal);
+    setCompanyInfo('来源：面试复盘专项训练');
+    setExperienceQuestions(handoff.questions);
+    setStoreShowAbilityProfile(false);
+    setHistoryDetailSessionId(null);
+    setActiveMainTab('interview');
+    toast.success(`已导入 ${handoff.questions.length} 道专项练习题，请确认后开始面试`);
+  };
+
+  /** Prefills the editable interview setup from one owner-scoped job snapshot without starting a run. */
+  const handleUseJobInInterview = (snapshot: JobContextSnapshot) => {
+    handleInterviewJobContextChange(snapshot);
+    setJobDescription(snapshot.job_description);
+    setCompanyInfo([
+      snapshot.company_name && `公司：${snapshot.company_name}`,
+      snapshot.job_title && `目标岗位：${snapshot.job_title}`,
+      snapshot.company_size_text && `公司规模：${snapshot.company_size_text}`,
+    ].filter(Boolean).join("\n"));
+    setStoreShowAbilityProfile(false);
+    setActiveMainTab('interview');
+    toast.success('岗位上下文已导入模拟面试，可继续编辑');
+  };
+
+  /** Prefills the resume workspace and clears any selected historical result without starting model work. */
+  const handleImportJobToResume = (snapshot: JobContextSnapshot) => {
+    useInterviewStore.getState().clearResumeResult();
+    setResumeJobContext(snapshot);
+    setActiveMainTab('resume');
+    toast.success('岗位上下文已导入简历工作台');
+  };
+
+  /** Opens the resume workspace and optionally restores one owner-scoped needs-input session. */
+  const handleOpenResumeWorkspace = (generationSessionId?: string) => {
+    setResumeGenerationSessionId(generationSessionId || null);
+    setActiveMainTab('resume');
+  };
+
+  /** Opens one persisted job detail from an AgentRun business reference. */
+  const handleOpenJobFromRun = (jobId: number) => {
+    setInitialBossJobId(jobId);
+    setActiveMainTab('boss');
+  };
+
+  /** Opens the persisted growth record inside the interview workspace. */
+  const handleOpenGrowthRecord = () => {
+    setHistoryDetailSessionId(null);
+    setStoreShowAbilityProfile(true);
+    setActiveMainTab('interview');
+  };
+
   if (!isMounted) {
     return (
       <div className="flex h-[100dvh] items-center justify-center bg-white">
@@ -476,10 +551,10 @@ export default function InterviewPage() {
           onGoHome={() => setActiveMainTab('landing')}
           icon={<Target className="h-4 w-4" />}
           title="岗位中心"
-          description="岗位采集、匹配排序、投递资产生成与人工确认"
+          description="岗位采集、匹配排序、资料维护与业务工作台交接"
         >
           <div className="h-full overflow-y-auto">
-            <BossCenter />
+            <BossCenter initialJobId={initialBossJobId} onInitialJobConsumed={() => setInitialBossJobId(null)} onUseInInterview={handleUseJobInInterview} onImportToResume={handleImportJobToResume} />
           </div>
         </WorkspaceShell>
         <SettingsDialog open={showSettingsDialog} onOpenChange={setShowSettingsDialog} />
@@ -550,9 +625,11 @@ export default function InterviewPage() {
           description="查看 AgentRun 阶段、实时事件、失败原因、取消与重试"
         >
           <RunCenter
-            onOpenResumeWorkspace={() => setActiveMainTab('resume')}
+            onOpenResumeWorkspace={handleOpenResumeWorkspace}
             onOpenSession={(sessionId) => void handleOpenInterviewSession(sessionId)}
             onOpenReport={(sessionId) => handleOpenSessionDetail(sessionId, 'report')}
+            onOpenJob={handleOpenJobFromRun}
+            onOpenGrowthRecord={handleOpenGrowthRecord}
           />
         </WorkspaceShell>
         <SettingsDialog open={showSettingsDialog} onOpenChange={setShowSettingsDialog} />
@@ -561,6 +638,7 @@ export default function InterviewPage() {
             key={`${historyDetailSessionId}-${historyDetailInitialTab}`}
             sessionId={historyDetailSessionId}
             initialTab={historyDetailInitialTab}
+            onStartTargetedInterview={handleStartTargetedInterview}
             open={true}
             onOpenChange={(open) => {
               if (!open) setHistoryDetailSessionId(null);
@@ -614,6 +692,9 @@ export default function InterviewPage() {
               <ResumeTools
                 apiConfig={hasApiConfig ? useInterviewStore.getState().getApiConfigForRequest() : null}
                 resumeContent={resume?.content || ""}
+                jobContext={resumeJobContext}
+                generationSessionId={resumeGenerationSessionId}
+                onGenerationSessionConsumed={() => setResumeGenerationSessionId(null)}
                 onResumeChange={() => undefined}
                 onOpenSession={(sessionId) => handleOpenSessionDetail(sessionId)}
               />
@@ -641,6 +722,8 @@ export default function InterviewPage() {
                 onJobDescriptionChange={setJobDescription}
                 companyInfo={companyInfo}
                 onCompanyInfoChange={setCompanyInfo}
+                jobContextSnapshot={jobContextSnapshot}
+                onJobContextSnapshotChange={handleInterviewJobContextChange}
                 maxQuestions={maxQuestions}
                 onMaxQuestionsChange={setMaxQuestions}
                 interviewType={interviewType}
@@ -652,6 +735,7 @@ export default function InterviewPage() {
                 hasApiConfig={hasApiConfig}
                 onStartInterview={handleStartInterview}
                 onConfigureApi={() => setShowSettingsDialog(true)}
+                onOpenJobLibrary={() => setActiveMainTab('boss')}
                 hasVoiceConfig={hasVoiceConfig}
               />
             </div>
@@ -723,6 +807,7 @@ export default function InterviewPage() {
             key={historyDetailSessionId}
             sessionId={historyDetailSessionId}
             initialTab={historyDetailInitialTab}
+            onStartTargetedInterview={handleStartTargetedInterview}
             open={true}
             onOpenChange={(open) => {
               if (!open) setHistoryDetailSessionId(null);

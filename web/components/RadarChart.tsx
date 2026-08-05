@@ -9,36 +9,52 @@ interface Props {
 
 /** Encapsulates ability radar chart; returns typed data or state and keeps side effects within the owning module boundary. */
 export function AbilityRadarChart({ data }: Props) {
+    const dimensionScores = [
+        data.professional_competence.score,
+        data.execution_results.score,
+        data.logic_problem_solving.score,
+        data.communication.score,
+        data.growth_potential.score,
+        data.collaboration.score,
+    ];
+    if (dimensionScores.every((score) => score == null)) {
+        return (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-6 text-sm text-amber-900">
+                本报告为证据受限降级模式，仅保留真实问答证据，暂无可视化能力评分。
+            </div>
+        );
+    }
+
     // 转换数据为雷达图格式
     const chartData = [
         {
             dimension: '专业能力',
-            score: data.professional_competence.score,
+            score: data.professional_competence.score ?? 0,
             fullMark: 10
         },
         {
             dimension: '执行与结果导向',
-            score: data.execution_results.score,
+            score: data.execution_results.score ?? 0,
             fullMark: 10
         },
         {
             dimension: '逻辑与问题解决',
-            score: data.logic_problem_solving.score,
+            score: data.logic_problem_solving.score ?? 0,
             fullMark: 10
         },
         {
             dimension: '沟通表达力',
-            score: data.communication.score,
+            score: data.communication.score ?? 0,
             fullMark: 10
         },
         {
             dimension: '成长潜力',
-            score: data.growth_potential.score,
+            score: data.growth_potential.score ?? 0,
             fullMark: 10
         },
         {
             dimension: '协作能力',
-            score: data.collaboration.score,
+            score: data.collaboration.score ?? 0,
             fullMark: 10
         },
     ];

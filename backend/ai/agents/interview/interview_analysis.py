@@ -8,6 +8,8 @@ import logging
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any, Dict, List, Optional
 
+from app.clock import utc_now
+
 logger = logging.getLogger(__name__)
 
 
@@ -150,24 +152,35 @@ async def trigger_session_report_analysis(
             if [item.get("round_index") for item in completed] != [1, 2, 3]:
                 raise ValueError("公司总画像需要第一轮、第二轮和第三轮画像全部可用")
 
-            from ai.workflows.analysis.ability_service import get_ability_service
-            from datetime import datetime
+            round_profiles = [item["profile"] for item in completed]
+            if any(
+                item.get("generation_mode") == "degraded_evidence_only"
+                for item in round_profiles
+            ):
+                logger.warning(
+                    "[SessionReportAnalysis] 三轮中存在未评分降级报告，跳过公司总画像: "
+                    "session=%s series=%s",
+                    session_id,
+                    series_id,
+                )
+            else:
+                from ai.workflows.analysis.ability_service import get_ability_service
 
-            company_candidate_profile = await get_ability_service().aggregate_company_profile(
-                [item["profile"] for item in completed],
-                api_config,
-            )
-            company_payload = {
-                "schema_version": 1,
-                "series_id": series_id,
-                "source_session_ids": [item["session_id"] for item in completed],
-                "company_info": session.metadata.company_info or "未知公司",
-                "job_description": session.metadata.job_description or "",
-                "generated_at": datetime.now().isoformat(),
-                "profile": company_candidate_profile.model_dump(),
-            }
-            if not await session_repo.save_company_profile(session_id, company_payload, user_id):
-                raise ValueError("公司总画像保存失败")
+                company_candidate_profile = await get_ability_service().aggregate_company_profile(
+                    round_profiles,
+                    api_config,
+                )
+                company_payload = {
+                    "schema_version": 1,
+                    "series_id": series_id,
+                    "source_session_ids": [item["session_id"] for item in completed],
+                    "company_info": session.metadata.company_info or "未知公司",
+                    "job_description": session.metadata.job_description or "",
+                    "generated_at": utc_now().isoformat(),
+                    "profile": company_candidate_profile.model_dump(),
+                }
+                if not await session_repo.save_company_profile(session_id, company_payload, user_id):
+                    raise ValueError("公司总画像保存失败")
 
         from ai.workflows.interview.report_memory import (
             schedule_interview_report_memories,

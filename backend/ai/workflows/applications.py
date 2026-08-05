@@ -10,11 +10,14 @@ from app.db.unit_of_work import UnitOfWork
 from app.db.models import async_session
 from app.db.repositories.application.application_event_repo import application_event_repo
 from app.db.repositories.application.job_application_repo import job_application_repo
+from app.db.repositories.resume.resume_generation_repo import get_generation_repo
 from app.schemas.job_application import (
     ApplicationCreateRequest,
     ApplicationDetailResponse,
     ApplicationListResponse,
+    ApplicationResumeLinkRequest,
     ApplicationUpdateRequest,
+    LinkedResumeAsset,
     EventCreateRequest,
     EventListResponse,
 )
@@ -116,7 +119,63 @@ class ApplicationUseCases:
             user_id: 当前用户标识。
         """
         application = await self._get_application_or_raise(application_id, user_id)
+        application = await self._attach_linked_resume(
+            application=application,
+            user_id=self.resolve_user_id(user_id),
+        )
         return ApplicationDetailResponse(success=True, application=application)
+
+    async def set_application_resume(
+        self,
+        *,
+        application_id: int,
+        user_id: Optional[str],
+        request: ApplicationResumeLinkRequest,
+    ) -> ApplicationDetailResponse:
+        """Replace or clear an application resume after owner validation."""
+        resolved_user_id = self.resolve_user_id(user_id)
+        await self._get_application_or_raise(application_id, resolved_user_id)
+        if request.resume_id is not None:
+            resume = await get_generation_repo().get_generated_resume(request.resume_id, resolved_user_id)
+            if resume is None:
+                raise ApplicationNotFound(
+                    error="NotFound",
+                    message="关联简历不存在或无权访问",
+                )
+        application = await job_application_repo.set_linked_resume(
+            application_id=application_id,
+            user_id=resolved_user_id,
+            resume_id=request.resume_id,
+        )
+        if application is None:
+            raise self._not_found(application_id)
+        application = await self._attach_linked_resume(
+            application=application,
+            user_id=resolved_user_id,
+        )
+        return ApplicationDetailResponse(success=True, application=application)
+
+    async def _attach_linked_resume(
+        self,
+        *,
+        application,
+        user_id: str,
+    ):
+        """Attach only an owner-visible generated resume to an application detail."""
+        resume_id = application.generated_resume_id or application.custom_resume_id
+        if not resume_id:
+            return application.model_copy(update={"linked_resume": None})
+        resume = await get_generation_repo().get_generated_resume(resume_id, user_id)
+        if resume is None:
+            return application.model_copy(update={"linked_resume": None})
+        asset = LinkedResumeAsset(
+            id=resume["id"],
+            title=resume["title"],
+            job_description=resume.get("job_description"),
+            content=resume["content"],
+            created_at=resume["created_at"],
+        )
+        return application.model_copy(update={"linked_resume": asset})
 
     async def update_application(
         self,

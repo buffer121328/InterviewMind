@@ -11,6 +11,10 @@ from ai.prompts.voice import build_interview_voice_system_prompt as build_system
 from ai.prompts.voice import get_opening_message
 from app.db.repositories.session.session_repo import SessionRepo
 from app.domain.interview_rounds import resolve_max_questions
+from ai.workflows.jobs.job_context import (
+    JobContextAccessError,
+    normalize_owned_job_context_snapshot,
+)
 from app.schemas.voice import VoiceCloneRequest, VoiceStartRequest, VoiceStartResponse
 
 logger = logging.getLogger(__name__)
@@ -50,6 +54,15 @@ class VoiceInterviewUseCases:
 
         logger.info("[Voice] 开始语音面试: %s", session_id)
 
+        try:
+            job_context_snapshot = await normalize_owned_job_context_snapshot(
+                request.job_context_snapshot, user_id=user_id
+            )
+        except JobContextAccessError as exc:
+            raise VoiceInterviewUseCaseError(str(exc), status_code=404) from exc
+        if job_context_snapshot is not None and request.job_description is not None:
+            job_context_snapshot["job_description"] = request.job_description
+
         session = await self._session_repo.get_session(
             session_id,
             include_resume_content=True,
@@ -80,6 +93,8 @@ class VoiceInterviewUseCases:
                 resume_content=request.resume_content,
                 job_description=request.job_description,
                 company_info=request.company_info or "未知",
+                source_job_id=job_context_snapshot["source_job_id"] if job_context_snapshot else None,
+                job_context_snapshot=job_context_snapshot,
                 max_questions=request.max_questions,
                 round_type=request.round_type,
                 user_id=user_id,

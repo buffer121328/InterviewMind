@@ -4,6 +4,7 @@ from datetime import datetime
 from sqlalchemy import select, update, func
 from app.db.models import async_session, SessionModel, MessageModel
 from .base import BaseService
+from app.clock import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +23,7 @@ class InterviewPlanService(BaseService):
         """保存面试题目清单"""
         async with async_session() as db:
             try:
-                await db.execute(update(SessionModel).where(SessionModel.session_id == session_id).values(interview_plan=plan, updated_at=datetime.now()))
+                await db.execute(update(SessionModel).where(SessionModel.session_id == session_id).values(interview_plan=plan, updated_at=utc_now()))
                 await db.commit()
                 return True
             except Exception as e:
@@ -33,7 +34,7 @@ class InterviewPlanService(BaseService):
         """更新会话的问题计数"""
         async with async_session() as db:
             try:
-                await db.execute(update(SessionModel).where(SessionModel.session_id == session_id).values(question_count=count, updated_at=datetime.now()))
+                await db.execute(update(SessionModel).where(SessionModel.session_id == session_id).values(question_count=count, updated_at=utc_now()))
                 await db.commit()
                 return True
             except Exception as e:

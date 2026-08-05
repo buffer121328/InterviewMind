@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from hashlib import sha256
 from typing import Any
 
+from ai.runtime.authoritative_context import assemble_authoritative_context
 from ai.runtime.context_assembler import ContextAssembler, ContextSource
 from ai.runtime.deadlines import TaskDeadline, get_current_task_deadline
 
@@ -30,7 +31,21 @@ def bounded_generation_sources(
     truncated_sources: list[str] = []
     fingerprints: list[str] = []
 
+    authoritative_fingerprints: dict[str, str] = {}
     for name, content, max_chars, strategy in sources:
+        if strategy == "authoritative":
+            authoritative = assemble_authoritative_context(
+                agent_name="resume_generator",
+                sources={name: content},
+            )
+            prefix = f"【{name}】\n"
+            value = authoritative.model_context
+            values[name] = value[len(prefix):] if value.startswith(prefix) else value
+            source_breakdown[name] = authoritative.metadata["source_breakdown"][name]
+            fingerprint = authoritative.metadata["source_fingerprints"][name]
+            authoritative_fingerprints[name] = fingerprint
+            fingerprints.append(fingerprint)
+            continue
         assembled = ContextAssembler(
             agent_name="resume_generator",
             total_model_chars=max_chars,
@@ -62,6 +77,9 @@ def bounded_generation_sources(
             "input_fingerprint": sha256("|".join(fingerprints).encode("utf-8")).hexdigest(),
             "source_breakdown": source_breakdown,
             "truncated_sources": sorted(set(truncated_sources)),
+            "authoritative_source_truncated": False,
+            "authoritative_source_fingerprints": authoritative_fingerprints,
+            "overflow_strategy": "lossless_segments_or_derived_ir",
         },
     )
 

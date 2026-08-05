@@ -99,10 +99,11 @@ def _memory_record_rank(record: dict[str, Any]) -> tuple[int, float, str]:
 
 def memory_record_to_item(record: dict[str, Any]) -> dict[str, Any]:
     """Normalize a mem0 memory record into the API/domain memory item shape."""
+    metadata = record.get("metadata")
     item = {
         "id": record.get("id", ""),
         "memory": record.get("memory", ""),
-        "metadata": record.get("metadata", {}),
+        "metadata": metadata if isinstance(metadata, dict) else {},
         "created_at": record.get("created_at"),
         "updated_at": record.get("updated_at"),
     }

@@ -7,6 +7,7 @@ import { createResumeWorkspaceRun, pollAgentRun, type AgentRun } from './agentRu
 import type { ApiConfig, CompletedSession, GeneratedResumeItem, GenerationSessionStatus, JDMatchResult, ResumeAnalyzeResult, ResumeGenerateInitResponse, ResumeGenerateSubmitResponse, ResumeOptimizeMode, ResumeOptimizeResult, ResumeResultData, ResumeReviewDecision, ResumeReviewState, ResumeWorkspaceResult } from './resumeTypes';
 import { isResumeWorkspaceResult, safeWorkspaceErrorMessage } from '../resumeWorkspaceResult';
 import { unwrapGenerationSessionStatus } from '../resumeGenerationStatus';
+import type { JobContextSnapshot } from '../jobContextHandoff';
 export { getResumeWorkspaceStage } from '../resumeWorkspaceHelpers';
 
 // ============================================================================
@@ -23,6 +24,7 @@ export async function runResumeWorkspace(params: {
     include_overall_profile?: boolean;
     mode?: ResumeOptimizeMode;
     api_config: ApiConfig;
+    job_context_snapshot?: JobContextSnapshot | null;
     onUpdate?: (run: AgentRun) => void;
 }): Promise<ResumeWorkspaceResult> {
     const created = await createResumeWorkspaceRun({
@@ -32,6 +34,7 @@ export async function runResumeWorkspace(params: {
         include_overall_profile: params.include_overall_profile || false,
         mode: params.mode || 'balanced',
         api_config: params.api_config,
+        job_context_snapshot: params.job_context_snapshot || null,
     });
     const completed = 'run_id' in created ? await pollAgentRun(created.run_id, params.onUpdate) : created;
     if (completed.status !== 'succeeded' || !completed.result) {

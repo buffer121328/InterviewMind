@@ -11,6 +11,7 @@ from sqlalchemy import delete, select
 
 from app.db.models import async_session
 from app.db.models.resume import ProjectRewriteRecordModel
+from app.clock import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +44,7 @@ class ProjectRewriteRepo:
                     rewrite_mode=rewrite_mode,
                     job_description=job_description,
                     result_data=result_data or {},
-                    created_at=datetime.now(),
+                    created_at=utc_now(),
                 )
                 db.add(db_obj)
                 await db.commit()

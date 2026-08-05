@@ -65,7 +65,7 @@ def test_registry_contains_only_current_versions_for_migrated_prompts():
 
     assert "voice.system" not in prompt_registry.names()
     assert "analysis.aggregate_profile" not in prompt_registry.names()
-    assert prompt_registry.versions("interview.planner") == ("2",)
+    assert prompt_registry.versions("interview.planner") == ("3",)
     assert prompt_registry.versions("interview.evaluating") == ("2",)
     assert prompt_registry.versions("voice.interview_system") == ("2",)
     assert prompt_registry.versions("analysis.session_report") == ("2",)
@@ -123,6 +123,7 @@ def test_structured_interview_prompts_keep_exact_counts_and_actions():
         tool_instruction="",
     )
     assert "恰好 4 道主问题" in planner
+    assert "answer_points" in planner
     assert "follow_up" in evaluating
     assert "advance" in evaluating
     assert "end_round" in evaluating

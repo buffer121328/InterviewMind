@@ -32,7 +32,8 @@ PLANNER_PROMPT = prompt_template(
 3. 题目之间应有梯度且不得重复历史已问问题；确需复测时必须改变角度并在 reason 中说明。
 4. sources 只引用真实提供的来源；没有来源时使用空数组，fallback_reason 说明为何使用通用题。
 5. id 从 1 连续编号，type 只能是 intro、tech、behavior 或 system_design。
-6. 不要提前给答案、提示或评价。
+6. content 只写候选人可见的问题，不要在问题正文提前给答案、提示或评价。
+7. answer_points 是内部辅导数据，每题提供 2-4 条简洁中文要点；只保留必要技术专有名词原文，不得编造候选人经历。
 
 【输出结构】
 {{json_format}}
@@ -121,14 +122,14 @@ def build_planner_prompt(
 ):
     """Build the interview plan prompt only from ContextAssembler output."""
     json_format = (
-        '[{"topic":"考察主题","content":"具体问题"}]'
+        '{"questions":[{"topic":"考察主题","content":"具体问题","answer_points":["回答结构要点","关键原理或证据要点"]}]}'
         if output_format == "simple"
-        else '{"questions":[{"id":1,"topic":"考察主题","content":"具体问题","type":"intro/tech/behavior/system_design","target_skill":null,"sources":[{"source_type":"candidate_resume/job_description","source_id":"","evidence":"输入中的简短依据"}],"reason":"提问依据","fallback_reason":null}]}'
+        else '{"questions":[{"id":1,"topic":"考察主题","content":"具体问题","answer_points":["回答结构要点","关键原理或证据要点"],"type":"intro/tech/behavior/system_design","target_skill":null,"sources":[{"source_type":"candidate_resume/job_description","source_id":"","evidence":"输入中的简短依据"}],"reason":"提问依据","fallback_reason":null}]}'
     )
     return render_prompt(
         PLANNER_PROMPT,
         prompt_name="interview.planner",
-        prompt_version="2",
+        prompt_version="3",
         round_index=round_index,
         round_type=round_type,
         max_questions=max_questions,

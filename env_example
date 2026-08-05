@@ -1,7 +1,7 @@
 # ============================================================================
 # 面必过全量环境变量模板
 # 复制为 .env 后使用；不要提交真实密码、API Key 或浏览器登录目录。
-# 模型聊天 API Key 在前端设置页录入、加密存入 Redis；Fast/Reasoning Pool 在前端维护。
+# 模型聊天 API Key 在前端设置页录入，以“技术模型名 → API Key”明文 String 存入本机 Redis；模型池在前端维护。
 # ============================================================================
 
 # ----------------------------------------------------------------------------
@@ -23,7 +23,7 @@ REDIS_URL=redis://localhost:6379/0
 TASK_QUEUE_ENABLED=true
 # 使用 Fernet.generate_key() 生成；API 和 Worker 必须完全一致。
 TASK_PAYLOAD_ENCRYPTION_KEY=
-# 前端保存的模型 API Key 使用同一 Fernet key 加密后写入 Redis，默认有效期 30 天。
+# 本地个人模式下，Redis 只保存“技术模型名 → API Key”的明文 String；TTL 为滑动窗口，保存、查询或业务使用时续期。
 MODEL_CREDENTIAL_TTL_SECONDS=2592000
 AGENT_RUN_LOCK_TTL_SECONDS=600
 # 用户手动重试与中断恢复共享此上限。
@@ -55,19 +55,26 @@ AUTO_CREATE_TABLES=true
 # 注意：具体模型成员由前端配置，不使用 FAST_LLM_* / SMART_LLM_* 环境变量。
 # ----------------------------------------------------------------------------
 LLM_REQUEST_TIMEOUT_SECONDS=45
-# 同一任务跨重试/fallback 的总时间预算；TASK_DEADLINE_ENABLED=false 时仅供已显式迁移流程使用。
+# 同一任务跨重试/fallback 的总时间预算；默认对未显式传 deadline 的模型调用也启用。
 LLM_TASK_TIMEOUT_SECONDS=90
 # 剩余时间低于此值时不再启动新的 attempt 或备用模型。
 LLM_MIN_ATTEMPT_TIMEOUT_SECONDS=2
 LLM_MAX_TOKENS=8000
 # 只用于安全观测的 token 粗估，不替代供应商返回的实际 usage。
 LLM_ESTIMATED_CHARS_PER_TOKEN=4
-# 基础设施默认保持兼容；业务 Agent 分批迁移并验收后再全局开启。
-TASK_DEADLINE_ENABLED=false
-# JSON 映射，可按 Agent 覆盖上下文预算开关，例如 {"interview":true,"voice_interview":false}。
-AGENT_CONTEXT_BUDGET_FLAGS={}
+# 默认全局开启共享 TaskDeadline；主模型、修复、retry 和 fallback 不会分别重置预算。
+TASK_DEADLINE_ENABLED=true
+# 默认开启所有已注册 Agent 的上下文预算；可按 Agent 显式设为 false 做局部排障。
+AGENT_CONTEXT_BUDGET_FLAGS={"interview":true,"resume_optimizer":true,"resume_generator":true,"job_assets":true,"voice_interview":true}
 # 面试 Planner 的用户阻塞链路总预算；超时后立即使用本地题目兜底。
 INTERVIEW_PLAN_TIMEOUT_SECONDS=20
+# 文字面试单轮任务总预算；主调用、工具后的二次调用、retry/fallback 共享，不重复计时。
+INTERACTIVE_INTERVIEW_TASK_TIMEOUT_SECONDS=60
+# 语音面试单轮共享任务预算，以及单个 ASR/分析/回复节点的调用上限。
+VOICE_INTERVIEW_TASK_TIMEOUT_SECONDS=45
+VOICE_INTERVIEW_NODE_TIMEOUT_SECONDS=15
+# 任务剩余时间低于此值时，不再启动新的交互模型 attempt 或备用模型。
+INTERACTIVE_MIN_REMAINING_ATTEMPT_SECONDS=3
 # 面试报告原始 QA 超过该字符数后按块提取逐题证据，再汇总画像和短板。
 INTERVIEW_REPORT_QA_CHAR_BUDGET=12000
 INTERVIEW_REPORT_CHUNK_SIZE=5
@@ -88,6 +95,8 @@ VECTOR_SEARCH_TIMEOUT_SECONDS=5
 MEM0_SEARCH_TIMEOUT_SECONDS=5
 MEM0_ADD_TIMEOUT_SECONDS=5
 API_CONFIG_VALIDATION_TIMEOUT_SECONDS=10
+# 私有 HTML/PDF 导出目录；本地默认 backend/data/artifacts，容器显式覆盖为 /app/data/artifacts。
+ARTIFACT_STORAGE_DIR=data/artifacts
 # 成员连续失败达到阈值后进入冷却，冷却期间由同池其他模型承接请求。
 LLM_POOL_FAILURE_THRESHOLD=2
 LLM_POOL_COOLDOWN_SECONDS=60
@@ -134,8 +143,8 @@ EMBEDDING_DIM=1536
 # 面试 RAG 与有界 Agentic Retrieval
 # ----------------------------------------------------------------------------
 RAG_VECTOR_ENABLED=true
-# off=关闭；shadow=运行但不替换旧结果；active=仅质量改善时采用。
-RAG_AGENTIC_MODE=shadow
+# 默认 active：运行有界 Agentic Retrieval，并仅在质量改善时采用。off/shadow 仅用于局部排障。
+RAG_AGENTIC_MODE=active
 RAG_AGENTIC_MAX_ROUNDS=2
 RAG_AGENTIC_MAX_QUERIES=4
 RAG_AGENTIC_MIN_SCORE=0.30
@@ -170,7 +179,7 @@ VOICE_TRANSCRIPT_TERM_FIXES={}
 # ----------------------------------------------------------------------------
 # Langfuse Agent 可观测性
 # ----------------------------------------------------------------------------
-LANGFUSE_ENABLED=false
+LANGFUSE_ENABLED=true
 LANGFUSE_PUBLIC_KEY=
 LANGFUSE_SECRET_KEY=
 LANGFUSE_BASE_URL=https://cloud.langfuse.com
@@ -182,13 +191,13 @@ LANGFUSE_SAMPLE_RATE=1.0
 # 只有在确认第三方项目的数据合规边界后才显式改为 true。
 LANGFUSE_CAPTURE_MODEL_IO=false
 # 启用 Langfuse Prompt Management，失败时自动回退本地 Prompt。
-LANGFUSE_PROMPT_MANAGEMENT_ENABLED=false
+LANGFUSE_PROMPT_MANAGEMENT_ENABLED=true
 LANGFUSE_PROMPT_LABEL=production
 LANGFUSE_PROMPT_CACHE_TTL_SECONDS=300
 LANGFUSE_PROMPT_FETCH_TIMEOUT_SECONDS=0.05
 LANGFUSE_PROMPT_MAX_RETRIES=0
 # 离线评估/DeepEval 结果写入 Langfuse Scores。
-LANGFUSE_EVAL_REPORTING_ENABLED=false
+LANGFUSE_EVAL_REPORTING_ENABLED=true
 
 # ----------------------------------------------------------------------------
 # BOSS 现有标签页桥接
@@ -216,16 +225,13 @@ BOSS_CAPTURE_MAX_CANDIDATE_CARDS=20
 
 # ----------------------------------------------------------------------------
 # mem0 长期记忆
-# 前端携带 mem0_llm/mem0_embedder 时可启用；以下仅作服务端兜底与 pgvector 配置。
+# 前端携带 mem0_llm/mem0_embedder 时可启用；模型变量仅作服务端兜底。
+# pgvector 默认严格复用 DATABASE_URL，避免数据库账号漂移。只有确需独立库时才填写完整 DSN。
 # ----------------------------------------------------------------------------
-MEM0_ENABLED=false
+MEM0_ENABLED=true
 MEM0_VECTOR_PROVIDER=pgvector
 MEM0_PGVECTOR_COLLECTION=mem0_memories
-MEM0_PGVECTOR_HOST=localhost
-MEM0_PGVECTOR_PORT=5432
-MEM0_PGVECTOR_DBNAME=agent_interview
-MEM0_PGVECTOR_USER=agent_interview
-MEM0_PGVECTOR_PASSWORD=change_me
+MEM0_PGVECTOR_URL=
 
 # mem0 记忆提取模型
 MEM0_LLM_PROVIDER=openai
@@ -260,13 +266,13 @@ MEMORY_RETENTION_CLEANUP_INTERVAL_HOURS=24
 MEMORY_RETENTION_STATE_TTL_DAYS=1095
 
 # ----------------------------------------------------------------------------
-# Agent 评测中心与 Eval Harness（默认关闭；评测环境禁止真实外部副作用）
+# Agent 评测中心与 Eval Harness（默认全开；评测环境仍禁止真实外部副作用）
 # ----------------------------------------------------------------------------
-EVALUATION_CENTER_ENABLED=false
-EVALUATION_RUNS_ENABLED=false
-EVALUATION_LANGFUSE_REPORTING_ENABLED=false
-EVALUATION_ONLINE_SAMPLING_ENABLED=false
+EVALUATION_CENTER_ENABLED=true
+EVALUATION_RUNS_ENABLED=true
+EVALUATION_LANGFUSE_REPORTING_ENABLED=true
+EVALUATION_ONLINE_SAMPLING_ENABLED=true
 # off: 不检查；warn: 允许发布但返回审计告警；enforce: 必须有通过的 Gate Result。
-EVALUATION_RELEASE_GATE_MODE=off
+EVALUATION_RELEASE_GATE_MODE=enforce
 EVALUATION_MAX_CONCURRENCY=4
 EVALUATION_DEFAULT_MAX_BUDGET_USD=5.0

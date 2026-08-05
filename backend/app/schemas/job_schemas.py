@@ -110,7 +110,7 @@ class BossDomJobCard(BaseModel):
 
 
 class JobLibraryImportRequest(BaseModel):
-    """把用户确认的待入库卡片真正写入岗位库并调度资产任务。"""
+    """把用户确认的待入库卡片确定性写入岗位库，不触发模型或后台任务。"""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -119,9 +119,7 @@ class JobLibraryImportRequest(BaseModel):
         max_length=20,
         description="采集阶段排序后的待入库卡片，顺序即匹配度顺序",
     )
-    resume_content: str = Field(min_length=1, description="候选人基础简历，用于资产任务")
     city: Optional[str] = Field(default=None, max_length=20, description="城市代码提示")
-    api_config: Optional[dict] = Field(default=None, description="模型通道配置")
 
 
 class JobImportFailedItem(BaseModel):

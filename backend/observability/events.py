@@ -88,6 +88,9 @@ _SAFE_MODEL_EVENT_FIELDS = {
     "total_duration_ms",
     "trace_id",
     "truncated_sources",
+    "authoritative_source_truncated",
+    "overflow_strategy",
+    "timeout_scope",
 }
 
 
@@ -302,5 +305,8 @@ def filter_model_call_metadata(metadata: Mapping[str, Any] | None) -> dict[str, 
         "source_breakdown",
         "stage",
         "truncated_sources",
+    "authoritative_source_truncated",
+    "overflow_strategy",
+    "timeout_scope",
     }
     return {key: value for key, value in dict(metadata or {}).items() if key in allowed}

@@ -9,6 +9,7 @@ import { getUserId } from '@/hooks/useUserIdentity';
 import type { Message, ResumeInfo, InterviewProgress, InterviewSession, ExecutionPlanStep, InterviewType } from '../types';
 import { API_BASE_URL } from '@/lib/api/config';
 import type { ExperienceQuestionCandidate } from '@/lib/api/interviewExperience';
+import type { JobContextSnapshot } from '@/lib/jobContextHandoff';
 import { listAgentRunEvents } from '@/lib/api/agentRunEvents';
 import { parseStreamEvent, reduceExecutionPlanStreamEvent } from '@/lib/streamEvents';
 import { buildInteractiveExecutionPlan } from '@/lib/agentRunEvents';
@@ -27,6 +28,7 @@ export interface InterviewFlowState {
     resume: ResumeInfo | null;
     jobDescription: string;
     companyInfo: string;
+    jobContextSnapshot: JobContextSnapshot | null;
     interviewProgress: InterviewProgress | null;
     maxQuestions: number;
     interviewType: InterviewType;
@@ -49,6 +51,7 @@ export interface InterviewFlowState {
 export interface InterviewFlowActions {
     setJobDescription: (jobDescription: string) => void;
     setCompanyInfo: (companyInfo: string) => void;
+    setJobContextSnapshot: (snapshot: JobContextSnapshot | null) => void;
     setMaxQuestions: (maxQuestions: number) => void;
     setInterviewType: (interviewType: InterviewType) => void;
     setQuestionBankCount: (count: number) => void;
@@ -100,6 +103,7 @@ export const createInterviewSlice = (set: SetState, get: GetState): InterviewFlo
     resume: null,
     jobDescription: '',
     companyInfo: '',
+    jobContextSnapshot: null,
     interviewProgress: null,
     maxQuestions: 10,
     interviewType: 'tech_initial',
@@ -122,6 +126,7 @@ export const createInterviewSlice = (set: SetState, get: GetState): InterviewFlo
 
     setJobDescription: (jobDescription: string) => set({ jobDescription }),
     setCompanyInfo: (companyInfo: string) => set({ companyInfo }),
+    setJobContextSnapshot: (jobContextSnapshot: JobContextSnapshot | null) => set({ jobContextSnapshot }),
     setMaxQuestions: (maxQuestions: number) => set({ maxQuestions }),
     setInterviewType: (interviewType: InterviewType) => set({ interviewType }),
     setQuestionBankCount: (count: number) => set((state) => ({
@@ -163,7 +168,7 @@ export const createInterviewSlice = (set: SetState, get: GetState): InterviewFlo
 
     startInterview: async (mode: 'mock' | 'voice' = 'mock') => {
         const {
-            resume, jobDescription, companyInfo, maxQuestions, interviewType, questionBankCount,
+            resume, jobDescription, companyInfo, jobContextSnapshot, maxQuestions, interviewType, questionBankCount,
             experienceQuestions, getApiConfigForRequest,
         } = get();
 
@@ -207,6 +212,8 @@ export const createInterviewSlice = (set: SetState, get: GetState): InterviewFlo
                 max_questions: maxQuestions,
                 status: 'active',
                 round_type: interviewType,
+                source_job_id: jobContextSnapshot?.source_job_id,
+                job_context_snapshot: jobContextSnapshot ? { ...jobContextSnapshot, job_description: jobDescription } : null,
             },
             messages: [],
         };
@@ -238,6 +245,7 @@ export const createInterviewSlice = (set: SetState, get: GetState): InterviewFlo
             resume_filename: resume.filename,
             job_description: jobDescription,
             company_info: companyInfo || '未知',
+            job_context_snapshot: jobContextSnapshot ? { ...jobContextSnapshot, job_description: jobDescription } : null,
             mode: 'mock',
             max_questions: maxQuestions,
             round_type: interviewType,

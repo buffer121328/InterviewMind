@@ -12,7 +12,7 @@ import {
     DialogTitle,
 } from '@/components/ui/dialog';
 import type { JobDetail } from '@/lib/api/jobs';
-import { ASSET_STATUS_LABELS, asRecord, readStringList } from '@/lib/bossCenter';
+import { asRecord, readStringList } from '@/lib/bossCenter';
 import { BossGreetingEditorList } from '@/components/boss/BossGreetingEditorList';
 
 interface BossJobDetailDialogProps {
@@ -23,6 +23,8 @@ interface BossJobDetailDialogProps {
     error: string | null;
     actionKey: string | null;
     onOpenExistingBossTab: (jobId: number) => void;
+    onUseInInterview: () => void;
+    onImportToResume: () => void;
     onSaveGreeting: (jobId: number, greetingIndex: number, messageText: string) => void;
     onExportGreeting: (jobId: number, greetingIndex: number, messageText: string) => void;
     onEditGreeting: (greetingIndex: number, value: string) => void;
@@ -37,6 +39,8 @@ export function BossJobDetailDialog({
     error,
     actionKey,
     onOpenExistingBossTab,
+    onUseInInterview,
+    onImportToResume,
     onSaveGreeting,
     onExportGreeting,
     onEditGreeting,
@@ -79,10 +83,10 @@ export function BossJobDetailDialog({
                             <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500">
                                 <Badge variant="outline">{selectedJob.salary_text || "薪资未披露"}</Badge>
                                 {selectedJob.city && <span className="inline-flex items-center gap-1"><MapPin className="h-3 w-3" />{selectedJob.city}</span>}
-                                {selectedJob.asset_status && <Badge variant="outline">{ASSET_STATUS_LABELS[selectedJob.asset_status] || selectedJob.asset_status}</Badge>}
-                                {detailAsset?.custom_resume_id && <Badge variant="outline">定制简历 #{detailAsset.custom_resume_id}</Badge>}
                             </div>
                             <div className="mt-4 flex flex-wrap gap-2">
+                                <Button onClick={onUseInInterview}>用于模拟面试</Button>
+                                <Button variant="secondary" onClick={onImportToResume}>导入简历工作台</Button>
                                 <Button variant="outline" disabled={actionKey !== null} onClick={() => void onOpenExistingBossTab(selectedJob.id)}>
                                     {actionKey === `open:${selectedJob.id}` ? <Loader2 className="animate-spin" /> : <ExternalLink />}
                                     在已有 BOSS 标签页打开

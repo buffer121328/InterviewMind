@@ -92,7 +92,7 @@ class InterviewRuntime:
         self.task_deadline = (
             explicit_deadline
             if isinstance(explicit_deadline, TaskDeadline)
-            else TaskDeadline(get_settings().llm_task_timeout_seconds)
+            else TaskDeadline(get_settings().interactive_interview_task_timeout_seconds)
         )
         signature = inspect.signature(llm_invoker)
         self._invoker_accepts_context = any(

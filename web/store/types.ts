@@ -6,6 +6,7 @@
 
 import { JsonObject, ResumeResultData } from '@/lib/api/resume';
 import { API_BASE_URL as NORMALIZED_API_BASE_URL } from '@/lib/api/config';
+import type { JobContextSnapshot } from '@/lib/jobContextHandoff';
 
 // ============================================================================
 // 类型定义
@@ -33,6 +34,8 @@ export interface SessionMetadata {
     series_id?: string;
     parent_session_id?: string;
     company_info?: string;
+    source_job_id?: number | null;
+    job_context_snapshot?: JobContextSnapshot | null;
     company_profile?: Record<string, unknown> | null;
 }
 

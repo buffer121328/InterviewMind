@@ -20,6 +20,11 @@ class _FakeRepo:
         self.upserts.append(kwargs)
         return len(self.upserts)
 
+    async def upsert_chunk_with_embedding(self, **kwargs):
+        """记录带向量的 upsert。"""
+        self.upserts.append(kwargs)
+        return len(self.upserts)
+
     async def deactivate_stale_chunks(self, **kwargs):
         """记录快照失效边界。"""
         self.deactivations.append(kwargs)
@@ -117,3 +122,26 @@ async def test_pending_embedding_batch_failure_is_not_reported_as_no_work(monkey
 
     with pytest.raises(RuntimeError, match="待处理 embedding 批次生成失败"):
         await indexer.process_pending_embeddings(user_id="user-1")
+
+
+@pytest.mark.asyncio
+async def test_snapshot_embeddings_are_generated_in_one_ordered_batch(monkeypatch):
+    """A source snapshot batches embeddings and writes vectors back to matching chunks."""
+    repo = _FakeRepo()
+    indexer = rag_indexer.RagIndexer()
+    indexer._repo = repo
+    calls = []
+
+    async def fake_batch(texts, **_kwargs):
+        calls.append(list(texts))
+        return [[1.0, 0.0], [0.0, 1.0]]
+
+    monkeypatch.setattr(rag_indexer, "generate_embeddings_batch", fake_batch)
+    count = await indexer._index_chunks([
+        {"source_type": "question_bank", "source_id": "1", "chunk_key": "a", "content": "alpha"},
+        {"source_type": "question_bank", "source_id": "2", "chunk_key": "b", "content": "beta"},
+    ], "user-1", True)
+
+    assert count == 2
+    assert calls == [["alpha", "beta"]]
+    assert [item["embedding"] for item in repo.upserts] == [[1.0, 0.0], [0.0, 1.0]]

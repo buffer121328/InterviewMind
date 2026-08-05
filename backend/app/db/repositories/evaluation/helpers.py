@@ -10,12 +10,13 @@ from datetime import datetime
 from typing import Any, Mapping, Sequence
 
 from app.security.security import redact_secret_text
+from app.clock import utc_now
 
 
 def _now() -> datetime:
     """返回便于测试替换的本地时间。"""
 
-    return datetime.now()
+    return utc_now()
 
 
 def _safe_candidate_label(value: Any) -> str | None:

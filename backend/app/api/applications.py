@@ -19,6 +19,7 @@ from app.schemas.job_application import (
     ApplicationCreateRequest,
     ApplicationDetailResponse,
     ApplicationListResponse,
+    ApplicationResumeLinkRequest,
     ApplicationUpdateRequest,
     EventCreateRequest,
     EventListResponse,
@@ -139,6 +140,23 @@ async def update_application(
             request=request,
         ),
         "更新投递记录失败",
+    )
+
+
+@router.put("/{application_id}/resume", response_model=ApplicationDetailResponse)
+async def set_application_resume(
+    application_id: int,
+    request: ApplicationResumeLinkRequest,
+    x_user_id: Optional[str] = Header(None, alias="X-User-ID"),
+):
+    """Replace or clear one owner-scoped application resume reference."""
+    return await _call_use_case(
+        lambda: application_use_cases.set_application_resume(
+            application_id=application_id,
+            user_id=x_user_id,
+            request=request,
+        ),
+        "更新关联简历失败",
     )
 
 

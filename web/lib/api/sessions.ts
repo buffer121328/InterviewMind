@@ -4,6 +4,7 @@
  */
 
 import { apiRequest, API_BASE_URL, getUserId } from './config';
+import type { JobContextSnapshot } from '../jobContextHandoff';
 
 // ============================================================================
 // 类型定义
@@ -13,6 +14,8 @@ export interface SessionMetadata {
     mode: 'mock' | 'voice';
     resume_filename?: string;
     company_info?: string;
+    source_job_id?: number | null;
+    job_context_snapshot?: JobContextSnapshot | null;
     job_description?: string;
     question_count: number;
     max_questions: number;

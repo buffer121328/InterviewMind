@@ -65,7 +65,7 @@ WEIGHT_SOURCE_PRIORITY = float(os.getenv("RAG_WEIGHT_SOURCE", "0.20"))
 WEIGHT_FRESHNESS = float(os.getenv("RAG_WEIGHT_FRESHNESS", "0.10"))
 
 # 有界 Agentic Retrieval：off / shadow / active
-AGENTIC_MODE = os.getenv("RAG_AGENTIC_MODE", "shadow").lower()
+AGENTIC_MODE = os.getenv("RAG_AGENTIC_MODE", "active").lower()
 if AGENTIC_MODE not in {"off", "shadow", "active"}:
     logger.warning("未知 RAG_AGENTIC_MODE=%s，按 off 处理", AGENTIC_MODE)
     AGENTIC_MODE = "off"

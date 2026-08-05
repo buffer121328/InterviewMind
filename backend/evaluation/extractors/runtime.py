@@ -256,6 +256,11 @@ class EvaluationTraceCollector:
                         "total_tokens",
                         "error_type",
                         "error_category",
+                        "attempt",
+                        "failure_type",
+                        "timeout_scope",
+                        "authoritative_source_truncated",
+                        "overflow_strategy",
                     }
                 },
             )

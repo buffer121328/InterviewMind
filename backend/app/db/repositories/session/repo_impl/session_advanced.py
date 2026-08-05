@@ -10,6 +10,7 @@ from .base import BaseService
 from .session_mgmt import SessionManagementService
 from app.domain.interview_rounds import resolve_max_questions, resolve_round_type, validate_next_round_index
 from app.domain.interview_session_titles import build_interview_session_title
+from app.clock import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +51,7 @@ class SessionAdvancedService(BaseService):
         resolved_max_questions = resolve_max_questions(new_round_type, max_questions, round_index=new_round_index)
 
         new_session_id = str(uuid.uuid4())
-        now = datetime.now()
+        now = utc_now()
         title = build_interview_session_title(
             started_at=now,
             round_type=new_round_type,
@@ -98,6 +99,7 @@ class SessionAdvancedService(BaseService):
                 session_id=new_session_id, user_id=effective_user_id, title=title, created_at=now, updated_at=now,
                 mode=parent.metadata.mode, resume_filename=parent.metadata.resume_filename, resume_content=parent.metadata.resume_content,
                 job_description=parent.metadata.job_description, company_info=parent.metadata.company_info,
+                source_job_id=parent.metadata.source_job_id, job_context_snapshot=parent.metadata.job_context_snapshot.model_dump() if parent.metadata.job_context_snapshot else None,
                 question_count=0, max_questions=resolved_max_questions, status='active', pinned=False,
                 series_id=series_id, round_index=new_round_index, round_type=new_round_type, parent_session_id=parent_session_id
             ))
@@ -124,7 +126,7 @@ class SessionAdvancedService(BaseService):
             plan = (await db.execute(select(SessionModel.interview_plan).where(SessionModel.session_id == source_session_id))).scalar_one_or_none()
 
         new_session_id = str(uuid.uuid4())
-        now = datetime.now()
+        now = utc_now()
         title = build_interview_session_title(
             started_at=now,
             round_type=source.metadata.round_type,
@@ -147,6 +149,7 @@ class SessionAdvancedService(BaseService):
                 session_id=new_session_id, user_id=effective_user_id, title=title, created_at=now, updated_at=now, mode='voice',
                 resume_filename=source.metadata.resume_filename, resume_content=source.metadata.resume_content,
                 job_description=source.metadata.job_description, company_info=source.metadata.company_info,
+                source_job_id=source.metadata.source_job_id, job_context_snapshot=source.metadata.job_context_snapshot.model_dump() if source.metadata.job_context_snapshot else None,
                 question_count=source.metadata.question_count, max_questions=max_questions or source.metadata.max_questions, status='active', pinned=False,
                 series_id=source.metadata.series_id, round_index=source.metadata.round_index, round_type=source.metadata.round_type,
                 parent_session_id=source_session_id, interview_plan=plan
@@ -168,7 +171,7 @@ class SessionAdvancedService(BaseService):
 
                 if index == 0:
                     await db.execute(delete(MessageModel).where(MessageModel.session_id == session_id))
-                    await db.execute(update(SessionModel).where(SessionModel.session_id == session_id).values(question_count=0, updated_at=datetime.now()))
+                    await db.execute(update(SessionModel).where(SessionModel.session_id == session_id).values(question_count=0, updated_at=utc_now()))
                 else:
                     target_row = (await db.execute(select(MessageModel.timestamp).where(MessageModel.session_id == session_id).order_by(MessageModel.timestamp.asc()).offset(index).limit(1))).scalar_one_or_none()
 
@@ -177,7 +180,7 @@ class SessionAdvancedService(BaseService):
 
                     target_timestamp = target_row
                     await db.execute(delete(MessageModel).where(MessageModel.session_id == session_id, MessageModel.timestamp >= target_timestamp))
-                    await db.execute(update(SessionModel).where(SessionModel.session_id == session_id).values(updated_at=datetime.now()))
+                    await db.execute(update(SessionModel).where(SessionModel.session_id == session_id).values(updated_at=utc_now()))
 
                     max_answered_index = (await db.execute(
                         select(func.max(MessageModel.question_index)).where(

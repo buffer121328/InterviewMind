@@ -58,29 +58,27 @@ async def test_update_memory_checks_owner_before_calling_mem0():
     )
 
     assert result == {"message": "Memory updated successfully!"}
-    assert memory.update_calls == [{"memory_id": "memory-1", "data": "我偏好使用 Python"}]
+    assert memory.update_calls[0]["memory_id"] == "memory-1"
+    assert memory.update_calls[0]["data"] == "我偏好使用 Python"
+    assert memory.update_calls[0]["metadata"]["retention_class"] == "core"
 
 
 @pytest.mark.asyncio
-async def test_summary_memory_uses_user_global_scope_with_session_provenance():
+async def test_summary_memory_does_not_duplicate_assistant_generated_report():
     memory = _FakeMemory()
     service = AgentMemoryService({"version": "test"})
     service._memory = memory
     service._enabled = True
 
-    await service.add_summary_memory(
+    result = await service.add_summary_memory(
         user_id="user-1",
         session_id="session-1",
         content="用户需要加强 FastAPI 并发控制",
         memory_type="weakness",
     )
 
-    _, kwargs = memory.add_calls[0]
-    assert kwargs["user_id"] == "user-1"
-    assert "agent_id" not in kwargs
-    assert "run_id" not in kwargs
-    assert kwargs["metadata"]["session_id"] == "session-1"
-    assert kwargs["metadata"]["origin_agent_id"] == "interview-agent"
+    assert result is None
+    assert memory.add_calls == []
 
 class _DuplicateAwareMemory:
     """Fake mem0 client that exposes one existing owner-scoped memory."""
@@ -126,8 +124,8 @@ async def test_interaction_uses_user_global_scope_and_restrictive_prompt():
     assert "run_id" not in kwargs
     assert kwargs["metadata"]["session_id"] == "session-2"
     assert kwargs["metadata"]["origin_agent_id"] == "interview-agent"
-    assert "Do not extract facts, recommendations, or plans authored by the assistant" in kwargs["prompt"]
-    assert "durable user-specific" in kwargs["prompt"]
+    assert "Never extract assistant-authored facts" in kwargs["prompt"]
+    assert "explicit, durable user-authored information" in kwargs["prompt"]
 
 
 @pytest.mark.asyncio
@@ -194,3 +192,59 @@ def test_canonical_memory_projection_removes_assistant_noise_and_duplicates():
         "best-user",
         "distinct-user",
     ]
+
+
+@pytest.mark.asyncio
+async def test_memory_reads_normalize_legacy_null_metadata(monkeypatch: pytest.MonkeyPatch):
+    """List and search keep legacy mem0 rows readable when metadata is null."""
+    from ai.workflows.memory import MemoryUseCases
+
+    class LegacyMemoryService:
+        is_enabled = True
+
+        async def get_all(self, *, user_id: str, page_size: int):
+            assert user_id == "user-1"
+            assert page_size == 20
+            return [
+                {
+                    "id": "legacy-memory",
+                    "memory": "我有 FastAPI 项目经验",
+                    "metadata": None,
+                    "created_at": "2026-08-01T09:00:00+00:00",
+                    "updated_at": "2026-08-02T09:00:00+00:00",
+                }
+            ]
+
+        async def search_memories(self, *, user_id: str, query: str, limit: int, memory_types):
+            assert user_id == "user-1"
+            assert query == "FastAPI"
+            assert limit == 5
+            assert memory_types is None
+            return [
+                {
+                    "id": "legacy-memory",
+                    "memory": "我有 FastAPI 项目经验",
+                    "metadata": None,
+                    "score": 0.9,
+                }
+            ]
+
+    async def fake_get_owner_memory_service(_user_id: str, _api_config):
+        return LegacyMemoryService()
+
+    monkeypatch.setattr(
+        "ai.workflows.memory.get_owner_memory_service",
+        fake_get_owner_memory_service,
+    )
+
+    use_cases = MemoryUseCases()
+    listed = await use_cases.list_memories(user_id="user-1", page_size=20)
+    searched = await use_cases.search_memories(
+        user_id="user-1",
+        query="FastAPI",
+        limit=5,
+        memory_type=None,
+    )
+
+    assert listed.memories[0].metadata == {}
+    assert searched.memories[0].metadata == {}

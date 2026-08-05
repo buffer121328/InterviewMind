@@ -1,6 +1,6 @@
 export type AgentRunStatus = 'queued' | 'retrying' | 'running' | 'cancel_requested' | 'succeeded' | 'failed' | 'cancelled';
 /** Includes the retired collection type so historical AgentRuns remain readable. */
-export type AgentRunTaskType = 'interview_start' | 'interview_turn' | 'voice_interview_turn' | 'resume_optimize' | 'resume_workspace' | 'resume_generation' | 'interview_report' | 'job_assets' | 'job_recommendation_capture' | 'interview_experience_collect';
+export type AgentRunTaskType = 'interview_start' | 'interview_turn' | 'voice_interview_turn' | 'resume_optimize' | 'resume_workspace' | 'resume_generation' | 'interview_report' | 'job_assets' | 'job_recommendation_capture' | 'interview_experience_collect' | 'ability_profile';
 
 export const AGENT_RUN_EVENT_TYPES = [
     'run.created',
@@ -67,5 +67,41 @@ export interface AgentRunEvent {
     stage?: string | null;
     payload: Record<string, unknown>;
     schema_version: number;
+    timestamp: string;
+}
+
+export interface AgentPerformanceOverview {
+    sample_event_count: number;
+    total_matching_events: number;
+    run_count: number;
+    run_success_rate: number | null;
+    logical_call_count: number;
+    physical_request_count: number;
+    call_amplification: number | null;
+    p50_model_duration_ms: number | null;
+    p95_model_duration_ms: number | null;
+    input_tokens: number;
+    output_tokens: number;
+    cache_read_tokens: number;
+    cache_hit_rate: number | null;
+    retry_rate: number | null;
+    fallback_rate: number | null;
+    timeout_rate: number | null;
+    authoritative_context_sample_count: number;
+    authoritative_truncation_rate: number | null;
+    overflow_strategy_counts: Record<string, number>;
+    definitions: Record<string, string>;
+}
+
+export interface ModelMetricEvent {
+    event_id: string;
+    run_id: string;
+    trace_id: string | null;
+    agent_name: string;
+    task_type: AgentRunTaskType;
+    stage: string | null;
+    event_type: string;
+    is_degradation: boolean;
+    payload: Record<string, unknown>;
     timestamp: string;
 }

@@ -72,6 +72,8 @@ async def test_failed_request_scoped_mem0_initialization_is_retried(monkeypatch)
         "mode": "request_scoped",
         "server_ready": False,
         "request_scoped_ready": 1,
+        "readiness_category": "request_scoped_ready",
+        "database_mode": "shared",
     }
     await memory_service_module.close_agent_memory_service()
 
@@ -205,7 +207,40 @@ async def test_memory_consolidation_requires_confirmation_and_passes_request_con
 
     assert response.success is True
     assert response.dry_run is True
-    assert captured == [
-        api_config,
-        {"user_id": "user-1", "dry_run": True, "max_memories": 50},
-    ]
+    assert captured[0]["mem0_llm"]["api_key"] == "secret"
+    assert captured[0]["mem0_llm"]["base_url"] == "https://llm.example/v1"
+    assert captured[0]["mem0_llm"]["model"] == "memory"
+    assert captured[0]["mem0_embedder"]["model"] == "embed"
+    assert captured[1] == {"user_id": "user-1", "dry_run": True, "max_memories": 50}
+
+
+def test_memory_readiness_categories_are_sanitized(monkeypatch):
+    """Health diagnostics distinguish safe categories without returning exception text or credentials."""
+    from ai.memory import service as memory_service
+
+    assert memory_service.classify_memory_initialization_error(
+        RuntimeError("password authentication failed for user secret-user")
+    ) == "database_authentication_failed"
+    assert memory_service.classify_memory_initialization_error(
+        RuntimeError("type vector does not exist")
+    ) == "vector_schema_error"
+    assert memory_service.classify_memory_initialization_error(
+        RuntimeError("api_key=secret transport exploded")
+    ) == "initialization_failed"
+
+
+def test_memory_runtime_status_reports_missing_channels_and_shared_database(monkeypatch):
+    """An unconfigured process exposes a stable readiness category and no connection details."""
+    from ai.memory import service as memory_service
+
+    monkeypatch.setattr(memory_service, "_agent_memory_service", None)
+    monkeypatch.setattr(memory_service, "_agent_memory_services", {})
+    monkeypatch.setattr(memory_service, "_last_memory_readiness_category", None)
+    monkeypatch.setattr(memory_service, "get_mem0_config", lambda _api_config=None: None)
+    monkeypatch.setattr(memory_service, "get_mem0_database_mode", lambda: "shared")
+
+    status = memory_service.get_agent_memory_runtime_status()
+
+    assert status["readiness_category"] == "model_channels_missing"
+    assert status["database_mode"] == "shared"
+    assert "secret" not in str(status).lower()

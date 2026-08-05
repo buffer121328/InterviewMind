@@ -147,6 +147,34 @@ class RagIndexRepo:
             await db.commit()
             return result
 
+    async def get_reusable_embeddings(
+        self,
+        *,
+        user_id: str,
+        content_hashes: set[str],
+        embedding_model: str,
+        dimensions: int | None = None,
+    ) -> dict[str, List[float]]:
+        """Return owner-scoped completed vectors whose content/model/dimension fingerprint matches."""
+        if not content_hashes:
+            return {}
+        async with async_session() as db:
+            rows = (await db.execute(
+                select(RagChunkModel.content_hash, RagChunkModel.embedding).where(
+                    RagChunkModel.user_id == user_id,
+                    RagChunkModel.content_hash.in_(content_hashes),
+                    RagChunkModel.embedding_model == embedding_model,
+                    RagChunkModel.embedding_status == "completed",
+                    RagChunkModel.is_active.is_(True),
+                )
+            )).all()
+        reusable: dict[str, List[float]] = {}
+        for content_hash, raw in rows:
+            vector = [float(value) for value in list(raw or [])]
+            if vector and (dimensions is None or len(vector) == dimensions):
+                reusable.setdefault(str(content_hash), vector)
+        return reusable
+
     async def update_embedding(
         self,
         chunk_id: int,

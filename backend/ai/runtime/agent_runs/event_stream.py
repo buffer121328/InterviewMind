@@ -1,6 +1,7 @@
 """AgentRun 事件流重放契约。"""
 
 from datetime import datetime
+from app.clock import utc_now
 
 
 def replay_cursor(*, after_sequence: int = 0, last_event_id: str | None = None) -> int:
@@ -41,5 +42,5 @@ def build_run_event_envelope(
         "stage": stage,
         "payload": payload or {},
         "schema_version": 1,
-        "timestamp": datetime.now().isoformat(),
+        "timestamp": utc_now().isoformat(),
     }

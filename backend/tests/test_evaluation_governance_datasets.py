@@ -337,3 +337,40 @@ def test_prompt_promotion_is_blocked_before_remote_write(monkeypatch) -> None:
 
     assert response.status_code == 409
     assert update_labels.await_count == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.fast
+async def test_dataset_parent_is_flushed_before_case_rows_are_added():
+    """The dataset FK parent must exist before encrypted child cases are flushed."""
+    from app.schemas.evaluations import EvaluationDatasetCreateRequest
+
+    order: list[str] = []
+
+    class FakeSession:
+        def add(self, value):
+            order.append("case" if getattr(value, "kind", None) == "case" else "dataset")
+
+        async def flush(self):
+            order.append("flush")
+
+    class TestRepository(EvaluationRepository):
+        @staticmethod
+        def _case_model(_dataset_id, _case):
+            return SimpleNamespace(kind="case")
+
+    request = EvaluationDatasetCreateRequest(
+        name="transaction-order",
+        version="v1",
+        cases=[
+            EvaluationCaseCreateRequest(
+                case_key="case-1",
+                category="reliability",
+                input={"prompt": "safe"},
+            )
+        ],
+    )
+
+    await TestRepository().create_dataset(FakeSession(), user_id="user-1", request=request)
+
+    assert order == ["dataset", "flush", "case", "flush"]

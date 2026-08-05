@@ -10,11 +10,6 @@ x-backend-overrides: &backend_overrides
   DATABASE_URL: postgresql://${POSTGRES_USER:?set POSTGRES_USER in .env}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:?set POSTGRES_DB in .env}
   REDIS_URL: redis://redis:6379/0
   AUTO_CREATE_TABLES: "false"
-  MEM0_PGVECTOR_HOST: postgres
-  MEM0_PGVECTOR_PORT: "5432"
-  MEM0_PGVECTOR_DBNAME: ${POSTGRES_DB:?set POSTGRES_DB in .env}
-  MEM0_PGVECTOR_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
-  MEM0_PGVECTOR_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
 
 services:
   # PostgreSQL 数据库

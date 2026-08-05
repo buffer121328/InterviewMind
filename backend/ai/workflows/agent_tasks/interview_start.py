@@ -3,14 +3,18 @@
 import logging
 import uuid
 from collections.abc import Awaitable, Callable
-from datetime import datetime
 
 from fastapi import HTTPException
 
+from app.clock import utc_now
 from app.db.repositories.session.session_repo import SessionRepo
 from ai.agents.interview.interview_context import build_interview_context
 from ai.agents.interview.interview_graph import build_interview_graph
 from ai.workflows.interview.response_content import extract_latest_assistant_content
+from ai.workflows.jobs.job_context import (
+    JobContextAccessError,
+    normalize_owned_job_context_snapshot,
+)
 from app.domain.interview_rounds import resolve_max_questions, resolve_round_type
 from app.domain.interview_session_titles import build_interview_session_title
 from observability import langgraph_langfuse_scope, with_langgraph_langfuse_config
@@ -29,6 +33,15 @@ async def execute_interview_start(payload: dict, user_id: str, progress: _Progre
         await progress("loading_context")
 
     try:
+        try:
+            job_context_snapshot = await normalize_owned_job_context_snapshot(
+                request.get("job_context_snapshot"), user_id=user_id
+            )
+        except JobContextAccessError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        if job_context_snapshot is not None and request.get("job_description") is not None:
+            job_context_snapshot["job_description"] = request["job_description"]
+
         graph = await build_interview_graph(request["mode"])
         requested_round_type = resolve_round_type(request.get("round_type", "tech_initial"))
         requested_max_questions = resolve_max_questions(requested_round_type, request.get("max_questions"))
@@ -40,7 +53,9 @@ async def execute_interview_start(payload: dict, user_id: str, progress: _Progre
             await session_repo.create_session(
                 session_id=thread_id, mode=request["mode"], resume_filename=request.get("resume_filename", ""),
                 resume_content=request.get("resume_context"), job_description=request.get("job_description"),
-                company_info=request.get("company_info", "未知"), max_questions=requested_max_questions,
+                company_info=request.get("company_info", "未知"),
+                source_job_id=job_context_snapshot["source_job_id"] if job_context_snapshot else None,
+                job_context_snapshot=job_context_snapshot, max_questions=requested_max_questions,
                 round_type=requested_round_type, user_id=user_id,
             )
             session_created = True
@@ -64,7 +79,7 @@ async def execute_interview_start(payload: dict, user_id: str, progress: _Progre
         }
 
         title = build_interview_session_title(
-            started_at=datetime.now(),
+            started_at=utc_now(),
             round_type=inputs["round_type"],
             max_questions=inputs["max_questions"],
             round_index=inputs["round_index"],

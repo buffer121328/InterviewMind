@@ -25,8 +25,8 @@ export function InterviewAbilityProfileView({ onBack }: InterviewAbilityProfileV
                         返回对话
                     </Button>
                     <div className="flex-1">
-                        <h2 className="text-lg font-semibold text-gray-900">综合能力画像</h2>
-                        <p className="text-xs text-gray-500">基于最近5次面试的综合分析</p>
+                        <h2 className="text-lg font-semibold text-gray-900">成长档案</h2>
+                        <p className="text-xs text-gray-500">综合画像、来源记录与阶段变化</p>
                     </div>
                 </div>
             </div>

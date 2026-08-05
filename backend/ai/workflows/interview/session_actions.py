@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 
+from ai.agents.interview.answer_points import answer_points_hint
 from app.db.repositories.session.session_repo import SessionRepo
 from app.schemas.schemas import RollbackRequest
 
@@ -43,7 +44,7 @@ class InterviewSessionUseCases:
             raise InterviewSessionNotFound(message="问题索引超出范围")
 
         question = plan[question_index]
-        hint = question.get("hint")
+        hint = answer_points_hint(question)
         if not hint:
             return {
                 "success": True,

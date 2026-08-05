@@ -67,7 +67,7 @@ class LangfuseConfig:
     release: str | None = None
     sample_rate: float | None = None
     capture_model_io: bool = False
-    prompt_management_enabled: bool = False
+    prompt_management_enabled: bool = True
     prompt_label: str | None = "production"
     prompt_cache_ttl_seconds: int = 300
     prompt_fetch_timeout_seconds: float = 0.05
@@ -78,7 +78,7 @@ class LangfuseConfig:
         """从环境变量构造 Langfuse 配置，统一开关、项目和凭据的延迟读取边界。"""
         prompt_label = os.getenv("LANGFUSE_PROMPT_LABEL", "production").strip() or None
         return cls(
-            enabled=_env_bool("LANGFUSE_ENABLED"),
+            enabled=_env_bool("LANGFUSE_ENABLED", True),
             public_key=os.getenv("LANGFUSE_PUBLIC_KEY", ""),
             secret_key=os.getenv("LANGFUSE_SECRET_KEY", ""),
             base_url=os.getenv("LANGFUSE_BASE_URL", "https://cloud.langfuse.com"),
@@ -86,7 +86,7 @@ class LangfuseConfig:
             release=os.getenv("LANGFUSE_RELEASE") or None,
             sample_rate=_env_sample_rate("LANGFUSE_SAMPLE_RATE"),
             capture_model_io=_env_bool("LANGFUSE_CAPTURE_MODEL_IO"),
-            prompt_management_enabled=_env_bool("LANGFUSE_PROMPT_MANAGEMENT_ENABLED"),
+            prompt_management_enabled=_env_bool("LANGFUSE_PROMPT_MANAGEMENT_ENABLED", True),
             prompt_label=prompt_label,
             prompt_cache_ttl_seconds=_env_int("LANGFUSE_PROMPT_CACHE_TTL_SECONDS", 300),
             prompt_fetch_timeout_seconds=max(

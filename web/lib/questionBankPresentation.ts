@@ -16,14 +16,21 @@ export function questionSourceLabel(item: QuestionSource): string {
     return labels[item.source_type] || item.source_type || '未知来源';
 }
 
-/** Keeps main-question answer points empty until the product-level point model is defined. */
-export function questionAnswerPoints(item: Pick<QuestionBankItem, 'reference_answer'>): string[] {
-    void item;
-    return [];
+/** Splits persisted answer text into concise display points without exposing raw interview answers. */
+function splitAnswerPoints(value?: string): string[] {
+    if (!value?.trim()) return [];
+    return value
+        .split(/\r?\n/)
+        .map(point => point.replace(/^\s*(?:[-*•]|\d+[.)、])\s*/, '').trim())
+        .filter(Boolean);
 }
 
-/** Keeps follow-up answer points empty while preserving the shared card empty state. */
+/** Returns persisted main-question answer points. */
+export function questionAnswerPoints(item: Pick<QuestionBankItem, 'reference_answer'>): string[] {
+    return splitAnswerPoints(item.reference_answer);
+}
+
+/** Returns persisted follow-up answer points. */
 export function questionFollowupAnswerPoints(item: Pick<QuestionBankFollowup, 'reference_answer'>): string[] {
-    void item;
-    return [];
+    return splitAnswerPoints(item.reference_answer);
 }

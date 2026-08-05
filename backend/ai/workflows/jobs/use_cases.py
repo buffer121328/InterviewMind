@@ -155,8 +155,6 @@ class JobsUseCases:
                 job_title=str(job.get("job_title") or ""),
                 job_description=str(job.get("job_description") or ""),
                 channel="BOSS直聘",
-                generated_resume_id=(job.get("asset_payload") or {}).get("custom_resume_id"),
-                custom_resume_id=(job.get("asset_payload") or {}).get("custom_resume_id"),
                 latest_status="saved",
                 priority="medium",
                 source_platform="boss",
@@ -414,15 +412,11 @@ class JobsUseCases:
         request: JobLibraryImportRequest,
         user_id: str,
     ) -> dict[str, object]:
-        """把用户确认的待入库卡片保存进岗位库并调度可恢复资产任务。
+        """把用户确认的待入库卡片确定性保存进岗位库。
 
-        保存按来源哈希去重，资产任务经幂等键复用；失败可安全重试。
+        保存仅执行 owner 绑定、标准化和来源哈希去重；模型分析、Greeting 与
+        Resume Generation 必须由用户在对应工作台显式启动。
         """
-        if not request.api_config:
-            raise JobBadRequest(
-                "missing_api_config",
-                "请先配置 Smart 与 Fast 模型通道再入库",
-            )
         from ai.workflows.jobs.job_capture_service import (
             import_cards_to_library as _import_cards_to_library,
         )
@@ -430,8 +424,6 @@ class JobsUseCases:
         return await _import_cards_to_library(
             user_id=user_id,
             cards=[card.model_dump() for card in request.cards],
-            resume_content=request.resume_content,
-            api_config=request.api_config,
             city=request.city,
         )
 

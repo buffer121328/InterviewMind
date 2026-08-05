@@ -41,7 +41,9 @@ async def test_draft_generation_accepts_null_keyword_analysis(monkeypatch):
         "api_config": None,
     })
 
-    assert result == {"draft_content": "# 可投递简历"}
+    assert result["draft_content"] == "# 可投递简历"
+    assert result["generation_checkpoint"]["completed_sections"] == ["document"]
+    assert result["retried_sections"] == []
 
 
 @pytest.mark.asyncio
@@ -72,3 +74,22 @@ async def test_final_resume_is_rechecked_by_independent_zero_temperature_verifie
     assert captured["channel"] == "reflector"
     assert captured["temperature"] == 0.0
     assert captured["metadata"]["verification_phase"] == "final_resume"
+
+
+@pytest.mark.asyncio
+async def test_draft_generation_failure_is_not_returned_as_resume_content(monkeypatch):
+    """A model transport failure must fail the run instead of becoming a persisted resume body."""
+    async def invoke_text(*_args, **_kwargs):
+        raise ConnectionError("model unavailable")
+
+    monkeypatch.setattr(resume_generation_graph.llms, "invoke_text", invoke_text)
+
+    with pytest.raises(RuntimeError, match="简历初稿生成失败"):
+        await node_generate_draft({
+            "resume_content": "原始简历",
+            "job_description": "目标岗位",
+            "optimization_result": {"keyword_analysis": {}, "key_improvements": []},
+            "user_answers": {},
+            "template_style": "professional",
+            "api_config": None,
+        })

@@ -28,6 +28,7 @@ def _new_generation_state(
     agent_run_id: Optional[str],
     questions: Optional[list[str]] = None,
     user_answers: Optional[dict[str, str]] = None,
+    generation_checkpoint: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     """构建简历生成图的初始状态。"""
     return {
@@ -47,6 +48,8 @@ def _new_generation_state(
         "fact_check_result": None,
         "review_result": None,
         "iteration_count": 0,
+        "generation_checkpoint": generation_checkpoint,
+        "retried_sections": [],
         "final_markdown": "",
         "title": "",
     }
@@ -193,6 +196,7 @@ async def submit_user_answers(
         agent_run_id=agent_run_id,
         questions=session.questions,
         user_answers=answers,
+        generation_checkpoint=(getattr(session, "review_result", None) or {}).get("_generation_checkpoint"),
     )
 
     try:
@@ -227,6 +231,9 @@ async def _complete_generation(
         updates: dict[str, Any] = {"status": stage}
         if phase == "completed" and stage == "draft_generation":
             updates["draft_content"] = result.get("draft_content", "")
+            checkpoint = result.get("generation_checkpoint")
+            if checkpoint:
+                updates["review_result"] = {"_generation_checkpoint": checkpoint}
         await session_store.update(session_id, user_id=state["user_id"], **updates)
         if run_stage_callback and phase == "started":
             await run_stage_callback(stage)
@@ -251,12 +258,19 @@ async def _complete_generation(
             final_state = await graph.ainvoke(state, config=graph_config)
 
     if not final_state.get("final_markdown"):
-        logger.warning("达到最大迭代次数仍未通过审查，使用最后一次草稿")
-        final_state["final_markdown"] = (
+        logger.warning("达到最大迭代次数仍未通过审查，使用最后一次有效草稿")
+        fallback_draft = (
             final_state.get("optimized_draft", "")
             or final_state.get("draft_content", "")
-            or "# 生成失败\n请稍后重试"
         )
+        if not fallback_draft or str(fallback_draft).lstrip().startswith("生成失败:"):
+            await session_store.update(
+                session_id,
+                user_id=state["user_id"],
+                status="failed",
+            )
+            raise RuntimeError("简历生成未产生可保存内容")
+        final_state["final_markdown"] = fallback_draft
         final_state["title"] = "新简历"
 
     from ai.runtime.guardrails import (

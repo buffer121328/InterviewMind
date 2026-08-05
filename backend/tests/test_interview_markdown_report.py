@@ -1,6 +1,9 @@
 """Regression tests for the unified interview Markdown report."""
 
-from app.domain.interview_reports import build_interview_report_markdown
+from app.domain.interview_reports import (
+    build_interview_report_markdown,
+    build_structured_interview_report,
+)
 from app.files.artifact_service import ArtifactService
 
 
@@ -80,3 +83,50 @@ def test_unified_interview_markdown_reuses_html_and_pdf_renderers():
     assert "<h1>面试报告</h1>" in html
     assert "<h2>综合评价</h2>" in html
     assert pdf.startswith(b"%PDF")
+
+
+def test_degraded_markdown_and_structured_report_expose_unscored_status():
+    """Consumers must see explicit degradation metadata instead of interpreting null as zero."""
+    dimensions = {
+        key: {"score": None, "evidence": "仅保留真实问答", "reason": "评审器不可用"}
+        for key in (
+            "professional_competence",
+            "execution_results",
+            "logic_problem_solving",
+            "communication",
+            "growth_potential",
+            "collaboration",
+        )
+    }
+    profile = {
+        **dimensions,
+        "generation_mode": "degraded_evidence_only",
+        "missing_dimensions": list(dimensions),
+        "overall_assessment": "仅保留一组真实问答。",
+    }
+    weakness = {
+        "generation_mode": "degraded_evidence_only",
+        "degradation_reason": "all_reviewers_failed",
+        "missing_dimensions": list(dimensions),
+        "question_evidence": [{
+            "question_id": "Q1",
+            "question_summary": "介绍项目",
+            "candidate_claims": ["实现了 RAG"],
+        }],
+    }
+
+    markdown = build_interview_report_markdown(
+        title="Agent 面试",
+        mode="mock",
+        round_index=1,
+        max_questions=5,
+        profile=profile,
+        weakness_report=weakness,
+    )
+    structured_profile, structured_weakness = build_structured_interview_report(profile, weakness)
+
+    assert "证据受限降级模式" in markdown
+    assert markdown.count("暂无评分") == 6
+    assert structured_profile["generation_mode"] == "degraded_evidence_only"
+    assert structured_profile["missing_dimensions"] == list(dimensions)
+    assert structured_weakness["degradation_reason"] == "all_reviewers_failed"

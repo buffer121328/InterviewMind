@@ -3,13 +3,14 @@
 用于后台异步分析服务
 """
 
+from typing import Dict, List, Literal, Optional
+
 from pydantic import BaseModel, Field
-from typing import Dict, List, Optional
 
 
 class DimensionScore(BaseModel):
     """单个维度的评分"""
-    score: float = Field(ge=0, le=10, description="评分 (0-10)")
+    score: Optional[float] = Field(default=None, ge=0, le=10, description="评分 (0-10)；降级报告为空")
     evidence: str = Field(description="支撑该评分的证据")
     trend: Optional[str] = Field(default=None, description="变化趋势: improving/stable/declining")
     reason: Optional[str] = Field(default=None, description="评分原因说明")
@@ -43,6 +44,16 @@ class CandidateProfile(BaseModel):
     # 推荐结果
     recommendation: Optional[str] = Field(default=None, description="录用建议: hire/maybe/no_hire")
     confidence: Optional[float] = Field(default=None, ge=0, le=1, description="推荐置信度")
+
+    # 报告生成状态
+    generation_mode: Literal["model_reviewed", "degraded_evidence_only", "not_ready"] = Field(
+        default="model_reviewed",
+        description="模型评审、证据受限降级或未就绪",
+    )
+    missing_dimensions: List[str] = Field(
+        default_factory=list,
+        description="降级时未生成评分的能力维度",
+    )
 
 
 class AnalysisContext(BaseModel):

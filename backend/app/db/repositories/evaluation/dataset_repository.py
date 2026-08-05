@@ -36,6 +36,9 @@ class DatasetRepositoryMixin:
                 locked_at=None,
             )
             session.add(dataset)
+            # PostgreSQL may enforce the child FK before a single mixed flush has
+            # inserted the dataset row. Persist the parent identity first.
+            await session.flush()
             for case in request.cases:
                 session.add(self._case_model(dataset.id, case))
             await session.flush()
