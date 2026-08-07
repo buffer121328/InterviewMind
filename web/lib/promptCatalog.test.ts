@@ -51,3 +51,8 @@ test('prompt catalog preserves unknown custom presentation values', () => {
     assert.equal(getPromptFunctionalGroup('custom.prompt', 'Partner Workflow'), 'Partner Workflow');
     assert.equal(getPromptLabelDisplayName('partner-preview'), 'partner-preview');
 });
+
+test('known historical prompt names keep their Chinese builtin presentation', () => {
+    assert.equal(getPromptDisplayName('analysis.weakness_report'), '短板报告');
+    assert.equal(getPromptFunctionalGroup('analysis.weakness_report'), '能力分析');
+});

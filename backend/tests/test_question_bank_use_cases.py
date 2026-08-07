@@ -12,6 +12,20 @@ class _FakeQuestionRepo:
     def __init__(self):
         self.created = []
         self.import_records = []
+        self.updated = []
+
+    async def update_item(self, **kwargs):
+        self.updated.append(kwargs)
+        return True
+
+    async def list_items(self, **_kwargs):
+        return [], 0
+
+    async def search_items(self, **_kwargs):
+        return [], 0
+
+    async def get_item(self, *_args, **_kwargs):
+        return None
 
     async def create_item(self, **kwargs):
         self.created.append(kwargs)
@@ -138,3 +152,48 @@ async def test_save_question_from_session_requires_existing_session():
 
     with pytest.raises(QuestionBankNotFound):
         await use_cases.save_question_from_session(session_id="missing", question_index=0, user_id="user-1")
+
+
+@pytest.mark.asyncio
+async def test_list_items_backfills_existing_generated_questions():
+    use_cases = QuestionBankUseCases()
+    repo = _FakeQuestionRepo()
+
+    async def list_items(**_kwargs):
+        return [
+            {
+                "id": index,
+                "question_text": f"问题 {index}",
+                "origin_session_id": "session-1",
+                "reference_answer": None,
+                "question_type": "tech",
+                "target_skill": "Agent",
+                "tags": ["Agent"],
+            }
+            for index in range(1, 6)
+        ], 5
+
+    repo.list_items = list_items
+    use_cases._question_bank_repo = repo
+    use_cases._session_repo = _FakeSessionRepo(plan=[
+        {
+            "content": f"问题 {index}",
+            "answer_points": [f"要点 {index}"],
+            "topic": "Agent",
+            "type": "tech",
+        }
+        for index in range(1, 6)
+    ])
+
+    items, total = await use_cases.list_items(
+        user_id="user-1",
+        question_type=None,
+        difficulty=None,
+        is_verified=None,
+        limit=50,
+        offset=0,
+    )
+
+    assert total == 5
+    assert [item["reference_answer"] for item in items] == [f"要点 {index}" for index in range(1, 6)]
+    assert [item["item_id"] for item in repo.updated] == list(range(1, 6))

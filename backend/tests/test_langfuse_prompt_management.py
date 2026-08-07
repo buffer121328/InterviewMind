@@ -257,14 +257,19 @@ def test_all_registered_prompts_have_chinese_presentation_and_content():
         assert re.search(r"[\u4e00-\u9fff]", str(prompts[name].prompt))
 
 
-def test_historical_prompt_names_keep_chinese_groups_without_becoming_builtin():
-    """Known cloud-only historical prompts must not fall back to custom English UI."""
+def test_historical_prompt_names_keep_chinese_groups_and_builtin_label():
+    """Known cloud-only historical prompts retain the product-owned builtin label."""
     from ai.prompts.management_catalog import prompt_presentation
 
     presentation = prompt_presentation("analysis.candidate_profile")
     assert presentation.display_name == "单场能力画像"
     assert presentation.functional_group == "能力分析"
-    assert presentation.is_builtin is False
+    assert presentation.is_builtin is True
+
+    second = prompt_presentation("analysis.weakness_report")
+    assert second.display_name == "短板报告"
+    assert second.functional_group == "能力分析"
+    assert second.is_builtin is True
 
 
 @pytest.mark.parametrize(

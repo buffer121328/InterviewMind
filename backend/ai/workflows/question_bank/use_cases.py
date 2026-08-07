@@ -3,7 +3,11 @@
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from ai.agents.interview.answer_points import format_question_answer_points
+from ai.agents.interview.answer_points import (
+    ensure_plan_answer_points,
+    ensure_question_answer_points,
+    format_question_answer_points,
+)
 from app.db.repositories.interview.question_bank_repo import QuestionBankRepo
 from app.db.repositories.session.session_repo import SessionRepo
 from app.domain.question_bank import normalize_import_filename, question_file_source_id
@@ -120,7 +124,7 @@ class QuestionBankUseCases:
             limit: 返回数量上限。
             offset: 分页偏移量。
         """
-        return await self._question_bank_repo.list_items(
+        items, total = await self._question_bank_repo.list_items(
             user_id=user_id,
             question_type=question_type,
             difficulty=difficulty,
@@ -128,6 +132,7 @@ class QuestionBankUseCases:
             limit=limit,
             offset=offset,
         )
+        return await self._backfill_item_answer_points(items, user_id=user_id), total
 
     async def get_item(self, *, item_id: int, user_id: str):
         """读取 item，并通过 owner 校验限制可见范围；资源不存在或状态不合法时返回稳定的业务结果或异常。
@@ -139,7 +144,8 @@ class QuestionBankUseCases:
         item = await self._question_bank_repo.get_item(item_id, user_id)
         if not item:
             raise QuestionBankNotFound(message="条目不存在")
-        return item
+        hydrated = await self._backfill_item_answer_points([item], user_id=user_id)
+        return hydrated[0]
 
     async def update_item(self, *, item_id: int, request: QuestionBankCreateRequest, user_id: str) -> bool:
         """在 owner 校验下更新 item；只写入允许变更的字段，避免绕过状态机或审批约束。
@@ -184,12 +190,68 @@ class QuestionBankUseCases:
             limit: 返回数量上限。
             offset: 分页偏移量。
         """
-        return await self._question_bank_repo.search_items(
+        items, total = await self._question_bank_repo.search_items(
             user_id=user_id,
             query=query,
             limit=limit,
             offset=offset,
         )
+        return await self._backfill_item_answer_points(items, user_id=user_id), total
+
+    async def _backfill_item_answer_points(
+        self,
+        items: list[dict[str, Any]],
+        *,
+        user_id: str,
+    ) -> list[dict[str, Any]]:
+        """为历史题库条目补齐回答要点，并持久化为参考答案。"""
+        plan_cache: dict[str, list[dict[str, Any]]] = {}
+        hydrated: list[dict[str, Any]] = []
+        for raw_item in items:
+            item = dict(raw_item)
+            if str(item.get("reference_answer") or "").strip():
+                hydrated.append(item)
+                continue
+
+            reference_answer = await self._reference_answer_for_item(item, plan_cache=plan_cache)
+            if reference_answer and item.get("id") is not None:
+                await self._question_bank_repo.update_item(
+                    item_id=int(item["id"]),
+                    user_id=user_id,
+                    reference_answer=reference_answer,
+                )
+                item["reference_answer"] = reference_answer
+            hydrated.append(item)
+        return hydrated
+
+    async def _reference_answer_for_item(
+        self,
+        item: dict[str, Any],
+        *,
+        plan_cache: dict[str, list[dict[str, Any]]],
+    ) -> str | None:
+        """优先从原面试计划恢复要点，缺失时使用题型兜底要点。"""
+        session_id = str(item.get("origin_session_id") or "").strip()
+        question_text = str(item.get("question_text") or "").strip()
+        if session_id:
+            if session_id not in plan_cache:
+                plan = await self._session_repo.get_interview_plan(session_id)
+                normalized_plan, changed = ensure_plan_answer_points(plan or [])
+                if changed:
+                    await self._session_repo.save_interview_plan(session_id, normalized_plan)
+                plan_cache[session_id] = normalized_plan
+            for question in plan_cache[session_id]:
+                if str(question.get("content") or "").strip() == question_text:
+                    reference_answer = format_question_answer_points(question)
+                    if reference_answer:
+                        return reference_answer
+
+        question = ensure_question_answer_points({
+            "content": question_text,
+            "type": item.get("question_type"),
+            "topic": item.get("target_skill") or (item.get("tags") or [None])[0],
+        })
+        return format_question_answer_points(question)
 
     async def import_questions(self, *, request: QuestionBankImportRequest, user_id: str):
         """导入用户确认的题目并写入导入记录，单条失败不会泄露原文或阻断其余条目。
@@ -240,10 +302,15 @@ class QuestionBankUseCases:
             raise QuestionBankNotFound(message="会话不存在")
 
         plan = await self._session_repo.get_interview_plan(session_id)
-        if not plan or question_index < 0 or question_index >= len(plan):
+        if not plan:
+            raise QuestionBankNotFound(message="题目不存在")
+        normalized_plan, changed = ensure_plan_answer_points(plan)
+        if changed:
+            await self._session_repo.save_interview_plan(session_id, normalized_plan)
+        if question_index < 0 or question_index >= len(normalized_plan):
             raise QuestionBankNotFound(message="题目不存在")
 
-        question = plan[question_index]
+        question = normalized_plan[question_index]
         return await self._question_bank_repo.create_item(
             user_id=user_id,
             question_text=question.get("content", ""),

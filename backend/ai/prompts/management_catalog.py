@@ -80,7 +80,7 @@ def prompt_presentation(name: str) -> PromptPresentation:
             return PromptPresentation(
                 display_name=historical[0],
                 functional_group=historical[1],
-                is_builtin=False,
+                is_builtin=True,
             )
         return PromptPresentation(
             display_name=name,
