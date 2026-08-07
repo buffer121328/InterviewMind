@@ -20,6 +20,9 @@ SESSION_REPORT_PROMPT = prompt_template(
 【已预算化报告上下文】
 {{report_context}}
 
+【回答要点使用边界】
+上下文中的 answer_points 或“内部评分参考”只用于判断回答覆盖度和缺口；不得在最终 question_evidence、question_failures、能力画像或短板报告中新增回答要点字段，也不得把内部要点当作候选人已经说过的事实。
+
 【输出要求】
 1. 顶层必须包含 question_evidence、candidate_profile 和 weakness_report，不得省略 candidate_profile 或 weakness_report。
 2. question_evidence 按 Q1、Q2 顺序记录 question_id、topic、question_summary、candidate_claims、demonstrated_skills、missing_evidence、communication_observations、score_or_signal；不得写入原问答没有出现的事实。
@@ -43,6 +46,9 @@ EVIDENCE_CHUNK_PROMPT = prompt_template(
 
 【问答块】
 {{qa_text}}
+
+【回答要点使用边界】
+问答块中的 answer_points 仅供内部判断回答覆盖度；candidate_claims 只能来自候选人真实回答，输出不得回显回答要点列表。
 
 【要求】
 1. 输出 items 数量必须与问答数量一致，并沿用输入中的 Qn 作为 question_id。
@@ -93,6 +99,9 @@ MULTI_REVIEWER_PROMPT = prompt_template(
 
 【共享且已预算化的只读上下文】
 {{review_context}}
+
+【回答要点使用边界】
+若上下文包含 answer_points，它们只是内部评分基准，不是候选人事实；可用于识别覆盖点和缺口，但不得在评审输出中原样回显或扩写为候选人证据。
 
 【独立评审规则】
 1. score 为当前视角 0-10 分；证据不足时保守评分并降低 confidence，不得用常识补事实。

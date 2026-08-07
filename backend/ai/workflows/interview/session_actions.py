@@ -2,7 +2,10 @@
 
 from dataclasses import dataclass
 
-from ai.agents.interview.answer_points import answer_points_hint
+from ai.agents.interview.answer_points import (
+    answer_points_hint,
+    ensure_plan_answer_points,
+)
 from app.db.repositories.session.session_repo import SessionRepo
 from app.schemas.schemas import RollbackRequest
 
@@ -40,10 +43,13 @@ class InterviewSessionUseCases:
         plan = await self._session_repo.get_interview_plan(session_id)
         if not plan:
             raise InterviewSessionNotFound(message="面试计划不存在")
-        if question_index < 0 or question_index >= len(plan):
+        normalized_plan, changed = ensure_plan_answer_points(plan)
+        if changed:
+            await self._session_repo.save_interview_plan(session_id, normalized_plan)
+        if question_index < 0 or question_index >= len(normalized_plan):
             raise InterviewSessionNotFound(message="问题索引超出范围")
 
-        question = plan[question_index]
+        question = normalized_plan[question_index]
         hint = answer_points_hint(question)
         if not hint:
             return {

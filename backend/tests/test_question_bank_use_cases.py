@@ -25,6 +25,7 @@ class _FakeQuestionRepo:
 class _FakeSessionRepo:
     def __init__(self, *, session=True, plan=None):
         self.session = SimpleNamespace(session_id="session-1") if session else None
+        self.saved_plans = []
         self.plan = plan if plan is not None else [{
             "content": "解释 Redis",
             "answer_points": ["内存访问", "高效数据结构"],
@@ -37,6 +38,11 @@ class _FakeSessionRepo:
 
     async def get_interview_plan(self, *_args, **_kwargs):
         return self.plan
+
+    async def save_interview_plan(self, _session_id, plan):
+        self.saved_plans.append(plan)
+        self.plan = plan
+        return True
 
 
 @pytest.mark.asyncio
@@ -99,6 +105,30 @@ async def test_save_question_from_legacy_session_uses_hint_as_reference_answer()
     )
 
     assert repo.created[0]["reference_answer"] == "说明任务队列与非阻塞调度"
+
+
+@pytest.mark.asyncio
+async def test_save_question_from_legacy_session_backfills_answer_points_before_create():
+    use_cases = QuestionBankUseCases()
+    repo = _FakeQuestionRepo()
+    session_repo = _FakeSessionRepo(plan=[{
+        "content": "解释事件循环",
+        "topic": "事件循环",
+        "type": "tech",
+    }])
+    use_cases._question_bank_repo = repo
+    use_cases._session_repo = session_repo
+
+    await use_cases.save_question_from_session(
+        session_id="session-1",
+        question_index=0,
+        user_id="user-1",
+    )
+
+    assert session_repo.saved_plans
+    points = session_repo.saved_plans[0][0]["answer_points"]
+    assert points
+    assert repo.created[0]["reference_answer"] == "\n".join(points)
 
 
 @pytest.mark.asyncio

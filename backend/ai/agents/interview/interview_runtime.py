@@ -475,6 +475,8 @@ class InterviewRuntime:
             "current_question_index": self.current_idx,
             "total_questions": len(self.plan),
             "current_question": current_q,
+            "answer_points": self._get_current_answer_points(),
+            "answer_points_policy": "仅用于内部覆盖度与缺口判断，不得原样输出给候选人",
             "next_question": next_q or "已是最后一题",
             "follow_up_count": self.follow_up_count,
             "max_follow_ups": self.max_follow_ups,
@@ -698,6 +700,14 @@ class InterviewRuntime:
         if 0 <= self.current_idx < len(self.plan):
             return self.plan[self.current_idx].get("content", "")
         return ""
+
+    def _get_current_answer_points(self) -> List[str]:
+        """读取当前题的内部回答要点，不对缺失历史数据做无边界猜测。"""
+        if 0 <= self.current_idx < len(self.plan):
+            raw = self.plan[self.current_idx].get("answer_points")
+            if isinstance(raw, list):
+                return [str(item).strip() for item in raw if str(item).strip()]
+        return []
 
     def _get_next_question(self) -> str:
         """获取下一道题目"""

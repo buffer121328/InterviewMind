@@ -87,6 +87,10 @@ EVALUATING_PROMPT = prompt_template(
 【已预算化运行上下文】
 {{runtime_context}}
 
+【回答要点使用边界】
+- runtime_context 中的 answer_points 仅是内部评分参考，用于判断覆盖点和关键缺口。
+- 不得在 content、追问、下一题或结束语中原样输出 answer_points，也不得把它们当作候选人的回答。
+
 【决策规则】
 1. 先用一句话客观评价回答，指出一个已覆盖点或最关键缺口；不要给分，不要讽刺。
 2. follow_up：仅当回答与当前题相关但缺少关键证据、原理或个人贡献，且追问次数小于上限时使用。追问必须只问一个具体问题。

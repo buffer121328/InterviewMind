@@ -10,52 +10,77 @@ from typing import Any, Dict, List, Optional
 
 from app.clock import utc_now
 
+from .answer_points import ensure_plan_answer_points, normalize_answer_points
+
 logger = logging.getLogger(__name__)
 
 
+def _qa_records(messages: List[Any]) -> List[Dict[str, Any]]:
+    """提取带内部题号的问答记录，供公开与评分投影复用。"""
+    records: List[Dict[str, Any]] = []
+    for index in range(0, len(messages) - 1):
+        message = messages[index]
+        next_message = messages[index + 1]
+        if _message_role(message) != "assistant" or _message_role(next_message) != "user":
+            continue
+        question = _message_content(message)
+        answer = _message_content(next_message)
+        if not question.strip() or not answer.strip():
+            continue
+        records.append({
+            "question": question,
+            "answer": answer,
+            "question_index": _message_question_index(next_message, message),
+        })
+    return records
+
+
 def build_qa_history(messages: List[Any]) -> List[Dict[str, str]]:
-    """
-    从消息列表中构建 QA 历史
+    """构建候选人可见问答投影，不包含内部回答要点或评分标准。"""
+    return [
+        {"question": str(item["question"]), "answer": str(item["answer"])}
+        for item in _qa_records(messages)
+    ]
 
-    解析消息列表，提取 "AI提问 -> User回答" 的配对模式。
 
-    Args:
-        messages: 消息列表（可以是 Pydantic 模型或字典）
+def build_scoring_qa_history(
+    messages: List[Any],
+    interview_plan: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """构建内部评分问答投影，并按持久化题号附加回答要点。"""
+    scoring_history: List[Dict[str, Any]] = []
+    for item in _qa_records(messages):
+        record: Dict[str, Any] = {
+            "question": item["question"],
+            "answer": item["answer"],
+        }
+        question_index = item.get("question_index")
+        if isinstance(question_index, int) and 0 <= question_index < len(interview_plan):
+            points = normalize_answer_points(
+                interview_plan[question_index].get("answer_points")
+            )
+            if points:
+                record["answer_points"] = points
+        scoring_history.append(record)
+    return scoring_history
 
-    Returns:
-        QA 历史列表，格式为 [{"question": "...", "answer": "..."}, ...]
-    """
-    qa_history = []
 
-    if not messages:
-        return qa_history
+def _message_content(message: Any) -> str:
+    """兼容消息对象与字典的正文读取。"""
+    if isinstance(message, dict):
+        return str(message.get("content") or "")
+    return str(getattr(message, "content", "") or "")
 
-    # 解析 messages 列表
-    # 结构：[AI 问题1, User 回答1, AI 问题2, User 回答2, ...]
-    for i in range(0, len(messages) - 1):
-        msg = messages[i]
-        next_msg = messages[i+1]
 
-        # 获取 role（兼容 Pydantic 模型和字典）
-        msg_role = _message_role(msg)
-        next_role = _message_role(next_msg)
-
-        # 获取 content
-        msg_content = msg.content if hasattr(msg, 'content') else msg.get('content', '')
-        next_content = next_msg.content if hasattr(next_msg, 'content') else next_msg.get('content', '')
-
-        # 寻找 "AI提问 -> User回答" 的模式
-        if msg_role == "assistant" and next_role == "user":
-            question = msg_content or ""
-            answer = next_content or ""
-
-            if question.strip() and answer.strip():
-                qa_history.append({
-                    "question": question,
-                    "answer": answer
-                })
-
-    return qa_history
+def _message_question_index(primary: Any, fallback: Any) -> int | None:
+    """读取持久化题号；缺失或非法时不猜测其他题目。"""
+    for message in (primary, fallback):
+        raw = message.get("question_index") if isinstance(message, dict) else getattr(
+            message, "question_index", None
+        )
+        if isinstance(raw, int) and raw >= 0:
+            return raw
+    return None
 
 
 def _message_role(message: Any) -> str:
@@ -112,7 +137,14 @@ async def trigger_session_report_analysis(
         if not session:
             raise ValueError("会话不存在或无权访问")
 
-        qa_history = build_qa_history(session.messages)
+        normalized_plan, changed = ensure_plan_answer_points(
+            session.metadata.interview_plan
+        )
+        if changed:
+            saved_plan = await session_repo.save_interview_plan(session_id, normalized_plan)
+            if not saved_plan:
+                raise ValueError("会话不存在或无权保存面试计划")
+        qa_history = build_scoring_qa_history(session.messages, normalized_plan)
         if not qa_history:
             raise ValueError("该面试还没有可用于生成报告的有效问答")
 

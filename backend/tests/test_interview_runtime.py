@@ -9,19 +9,19 @@
 """
 
 from contextlib import asynccontextmanager
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-from app.schemas.interview import (
-    InterviewerAction,
-    InterviewPhase,
-    InterviewerOutput,
-    OpeningOutput,
-    EvaluatingOutput,
-)
+
 from ai.agents.interview.interview_runtime import InterviewRuntime, memo_hint
 from app.domain.interview_rounds import INTERVIEW_CLOSING_MESSAGE
-
+from app.schemas.interview import (
+    EvaluatingOutput,
+    InterviewerAction,
+    InterviewerOutput,
+    InterviewPhase,
+    OpeningOutput,
+)
 
 # ============================================================================
 # Mock 测试数据
@@ -466,3 +466,36 @@ class TestMemoHint:
     def test_with_none(self):
         result = memo_hint(None)
         assert result == ""
+
+@pytest.mark.asyncio
+async def test_evaluating_context_uses_answer_points_without_exposing_them_in_feedback():
+    captured_prompts = []
+
+    async def invoke(prompt, _output_model, **_kwargs):
+        captured_prompts.append(prompt)
+        return EvaluatingOutput(
+            evaluation_notes="覆盖了内存访问，但缺少数据结构说明",
+            action=InterviewerAction.FOLLOW_UP,
+            content="你能进一步说明 Redis 常用数据结构如何影响性能吗？",
+            follow_up_count=1,
+        )
+
+    answer_point = "内部标准：说明内存访问与高效数据结构"
+    state = {
+        **MOCK_STATE,
+        "turn_phase": "feedback",
+        "messages": [{"role": "user", "content": "Redis 主要在内存中操作。"}],
+        "interview_plan": [{
+            "id": 1,
+            "topic": "Redis",
+            "content": "Redis 为什么快？",
+            "type": "tech",
+            "answer_points": [answer_point],
+        }],
+    }
+    runtime = InterviewRuntime(state=state, llm_invoker=invoke)
+
+    result = await runtime.run()
+
+    assert answer_point in captured_prompts[0]
+    assert answer_point not in result["messages"][0]["content"]

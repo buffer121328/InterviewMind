@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from typing import Any
 
 _MAX_ANSWER_POINTS = 5
@@ -73,6 +73,20 @@ def ensure_question_answer_points(question: Mapping[str, Any]) -> dict[str, Any]
         points = fallback_answer_points(normalized)
     normalized["answer_points"] = points
     return normalized
+
+
+def ensure_plan_answer_points(
+    plan: Iterable[Mapping[str, Any]],
+) -> tuple[list[dict[str, Any]], bool]:
+    """规范化整份面试计划，并标记是否需要持久化兼容结果。"""
+    normalized_plan: list[dict[str, Any]] = []
+    changed = False
+    for raw in plan:
+        original = dict(raw)
+        normalized = ensure_question_answer_points(original)
+        normalized_plan.append(normalized)
+        changed = changed or normalized != original
+    return normalized_plan, changed
 
 
 def format_question_answer_points(question: Mapping[str, Any]) -> str | None:

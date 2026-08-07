@@ -58,7 +58,7 @@ class SessionReportAnalysisService:
         resume: str,
         job_description: str,
         company_info: str,
-        qa_history: List[Dict[str, str]],
+        qa_history: List[Dict[str, Any]],
         api_config: Optional[Dict[str, Any]] = None,
         report_checkpoint: Mapping[str, Any] | None = None,
         checkpoint_callback: ReportCheckpointCallback | None = None,
@@ -104,6 +104,7 @@ class SessionReportAnalysisService:
                     job_description=job_description,
                     company_info=company_info,
                     evidence=evidence,
+                    qa_history=qa_history,
                     api_config=api_config,
                     deadline=deadline,
                 )
@@ -156,7 +157,7 @@ class SessionReportAnalysisService:
         resume: str,
         job_description: str,
         company_info: str,
-        qa_history: List[Dict[str, str]],
+        qa_history: List[Dict[str, Any]],
         api_config: Optional[Dict[str, Any]],
         deadline: TaskDeadline,
     ) -> tuple[SessionInterviewReportOutput, list[QuestionEvidence], list[dict[str, Any]]]:
@@ -185,6 +186,7 @@ class SessionReportAnalysisService:
                 }
                 for index, item in enumerate(qa_history)
             ],
+            answer_points_by_question=self._answer_points_by_question(qa_history),
         )
         review_result = await run_multi_reviewer_map_reduce(
             mode="session_report",
@@ -203,7 +205,7 @@ class SessionReportAnalysisService:
         self,
         *,
         session_id: str,
-        qa_history: List[Dict[str, str]],
+        qa_history: List[Dict[str, Any]],
         api_config: Optional[Dict[str, Any]],
         deadline: TaskDeadline,
         chunk_size: int,
@@ -308,7 +310,11 @@ class SessionReportAnalysisService:
         final_context = ContextAssembler(
             agent_name="interview_report",
             total_model_chars=16_000,
-            source_budgets={"profile_context": 5000, "question_evidence": 11_000},
+            source_budgets={
+                "profile_context": 4500,
+                "question_evidence": 8500,
+                "answer_points": 3000,
+            },
             cache_version="2026-07-31.multi-reviewer.report.v1",
         ).assemble([
             ContextSource(
@@ -317,7 +323,15 @@ class SessionReportAnalysisService:
                 required=True,
                 trusted=True,
                 priority=100,
-                max_chars=11_000,
+                max_chars=8500,
+                truncation_strategy="head_tail",
+            ),
+            ContextSource(
+                name="answer_points",
+                content=self._format_answer_points(qa_history),
+                trusted=True,
+                priority=90,
+                max_chars=3000,
                 truncation_strategy="head_tail",
             ),
             ContextSource(
@@ -325,7 +339,7 @@ class SessionReportAnalysisService:
                 content=base_context.model_context,
                 trusted=True,
                 priority=80,
-                max_chars=5000,
+                max_chars=4500,
                 truncation_strategy="head_tail",
             ),
         ])
@@ -336,6 +350,7 @@ class SessionReportAnalysisService:
             job_description=job_description,
             company_info=company_info,
             evidence=evidence,
+            answer_points_by_question=self._answer_points_by_question(qa_history),
         )
         review_result = await run_multi_reviewer_map_reduce(
             mode="session_report",
@@ -404,7 +419,7 @@ class SessionReportAnalysisService:
 
     @staticmethod
     def _assemble_evidence_chunk(
-        qa_chunk: List[Dict[str, str]],
+        qa_chunk: List[Dict[str, Any]],
         *,
         start_index: int,
     ) -> AssembledContext:
@@ -418,6 +433,8 @@ class SessionReportAnalysisService:
                     "question_id": question_id,
                     "question": str(item.get("question") or ""),
                     "answer": str(item.get("answer") or ""),
+                    "answer_points": item.get("answer_points") or [],
+                    "answer_points_policy": "仅用于内部评估，不得原样输出",
                 },
                 required=True,
                 priority=100 - offset,
@@ -434,7 +451,7 @@ class SessionReportAnalysisService:
     @classmethod
     def _build_degraded_report(
         cls,
-        qa_history: List[Dict[str, str]],
+        qa_history: List[Dict[str, Any]],
     ) -> tuple[CandidateProfile, Dict[str, Any]]:
         """Build a deterministic report from persisted Q&A without inventing scores."""
 
@@ -517,7 +534,7 @@ class SessionReportAnalysisService:
     @staticmethod
     def _normalize_evidence(
         evidence: List[QuestionEvidence],
-        qa_history: List[Dict[str, str]],
+        qa_history: List[Dict[str, Any]],
         *,
         start_index: int = 0,
     ) -> list[QuestionEvidence]:
@@ -544,16 +561,39 @@ class SessionReportAnalysisService:
         return normalized
 
     @staticmethod
-    def _format_qa(qa_history: List[Dict[str, str]]) -> str:
-        """Format stable Qn/A pairs for prompts and deterministic message versioning."""
-        return "\n\n".join(
-            f"Q{index + 1}: {item['question']}\nA{index + 1}: {item['answer']}"
+    def _answer_points_by_question(qa_history: List[Dict[str, Any]]) -> dict[str, list[str]]:
+        """按公开题号构建仅供内部评审使用的回答要点索引。"""
+        return {
+            f"Q{index + 1}": [str(point) for point in item.get("answer_points", []) if str(point).strip()]
             for index, item in enumerate(qa_history)
-        )
+            if item.get("answer_points")
+        }
+
+    @staticmethod
+    def _format_answer_points(qa_history: List[Dict[str, Any]]) -> str:
+        """格式化内部回答要点，并明确禁止公开回显。"""
+        lines = ["【内部回答要点：仅用于评分，不得原样输出】"]
+        for index, item in enumerate(qa_history, start=1):
+            points = [str(point).strip() for point in item.get("answer_points", []) if str(point).strip()]
+            if points:
+                lines.append(f"Q{index}: " + "；".join(points))
+        return "\n".join(lines) if len(lines) > 1 else ""
+
+    @staticmethod
+    def _format_qa(qa_history: List[Dict[str, Any]]) -> str:
+        """格式化分析服务相关后端逻辑。"""
+        blocks = []
+        for index, item in enumerate(qa_history):
+            block = f"Q{index + 1}: {item['question']}\nA{index + 1}: {item['answer']}"
+            points = [str(point).strip() for point in item.get("answer_points", []) if str(point).strip()]
+            if points:
+                block += "\n内部评分参考（不得在公开汇总中原样输出）: " + "；".join(points)
+            blocks.append(block)
+        return "\n\n".join(blocks)
 
     @staticmethod
     def _message_version(qa_history: List[Dict[str, str]]) -> str:
-        """Use a one-way content version so changed session messages invalidate old chunks."""
+        """处理消息版本相关后端逻辑。"""
         payload = json.dumps(qa_history, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
         return sha256(payload.encode("utf-8")).hexdigest()[:24]
 
