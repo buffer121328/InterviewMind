@@ -193,7 +193,11 @@ async def node_planner(
                 get_question_bank_repo,
             )
 
-            bank_items = await get_question_bank_repo().select_for_interview(user_id, bank_count)
+            bank_items = await get_question_bank_repo().select_for_interview(
+                user_id,
+                bank_count,
+                round_type=round_type,
+            )
         except Exception as exc:
             logger.warning(f"[Voice] 抽取个人题库失败，将由 planner 补足: {exc}")
     candidates = prepare_candidates(experience_questions or [], bank_items, max_questions)

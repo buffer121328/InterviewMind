@@ -4,9 +4,21 @@
 """
 
 from datetime import datetime
-from sqlalchemy import String, Text, Integer, Boolean, ForeignKey, DateTime, Index, UniqueConstraint
+
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
+
 from .base import Base
 
 
@@ -45,6 +57,7 @@ class QuestionBankItemModel(Base):
     difficulty: Mapped[str] = mapped_column(String, default="medium")
     target_skill: Mapped[str | None] = mapped_column(String, nullable=True)
     question_type: Mapped[str] = mapped_column(String, default="tech")
+    priority: Mapped[str] = mapped_column(String, default="low", nullable=False)
     is_verified: Mapped[bool] = mapped_column(Boolean, default=False)
     usage_count: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime)
@@ -55,6 +68,17 @@ class QuestionBankItemModel(Base):
         Index("idx_question_bank_type", "question_type"),
         Index("idx_question_bank_difficulty", "difficulty"),
         Index("idx_question_bank_verified", "is_verified"),
+        Index(
+            "idx_question_bank_selection",
+            "user_id",
+            "question_type",
+            "priority",
+            "usage_count",
+        ),
+        CheckConstraint(
+            "priority IN ('required', 'high', 'low')",
+            name="ck_question_bank_priority",
+        ),
     )
 
 

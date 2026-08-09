@@ -4,6 +4,10 @@
 
 import { API_BASE_URL, getUserId } from './config';
 
+export type QuestionPriority = 'required' | 'high' | 'low';
+export type QuestionDifficulty = 'easy' | 'medium' | 'hard';
+export type QuestionType = 'intro' | 'tech' | 'behavior' | 'system_design';
+
 export interface QuestionBankFollowup {
     id: number;
     parent_question_id: number;
@@ -25,9 +29,10 @@ export interface QuestionBankItem {
     question_text: string;
     reference_answer?: string;
     tags: string[];
-    difficulty: 'easy' | 'medium' | 'hard';
+    difficulty: QuestionDifficulty;
     target_skill?: string;
-    question_type: 'intro' | 'tech' | 'behavior' | 'system_design';
+    question_type: QuestionType;
+    priority: QuestionPriority;
     is_verified: boolean;
     usage_count: number;
     created_at: string;
@@ -40,9 +45,10 @@ export interface QuestionBankCreateRequest {
     question_text: string;
     reference_answer?: string;
     tags?: string[];
-    difficulty?: string;
+    difficulty?: QuestionDifficulty;
     target_skill?: string;
-    question_type?: string;
+    question_type?: QuestionType;
+    priority?: QuestionPriority;
     source_type?: string;
 }
 
@@ -61,9 +67,10 @@ export interface QuestionBankImportRequest {
         content?: string;
         reference_answer?: string;
         tags?: string[];
-        difficulty?: string;
+        difficulty?: QuestionDifficulty;
         target_skill?: string;
-        question_type?: string;
+        question_type?: QuestionType;
+        priority?: QuestionPriority;
         source_type?: string;
         source_id?: string;
     }>;
@@ -83,9 +90,10 @@ export interface QuestionFileCandidate {
     question_text: string;
     reference_answer?: string;
     tags: string[];
-    difficulty: 'easy' | 'medium' | 'hard';
+    difficulty: QuestionDifficulty;
     target_skill?: string;
-    question_type: 'intro' | 'tech' | 'behavior' | 'system_design';
+    question_type: QuestionType;
+    priority: QuestionPriority;
     source_type: string;
     source_id: string;
 }

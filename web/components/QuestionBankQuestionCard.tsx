@@ -11,6 +11,7 @@ import {
     questionSourceLabel,
 } from "@/lib/questionBankPresentation";
 import { cn } from "@/lib/utils";
+import { priorityLabel } from "@/lib/questionBankPriority";
 
 const difficultyBadge: Record<string, { bg: string; text: string; label: string }> = {
     easy: { bg: "bg-emerald-100", text: "text-emerald-700", label: "简单" },
@@ -24,6 +25,12 @@ const typeBadge: Record<string, { bg: string; text: string; label: string }> = {
     behavior: { bg: "bg-teal-100", text: "text-teal-700", label: "行为" },
     system_design: { bg: "bg-indigo-100", text: "text-indigo-700", label: "设计" },
 };
+
+const priorityBadge = {
+    required: "bg-red-100 text-red-700",
+    high: "bg-orange-100 text-orange-700",
+    low: "bg-stone-100 text-stone-600",
+} as const;
 
 /** Displays zero or more answer points with a stable empty-state fallback. */
 function AnswerPointList({ points }: { points: string[] }) {
@@ -75,12 +82,15 @@ export function QuestionBankQuestionCard({
                         <span className={cn("inline-block rounded-full px-2.5 py-0.5 text-xs font-medium", tp.bg, tp.text)}>
                             {tp.label}
                         </span>
+                        <span className={cn("inline-block rounded-full px-2.5 py-0.5 text-xs font-medium", priorityBadge[item.priority])}>
+                            优先级：{priorityLabel(item.priority)}
+                        </span>
                         <span className="text-xs text-stone-400">已使用 {item.usage_count} 次</span>
                         <span className="text-xs text-stone-400">来源：{sourceLabel}</span>
                     </div>
                 </div>
 
-                <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                <div className="flex items-center gap-1">
                     <Button
                         variant="ghost"
                         size="icon"

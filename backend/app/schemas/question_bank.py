@@ -3,9 +3,13 @@
 用于面试题的上传、沉淀、检索
 """
 
+from typing import List, Literal, Optional
+
 from pydantic import BaseModel, Field
-from typing import List, Optional, Dict, Any, Literal
-from datetime import datetime
+
+QuestionPriority = Literal["required", "high", "low"]
+QuestionType = Literal["intro", "tech", "behavior", "system_design"]
+QuestionDifficulty = Literal["easy", "medium", "hard"]
 
 
 class QuestionBankFollowup(BaseModel):
@@ -30,18 +34,19 @@ class QuestionBankItem(BaseModel):
     )
     source_id: Optional[str] = Field(default=None, description="来源 ID（如 session_id）")
     origin_session_id: Optional[str] = Field(default=None, description="来源面试会话 ID")
-    question_text: str = Field(description="题目内容")
+    question_text: str = Field(min_length=2, max_length=500, description="题目内容")
     reference_answer: Optional[str] = Field(default=None, description="参考答案")
     tags: List[str] = Field(default_factory=list, description="标签列表")
-    difficulty: str = Field(
+    difficulty: QuestionDifficulty = Field(
         default="medium",
         description="难度: easy/medium/hard"
     )
     target_skill: Optional[str] = Field(default=None, description="考察技能")
-    question_type: str = Field(
+    question_type: QuestionType = Field(
         default="tech",
         description="题目类型: intro/tech/behavior/system_design"
     )
+    priority: QuestionPriority = Field(default="low", description="优先级: required/high/low")
     is_verified: bool = Field(default=False, description="是否已验证")
     usage_count: int = Field(default=0, description="使用次数")
     created_at: Optional[str] = Field(default=None, description="创建时间")
@@ -67,13 +72,14 @@ class QuestionBankImport(BaseModel):
 
 class QuestionBankCreateRequest(BaseModel):
     """创建题库条目请求"""
-    question_text: str = Field(description="题目内容")
-    reference_answer: Optional[str] = Field(default=None, description="参考答案")
-    tags: List[str] = Field(default_factory=list, description="标签列表")
-    difficulty: str = Field(default="medium", description="难度")
-    target_skill: Optional[str] = Field(default=None, description="考察技能")
-    question_type: str = Field(default="tech", description="题目类型")
-    source_type: str = Field(default="manual", description="来源类型")
+    question_text: str = Field(min_length=2, max_length=500, description="题目内容")
+    reference_answer: Optional[str] = Field(default=None, max_length=10_000, description="回答要点")
+    tags: List[str] = Field(default_factory=list, max_length=10, description="标签列表")
+    difficulty: QuestionDifficulty = Field(default="medium", description="难度")
+    target_skill: Optional[str] = Field(default=None, max_length=100, description="考察技能")
+    question_type: QuestionType = Field(default="tech", description="题目类型")
+    priority: QuestionPriority = Field(default="low", description="优先级")
+    source_type: str = Field(default="manual", max_length=100, description="来源类型")
 
 
 class QuestionBankListResponse(BaseModel):
@@ -84,9 +90,29 @@ class QuestionBankListResponse(BaseModel):
     message: Optional[str] = Field(default=None, description="消息")
 
 
+class QuestionBankImportItem(BaseModel):
+    """批量导入中的单道受约束题目，兼容 question_text/content 两种题干字段。"""
+
+    question_text: Optional[str] = Field(default=None, max_length=500)
+    content: Optional[str] = Field(default=None, max_length=500)
+    reference_answer: Optional[str] = Field(default=None, max_length=10_000)
+    tags: List[str] = Field(default_factory=list, max_length=10)
+    difficulty: QuestionDifficulty = "medium"
+    target_skill: Optional[str] = Field(default=None, max_length=100)
+    question_type: QuestionType = "tech"
+    priority: QuestionPriority = "low"
+    source_type: Optional[str] = Field(default=None, max_length=100)
+    source_id: Optional[str] = Field(default=None, max_length=200)
+
+    @property
+    def resolved_question_text(self) -> str:
+        """Return the compatible non-empty question text."""
+        return str(self.question_text or self.content or "").strip()
+
+
 class QuestionBankImportRequest(BaseModel):
     """题库导入请求"""
-    questions: List[Dict[str, Any]] = Field(min_length=1, max_length=500, description="题目列表")
+    questions: List[QuestionBankImportItem] = Field(min_length=1, max_length=500, description="题目列表")
     import_source: str = Field(default="manual", description="导入来源")
 
 
@@ -107,6 +133,7 @@ class QuestionFileCandidate(BaseModel):
     difficulty: Literal["easy", "medium", "hard"] = "medium"
     target_skill: Optional[str] = Field(default=None, max_length=100)
     question_type: Literal["intro", "tech", "behavior", "system_design"] = "tech"
+    priority: QuestionPriority = "low"
     source_type: str = Field(default="upload", max_length=100)
     source_id: str = Field(max_length=200)
 

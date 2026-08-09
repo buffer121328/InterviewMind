@@ -184,26 +184,6 @@ async def node_planner(state: InterviewState):
     # 获取长期记忆上下文
     memory_context = state.get("memory_context", "")
 
-    # 明确选中的面经与题库题优先，剩余数量才交给模型规划。
-    from .question_plan import merge_question_plan, prepare_candidates
-    bank_items = []
-    bank_count = min(max(int(state.get("question_bank_count", 0) or 0), 0), max_q)
-    if bank_count:
-        try:
-            from app.db.repositories.interview.question_bank_repo import (
-                get_question_bank_repo,
-            )
-
-            bank_items = await get_question_bank_repo().select_for_interview(user_id, bank_count)
-        except Exception as e:
-            logger.warning(f"抽取个人题库失败，将由 planner 补足: {e}")
-    candidates = prepare_candidates(
-        state.get("experience_questions", []),
-        bank_items,
-        max_q,
-    )
-    remaining_questions = max_q - len(candidates)
-
     # 获取轮次信息
     round_index = 1
     round_type = "tech_initial"
@@ -261,6 +241,30 @@ async def node_planner(state: InterviewState):
                         weakness_report = None
         except Exception as e:
             logger.error(f"获取轮次信息失败: {e}")
+
+    # 明确选中的面经与题库题优先，题库题同时受轮次题型与优先级约束。
+    from .question_plan import merge_question_plan, prepare_candidates
+    bank_items = []
+    bank_count = min(max(int(state.get("question_bank_count", 0) or 0), 0), max_q)
+    if bank_count:
+        try:
+            from app.db.repositories.interview.question_bank_repo import (
+                get_question_bank_repo,
+            )
+
+            bank_items = await get_question_bank_repo().select_for_interview(
+                user_id,
+                bank_count,
+                round_type=round_type,
+            )
+        except Exception as e:
+            logger.warning(f"抽取个人题库失败，将由 planner 补足: {e}")
+    candidates = prepare_candidates(
+        state.get("experience_questions", []),
+        bank_items,
+        max_q,
+    )
+    remaining_questions = max_q - len(candidates)
 
     # 仅在仍需模型生成题目时检索上下文。
     retrieval_context = None

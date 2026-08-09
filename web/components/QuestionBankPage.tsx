@@ -17,6 +17,7 @@ import {
     listQuestionBank, createQuestionItem, deleteQuestionItem, searchQuestionBank, updateQuestionItem,
     type QuestionBankItem, type QuestionBankCreateRequest
 } from "@/lib/api/questionBank";
+import { defaultQuestionBankForm, toQuestionBankForm } from "@/lib/questionBankPriority";
 import { fetchSessionPage, type SessionListItem } from "@/lib/api/sessions";
 import { InterviewExperiencePanel } from "@/components/InterviewExperiencePanel";
 import { QuestionFileImportPanel } from "@/components/QuestionFileImportPanel";
@@ -30,7 +31,6 @@ import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
 
 interface QuestionBankPageProps {
     onBack?: () => void;
-    onStartInterview: () => void;
     onOpenSession: (sessionId: string) => void;
     embedded?: boolean;
 }
@@ -117,7 +117,7 @@ function SessionCard({ session, onOpen }: { session: SessionListItem; onOpen: (s
 // =====================================================================
 
 /** Renders the question bank page UI and coordinates its typed props, local state, and approved backend interactions. */
-export default function QuestionBankPage({ onBack, onStartInterview, onOpenSession, embedded = false }: QuestionBankPageProps) {
+export default function QuestionBankPage({ onBack, onOpenSession, embedded = false }: QuestionBankPageProps) {
     // ---- state ----
     const [tab, setTab] = useState<TabKey>("bank");
     const [questions, setQuestions] = useState<QuestionBankItem[]>([]);
@@ -140,12 +140,7 @@ export default function QuestionBankPage({ onBack, onStartInterview, onOpenSessi
     // add‑form toggle
     const [showForm, setShowForm] = useState(false);
     const [editingItemId, setEditingItemId] = useState<number | null>(null);
-    const [form, setForm] = useState<QuestionBankCreateRequest>({
-        question_text: "",
-        reference_answer: "",
-        difficulty: "medium",
-        question_type: "tech",
-    });
+    const [form, setForm] = useState<QuestionBankCreateRequest>(defaultQuestionBankForm);
     const [submitting, setSubmitting] = useState(false);
 
     // ---- data fetching ----
@@ -236,7 +231,7 @@ export default function QuestionBankPage({ onBack, onStartInterview, onOpenSessi
 
     /** Encapsulates reset form; returns typed data or state and keeps side effects within the owning module boundary. */
     const resetForm = () => {
-        setForm({ question_text: "", reference_answer: "", difficulty: "medium", question_type: "tech" });
+        setForm(defaultQuestionBankForm());
         setEditingItemId(null);
     };
 
@@ -249,15 +244,7 @@ export default function QuestionBankPage({ onBack, onStartInterview, onOpenSessi
     /** Encapsulates open edit form; returns typed data or state and keeps side effects within the owning module boundary. */
     const openEditForm = (item: QuestionBankItem) => {
         setEditingItemId(item.id);
-        setForm({
-            question_text: item.question_text,
-            reference_answer: item.reference_answer ?? "",
-            tags: item.tags,
-            difficulty: item.difficulty,
-            target_skill: item.target_skill,
-            question_type: item.question_type,
-            source_type: item.source_type,
-        });
+        setForm(toQuestionBankForm(item));
         setShowForm(true);
     };
 
@@ -421,10 +408,31 @@ export default function QuestionBankPage({ onBack, onStartInterview, onOpenSessi
                                     onChange={(e) => setForm({ ...form, reference_answer: e.target.value })}
                                     className="min-h-[72px] rounded-xl border-teal-200 bg-white focus-visible:ring-teal-500"
                                 />
+                                <div className="grid gap-3 sm:grid-cols-2">
+                                    <Input
+                                        placeholder="考察技能（可选）"
+                                        value={form.target_skill ?? ""}
+                                        onChange={(e) => setForm({ ...form, target_skill: e.target.value })}
+                                        className="rounded-xl border-teal-200 bg-white focus-visible:ring-teal-500"
+                                    />
+                                    <Input
+                                        placeholder="标签（使用逗号分隔）"
+                                        value={(form.tags ?? []).join(", ")}
+                                        onChange={(e) => setForm({
+                                            ...form,
+                                            tags: e.target.value
+                                                .split(/[,，]/)
+                                                .map((tag) => tag.trim())
+                                                .filter(Boolean)
+                                                .slice(0, 10),
+                                        })}
+                                        className="rounded-xl border-teal-200 bg-white focus-visible:ring-teal-500"
+                                    />
+                                </div>
                                 <div className="flex items-center gap-3 flex-wrap">
                                     <select
                                         value={form.difficulty}
-                                        onChange={(e) => setForm({ ...form, difficulty: e.target.value })}
+                                        onChange={(e) => setForm({ ...form, difficulty: e.target.value as NonNullable<QuestionBankCreateRequest["difficulty"]> })}
                                         aria-label="题目难度"
                                         className="rounded-lg border border-teal-200 bg-white px-2.5 py-1.5 text-xs text-stone-600 focus:outline-none focus:ring-2 focus:ring-teal-500"
                                     >
@@ -434,13 +442,23 @@ export default function QuestionBankPage({ onBack, onStartInterview, onOpenSessi
                                     </select>
                                     <select
                                         value={form.question_type}
-                                        onChange={(e) => setForm({ ...form, question_type: e.target.value })}
+                                        onChange={(e) => setForm({ ...form, question_type: e.target.value as NonNullable<QuestionBankCreateRequest["question_type"]> })}
                                         aria-label="题目类型"
                                         className="rounded-lg border border-teal-200 bg-white px-2.5 py-1.5 text-xs text-stone-600 focus:outline-none focus:ring-2 focus:ring-teal-500"
                                     >
                                         {QUESTION_TYPES.filter((t) => t.value).map((t) => (
                                             <option key={t.value} value={t.value}>{t.label}</option>
                                         ))}
+                                    </select>
+                                    <select
+                                        value={form.priority}
+                                        onChange={(e) => setForm({ ...form, priority: e.target.value as NonNullable<QuestionBankCreateRequest["priority"]> })}
+                                        aria-label="题目优先级"
+                                        className="rounded-lg border border-teal-200 bg-white px-2.5 py-1.5 text-xs text-stone-600 focus:outline-none focus:ring-2 focus:ring-teal-500"
+                                    >
+                                        <option value="required">必选</option>
+                                        <option value="high">高</option>
+                                        <option value="low">低</option>
                                     </select>
                                     <div className="flex-1" />
                                     <Button
@@ -513,10 +531,7 @@ export default function QuestionBankPage({ onBack, onStartInterview, onOpenSessi
                 )}
 
                 {tab === "experience" && (
-                    <InterviewExperiencePanel
-                        onImported={() => void loadQuestions()}
-                        onStartInterview={onStartInterview}
-                    />
+                    <InterviewExperiencePanel onImported={() => void loadQuestions()} />
                 )}
 
                 {/* ---------- Interview History Tab ---------- */}

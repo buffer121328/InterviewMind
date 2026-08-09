@@ -530,7 +530,6 @@ export default function InterviewPage() {
         >
           <QuestionBankPage
             embedded
-            onStartInterview={() => handleNavigate('interview')}
             onOpenSession={(sessionId) => void handleOpenInterviewSession(sessionId)}
           />
         </WorkspaceShell>

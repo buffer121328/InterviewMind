@@ -4,15 +4,20 @@
 """
 
 import logging
-from typing import List, Optional, Dict, Any
 from datetime import datetime
+from typing import Any, Dict, List, Optional
 
-from sqlalchemy import delete, func, select, text, update
+from sqlalchemy import case, delete, func, select, text, update
 
-from app.db.models import async_session
-from app.db.models.interview import QuestionBankItemModel, QuestionBankImportModel, QuestionBankFollowupModel
-from app.db.repositories.interview.archive_mapper import extract_candidate_question
 from app.clock import utc_now
+from app.db.models import async_session
+from app.db.models.interview import (
+    QuestionBankFollowupModel,
+    QuestionBankImportModel,
+    QuestionBankItemModel,
+)
+from app.db.repositories.interview.archive_mapper import extract_candidate_question
+from app.domain.question_bank import normalize_question_key, question_types_for_round
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +38,7 @@ class QuestionBankRepo:
         difficulty: str = "medium",
         target_skill: Optional[str] = None,
         question_type: str = "tech",
+        priority: str = "low",
         source_type: str = "manual",
         source_id: Optional[str] = None,
         origin_session_id: Optional[str] = None
@@ -51,6 +57,7 @@ class QuestionBankRepo:
                 difficulty=difficulty,
                 target_skill=target_skill,
                 question_type=question_type,
+                priority=priority,
                 is_verified=False,
                 usage_count=0,
                 created_at=now,
@@ -194,7 +201,7 @@ class QuestionBankRepo:
         """更新题库条目"""
         allowed_fields = {
             'question_text', 'reference_answer', 'tags', 'difficulty',
-            'target_skill', 'question_type', 'is_verified'
+            'target_skill', 'question_type', 'priority', 'is_verified'
         }
         values = {k: v for k, v in kwargs.items() if k in allowed_fields}
         if not values:
@@ -232,18 +239,35 @@ class QuestionBankRepo:
             )
             await db.commit()
 
-    async def select_for_interview(self, user_id: str, limit: int) -> List[Dict[str, Any]]:
-        """优先抽取使用次数较少的题，避免重复轰炸同一用户。"""
+    async def select_for_interview(
+        self,
+        user_id: str,
+        limit: int,
+        *,
+        round_type: str = "tech_initial",
+    ) -> List[Dict[str, Any]]:
+        """Select owner-visible questions compatible with the round and priority order."""
         if limit <= 0:
             return []
+        compatible_types = question_types_for_round(round_type)
+        priority_rank = case(
+            {"required": 0, "high": 1, "low": 2},
+            value=QuestionBankItemModel.priority,
+            else_=2,
+        )
         async with async_session() as db:
             stmt = (
                 select(QuestionBankItemModel)
-                .where(QuestionBankItemModel.user_id == user_id)
+                .where(
+                    QuestionBankItemModel.user_id == user_id,
+                    QuestionBankItemModel.question_type.in_(compatible_types),
+                )
                 .order_by(
+                    priority_rank.asc(),
                     QuestionBankItemModel.usage_count.asc(),
                     QuestionBankItemModel.is_verified.desc(),
                     QuestionBankItemModel.updated_at.desc(),
+                    QuestionBankItemModel.id.asc(),
                 )
                 .limit(limit)
             )
@@ -251,6 +275,24 @@ class QuestionBankRepo:
             items = [self._row_to_dict(row) for row in rows]
             await self._attach_followups(db, items)
             return items
+
+    async def normalized_question_keys(
+        self,
+        user_id: str,
+        question_texts: List[str],
+    ) -> set[str]:
+        """Return normalized candidate keys already present in one owner's question bank."""
+        candidate_keys = {normalize_question_key(item) for item in question_texts if item.strip()}
+        if not candidate_keys:
+            return set()
+        async with async_session() as db:
+            stmt = select(QuestionBankItemModel.question_text).where(
+                QuestionBankItemModel.user_id == user_id
+            )
+            existing = (await db.execute(stmt)).scalars().all()
+        return candidate_keys.intersection(
+            normalize_question_key(str(item)) for item in existing if str(item).strip()
+        )
 
     async def get_items_by_skill(
         self,
@@ -375,6 +417,7 @@ class QuestionBankRepo:
                 'difficulty': getattr(row, 'difficulty', None),
                 'target_skill': getattr(row, 'target_skill', None),
                 'question_type': getattr(row, 'question_type', None),
+                'priority': getattr(row, 'priority', 'low'),
                 'is_verified': getattr(row, 'is_verified', None),
                 'usage_count': getattr(row, 'usage_count', None),
                 'created_at': getattr(row, 'created_at', None),
@@ -382,6 +425,7 @@ class QuestionBankRepo:
                 'followups': [],
             }
         data.setdefault('followups', [])
+        data.setdefault('priority', 'low')
         for field in ['created_at', 'updated_at']:
             if field in data and isinstance(data[field], datetime):
                 data[field] = data[field].isoformat()

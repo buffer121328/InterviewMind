@@ -56,6 +56,7 @@ class QuestionBankUseCases:
             difficulty=request.difficulty,
             target_skill=request.target_skill,
             question_type=request.question_type,
+            priority=request.priority,
             source_type=request.source_type,
         )
 
@@ -65,7 +66,7 @@ class QuestionBankUseCases:
         file: Any,
         user_id: str,
     ) -> QuestionFilePreviewResponse:
-        """Extract and parse an uploaded question file without writing data."""
+        """预览文件相关后端逻辑。"""
         from app.files.file_service import FileServiceError, file_service
 
         try:
@@ -85,7 +86,7 @@ class QuestionBankUseCases:
         content: str,
         user_id: str,
     ) -> QuestionFilePreviewResponse:
-        """Parse an uploaded question file into import candidates without writing data."""
+        """预览导入文件相关后端逻辑。"""
         normalized_filename = normalize_import_filename(filename)
         source_id = question_file_source_id(
             user_id=user_id,
@@ -164,6 +165,7 @@ class QuestionBankUseCases:
             difficulty=request.difficulty,
             target_skill=request.target_skill,
             question_type=request.question_type,
+            priority=request.priority,
             source_type=request.source_type,
         )
         if not updated:
@@ -262,16 +264,18 @@ class QuestionBankUseCases:
         """
         success_count = 0
         total_count = len(request.questions)
-        for q in request.questions:
+        for item in request.questions:
+            q = item.model_dump()
             try:
                 await self._question_bank_repo.create_item(
                     user_id=user_id,
-                    question_text=q.get("question_text", q.get("content", "")),
+                    question_text=item.resolved_question_text,
                     reference_answer=q.get("reference_answer"),
                     tags=q.get("tags", []),
                     difficulty=q.get("difficulty", "medium"),
                     target_skill=q.get("target_skill"),
                     question_type=q.get("question_type", "tech"),
+                    priority=q.get("priority", "low"),
                     source_type=q.get("source_type", request.import_source),
                     source_id=q.get("source_id"),
                 )

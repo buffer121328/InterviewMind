@@ -24,6 +24,13 @@ export interface ExperienceCollectResponse {
         content_preview: string;
     }>;
     questions: ExperienceQuestionCandidate[];
+    document_count: number;
+    candidate_count: number;
+    filtered_count: number;
+    duplicate_count: number;
+    imported_count: number;
+    failed_count: number;
+    import_id?: number;
     message?: string;
     warnings?: string[];
 }
@@ -34,6 +41,7 @@ export async function collectInterviewExperiences(input: {
     queries: string[];
     max_pages?: number;
     exported_items?: Array<Record<string, unknown>>;
+    api_config: Record<string, unknown>;
 }): Promise<ExperienceCollectResponse> {
     const response = await fetch(`${API_BASE_URL}/api/interview-experiences/collect`, {
         method: 'POST',
@@ -42,23 +50,5 @@ export async function collectInterviewExperiences(input: {
     });
     const data = await response.json();
     if (!response.ok) throw new Error(data.message ?? data.detail ?? '面经采集失败');
-    return data;
-}
-
-/** Calls the backend for import experience questions; the shared API client supplies request identity and error normalization, and this helper returns the typed endpoint result. */
-export async function importExperienceQuestions(questions: ExperienceQuestionCandidate[]): Promise<{
-    success: boolean;
-    success_count: number;
-    total_count: number;
-    message?: string;
-    warnings?: string[];
-}> {
-    const response = await fetch(`${API_BASE_URL}/api/interview-experiences/import`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-User-ID': getUserId() },
-        body: JSON.stringify({ questions }),
-    });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.message ?? data.detail ?? '面经题导入失败');
     return data;
 }

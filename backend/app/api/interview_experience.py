@@ -4,11 +4,11 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.api.deps import get_current_user_id
 from ai.workflows.interview.experience_imports import (
     InterviewExperienceUseCaseError,
     interview_experience_import_use_cases,
 )
+from app.api.deps import get_current_user_id
 from app.schemas.interview_experience import (
     ExperienceCollectRequest,
     ExperienceCollectResponse,
@@ -23,11 +23,11 @@ router = APIRouter(prefix="/api/interview-experiences", tags=["面经"])
 @router.post("/collect", response_model=ExperienceCollectResponse)
 async def collect_interview_experiences(
     request: ExperienceCollectRequest,
-    _: str = Depends(get_current_user_id),
+    user_id: str = Depends(get_current_user_id),
 ):
-    """采集并抽取候选题；本接口不写数据库。"""
+    """采集面经，经模型质量治理后直接写入当前用户题库。"""
     try:
-        return await interview_experience_import_use_cases.collect(request=request)
+        return await interview_experience_import_use_cases.collect(request=request, user_id=user_id)
     except InterviewExperienceUseCaseError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
 
