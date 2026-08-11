@@ -349,6 +349,8 @@ class EvalTraceCompleteness(_EvalModel):
     agent_run_id_present: bool = False
     sensitive_data_clean: bool = True
     evaluation_namespace_isolated: bool = False
+    category_counts: dict[str, int] = Field(default_factory=dict)
+    missing_categories: tuple[str, ...] = ()
     score: float = Field(default=0.0, ge=0, le=1)
     missing: tuple[str, ...] = ()
 
@@ -387,6 +389,9 @@ class AgentEvalRecord(_EvalModel):
     case_version: str | None = Field(default=None, max_length=160)
     agent_name: str = Field(min_length=1, max_length=160)
     agent_version: str = Field(min_length=1, max_length=160)
+    task_type: str | None = Field(default=None, max_length=160)
+    adapter_key: str | None = Field(default=None, max_length=160)
+    catalog_identity: str | None = Field(default=None, max_length=512)
     prompt_name: str | None = Field(default=None, max_length=160)
     prompt_version: str | None = Field(default=None, max_length=160)
     model_config_hash: str = Field(min_length=1, max_length=256)

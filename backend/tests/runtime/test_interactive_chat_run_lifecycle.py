@@ -5,13 +5,12 @@ import json
 from types import SimpleNamespace
 
 import pytest
-
+from ai.runtime.agent_runs.service import get_task_definition
 from ai.workflows.interview import stream as chat_stream
 from ai.workflows.interview.checkpoints import interview_turn_checkpoint_thread_id
 from ai.workflows.interview.stream import ChatStreamUseCases
 from app.domain.agent_runs import TASK_TYPE_INTERVIEW_TURN
 from app.schemas.schemas import ChatRequest
-from ai.runtime.agent_runs.service import get_task_definition
 
 
 def _agent_run_events(chunks):
@@ -228,4 +227,97 @@ async def test_chat_stream_disconnect_marks_run_failed_not_cancelled(monkeypatch
 
     assert fake_run_service.failed == [("run-1", "client_disconnected")]
     assert fake_run_service.succeeded == []
+    assert lease.released is True
+
+
+class _ExistingChatRunService(_FakeRunService):
+    async def create_or_get(self, **kwargs):
+        self.created.append(kwargs)
+        return SimpleNamespace(id="run-1", status="running"), False
+
+
+@pytest.mark.asyncio
+async def test_duplicate_chat_stream_does_not_build_or_claim_a_second_graph(monkeypatch):
+    use_cases = ChatStreamUseCases()
+    use_cases._session_repo = _FakeSessionRepo()
+    fake_run_service = _ExistingChatRunService()
+    use_cases._run_service = fake_run_service
+
+    async def unexpected_graph(_mode):
+        raise AssertionError("duplicate request must not build the graph")
+
+    async def fake_get_memory_context(**_kwargs):
+        return "", []
+
+    monkeypatch.setattr(chat_stream, "build_interview_graph", unexpected_graph)
+    monkeypatch.setattr(chat_stream, "get_memory_context", fake_get_memory_context)
+    monkeypatch.setattr(chat_stream, "get_run_gate", lambda: _FakeGate(_FakeLease()))
+
+    request = ChatRequest(
+        thread_id="thread-1",
+        message="我的回答",
+        mode="mock",
+        resume_context="简历",
+        job_description="JD",
+        max_questions=5,
+    )
+
+    with pytest.raises(chat_stream.ChatStreamConflict) as exc_info:
+        await use_cases.stream_chat(request=request, user_id="user-1")
+
+    assert exc_info.value.message == "同一面试请求正在执行，请等待当前回复完成"
+    assert len(fake_run_service.created) == 1
+    assert fake_run_service.stages == []
+
+
+class _PartialFailureGraph:
+    async def astream_events(self, *_args, **_kwargs):
+        yield {
+            "event": "on_chain_end",
+            "metadata": {"langgraph_node": "responder"},
+            "data": {"output": {
+                "messages": [SimpleNamespace(type="ai", content="已收到你的回答")],
+                "current_question_index": 0,
+            }},
+        }
+        raise RuntimeError("api_key=sk-12345678901234567890")
+
+
+@pytest.mark.asyncio
+async def test_chat_stream_partial_failure_has_one_safe_failed_terminal(monkeypatch):
+    lease = _FakeLease()
+    use_cases = ChatStreamUseCases()
+    use_cases._session_repo = _FakeSessionRepo()
+    fake_run_service = _FakeRunService()
+    use_cases._run_service = fake_run_service
+
+    async def fake_build_interview_graph(_mode):
+        return _PartialFailureGraph()
+
+    async def fake_get_memory_context(**_kwargs):
+        return "", []
+
+    monkeypatch.setattr(chat_stream, "build_interview_graph", fake_build_interview_graph)
+    monkeypatch.setattr(chat_stream, "get_memory_context", fake_get_memory_context)
+    monkeypatch.setattr(chat_stream, "get_run_gate", lambda: _FakeGate(lease))
+
+    request = ChatRequest(
+        thread_id="thread-1",
+        message="我的回答",
+        mode="mock",
+        resume_context="简历",
+        job_description="JD",
+        max_questions=5,
+    )
+    generator = await use_cases.stream_chat(request=request, user_id="user-1")
+    chunks = [chunk async for chunk in generator]
+
+    assert fake_run_service.succeeded == []
+    assert len(fake_run_service.failed) == 1
+    assert "sk-" not in fake_run_service.failed[0][1]
+    assert "REDACTED" in fake_run_service.failed[0][1]
+    run_events = _agent_run_events(chunks)
+    assert [event["type"] for event in run_events][-1] == "run.failed"
+    assert "run.completed" not in {event["type"] for event in run_events}
+    assert any('"type":"token"' in chunk for chunk in chunks)
     assert lease.released is True

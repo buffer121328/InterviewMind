@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "captured_on": "2026-08-11",
+  "tool_versions": {
+    "mypy": "2.3.0",
+    "ruff": "0.16.2"
+  },
+  "config_contract": {
+    "required_executables": [
+      "ruff",
+      "mypy"
+    ],
+    "ruff_target_version": "py312",
+    "ruff_src": [
+      "."
+    ],
+    "ruff_required_select": [
+      "E4",
+      "E7",
+      "E9",
+      "F",
+      "I",
+      "S"
+    ],
+    "required_excludes": [
+      ".mypy_cache",
+      ".pytest_cache",
+      ".ruff_cache",
+      ".uv-cache",
+      ".venv",
+      "data",
+      "htmlcov"
+    ],
+    "mypy_python_version": "3.12",
+    "mypy_path": ".",
+    "mypy_follow_imports": "silent"
+  },
+  "ruff": {
+    "command": "uv run python -m ruff check . --output-format json",
+    "total": 427,
+    "by_rule": {
+      "E402": 39,
+      "E712": 6,
+      "E722": 2,
+      "F401": 114,
+      "F821": 5,
+      "F841": 1,
+      "I001": 234,
+      "S101": 2,
+      "S104": 1,
+      "S105": 7,
+      "S110": 9,
+      "S112": 2,
+      "S324": 1,
+      "S603": 1,
+      "S607": 1,
+      "S608": 2
+    }
+  },
+  "mypy": {
+    "command": "uv run python -m mypy ai/runtime/harness app/config.py app/runtime_paths.py scripts/static_quality.py",
+    "errors": 0,
+    "scope": [
+      "ai/runtime/harness",
+      "app/config.py",
+      "app/runtime_paths.py",
+      "scripts/static_quality.py"
+    ]
+  },
+  "next_targets": [
+    "ai/runtime/agent_runs",
+    "ai/workflows/agent_tasks",
+    "app/files",
+    "evaluation",
+    "tests/runtime"
+  ]
+}

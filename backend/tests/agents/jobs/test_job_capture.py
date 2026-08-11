@@ -8,9 +8,8 @@ from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from pydantic import ValidationError
-
 from app.db.models.agent_run import AgentRunModel
+from pydantic import ValidationError
 
 VALID_BOSS_SEARCH_URL = "https://www.zhipin.com/web/geek/jobs?city=101280600&query=agent"
 
@@ -48,7 +47,12 @@ MOCK_JD_TEXT = """
 @pytest.fixture(autouse=True)
 def _backend_capture_log_dir(monkeypatch, tmp_path):
     """Keep backend-only capture logs isolated per test."""
+    from app.config import get_settings
+
     monkeypatch.setenv("ARTIFACT_STORAGE_DIR", str(tmp_path))
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
 
 
 class TestJobNormalizer:

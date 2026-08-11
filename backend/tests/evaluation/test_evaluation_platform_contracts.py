@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import pytest
-from pydantic import ValidationError
-
 from ai.runtime.agent_runs.policies import allows_whole_run_retry
 from app.config import AppSettings
 from app.db.models.evaluation import EvaluationCaseModel, EvaluationCaseRunModel
@@ -22,6 +20,7 @@ from evaluation.builtins import (
     model_config_fingerprint,
     public_evaluation_catalog,
 )
+from pydantic import ValidationError
 
 
 @pytest.mark.fast
@@ -197,14 +196,14 @@ def test_evaluation_feature_flags_are_enabled_by_default(monkeypatch) -> None:
 def test_evaluation_suite_is_registered_as_a_durable_agent_run() -> None:
     """评测运行必须出现在统一任务定义与 Worker 执行器注册表中。"""
 
-    from ai.workflows.agent_tasks.registry import EXECUTORS
+    from ai.workflows.agent_tasks.registry import get_production_adapter_registry
     from app.domain.agent_definitions import get_agent_definition
 
     definition = get_agent_definition("evaluation_suite")
 
     assert definition.checkpoint_policy == "durable"
     assert definition.prompt_name is None
-    assert "evaluation_suite" in EXECUTORS
+    assert "evaluation_suite" in set(get_production_adapter_registry().keys())
 
 
 @pytest.mark.fast

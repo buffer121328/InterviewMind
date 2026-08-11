@@ -70,3 +70,61 @@ async def test_async_postgres_saver_persists_checkpoint_after_reopen():
 
     assert loaded is not None
     assert loaded["channel_values"] == {"stage": "persisted"}
+
+
+@pytest.mark.integration
+@pytest.mark.requires_postgres
+@pytest.mark.asyncio
+async def test_generation_continuation_checkpoint_reopens_by_session_and_run():
+    """A resume continuation reopens only the checkpoint owned by one session/run pair."""
+    dsn = os.getenv("TEST_POSTGRES_DSN")
+    if not dsn:
+        pytest.skip("需要 TEST_POSTGRES_DSN 才运行真实 PostgreSQL checkpoint 测试")
+
+    async_postgres_saver = _import_real_async_postgres_saver()
+    checkpoint_base = pytest.importorskip("langgraph.checkpoint.base")
+    session_id = f"generation-session-{uuid.uuid4()}"
+    run_id = f"generation-run-{uuid.uuid4()}"
+    config = {
+        "configurable": {
+            "thread_id": f"resume_generation_{session_id}_{run_id}",
+            "checkpoint_ns": "",
+        }
+    }
+    checkpoint = checkpoint_base.empty_checkpoint()
+    checkpoint["channel_values"] = {
+        "generation_session_id": session_id,
+        "agent_run_id": run_id,
+        "stage": "saving_result",
+    }
+    checkpoint["channel_versions"] = {
+        "generation_session_id": "00000000000000000000000000000001.0.0",
+        "agent_run_id": "00000000000000000000000000000001.0.0",
+        "stage": "00000000000000000000000000000001.0.0",
+    }
+    checkpoint["versions_seen"] = {}
+
+    first_context = async_postgres_saver.from_conn_string(dsn)
+    async with first_context as saver:
+        await saver.setup()
+        saved_config = await saver.aput(
+            config,
+            checkpoint,
+            {"source": "loop", "step": 2, "writes": {"stage": "saving_result"}},
+            {
+                "generation_session_id": "00000000000000000000000000000001.0.0",
+                "agent_run_id": "00000000000000000000000000000001.0.0",
+                "stage": "00000000000000000000000000000001.0.0",
+            },
+        )
+
+    second_context = async_postgres_saver.from_conn_string(dsn)
+    async with second_context as reopened_saver:
+        loaded = await reopened_saver.aget(saved_config)
+
+    assert loaded is not None
+    assert loaded["channel_values"] == {
+        "generation_session_id": session_id,
+        "agent_run_id": run_id,
+        "stage": "saving_result",
+    }

@@ -5,13 +5,12 @@ from contextlib import asynccontextmanager
 from types import SimpleNamespace
 
 import pytest
-
-from ai.workflows.interview import voice_stream
 from ai.agents.interview import voice_interview
+from ai.runtime.agent_runs.service import get_task_definition
+from ai.workflows.interview import voice_stream
 from ai.workflows.interview.voice_stream import VoiceStreamUseCases
 from app.domain.agent_runs import TASK_TYPE_VOICE_INTERVIEW_TURN
 from app.schemas.voice import VoiceChatRequest
-from ai.runtime.agent_runs.service import get_task_definition
 
 
 def _agent_run_events(chunks):
@@ -204,3 +203,71 @@ async def test_voice_chat_disconnect_marks_run_failed_not_cancelled(monkeypatch)
 
     assert fake_run_service.failed == [("voice-run-1", "client_disconnected")]
     assert fake_run_service.succeeded == []
+
+
+class _ExistingVoiceRunService(_FakeRunService):
+    async def create_or_get(self, **kwargs):
+        self.created.append(kwargs)
+        return SimpleNamespace(id="voice-run-1", status="running"), False
+
+
+@pytest.mark.asyncio
+async def test_duplicate_voice_stream_does_not_start_second_media_pipeline(monkeypatch):
+    use_cases = VoiceStreamUseCases()
+    fake_run_service = _ExistingVoiceRunService()
+    use_cases._run_service = fake_run_service
+    use_cases._session_repo = _FakeSessionRepo()
+
+    async def unexpected_voice_pipeline(**_kwargs):
+        raise AssertionError("duplicate request must not start ASR/TTS")
+        yield ""  # pragma: no cover
+
+    monkeypatch.setattr(voice_stream, "process_voice_chat", unexpected_voice_pipeline)
+    request = VoiceChatRequest(
+        session_id="voice-session-1",
+        system_prompt="你是面试官",
+        history=[],
+        message="我的回答",
+        api_config={"mimo": {"api_key": "x"}},
+        audio_id="audio-1",
+    )
+
+    with pytest.raises(voice_stream.VoiceStreamUseCaseError) as exc_info:
+        await use_cases.stream_voice_chat(request=request, user_id="user-1")
+
+    assert exc_info.value.message == "同一面试请求正在执行，请等待当前回复完成"
+    assert len(fake_run_service.created) == 1
+    assert fake_run_service.stages == []
+
+
+async def _partially_failed_voice_chunks(**_kwargs):
+    yield 'data: {"type":"text","content":"部分输出"}\n\n'
+    yield 'data: {"type":"error","content":"authorization: bearer private-token"}\n\n'
+
+
+@pytest.mark.asyncio
+async def test_voice_partial_error_frame_marks_run_failed_with_redaction(monkeypatch):
+    use_cases = VoiceStreamUseCases()
+    fake_run_service = _FakeRunService()
+    use_cases._run_service = fake_run_service
+    use_cases._session_repo = _FakeSessionRepo()
+    monkeypatch.setattr(voice_stream, "process_voice_chat", _partially_failed_voice_chunks)
+
+    request = VoiceChatRequest(
+        session_id="voice-session-1",
+        system_prompt="你是面试官",
+        history=[],
+        message="我的回答",
+        api_config={"mimo": {"api_key": "x"}},
+        audio_id="audio-1",
+    )
+    generator = await use_cases.stream_voice_chat(request=request, user_id="user-1")
+    chunks = [chunk async for chunk in generator]
+
+    assert fake_run_service.succeeded == []
+    assert len(fake_run_service.failed) == 1
+    assert "private-token" not in fake_run_service.failed[0][1]
+    assert "REDACTED" in fake_run_service.failed[0][1]
+    run_events = _agent_run_events(chunks)
+    assert [event["type"] for event in run_events] == ["run.started", "run.failed"]
+    assert any('"type":"text"' in chunk for chunk in chunks)

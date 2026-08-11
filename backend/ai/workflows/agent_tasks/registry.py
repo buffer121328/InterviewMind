@@ -1,4 +1,4 @@
-"""AgentRun 任务兼容注册表与 production Harness 组合点。
+"""AgentRun production Harness 组合点。
 
 注册表只依赖 domain task 常量和轻量协议；具体任务实现延迟导入，避免 worker
 启动时把所有 agent 图、LLM、浏览器编排一次性耦合进 runtime 基础设施。
@@ -9,107 +9,53 @@ from functools import lru_cache
 
 from ai.runtime.harness.catalog import AgentCatalog
 from ai.runtime.harness.drivers import EvaluationDriver, InlineDriver, QueuedDriver
-from ai.runtime.harness.registry import ExecutionAdapterRegistry
+from ai.runtime.harness.registry import (
+    CallableExecutionAdapter,
+    ExecutionAdapterRegistry,
+)
 from ai.workflows.agent_tasks.adapters import (
     AbilityProfileExecutionAdapter,
     EvaluationSuiteExecutionAdapter,
-    InterviewStartExecutionAdapter,
     InterviewReportExecutionAdapter,
+    InterviewStartExecutionAdapter,
     JobAssetsExecutionAdapter,
     JobRecommendationCaptureExecutionAdapter,
     ObservedExecutionAdapter,
     ResumeOptimizeExecutionAdapter,
     ResumeWorkspaceExecutionAdapter,
 )
-from ai.workflows.agent_tasks.types import ExecutionResult, ProgressCallback, TaskExecutor
+from ai.workflows.agent_tasks.types import (
+    ExecutionResult,
+    ProgressCallback,
+)
 from app.domain.agent_runs import (
-    TASK_TYPE_ABILITY_PROFILE,
-    TASK_TYPE_EVALUATION_SUITE,
-    TASK_TYPE_INTERVIEW_REPORT,
-    TASK_TYPE_INTERVIEW_START,
-    TASK_TYPE_JOB_ASSETS,
-    TASK_TYPE_JOB_RECOMMENDATION_CAPTURE,
-    TASK_TYPE_RESUME_OPTIMIZE,
-    TASK_TYPE_RESUME_WORKSPACE,
+    TASK_TYPE_INTERVIEW_TURN,
+    TASK_TYPE_RESUME_GENERATION,
+    TASK_TYPE_VOICE_INTERVIEW_TURN,
 )
 
 
-async def _execute_ability_profile(payload: dict, user_id: str, progress: ProgressCallback) -> ExecutionResult:
-    """延迟导入并执行综合能力画像任务。"""
-    from ai.workflows.agent_tasks.ability_profile import execute_ability_profile
+async def _stream_driver_only_adapter(_payload: dict, _context) -> ExecutionResult:
+    """拒绝绕过 StreamDriver 的直接 adapter 调用。
 
-    return await execute_ability_profile(payload, user_id, progress)
+    该轻量注册项让 Catalog 能验证 stream task 的显式 adapter key；真实业务
+    stream factory 仅由文本/语音 use case 交给 StreamDriver，避免 Catalog 导入
+    Graph、语音模型或 SSE 请求状态。
+    """
 
-
-async def _execute_interview_start(payload: dict, user_id: str, progress: ProgressCallback) -> ExecutionResult:
-    """延迟导入并转发面试启动任务，避免 worker 注册阶段加载完整 Agent 图和模型依赖。"""
-    from ai.workflows.agent_tasks.interview_start import execute_interview_start
-
-    return await execute_interview_start(payload, user_id, progress)
+    raise RuntimeError("stream task must be dispatched through StreamDriver")
 
 
-async def _execute_resume_optimize(payload: dict, user_id: str, progress: ProgressCallback) -> ExecutionResult:
-    """延迟导入并转发简历优化任务，保持任务注册表与具体 Agent 解耦。"""
-    from ai.workflows.agent_tasks.resume_optimize import execute_resume_optimize
+async def _session_driver_only_adapter(_payload: dict, _context) -> ExecutionResult:
+    """拒绝绕过 SessionDriver 的直接 adapter 调用。
 
-    return await execute_resume_optimize(payload, user_id, progress)
+    该轻量注册项只用于让 Catalog 验证 `resume_generation` 的显式 session
+    adapter key。具体 Graph、session repository 与 checkpoint 在 request workflow
+    运行期注入 SessionDriver，避免 Catalog 导入重型运行依赖。
+    """
 
+    raise RuntimeError("session task must be dispatched through SessionDriver")
 
-async def _execute_resume_workspace(payload: dict, user_id: str, progress: ProgressCallback) -> ExecutionResult:
-    """延迟导入并转发简历工作台任务，避免 worker 初始化加载完整简历依赖图。"""
-    from ai.workflows.agent_tasks.resume_workspace import execute_resume_workspace
-
-    return await execute_resume_workspace(payload, user_id, progress)
-
-
-async def _execute_interview_report(payload: dict, user_id: str, progress: ProgressCallback) -> ExecutionResult:
-    """延迟导入并转发面试报告任务，保持 worker 启动依赖最小化。"""
-    from ai.workflows.agent_tasks.interview_report import execute_interview_report
-
-    return await execute_interview_report(payload, user_id, progress)
-
-
-async def _execute_job_assets(payload: dict, user_id: str, progress: ProgressCallback) -> ExecutionResult:
-    """延迟导入并转发岗位资产任务，保持任务注册表只负责路由。"""
-    from ai.workflows.agent_tasks.job_assets import execute_job_assets
-
-    return await execute_job_assets(payload, user_id, progress)
-
-
-async def _execute_job_recommendation_capture(
-    payload: dict,
-    user_id: str,
-    progress: ProgressCallback,
-) -> ExecutionResult:
-    """延迟导入并转发 BOSS 推荐页采集任务。"""
-    from ai.workflows.agent_tasks.job_recommendation_capture import (
-        execute_job_recommendation_capture,
-    )
-
-    return await execute_job_recommendation_capture(payload, user_id, progress)
-
-
-async def _execute_evaluation_suite(
-    payload: dict,
-    user_id: str,
-    progress: ProgressCallback,
-) -> ExecutionResult:
-    """延迟导入并执行 Agent 评测套件。"""
-    from ai.workflows.agent_tasks.evaluation_suite import execute_evaluation_suite
-
-    return await execute_evaluation_suite(payload, user_id, progress)
-
-
-EXECUTORS: dict[str, TaskExecutor] = {
-    TASK_TYPE_ABILITY_PROFILE: _execute_ability_profile,
-    TASK_TYPE_EVALUATION_SUITE: _execute_evaluation_suite,
-    TASK_TYPE_INTERVIEW_START: _execute_interview_start,
-    TASK_TYPE_RESUME_OPTIMIZE: _execute_resume_optimize,
-    TASK_TYPE_RESUME_WORKSPACE: _execute_resume_workspace,
-    TASK_TYPE_INTERVIEW_REPORT: _execute_interview_report,
-    TASK_TYPE_JOB_ASSETS: _execute_job_assets,
-    TASK_TYPE_JOB_RECOMMENDATION_CAPTURE: _execute_job_recommendation_capture,
-}
 
 
 async def execute_registered_task(task_type: str, payload: dict, user_id: str, progress: ProgressCallback) -> ExecutionResult:
@@ -134,15 +80,25 @@ def get_production_adapter_registry() -> ExecutionAdapterRegistry:
     registry = ExecutionAdapterRegistry()
     explicit_adapters = (
         InterviewStartExecutionAdapter(),
-        ResumeOptimizeExecutionAdapter(executor=_execute_resume_optimize),
-        ResumeWorkspaceExecutionAdapter(executor=_execute_resume_workspace),
-        InterviewReportExecutionAdapter(executor=_execute_interview_report),
-        AbilityProfileExecutionAdapter(executor=_execute_ability_profile),
-        JobRecommendationCaptureExecutionAdapter(
-            executor=_execute_job_recommendation_capture,
+        ResumeOptimizeExecutionAdapter(),
+        ResumeWorkspaceExecutionAdapter(),
+        InterviewReportExecutionAdapter(),
+        AbilityProfileExecutionAdapter(),
+        JobRecommendationCaptureExecutionAdapter(),
+        JobAssetsExecutionAdapter(),
+        EvaluationSuiteExecutionAdapter(),
+        CallableExecutionAdapter(
+            key=TASK_TYPE_INTERVIEW_TURN,
+            runner=_stream_driver_only_adapter,
         ),
-        JobAssetsExecutionAdapter(executor=_execute_job_assets),
-        EvaluationSuiteExecutionAdapter(executor=_execute_evaluation_suite),
+        CallableExecutionAdapter(
+            key=TASK_TYPE_VOICE_INTERVIEW_TURN,
+            runner=_stream_driver_only_adapter,
+        ),
+        CallableExecutionAdapter(
+            key=TASK_TYPE_RESUME_GENERATION,
+            runner=_session_driver_only_adapter,
+        ),
     )
     for adapter in explicit_adapters:
         registry.register(ObservedExecutionAdapter(adapter))

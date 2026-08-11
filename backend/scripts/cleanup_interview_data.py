@@ -5,11 +5,8 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
-import os
-from pathlib import Path
 
-from sqlalchemy import delete, select, text, update
-
+from app.config import get_settings
 from app.db.models import (
     AgentRunModel,
     ArtifactModel,
@@ -29,6 +26,7 @@ from app.domain.agent_runs import (
 )
 from observability.config import LangfuseConfig
 from observability.langfuse_client import _create_langfuse_client
+from sqlalchemy import delete, select, text, update
 
 INTERVIEW_TASK_TYPES = {
     TASK_TYPE_INTERVIEW_START,
@@ -110,7 +108,7 @@ async def _collect(user_id: str | None) -> dict:
 
 def _delete_artifact_files(storage_keys: list[str]) -> int:
     """删除产物根目录内的文件，并拒绝任何路径穿越到根目录之外。"""
-    root = Path(os.getenv("ARTIFACT_STORAGE_DIR", "/app/data/artifacts")).resolve()
+    root = get_settings().artifact_storage_path
     deleted = 0
     for storage_key in storage_keys:
         path = (root / storage_key).resolve()

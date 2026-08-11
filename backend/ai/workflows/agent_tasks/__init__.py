@@ -1,45 +1,5 @@
-"""AgentRun 业务任务模块。
+"""AgentRun 业务任务包。
 
-具体执行器通过 ``__getattr__`` 延迟导入，避免仅使用一个任务时加载所有 Agent
-图、可选模型依赖与浏览器集成。
+生产分派统一通过 :mod:`ai.workflows.agent_tasks.registry` 中的 Harness Catalog；
+具体任务实现按子模块显式导入，包级不再维护 executor 别名或平行注册表。
 """
-
-from importlib import import_module
-
-from ai.workflows.agent_tasks.registry import EXECUTORS, execute_registered_task
-from ai.workflows.agent_tasks.types import DeferredExecutionResult, ExecutionResult, ProgressCallback, TaskExecutor
-
-_EXECUTOR_MODULES = {
-    "execute_evaluation_suite": "ai.workflows.agent_tasks.evaluation_suite",
-    "execute_interview_report": "ai.workflows.agent_tasks.interview_report",
-    "execute_interview_start": "ai.workflows.agent_tasks.interview_start",
-    "execute_job_assets": "ai.workflows.agent_tasks.job_assets",
-    "execute_job_recommendation_capture": "ai.workflows.agent_tasks.job_recommendation_capture",
-    "execute_resume_optimize": "ai.workflows.agent_tasks.resume_optimize",
-    "execute_resume_workspace": "ai.workflows.agent_tasks.resume_workspace",
-}
-
-
-def __getattr__(name: str):
-    """处理后端逻辑相关后端逻辑。"""
-    try:
-        module_name = _EXECUTOR_MODULES[name]
-    except KeyError as exc:
-        raise AttributeError(f"module {__name__!r} has no attribute {name!r}") from exc
-    return getattr(import_module(module_name), name)
-
-__all__ = [
-    "DeferredExecutionResult",
-    "EXECUTORS",
-    "ExecutionResult",
-    "ProgressCallback",
-    "TaskExecutor",
-    "execute_evaluation_suite",
-    "execute_interview_report",
-    "execute_interview_start",
-    "execute_job_assets",
-    "execute_job_recommendation_capture",
-    "execute_registered_task",
-    "execute_resume_optimize",
-    "execute_resume_workspace",
-]

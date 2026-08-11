@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Literal, Protocol, TypeAlias
@@ -12,6 +12,10 @@ ExecutionEnvironment: TypeAlias = Literal["production", "evaluation"]
 SideEffectPolicy: TypeAlias = Literal["read_only", "local_write", "external_effect"]
 ProgressCallback: TypeAlias = Callable[[str], Awaitable[None]]
 PersistResultCallback: TypeAlias = Callable[[Any], Awaitable[dict[str, Any]]]
+StreamResultCallback: TypeAlias = Callable[[], Awaitable[dict[str, Any]] | dict[str, Any]]
+StreamEventEncoder: TypeAlias = Callable[[dict[str, Any]], str]
+StreamErrorEncoder: TypeAlias = Callable[[str], str]
+StreamErrorDetector: TypeAlias = Callable[[str], str | None]
 JsonScalar: TypeAlias = str | int | float | bool | None
 JsonValue: TypeAlias = JsonScalar | list["JsonValue"] | dict[str, "JsonValue"]
 
@@ -24,6 +28,22 @@ class DeferredExecutionResult:
 
 
 ExecutionResult: TypeAlias = JsonValue | DeferredExecutionResult
+
+
+@dataclass(frozen=True, slots=True)
+class StreamExecution:
+    """受控 SSE 业务流及其成功结果、错误投影契约。
+
+    StreamDriver 负责 AgentRun 生命周期；业务适配器只提供已编码的领域
+    SSE、成功结果和受限的错误识别/映射，不得自行写入运行终态。
+    """
+
+    source: AsyncIterator[str] = field(repr=False)
+    result: StreamResultCallback = field(repr=False)
+    encode_run_event: StreamEventEncoder = field(repr=False)
+    encode_error: StreamErrorEncoder = field(repr=False)
+    preamble: tuple[str, ...] = field(default=(), repr=False)
+    detect_error: StreamErrorDetector | None = field(default=None, repr=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,3 +126,24 @@ class ExecutionContext:
 
         if self.event_sink is not None:
             await self.event_sink.emit(event)
+
+SessionStageCallback: TypeAlias = Callable[[str], Awaitable[None]]
+SessionWork: TypeAlias = Callable[[str, SessionStageCallback], Awaitable[dict[str, Any]]]
+SessionResultMapper: TypeAlias = Callable[[dict[str, Any]], dict[str, Any]]
+SessionRunBinder: TypeAlias = Callable[[str], Awaitable[None]]
+SessionTerminalCallback: TypeAlias = Callable[[str], Awaitable[None]]
+
+
+@dataclass(frozen=True, slots=True)
+class SessionExecution:
+    """受控交互 session 的业务执行与终态协作契约。
+
+    SessionDriver 负责关联 AgentRun 的创建、阶段、取消和终态；业务 workflow
+    仅接受已绑定的 run id、推进 session 自身状态并返回有界结果摘要。
+    """
+
+    run: SessionWork = field(repr=False)
+    result: SessionResultMapper = field(repr=False)
+    bind_run: SessionRunBinder = field(repr=False)
+    fail_session: SessionTerminalCallback = field(repr=False)
+    cancel_session: SessionTerminalCallback | None = field(default=None, repr=False)

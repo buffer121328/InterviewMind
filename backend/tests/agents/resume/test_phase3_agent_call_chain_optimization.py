@@ -10,7 +10,10 @@ import pytest
 
 def test_resume_section_checkpoint_reuses_only_matching_sources():
     """Completed sections are reusable only while authoritative source fingerprints match."""
-    from ai.agents.resume.resume_sections import build_section_checkpoint, reusable_sections
+    from ai.agents.resume.resume_sections import (
+        build_section_checkpoint,
+        reusable_sections,
+    )
 
     checkpoint = build_section_checkpoint(
         markdown="# 张三\n## 个人总结\n后端工程师\n## 项目经历\n支付平台",
@@ -23,7 +26,10 @@ def test_resume_section_checkpoint_reuses_only_matching_sources():
 
 def test_resume_section_retry_merges_only_targeted_patch():
     """A verifier issue targets one section without replacing unaffected content."""
-    from ai.agents.resume.resume_sections import merge_section_patch, select_retry_sections
+    from ai.agents.resume.resume_sections import (
+        merge_section_patch,
+        select_retry_sections,
+    )
 
     sections = {"summary": "旧总结", "projects": "旧项目", "skills": "Python"}
     retry = select_retry_sections([{"location": "项目经历", "reason": "缺少证据"}], available_sections=sections)
@@ -81,11 +87,11 @@ def test_dynamic_ability_reviewers_skip_unneeded_perspectives():
 
 def test_ability_profile_is_registered_as_agent_run_task():
     """Ability profile uses the same recoverable registry and plan as other AgentRuns."""
-    from ai.workflows.agent_tasks.registry import EXECUTORS
-    from app.domain.agent_runs import TASK_TYPE_ABILITY_PROFILE
+    from ai.workflows.agent_tasks.registry import get_production_adapter_registry
     from app.domain.agent_definitions import get_agent_definition
+    from app.domain.agent_runs import TASK_TYPE_ABILITY_PROFILE
 
-    assert TASK_TYPE_ABILITY_PROFILE in EXECUTORS
+    assert TASK_TYPE_ABILITY_PROFILE in set(get_production_adapter_registry().keys())
     definition = get_agent_definition(TASK_TYPE_ABILITY_PROFILE)
     assert definition.checkpoint_policy == "durable"
     assert definition.steps[-1][0] == "saving_profile"

@@ -7,6 +7,15 @@ import json
 from typing import Any
 
 from ai.workflows.agent_runs import AgentRunUseCaseError, agent_run_use_cases
+from ai.workflows.evaluation.serializers import (
+    _annotation,
+    _case_run,
+    _dataset,
+    _dataset_case,
+    _run,
+    _score,
+)
+from ai.workflows.evaluation.service import EvaluationUseCaseError
 from app.config import get_settings
 from app.db.models import async_session
 from app.db.unit_of_work import UnitOfWork
@@ -21,17 +30,15 @@ from app.security.payload_crypto import (
     TaskPayloadConfigurationError,
     decrypt_payload,
 )
-from evaluation.builtins import get_builtin_agent, get_quick_mode, model_config_fingerprint
-
-from ai.workflows.evaluation.serializers import (
-    _annotation,
-    _case_run,
-    _dataset,
-    _dataset_case,
-    _run,
-    _score,
+from evaluation.builtins import (
+    get_builtin_agent,
+    get_quick_mode,
+    model_config_fingerprint,
 )
-from ai.workflows.evaluation.service import EvaluationUseCaseError
+from evaluation.runners.production import (
+    CatalogEvaluationView,
+    EvaluationConfigurationError,
+)
 
 
 def _evaluation_run_id_for_idempotency(user_id: str, idempotency_key: str) -> str:
@@ -62,6 +69,15 @@ class RunUseCasesMixin:
         except ValueError as exc:
             raise EvaluationUseCaseError(str(exc), status_code=400) from exc
 
+        try:
+            catalog_entry = CatalogEvaluationView().resolve(agent.name)
+        except EvaluationConfigurationError as exc:
+            raise EvaluationUseCaseError(str(exc), status_code=503) from exc
+        if request.prompt_name is not None and request.prompt_name != catalog_entry.definition.prompt_name:
+            raise EvaluationUseCaseError("evaluation prompt identity drifted", status_code=409)
+        if request.prompt_version is not None and request.prompt_version != catalog_entry.definition.prompt_version:
+            raise EvaluationUseCaseError("evaluation prompt identity drifted", status_code=409)
+
         settings = get_settings()
         baseline_run_id: str | None = None
         try:
@@ -87,9 +103,9 @@ class RunUseCasesMixin:
         api_config = request.api_config.model_dump(mode="json")
         run_request = EvaluationRunCreateRequest(
             suite_id=suite_id,
-            agent_version="production",
-            prompt_name=request.prompt_name or agent.prompt_name,
-            prompt_version=request.prompt_version or agent.prompt_version,
+            agent_version=catalog_entry.definition.version,
+            prompt_name=catalog_entry.definition.prompt_name,
+            prompt_version=catalog_entry.definition.prompt_version,
             baseline_run_id=baseline_run_id,
             model_config_hash=model_config_fingerprint(api_config),
             api_config=api_config,

@@ -10,6 +10,9 @@ x-backend-overrides: &backend_overrides
   DATABASE_URL: postgresql://${POSTGRES_USER:?set POSTGRES_USER in .env}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:?set POSTGRES_DB in .env}
   REDIS_URL: redis://redis:6379/0
   AUTO_CREATE_TABLES: "false"
+  RUNTIME_DATA_DIR: /app/data
+  ARTIFACT_STORAGE_DIR: /app/data/artifacts
+  STATIC_STORAGE_DIR: /app/data/static
 
 services:
   # PostgreSQL 数据库
@@ -62,8 +65,8 @@ services:
         condition: service_healthy
     environment:
       <<: *backend_overrides
-      ARTIFACT_STORAGE_DIR: /app/data/artifacts
     volumes:
+      - backend_runtime_data:/app/data
       - artifact_data:/app/data/artifacts
     command: ["python", "-m", "scripts.deployment", "migrate"]
     networks:
@@ -88,8 +91,8 @@ services:
         condition: service_completed_successfully
     environment:
       <<: *backend_overrides
-      ARTIFACT_STORAGE_DIR: /app/data/artifacts
     volumes:
+      - backend_runtime_data:/app/data
       - artifact_data:/app/data/artifacts
     networks:
       - agent_interview_network
@@ -118,8 +121,8 @@ services:
         condition: service_completed_successfully
     environment:
       <<: *backend_overrides
-      ARTIFACT_STORAGE_DIR: /app/data/artifacts
     volumes:
+      - backend_runtime_data:/app/data
       - artifact_data:/app/data/artifacts
     networks:
       - agent_interview_network
@@ -169,6 +172,7 @@ services:
 
 volumes:
   postgres_data:
+  backend_runtime_data:
   artifact_data:
 
 networks:

@@ -5,7 +5,10 @@ import pytest
 
 @pytest.mark.asyncio
 async def test_redis_rate_limit_keys_do_not_expose_user_id():
-    from integrations.browser_automation.rate_limiter import RedisRateLimitStore, RateLimitType
+    from integrations.browser_automation.rate_limiter import (
+        RateLimitType,
+        RedisRateLimitStore,
+    )
 
     store = object.__new__(RedisRateLimitStore)
     store._client = AsyncMock()
@@ -38,11 +41,10 @@ async def test_redis_rate_limit_failure_is_fail_closed():
 
 @pytest.mark.asyncio
 async def test_resume_generation_cannot_bypass_pending_review():
-    from fastapi import HTTPException
-
+    from ai.agents.resume.resume_review import initialize_review
     from app.api.resume_generation import init_resume_generation
     from app.schemas.resume_schemas import ResumeGenerateInitRequest
-    from ai.agents.resume.resume_review import initialize_review
+    from fastapi import HTTPException
 
     request = ResumeGenerateInitRequest(
         optimization_result_id=7,
@@ -76,10 +78,13 @@ async def test_resume_generation_cannot_bypass_pending_review():
 
     with (
         patch("ai.workflows.resume.generation.get_resume_repo", return_value=repo),
-        patch("ai.workflows.resume.generation.init_generation_session", new=AsyncMock()) as start_generation,
+        patch(
+            "ai.workflows.resume.generation.init_generation_session",
+            new=AsyncMock(),
+        ) as start_generation,
+        pytest.raises(HTTPException) as exc_info,
     ):
-        with pytest.raises(HTTPException) as exc_info:
-            await init_resume_generation(request, user_id="user-1")
+        await init_resume_generation(request, user_id="user-1")
 
     assert exc_info.value.status_code == 409
     start_generation.assert_not_awaited()
@@ -88,8 +93,9 @@ async def test_resume_generation_cannot_bypass_pending_review():
 @pytest.mark.asyncio
 async def test_resume_generation_submit_and_status_are_user_scoped(monkeypatch):
     from types import SimpleNamespace
-    from app.api import resume_generation as resume_api
+
     from ai.workflows.resume import generation as resume_generation
+    from app.api import resume_generation as resume_api
 
     submit_calls = []
     status_calls = []
@@ -108,6 +114,15 @@ async def test_resume_generation_submit_and_status_are_user_scoped(monkeypatch):
     async def succeed(_self, _run_id, _result):
         return None
 
+    async def mark_stage(_self, _run_id, _stage):
+        return None
+
+    async def is_cancel_requested(_self, _run_id):
+        return False
+
+    async def mark_cancelled(_self, _run_id, _message="任务已取消"):
+        return None
+
     monkeypatch.setattr(resume_generation, "submit_user_answers", fake_submit)
     monkeypatch.setattr(resume_generation, "get_session_status", fake_status)
     monkeypatch.setattr(
@@ -116,11 +131,30 @@ async def test_resume_generation_submit_and_status_are_user_scoped(monkeypatch):
         create_inline_or_get,
     )
     monkeypatch.setattr(resume_generation.AgentRunService, "succeed", succeed)
+    monkeypatch.setattr(resume_generation.AgentRunService, "mark_stage", mark_stage)
+    monkeypatch.setattr(resume_generation.AgentRunService, "is_cancel_requested", is_cancel_requested)
+    monkeypatch.setattr(resume_generation.AgentRunService, "mark_cancelled", mark_cancelled)
+    session = SimpleNamespace(
+        session_id="session-1",
+        status="awaiting_input",
+        questions=["问题"],
+        agent_run_id=None,
+        generated_resume_id=None,
+        resume_content="# 简历",
+        job_description="AI Agent",
+    )
+    monkeypatch.setattr(resume_generation.session_store, "get", AsyncMock(return_value=session))
     monkeypatch.setattr(
         resume_generation.session_store,
-        "get",
-        AsyncMock(return_value=SimpleNamespace(status="awaiting_input", questions=["问题"], agent_run_id=None)),
+        "claim_continuation",
+        AsyncMock(return_value=SimpleNamespace(status="draft_generation", generated_resume_id=None)),
     )
+    monkeypatch.setattr(
+        resume_generation.session_store,
+        "bind_continuation_run",
+        AsyncMock(),
+    )
+    monkeypatch.setattr(resume_generation.session_store, "update", AsyncMock())
     request = SimpleNamespace(
         session_id="session-1",
         answers={"问题": "回答"},

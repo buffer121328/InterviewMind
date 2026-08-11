@@ -7,6 +7,8 @@ from .contracts import (
     ExecutionContext,
     ExecutionResult,
     HarnessEvent,
+    SessionExecution,
+    StreamExecution,
 )
 from .registry import CallableExecutionAdapter, ExecutionAdapterRegistry
 
@@ -21,4 +23,6 @@ __all__ = [
     "ExecutionContext",
     "ExecutionResult",
     "HarnessEvent",
+    "SessionExecution",
+    "StreamExecution",
 ]

@@ -9,6 +9,8 @@ from pathlib import Path
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.runtime_paths import RuntimePaths, resolve_runtime_paths
+
 
 class AppSettings(BaseSettings):
     """可通过同名环境变量覆盖的模型运行配置。"""
@@ -56,9 +58,9 @@ class AppSettings(BaseSettings):
     allow_private_model_base_urls: bool = True
     api_config_validation_timeout_seconds: int = Field(default=10, ge=1, le=60)
     redis_url: str = ""
-    artifact_storage_dir: str = Field(
-        default_factory=lambda: str(Path(__file__).resolve().parents[1] / "data" / "artifacts")
-    )
+    runtime_data_dir: str = "data"
+    artifact_storage_dir: str | None = None
+    static_storage_dir: str | None = None
     model_credential_ttl_seconds: int = Field(
         default=30 * 24 * 60 * 60,
         ge=60,
@@ -103,6 +105,34 @@ class AppSettings(BaseSettings):
     voice_recent_message_count: int = Field(default=8, ge=2, le=30)
     voice_audio_max_bytes: int = Field(default=8_000_000, ge=100_000, le=50_000_000)
     voice_audio_max_duration_seconds: int = Field(default=120, ge=5, le=600)
+
+    @property
+    def runtime_paths(self) -> RuntimePaths:
+        """返回不依赖当前工作目录的统一运行路径。"""
+
+        return resolve_runtime_paths(
+            runtime_data_dir=self.runtime_data_dir,
+            artifact_storage_dir=self.artifact_storage_dir,
+            static_storage_dir=self.static_storage_dir,
+        )
+
+    @property
+    def runtime_data_path(self) -> Path:
+        """返回 canonical runtime data root。"""
+
+        return self.runtime_paths.runtime_data_dir
+
+    @property
+    def artifact_storage_path(self) -> Path:
+        """返回私有 artifact 存储根。"""
+
+        return self.runtime_paths.artifact_storage_dir
+
+    @property
+    def static_storage_path(self) -> Path:
+        """返回公开静态运行文件根。"""
+
+        return self.runtime_paths.static_storage_dir
 
 
 @lru_cache(maxsize=1)

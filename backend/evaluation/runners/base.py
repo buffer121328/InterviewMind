@@ -130,6 +130,7 @@ class CallableAgentAdapter:
     entrypoint: AgentEntrypoint
     prompt_name: str | None = None
     prompt_version: str | None = None
+    required_trace_categories: tuple[str, ...] = ()
 
     async def run(
         self,
@@ -218,8 +219,14 @@ class AgentEvalRunner:
         adapter = self.adapter_registry.get(agent_name)
         authoritative_prompt_name = getattr(adapter, "prompt_name", None)
         authoritative_prompt_version = getattr(adapter, "prompt_version", None)
+        authoritative_task_type = getattr(adapter, "task_type", None)
+        authoritative_adapter_key = getattr(adapter, "production_adapter_key", None)
+        authoritative_catalog_identity = getattr(adapter, "catalog_identity", None)
         effective_prompt_name = authoritative_prompt_name or prompt_name
         effective_prompt_version = authoritative_prompt_version or prompt_version
+        required_trace_categories = tuple(
+            getattr(adapter, "required_trace_categories", ())
+        )
         started = time.perf_counter()
         final_status = "succeeded"
         error: EvalError | None = None
@@ -249,7 +256,7 @@ class AgentEvalRunner:
                         event_type="case.agent_completed",
                         status="succeeded",
                     )
-                except Exception as exc:
+                except Exception as exc:  # noqa: BLE001 - adapter failures become case records
                     final_status = "failed"
                     error = EvalError(
                         classification=type(exc).__name__,
@@ -265,7 +272,7 @@ class AgentEvalRunner:
                 finally:
                     for sink_error in get_runtime_sink_errors():
                         trace.mark_runtime_sink_error(sink_error)
-        except Exception:
+        except Exception:  # noqa: BLE001 - observation failures are non-authoritative
             # 运行时事件上下文本身不能掩盖 Agent 失败；最终记录会保留已有状态。
             if error is None:
                 final_status = "failed"
@@ -285,6 +292,7 @@ class AgentEvalRunner:
             model_config_hash=model_config_hash,
             agent_run_id=run_id,
             tracing_disabled=tracing_disabled,
+            required_categories=required_trace_categories,
         )
         record = AgentEvalRecord(
             case_id=case.case_id,
@@ -292,6 +300,9 @@ class AgentEvalRunner:
             dataset_version=case.dataset_version,
             agent_name=adapter.name,
             agent_version=adapter.version,
+            task_type=authoritative_task_type,
+            adapter_key=authoritative_adapter_key,
+            catalog_identity=authoritative_catalog_identity,
             prompt_name=effective_prompt_name,
             prompt_version=effective_prompt_version,
             model_config_hash=model_config_hash,
@@ -329,17 +340,10 @@ class AgentEvalRunner:
         from evaluation.outcomes import classify_case_outcome
         from evaluation.runtime_metrics import build_runtime_metric_scores
 
-        scores = tuple(
-            [
-                *self.evaluator_registry.evaluate(
-                    record, include_judges=include_judges
-                ),
-                *DeterministicCaseContractEvaluator().evaluate(
-                    case=case,
-                    record=record,
-                ),
-                *build_runtime_metric_scores(record),
-            ]
+        scores = (
+            *self.evaluator_registry.evaluate(record, include_judges=include_judges),
+            *DeterministicCaseContractEvaluator().evaluate(case=case, record=record),
+            *build_runtime_metric_scores(record),
         )
         record = record.model_copy(
             update={"outcome": classify_case_outcome(record, scores)}

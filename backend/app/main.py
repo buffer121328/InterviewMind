@@ -26,6 +26,8 @@ from app.api.jobs import router as jobs_router
 from app.api.memory import router as memory_router
 from app.api.question_bank import router as question_bank_router
 from app.api.resume import router as resume_router
+from app.config import get_settings
+from app.runtime_paths import ensure_runtime_directories
 from app.security.model_credential_middleware import ModelCredentialHydrationMiddleware
 from app.security.security import redact_secrets, safe_error_message
 from fastapi import FastAPI, HTTPException
@@ -58,7 +60,6 @@ async def lifespan(app: FastAPI):
         logger.info("Langfuse Agent 观测已启用")
 
     # 本地开发可自动同步 ORM 表结构；严格迁移验证时设 AUTO_CREATE_TABLES=false。
-    from app.config import get_settings
     settings = get_settings()
     if settings.auto_create_tables:
         from app.db.models import init_db
@@ -71,16 +72,8 @@ async def lifespan(app: FastAPI):
         await validate_rag_vector_schema(engine)
         logger.info("✓ RAG pgvector 列维度预检通过")
 
-    # 确保数据目录存在
-    data_dir = os.path.join(os.path.dirname(__file__), "data")
-    os.makedirs(data_dir, exist_ok=True)
-    os.makedirs(os.path.join(data_dir, "resumes"), exist_ok=True)
-
-    # 确保静态文件目录存在
-    static_dir = os.path.join(os.getcwd(), "static")
-    os.makedirs(os.path.join(static_dir, "audio"), exist_ok=True)
-
-    logger.info("数据目录和静态目录初始化完成")
+    ensure_runtime_directories(settings.runtime_paths)
+    logger.info("后端运行目录初始化完成")
 
     # 主动恢复 Worker 中断或长期未领取的持久化 Agent 任务
     try:
@@ -320,10 +313,12 @@ app.include_router(artifacts.router)
 app.include_router(evaluations.router)
 app.include_router(satisfaction_router)
 
-# 挂载静态文件目录
-static_dir = os.path.join(os.getcwd(), "static")
-os.makedirs(static_dir, exist_ok=True)
-app.mount("/static", StaticFiles(directory=static_dir), name="static")
+# URL 保持 /static；磁盘目录由 cwd-independent runtime settings 决定。
+app.mount(
+    "/static",
+    StaticFiles(directory=str(get_settings().static_storage_path), check_dir=False),
+    name="static",
+)
 
 
 # 启动信息

@@ -4,16 +4,15 @@
 """
 
 import logging
-from typing import List, Optional, Dict, Any
-from datetime import datetime, timedelta
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta
+from typing import Any
 
-from sqlalchemy import delete, select
-from sqlalchemy.exc import IntegrityError
-
+from app.clock import utc_now
 from app.db.models import async_session
 from app.db.models.resume import GeneratedResumeModel
-from app.clock import utc_now
+from sqlalchemy import delete, select
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 logger = logging.getLogger(__name__)
 
@@ -31,14 +30,14 @@ class GenerationSession:
     job_description: str
     optimization_result: dict
     template_style: str = "professional"
-    questions: List[str] = field(default_factory=list)
-    user_answers: Dict[str, str] = field(default_factory=dict)
-    review_result: Optional[dict] = None
+    questions: list[str] = field(default_factory=list)
+    user_answers: dict[str, str] = field(default_factory=dict)
+    review_result: dict | None = None
     iteration_count: int = 0
     draft_content: str = ""
     final_markdown: str = ""
-    generated_resume_id: Optional[int] = None
-    agent_run_id: Optional[str] = None
+    generated_resume_id: int | None = None
+    agent_run_id: str | None = None
     status: str = "pending"
     created_at: datetime = field(default_factory=datetime.now)
     updated_at: datetime = field(default_factory=datetime.now)
@@ -114,7 +113,7 @@ class SessionStore:
             await db.refresh(row)
             return self._to_session(row)
 
-    async def get(self, session_id: str, user_id: Optional[str] = None) -> Optional[GenerationSession]:
+    async def get(self, session_id: str, user_id: str | None = None) -> GenerationSession | None:
         """读取 get，并通过 owner 校验限制可见范围；资源不存在或状态不合法时返回稳定的业务结果或异常。
 
         Args:
@@ -136,7 +135,124 @@ class SessionStore:
                 return None
             return self._to_session(row)
 
-    async def update(self, session_id: str, user_id: Optional[str] = None, **kwargs) -> Optional[GenerationSession]:
+    async def claim_continuation(
+        self,
+        session_id: str,
+        *,
+        user_id: str,
+        answers: dict[str, str],
+        continuation_key: str,
+    ) -> GenerationSession:
+        """原子接受一次完整补充答案，阻止不同答案并发启动多个生成。
+
+        只保存 continuation digest，不把答案原文复制到运行 payload 或观测事件。
+        相同 digest 的重试返回已领取 session，后续由 SessionDriver 复用或拒绝
+        已存在的 AgentRun。
+        """
+        from app.db.models.resume import ResumeGenerationSessionModel
+
+        async with async_session() as db:
+            stmt = (
+                select(ResumeGenerationSessionModel)
+                .where(
+                    ResumeGenerationSessionModel.id == session_id,
+                    ResumeGenerationSessionModel.user_id == user_id,
+                )
+                .with_for_update()
+            )
+            row = await db.scalar(stmt)
+            if not row:
+                raise ValueError("会话不存在或已过期")
+            if utc_now() - row.updated_at > self._ttl:
+                await db.delete(row)
+                await db.commit()
+                raise ValueError("会话不存在或已过期")
+
+            review_result = dict(row.review_result or {})
+            existing_key = review_result.get("_continuation_key")
+            if row.status == "completed" and row.generated_resume_id:
+                if existing_key == continuation_key:
+                    return self._to_session(row)
+                raise ValueError("该会话当前不接受补充回答")
+
+            if row.status != "awaiting_input":
+                if existing_key == continuation_key:
+                    return self._to_session(row)
+                raise ValueError("该会话当前不接受补充回答")
+
+            expected = set(row.questions or [])
+            submitted = {
+                question
+                for question, answer in answers.items()
+                if isinstance(answer, str) and answer.strip()
+            }
+            if submitted != expected or set(answers) != expected:
+                raise ValueError("请完整回答服务端返回的全部补充问题")
+
+            review_result["_continuation_key"] = continuation_key
+            row.user_answers = answers
+            row.review_result = review_result
+            row.status = "draft_generation"
+            row.updated_at = utc_now()
+            await db.commit()
+            await db.refresh(row)
+            return self._to_session(row)
+
+    async def bind_continuation_run(
+        self,
+        session_id: str,
+        *,
+        user_id: str,
+        continuation_key: str,
+        agent_run_id: str,
+    ) -> GenerationSession:
+        """把已创建的受治理运行原子绑定到同一 continuation。
+
+        调用方只能绑定 `claim_continuation` 已接受的同一 digest。重复请求可
+        复用相同 run id；不同 run id 或不同 continuation 一律拒绝，避免并发
+        重试把 checkpoint 和最终简历关联到另一运行。
+        """
+        from app.db.models.resume import ResumeGenerationSessionModel
+
+        async with async_session() as db:
+            stmt = (
+                select(ResumeGenerationSessionModel)
+                .where(
+                    ResumeGenerationSessionModel.id == session_id,
+                    ResumeGenerationSessionModel.user_id == user_id,
+                )
+                .with_for_update()
+            )
+            row = await db.scalar(stmt)
+            if not row:
+                raise ValueError("会话不存在或已过期")
+            if utc_now() - row.updated_at > self._ttl:
+                await db.delete(row)
+                await db.commit()
+                raise ValueError("会话不存在或已过期")
+
+            review_result = dict(row.review_result or {})
+            if review_result.get("_continuation_key") != continuation_key:
+                raise ValueError("该会话当前不接受补充回答")
+            if row.status not in {
+                "draft_generation",
+                "generating",
+                "saving_result",
+                "completed",
+            }:
+                raise ValueError("该会话当前不接受补充回答")
+            if row.agent_run_id and row.agent_run_id != agent_run_id:
+                raise ValueError("该会话已关联另一生成任务")
+            if row.agent_run_id == agent_run_id:
+                return self._to_session(row)
+
+            row.agent_run_id = agent_run_id
+            row.updated_at = utc_now()
+            await db.commit()
+            await db.refresh(row)
+            return self._to_session(row)
+
+    async def update(self, session_id: str, user_id: str | None = None, **kwargs) -> GenerationSession | None:
         """在会话 owner 校验和事务边界内更新生成结果；仅写入允许字段，不改变已完成记录的不可变审计信息。
 
         Args:
@@ -165,7 +281,7 @@ class SessionStore:
             await db.refresh(row)
             return self._to_session(row)
 
-    async def delete(self, session_id: str, user_id: Optional[str] = None) -> bool:
+    async def delete(self, session_id: str, user_id: str | None = None) -> bool:
         """在会话 owner 校验下删除生成结果，并保持资源不存在时的幂等语义。
 
         Args:
@@ -205,10 +321,10 @@ class ResumeGenerationRepo:
         user_id: str,
         title: str,
         content: str,
-        job_description: Optional[str] = None,
-        optimization_result_id: Optional[int] = None,
-        generation_session_id: Optional[str] = None,
-        agent_run_id: Optional[str] = None,
+        job_description: str | None = None,
+        optimization_result_id: int | None = None,
+        generation_session_id: str | None = None,
+        agent_run_id: str | None = None,
     ) -> int:
         """
         保存生成的简历
@@ -262,7 +378,7 @@ class ResumeGenerationRepo:
                 logger.error(f"保存生成的简历失败: {e}")
                 raise
 
-    async def get_generated_resume(self, resume_id: int, user_id: str) -> Optional[Dict[str, Any]]:
+    async def get_generated_resume(self, resume_id: int, user_id: str) -> dict[str, Any] | None:
         """获取单个生成的简历"""
         async with async_session() as db:
             stmt = select(GeneratedResumeModel).where(
@@ -281,7 +397,7 @@ class ResumeGenerationRepo:
         self,
         user_id: str,
         limit: int = 20
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """获取用户生成的简历列表"""
         async with async_session() as db:
             stmt = select(GeneratedResumeModel).where(GeneratedResumeModel.user_id == user_id).order_by(GeneratedResumeModel.created_at.desc()).limit(limit)
@@ -304,16 +420,16 @@ class ResumeGenerationRepo:
                     logger.info(f"删除生成的简历: ID={resume_id}")
                 return deleted
 
-            except Exception as e:
-                logger.error(f"删除生成的简历失败: {e}")
+            except SQLAlchemyError as exc:
+                logger.error(f"删除生成的简历失败: {exc}")
                 return False
 
     async def update_generated_resume(
         self,
         resume_id: int,
         user_id: str,
-        content: Optional[str] = None,
-        title: Optional[str] = None
+        content: str | None = None,
+        title: str | None = None
     ) -> bool:
         """更新生成的简历"""
         if not content and not title:
@@ -341,11 +457,11 @@ class ResumeGenerationRepo:
                     logger.info(f"更新生成的简历: ID={resume_id}")
                 return updated
 
-            except Exception as e:
-                logger.error(f"更新生成的简历失败: {e}")
+            except SQLAlchemyError as exc:
+                logger.error(f"更新生成的简历失败: {exc}")
                 return False
 
-    def _row_to_dict(self, row: GeneratedResumeModel) -> Dict[str, Any]:
+    def _row_to_dict(self, row: GeneratedResumeModel) -> dict[str, Any]:
         """将数据库行转换为字典"""
         return {
             'id': row.id,

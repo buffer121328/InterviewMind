@@ -21,9 +21,8 @@ web/.next/
 *.env.local
 
 # Data & runtime
-data/
+/backend/data/
 /output/
-/backend/data/browser_profiles/
 backend/.deepeval/
 logs/
 

@@ -1,7 +1,6 @@
 """Agent 公共运行层的确定性测试。"""
 
 import pytest
-
 from ai.prompts import prompt_registry
 from ai.runtime.context import AgentContext
 from ai.runtime.graphs import graph_registry
@@ -295,7 +294,7 @@ async def test_tool_guard_redacts_nested_secrets():
 
 
 def test_production_agent_definitions_are_registered():
-    from ai.workflows.agent_tasks.registry import EXECUTORS
+    from ai.workflows.agent_tasks.registry import get_production_adapter_registry
     from app.domain.agent_definitions import get_agent_definitions
 
     definitions = {item.task_type: item for item in get_agent_definitions()}
@@ -318,19 +317,16 @@ def test_production_agent_definitions_are_registered():
     assert definitions["interview_turn"].checkpoint_policy == "durable"
     assert definitions["voice_interview_turn"].checkpoint_policy == "durable"
     assert definitions["interview_experience_collect"].deprecated is True
-    assert "interview_experience_collect" not in EXECUTORS
+    adapter_keys = set(get_production_adapter_registry().keys())
+    assert "interview_experience_collect" not in adapter_keys
     assert all(item.cancellation_policy == "cooperative" for item in definitions.values())
     for definition in definitions.values():
         if definition.deprecated:
             continue
-        # Workspace is a durable orchestrator made of existing agents, not a LangGraph registration.
-        if definition.task_type not in {
-            "resume_workspace",
-            "job_recommendation_capture",
-            "evaluation_suite",
-            "ability_profile",
-        }:
+        if definition.graph_reference_mode == "required":
             assert definition.graph_name in graph_registry.names()
+        else:
+            assert definition.graph_reference_mode == "diagnostic"
         if definition.task_type != "evaluation_suite":
             assert definition.prompt_name is not None
             assert definition.prompt_version is not None

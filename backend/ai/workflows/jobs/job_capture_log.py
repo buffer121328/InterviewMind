@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import re
 from datetime import datetime
-from pathlib import Path
+
+from app.config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +19,7 @@ class JobCaptureTextLog:
 
     def __init__(self, run_id: str) -> None:
         safe_run_id = _SAFE_RUN_ID.sub("-", run_id).strip("-")[:100] or "unknown"
-        root = Path(os.getenv("ARTIFACT_STORAGE_DIR", "/app/data/artifacts")).resolve()
+        root = get_settings().artifact_storage_path
         self.path = root / "job-capture-logs" / f"job-capture-{safe_run_id}.txt"
 
     async def write(self, message: str) -> None:

@@ -11,7 +11,10 @@ from pathlib import Path
 import pytest
 
 from ai.runtime.harness.catalog import AgentCatalog, CatalogValidationError
-from ai.runtime.harness.registry import CallableExecutionAdapter, ExecutionAdapterRegistry
+from ai.runtime.harness.registry import (
+    CallableExecutionAdapter,
+    ExecutionAdapterRegistry,
+)
 from app.domain.agent_definitions import AgentDefinition, get_agent_definitions
 
 
@@ -134,10 +137,40 @@ def test_production_definitions_expose_explicit_migration_and_execution_policy()
     assert definitions["interview_start"].evaluation_enabled is True
     assert definitions["interview_start"].graph_reference_mode == "required"
     assert definitions["job_assets"].run_gate_policy == "worker_limit"
-    assert definitions["interview_turn"].migration_state == "legacy"
-    assert definitions["voice_interview_turn"].adapter_key is None
+    assert definitions["interview_turn"].migration_state == "harness"
+    assert definitions["interview_turn"].adapter_key == "interview_turn"
+    assert definitions["interview_turn"].run_gate_policy == "global"
+    assert definitions["voice_interview_turn"].migration_state == "harness"
+    assert definitions["voice_interview_turn"].adapter_key == "voice_interview_turn"
     assert definitions["resume_generation"].execution_modes == ("session",)
+    assert definitions["resume_generation"].migration_state == "harness"
+    assert definitions["resume_generation"].adapter_key == "resume_generation"
     assert definitions["interview_experience_collect"].deprecated is True
+
+
+def test_agent_tasks_package_exposes_no_parallel_executor_registry() -> None:
+    import ai.workflows.agent_tasks as package
+    import ai.workflows.agent_tasks.registry as production_registry
+    from ai.workflows.agent_tasks import adapters
+
+    assert not hasattr(package, "EXECUTORS")
+    assert not hasattr(package, "_EXECUTOR_MODULES")
+    assert not hasattr(production_registry, "EXECUTORS")
+    assert not hasattr(adapters, "LegacyTaskExecutionAdapter")
+
+
+def test_production_catalog_rejects_deprecated_history_task() -> None:
+    from ai.workflows.agent_tasks.registry import (
+        get_production_adapter_registry,
+        get_production_catalog,
+    )
+
+    assert "interview_experience_collect" not in set(get_production_adapter_registry().keys())
+    with pytest.raises(ValueError, match="deprecated"):
+        get_production_catalog().resolve(
+            "interview_experience_collect",
+            execution_mode="queued",
+        )
 
 
 def test_harness_core_import_does_not_load_heavy_runtime_dependencies() -> None:
@@ -148,6 +181,8 @@ import sys
 import ai.runtime.harness.catalog
 import ai.runtime.harness.contracts
 import ai.runtime.harness.registry
+import ai.runtime.harness.drivers.session
+import ai.runtime.harness.drivers.stream
 blocked = sorted(
     name for name in sys.modules
     if name == 'dramatiq'
@@ -157,7 +192,7 @@ blocked = sorted(
 )
 print(json.dumps(blocked))
 """
-    result = subprocess.run(
+    result = subprocess.run(  # noqa: S603 - fixed interpreter and constant script
         [sys.executable, "-c", script],
         cwd=backend_root,
         check=True,

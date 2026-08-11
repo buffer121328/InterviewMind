@@ -27,7 +27,7 @@ EvaluationRunner = Callable[
 class ProductionTaskExecutionAdapter:
     """把一个显式生产任务入口包装为 Harness adapter。"""
 
-    __slots__ = ("key", "executor")
+    __slots__ = ("executor", "key")
 
     def __init__(self, *, key: str, executor: TaskRunner) -> None:
         self.key = key
@@ -43,10 +43,6 @@ class ProductionTaskExecutionAdapter:
         if context.environment != "production":
             raise ValueError(f"adapter is not enabled for evaluation: {self.key}")
         return await self.executor(payload, context.user_id, context.mark_progress)
-
-
-# 兼容短期外部导入；生产注册表不再使用该旧名称或隐式 executor 映射。
-LegacyTaskExecutionAdapter = ProductionTaskExecutionAdapter
 
 
 class ResumeOptimizeExecutionAdapter(ProductionTaskExecutionAdapter):
@@ -126,7 +122,9 @@ async def _run_ability_profile(payload: dict[str, Any], user_id: str, progress: 
 
 
 async def _run_job_recommendation_capture(payload: dict[str, Any], user_id: str, progress: ProgressCallback) -> ExecutionResult:
-    from ai.workflows.agent_tasks.job_recommendation_capture import execute_job_recommendation_capture
+    from ai.workflows.agent_tasks.job_recommendation_capture import (
+        execute_job_recommendation_capture,
+    )
 
     return await execute_job_recommendation_capture(payload, user_id, progress)
 

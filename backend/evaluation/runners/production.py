@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from typing import Any
 
 from evaluation.extractors.runtime import EvaluationTraceCollector
 from evaluation.runners.base import (
     AgentAdapterRegistry,
-    CallableAgentAdapter,
     EvaluationExecutionContext,
 )
 
@@ -138,51 +139,193 @@ async def _run_resume_analyzer(
         raise
 
 
+class EvaluationConfigurationError(ValueError):
+    """评测目录或 case adapter 配置不一致。"""
+
+
+CaseAdapterRunner = Callable[
+    [dict[str, Any], EvaluationExecutionContext, EvaluationTraceCollector, Any],
+    Awaitable[Any],
+]
+
+
+@dataclass(frozen=True, slots=True)
+class EvaluationCaseAdapterSpec:
+    """把稳定 capability 名称映射到一个明确 production task。"""
+
+    task_type: str
+    runner: CaseAdapterRunner
+    required_trace_categories: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class CatalogEvaluationEntry:
+    """Catalog、production adapter 与 case adapter 的只读关联。"""
+
+    capability_name: str
+    task_type: str
+    definition: Any
+    production_adapter_key: str
+    production_adapter: Any
+    case_adapter: EvaluationCaseAdapterSpec
+
+
+class CatalogEvaluationView:
+    """从 Harness Catalog 派生 fail-closed 的 evaluation view。"""
+
+    def __init__(self, *, catalog: Any = None, case_adapters: dict[str, EvaluationCaseAdapterSpec] | None = None) -> None:
+        if catalog is None:
+            from ai.workflows.agent_tasks.registry import get_production_catalog
+
+            catalog = get_production_catalog()
+        self._catalog = catalog
+        self._case_adapters = dict(case_adapters or {
+            "interview_planner": EvaluationCaseAdapterSpec(
+                task_type="interview_start",
+                runner=_run_interview_planner_case,
+                required_trace_categories=("runtime", "model"),
+            ),
+        })
+
+    def resolve(self, capability_name: str) -> CatalogEvaluationEntry:
+        """解析 capability；缺 case adapter、policy 或 Prompt 时拒绝执行。"""
+
+        try:
+            case_adapter = self._case_adapters[capability_name]
+        except KeyError as exc:
+            raise EvaluationConfigurationError(
+                f"evaluation case adapter is not registered: {capability_name}"
+            ) from exc
+        try:
+            catalog_entry = self._catalog.resolve(
+                case_adapter.task_type,
+                execution_mode="evaluation",
+                environment="evaluation",
+            )
+        except (KeyError, ValueError) as exc:
+            raise EvaluationConfigurationError(
+                f"evaluation task is not eligible: {case_adapter.task_type}"
+            ) from exc
+        definition = catalog_entry.definition
+        adapter_key = definition.adapter_key
+        if not adapter_key or adapter_key != getattr(catalog_entry.adapter, "key", None):
+            raise EvaluationConfigurationError(
+                f"evaluation adapter identity mismatch: {case_adapter.task_type}"
+            )
+        if (definition.prompt_name is None) != (definition.prompt_version is None):
+            raise EvaluationConfigurationError(
+                f"evaluation prompt identity is incomplete: {case_adapter.task_type}"
+            )
+        return CatalogEvaluationEntry(
+            capability_name=capability_name,
+            task_type=case_adapter.task_type,
+            definition=definition,
+            production_adapter_key=adapter_key,
+            production_adapter=catalog_entry.adapter,
+            case_adapter=case_adapter,
+        )
+
+    def capabilities(self) -> tuple[str, ...]:
+        """返回显式 case adapter capability，不暴露案例正文。"""
+
+        return tuple(sorted(self._case_adapters))
+
+
+class CatalogEvaluationAdapter:
+    """AgentEvalRunner 使用的 Catalog-derived adapter facade。"""
+
+    def __init__(self, *, capability_name: str, view: CatalogEvaluationView) -> None:
+        self.name = capability_name
+        self._view = view
+
+    def _entry(self) -> CatalogEvaluationEntry:
+        return self._view.resolve(self.name)
+
+    @property
+    def version(self) -> str:
+        try:
+            return str(self._entry().definition.version)
+        except EvaluationConfigurationError:
+            return "unresolved"
+
+    @property
+    def prompt_name(self) -> str | None:
+        return self._entry().definition.prompt_name
+
+    @property
+    def prompt_version(self) -> str | None:
+        return self._entry().definition.prompt_version
+
+    @property
+    def task_type(self) -> str:
+        return self._entry().task_type
+
+    @property
+    def production_adapter_key(self) -> str:
+        return self._entry().production_adapter_key
+
+    @property
+    def catalog_identity(self) -> str:
+        entry = self._entry()
+        prompt = (
+            f"{entry.definition.prompt_name}@{entry.definition.prompt_version}"
+            if entry.definition.prompt_name
+            else "none"
+        )
+        return (
+            f"{entry.task_type}:{entry.definition.name}@{entry.definition.version}:"
+            f"{entry.production_adapter_key}:{prompt}"
+        )
+
+    @property
+    def required_trace_categories(self) -> tuple[str, ...]:
+        return self._entry().case_adapter.required_trace_categories
+
+    async def run(
+        self,
+        payload: dict[str, Any],
+        context: EvaluationExecutionContext,
+        trace: EvaluationTraceCollector,
+    ) -> Any:
+        entry = self._entry()
+        return await entry.case_adapter.runner(
+            payload,
+            context,
+            trace,
+            entry.production_adapter,
+        )
+
+
+async def _run_interview_planner_case(
+    payload: dict[str, Any],
+    context: EvaluationExecutionContext,
+    trace: EvaluationTraceCollector,
+    production_adapter: Any,
+) -> Any:
+    """通过同一 production adapter key 执行 planner case。"""
+
+    if getattr(production_adapter, "key", None) != "interview_start":
+        raise EvaluationConfigurationError("interview planner production adapter drifted")
+    return await _run_interview_planner(payload, context, trace)
+
+
 def build_production_agent_registry() -> AgentAdapterRegistry:
-    """注册首批真实生产入口：面试规划/追问与简历分析/优化。"""
+    """构造 Catalog-derived evaluation compatibility view。"""
 
-    from app.domain.agent_definitions import get_agent_definition
-    from app.domain.agent_runs import TASK_TYPE_INTERVIEW_START
-
-    interview_start = get_agent_definition(TASK_TYPE_INTERVIEW_START)
+    view = CatalogEvaluationView()
     registry = AgentAdapterRegistry()
-    registry.register(
-        CallableAgentAdapter(
-            name="interview_planner",
-            version=interview_start.version,
-            entrypoint=_run_interview_planner,
-            prompt_name=interview_start.prompt_name,
-            prompt_version=interview_start.prompt_version,
+    for capability_name in (
+        "interview_planner",
+        "interview_scoring",
+        "interview_turn",
+        "resume_analyzer",
+        "resume_optimizer",
+    ):
+        # 兼容旧 dataset capability 名称，但所有实际执行都重新解析 Catalog；
+        # 未注册 case adapter 的 capability 只会 fail closed，不回退旧函数。
+        registry.register(
+            CatalogEvaluationAdapter(capability_name=capability_name, view=view)
         )
-    )
-    registry.register(
-        CallableAgentAdapter(
-            name="interview_turn",
-            version="production",
-            entrypoint=_run_interview_turn,
-        )
-    )
-    registry.register(
-        CallableAgentAdapter(
-            name="interview_scoring",
-            version="production",
-            entrypoint=_run_interview_turn,
-        )
-    )
-    registry.register(
-        CallableAgentAdapter(
-            name="resume_optimizer",
-            version="production",
-            entrypoint=_run_resume_optimizer,
-        )
-    )
-    registry.register(
-        CallableAgentAdapter(
-            name="resume_analyzer",
-            version="production",
-            entrypoint=_run_resume_analyzer,
-        )
-    )
     return registry
 
 

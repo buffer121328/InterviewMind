@@ -3,7 +3,7 @@
 import logging
 import uuid
 from collections.abc import Awaitable, Callable
-from typing import Any, Optional
+from typing import Any
 
 from ai.runtime.deadlines import TaskDeadline, task_deadline_scope
 from app.config import get_settings
@@ -23,12 +23,12 @@ def _new_generation_state(
     job_description: str,
     optimization_result: dict,
     template_style: str,
-    api_config: Optional[dict],
+    api_config: dict | None,
     user_id: str,
-    agent_run_id: Optional[str],
-    questions: Optional[list[str]] = None,
-    user_answers: Optional[dict[str, str]] = None,
-    generation_checkpoint: Optional[dict[str, Any]] = None,
+    agent_run_id: str | None,
+    questions: list[str] | None = None,
+    user_answers: dict[str, str] | None = None,
+    generation_checkpoint: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """构建简历生成图的初始状态。"""
     return {
@@ -61,8 +61,8 @@ async def init_generation_session(
     optimization_result: dict,
     user_id: str,
     template_style: str = "professional",
-    api_config: Optional[dict] = None,
-    agent_run_id: Optional[str] = None,
+    api_config: dict | None = None,
+    agent_run_id: str | None = None,
     deadline: TaskDeadline | None = None,
 ) -> dict[str, Any]:
     """初始化简历生成会话，并可复用上层 Job Assets 的任务总 deadline。"""
@@ -156,7 +156,7 @@ async def submit_user_answers(
     session_id: str,
     answers: dict[str, str],
     user_id: str,
-    api_config: Optional[dict] = None,
+    api_config: dict | None = None,
     *,
     agent_run_id: str | None = None,
     run_stage_callback: GenerationStageCallback | None = None,
@@ -214,7 +214,7 @@ async def submit_user_answers(
 async def _complete_generation(
     session_id: str,
     state: dict[str, Any],
-    api_config: Optional[dict],
+    api_config: dict | None,
     *,
     deadline: TaskDeadline | None = None,
     run_stage_callback: GenerationStageCallback | None = None,
@@ -241,7 +241,13 @@ async def _complete_generation(
     await session_store.update(session_id, user_id=state["user_id"], status="draft_generation")
     graph = resume_generation_graph.build_resume_generation_graph(report_progress)
     graph_config = with_langgraph_langfuse_config(
-        {"configurable": {"thread_id": f"resume_generation_{session_id}"}},
+        {
+            "configurable": {
+                "thread_id": (
+                    f"resume_generation_{session_id}_{state.get('agent_run_id') or 'legacy'}"
+                )
+            }
+        },
         run_name="resume-generation",
         metadata={
             "agent_type": "resume_generation",
@@ -250,12 +256,14 @@ async def _complete_generation(
             "agent_run_id": state.get("agent_run_id"),
         },
     )
-    with task_deadline_scope(
-        deadline=deadline,
-        total_timeout=None if deadline else get_settings().resume_generation_task_timeout_seconds,
+    with (
+        task_deadline_scope(
+            deadline=deadline,
+            total_timeout=None if deadline else get_settings().resume_generation_task_timeout_seconds,
+        ),
+        langgraph_langfuse_scope("callbacks" in graph_config),
     ):
-        with langgraph_langfuse_scope("callbacks" in graph_config):
-            final_state = await graph.ainvoke(state, config=graph_config)
+        final_state = await graph.ainvoke(state, config=graph_config)
 
     if not final_state.get("final_markdown"):
         logger.warning("达到最大迭代次数仍未通过审查，使用最后一次有效草稿")
@@ -328,7 +336,7 @@ async def _complete_generation(
     }
 
 
-async def get_session_status(session_id: str, user_id: str) -> Optional[dict[str, Any]]:
+async def get_session_status(session_id: str, user_id: str) -> dict[str, Any] | None:
     """获取会话状态。"""
     session = await session_store.get(session_id, user_id=user_id)
     if not session:

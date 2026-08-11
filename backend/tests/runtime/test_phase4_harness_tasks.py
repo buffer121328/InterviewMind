@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import pytest
-
 from ai.runtime.harness.catalog import AgentCatalog, CatalogValidationError
 from ai.runtime.harness.contracts import DeferredExecutionResult, ExecutionContext
-from ai.runtime.harness.registry import CallableExecutionAdapter, ExecutionAdapterRegistry
+from ai.runtime.harness.registry import (
+    CallableExecutionAdapter,
+    ExecutionAdapterRegistry,
+)
 from ai.workflows.agent_tasks.adapters import (
     AbilityProfileExecutionAdapter,
     EvaluationSuiteExecutionAdapter,
@@ -82,11 +84,22 @@ def test_phase4_registry_registers_each_migrated_task_explicitly() -> None:
 
     registry = get_production_adapter_registry()
 
-    assert set(registry.keys()) == {*expected, "interview_start"}
+    stream_tasks = {"interview_turn", "voice_interview_turn"}
+    session_tasks = {"resume_generation"}
+    assert set(registry.keys()) == {
+        *expected,
+        "interview_start",
+        *stream_tasks,
+        *session_tasks,
+    }
     for task_type, adapter_type in expected.items():
         adapter = registry.get(task_type)
         assert isinstance(adapter.adapter, ProductionTaskExecutionAdapter)
         assert isinstance(adapter.adapter, adapter_type)
+        assert adapter.key == task_type
+    for task_type in {*stream_tasks, *session_tasks}:
+        adapter = registry.get(task_type)
+        assert isinstance(adapter.adapter, CallableExecutionAdapter)
         assert adapter.key == task_type
 
 
@@ -114,12 +127,13 @@ def test_catalog_rejects_external_effect_evaluation_policy() -> None:
         ).validate()
 
 
-def test_phase4_definitions_keep_stream_and_session_outside_harness() -> None:
+def test_stream_and_resume_session_tasks_are_harness_managed() -> None:
     definitions = {item.task_type: item for item in get_agent_definitions()}
 
-    assert definitions["interview_turn"].migration_state == "legacy"
-    assert definitions["voice_interview_turn"].migration_state == "legacy"
-    assert definitions["resume_generation"].migration_state == "legacy"
+    assert definitions["interview_turn"].migration_state == "harness"
+    assert definitions["voice_interview_turn"].migration_state == "harness"
+    assert definitions["resume_generation"].migration_state == "harness"
+    assert definitions["resume_generation"].adapter_key == "resume_generation"
     assert definitions["interview_start"].migration_state == "harness"
 
 

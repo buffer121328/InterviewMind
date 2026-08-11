@@ -47,6 +47,15 @@ class _OpenStep:
 class EvaluationTraceCollector:
     """收集步骤、工具、检索、模型、审批和 AgentRun 事件的安全摘要。"""
 
+    TRACE_CATEGORIES = (
+        "runtime",
+        "model",
+        "tool",
+        "retrieval",
+        "memory",
+        "external_io",
+    )
+
     def __init__(self, *, evaluation_namespace: str) -> None:
         """初始化独立 namespace 的空轨迹收集器，不执行任何外部调用。"""
 
@@ -69,7 +78,34 @@ class EvaluationTraceCollector:
         self._approval_by_id: dict[str, EvalApproval] = {}
         self._runtime_payloads: list[dict[str, Any]] = []
         self._runtime_sink_errors: set[str] = set()
+        self._category_counts: dict[str, int] = {}
         self.trace_id: str | None = None
+
+    def _record_category(self, category: str) -> None:
+        """记录有界 category 计数，不保存事件正文。"""
+
+        if category not in self.TRACE_CATEGORIES:
+            return
+        self._category_counts[category] = min(10_000, self._category_counts.get(category, 0) + 1)
+
+    def _record_event_categories(self, event_type: str, payload: dict[str, Any]) -> None:
+        """从事件名和安全摘要推导运行时类别覆盖。"""
+
+        normalized = event_type.lower()
+        self._record_category("runtime")
+        for category, marker in ((
+            ("model", "model"),
+            ("tool", "tool"),
+            ("retrieval", "retriev"),
+            ("memory", "memor"),
+            ("external_io", "external_io"),
+        )):
+            if marker in normalized:
+                self._record_category(category)
+        if payload.get("query_fingerprint") is not None:
+            self._record_category("retrieval")
+        if any("memory" in str(payload.get(key) or "").lower() for key in ("operation", "dependency")):
+            self._record_category("memory")
 
     def next_sequence(self) -> int:
         """返回运行内单调递增 sequence。"""
@@ -125,6 +161,11 @@ class EvaluationTraceCollector:
         """
 
         payload = event.to_local_payload()
+        self._record_event_categories(event.event_type, payload)
+        if isinstance(event, ToolObservationEvent):
+            self._record_category("tool")
+        if isinstance(event, ExternalIOObservationEvent):
+            self._record_category("external_io")
         self._runtime_payloads.append(payload)
         if event.trace_id and self.trace_id is None:
             self.trace_id = event.trace_id
@@ -171,6 +212,7 @@ class EvaluationTraceCollector:
 
         if event.get("trace_id") and self.trace_id is None:
             self.trace_id = str(event["trace_id"])
+        self._record_category("model")
         sequence = self.next_sequence()
         event_type = str(event.get("event_type") or "model.request.completed")
         status = (
@@ -413,6 +455,7 @@ class EvaluationTraceCollector:
         model_config_hash: str,
         agent_run_id: str | None,
         tracing_disabled: bool,
+        required_categories: tuple[str, ...] = (),
     ) -> EvalTraceCompleteness:
         """计算 critical trace 完整率，缺失项可供发布门禁和人工复核使用。"""
 
@@ -431,6 +474,15 @@ class EvaluationTraceCollector:
             finding.status is EvalSensitiveDataStatus.EXPOSED
             for finding in self.sensitive_data_findings
         )
+        normalized_required = tuple(dict.fromkeys(required_categories))
+        unknown_required = set(normalized_required) - set(self.TRACE_CATEGORIES)
+        if unknown_required:
+            raise ValueError(f"unknown required trace categories: {sorted(unknown_required)}")
+        missing_categories = tuple(
+            category
+            for category in normalized_required
+            if self._category_counts.get(category, 0) == 0
+        )
         checks = {
             "trace_id": bool(self.trace_id) or tracing_disabled,
             "agent_version": bool(agent_version),
@@ -444,6 +496,9 @@ class EvaluationTraceCollector:
             "evaluation_namespace": self.evaluation_namespace.startswith("eval:"),
             "runtime_sink": not self._runtime_sink_errors,
         }
+        checks.update(
+            {f"trace_category_{category}": category not in missing_categories for category in normalized_required}
+        )
         missing = tuple(key for key, value in checks.items() if not value)
         score = sum(checks.values()) / len(checks)
         return EvalTraceCompleteness(
@@ -459,6 +514,8 @@ class EvaluationTraceCollector:
             agent_run_id_present=bool(agent_run_id),
             sensitive_data_clean=sensitive_data_clean,
             evaluation_namespace_isolated=self.evaluation_namespace.startswith("eval:"),
+            category_counts=dict(self._category_counts),
+            missing_categories=missing_categories,
             score=score,
             missing=missing,
         )
@@ -500,6 +557,7 @@ class EvaluationTraceCollector:
     ) -> EvalRunEvent:
         """记录可重放 AgentRun 事件的稳定摘要。"""
 
+        self._record_event_categories(event_type, payload_summary or {})
         safe_payload, findings = sanitize_evaluation_value(
             payload_summary or {}, location=f"event:{event_type}"
         )

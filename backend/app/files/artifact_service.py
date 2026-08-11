@@ -7,27 +7,27 @@ import html
 import json
 import re
 import tempfile
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import fitz
-from sqlalchemy import select
-
+from app.clock import utc_now
 from app.config import get_settings
 from app.db.models import (
     AgentRunModel,
     ArtifactModel,
+    GeneratedResumeModel,
     JdAnalysisResultModel,
     ResumeResultModel,
     SessionModel,
     WeaknessReportModel,
-    GeneratedResumeModel,
     async_session,
 )
 from app.domain.interview_reports import build_interview_report_markdown
+from app.runtime_paths import resolve_runtime_paths
 from app.schemas.artifacts import ArtifactExportRequest
-from app.clock import utc_now
+from sqlalchemy import select
 
 _SAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
 _MIME = {"html": "text/html; charset=utf-8", "pdf": "application/pdf"}
@@ -46,7 +46,12 @@ class ArtifactService:
 
     def __init__(self, storage_dir: str | None = None) -> None:
         """初始化产物服务相关状态。"""
-        self._root = Path(storage_dir or get_settings().artifact_storage_dir).resolve()
+        settings = get_settings()
+        self._root = (
+            resolve_runtime_paths(artifact_storage_dir=storage_dir).artifact_storage_dir
+            if storage_dir is not None
+            else settings.artifact_storage_path
+        )
 
     @staticmethod
     def _now() -> datetime:

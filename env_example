@@ -95,8 +95,13 @@ VECTOR_SEARCH_TIMEOUT_SECONDS=5
 MEM0_SEARCH_TIMEOUT_SECONDS=5
 MEM0_ADD_TIMEOUT_SECONDS=5
 API_CONFIG_VALIDATION_TIMEOUT_SECONDS=10
-# 私有 HTML/PDF 导出目录；本地默认 backend/data/artifacts，容器显式覆盖为 /app/data/artifacts。
+# 后端唯一可写运行目录；相对路径统一从 backend/ 解析，不受启动 cwd 影响。
+# 容器由 Compose 显式覆盖为 /app/data。源码包 app/、ai/、evaluation/ 不承载运行数据。
+RUNTIME_DATA_DIR=data
+# 私有 HTML/PDF 与任务日志目录；留空时使用 RUNTIME_DATA_DIR/artifacts。
 ARTIFACT_STORAGE_DIR=data/artifacts
+# /static URL 对应的本地磁盘目录；留空时使用 RUNTIME_DATA_DIR/static。
+STATIC_STORAGE_DIR=data/static
 # 成员连续失败达到阈值后进入冷却，冷却期间由同池其他模型承接请求。
 LLM_POOL_FAILURE_THRESHOLD=2
 LLM_POOL_COOLDOWN_SECONDS=60
