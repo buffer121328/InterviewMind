@@ -95,6 +95,9 @@ def create_llm_from_config(
         # 由调用层负责有限重试，避免 SDK 重试与 fallback 叠加导致长时间阻塞。
         "timeout": timeout or settings.llm_request_timeout_seconds,
         "max_retries": 0,
+        # Accumulate streamed chunks for existing ainvoke callers while enabling
+        # the shared callback to measure a real first non-empty token.
+        "streaming": True,
         "metadata": metadata,
         "tags": [f"provider:{metadata.get('model_provider', 'unknown')}", f"integration:{selected_integration}"],
     }

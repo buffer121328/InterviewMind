@@ -3,6 +3,7 @@
 已知超限：职责单一（AgentRun 生命周期聚合），暂不拆分。
 """
 
+import math
 import os
 import uuid
 from collections.abc import Awaitable, Callable
@@ -90,6 +91,20 @@ def _public_step_results(value: dict | None) -> dict:
     return public
 
 
+def _first_token_duration_ms(model_events: list[dict[str, Any]] | None) -> int | None:
+    """Return the earliest finite non-negative first-chunk latency in an observation."""
+
+    values = [
+        int(value)
+        for event in model_events or []
+        if isinstance((value := event.get("first_chunk_duration_ms")), (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(float(value))
+        and value >= 0
+    ]
+    return min(values) if values else None
+
+
 def serialize_run(run: AgentRunModel) -> dict:
     """将 AgentRun 模型序列化为 API 响应格式，不公开加密任务输入。"""
     definition = get_task_definition(run.task_type)
@@ -114,6 +129,7 @@ def serialize_run(run: AgentRunModel) -> dict:
         "step_results": _public_step_results(getattr(run, "step_results", None)),
         "error_message": run.error_message,
         "trace_id": getattr(run, "trace_id", None),
+        "first_token_duration_ms": getattr(run, "first_token_duration_ms", None),
         "attempts": run.attempts,
         "max_attempts": max_attempts(),
         "can_retry": allows_whole_run_retry(run.task_type) and run.status in {"failed", "cancelled"} and run.attempts < max_attempts(),
@@ -243,6 +259,14 @@ class AgentRunService:
 
             if trace_id:
                 run.trace_id = trace_id
+            observed_first_token = _first_token_duration_ms(model_events)
+            if observed_first_token is not None:
+                existing_first_token = getattr(run, "first_token_duration_ms", None)
+                run.first_token_duration_ms = (
+                    observed_first_token
+                    if existing_first_token is None
+                    else min(existing_first_token, observed_first_token)
+                )
             run.updated_at = _now()
             if not model_events:
                 return

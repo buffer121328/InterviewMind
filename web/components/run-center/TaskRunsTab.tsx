@@ -52,7 +52,7 @@ import { PaginationControls } from '@/components/PaginationControls';
 import { DEFAULT_PAGE_SIZE } from '@/lib/pagination';
 import { toast } from 'sonner';
 import { getAgentRunDestination, getAgentRunDestinationLabel, type AgentRunDestination } from '@/lib/agentRunDestination';
-import { agentRunStatusClass as statusClass, formatAgentRunDate as formatDate, formatAgentRunDuration as duration, presentAgentRunEvent as eventPresentation } from '@/lib/agentRunPresentation';
+import { agentRunStatusClass as statusClass, formatAgentRunDate as formatDate, formatAgentRunDuration as duration, formatAgentRunFirstTokenDuration as firstTokenDuration, presentAgentRunEvent as eventPresentation } from '@/lib/agentRunPresentation';
 
 const ACTIVE_STATUSES = new Set<AgentRunStatus>(['queued', 'retrying', 'running', 'cancel_requested']);
 
@@ -278,7 +278,7 @@ export function TaskRunsTab({ onOpenResumeWorkspace, onOpenSession, onOpenReport
     };
 
     return (
-        <div className="mx-auto h-full w-full max-w-7xl overflow-y-auto p-5 sm:p-6">
+        <div className="mx-auto w-full max-w-7xl p-5 sm:p-6">
             <section className="grid gap-3 sm:grid-cols-4">
                 {[
                     ['活跃任务', summary.active, 'text-teal-700'],
@@ -368,7 +368,7 @@ export function TaskRunsTab({ onOpenResumeWorkspace, onOpenSession, onOpenReport
                                 {isGroupExpanded ? <ChevronUp className="h-4 w-4" aria-hidden="true" /> : <ChevronDown className="h-4 w-4" aria-hidden="true" />}
                             </span>
                         </button>
-                        {isGroupExpanded && <div id={groupId} className="space-y-3 border-t border-slate-100 bg-slate-50/35 p-3 sm:p-4">
+                        {isGroupExpanded && <div id={groupId} className="max-h-[70vh] space-y-3 overflow-y-auto overscroll-contain border-t border-slate-100 bg-slate-50/35 p-3 pr-2 sm:p-4 sm:pr-3">
                         {group.runs.map(run => (
                     <article key={run.run_id} className="surface-panel p-5 transition-shadow hover:shadow-md hover:shadow-slate-200/50">
                         <div className="flex flex-col justify-between gap-4 md:flex-row md:items-start">
@@ -386,7 +386,7 @@ export function TaskRunsTab({ onOpenResumeWorkspace, onOpenSession, onOpenReport
                                 <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-slate-400">
                                     <span>{run.agent_name}@{run.agent_version}</span>
                                     <span className="max-w-full break-all font-mono" title={`运行 ID：${run.run_id}`} aria-label={`运行 ID：${run.run_id}`}>{run.run_id}</span>
-                                    <span className="inline-flex items-center gap-1"><Clock3 className="h-3 w-3" />{formatDate(run.updated_at)} · {duration(run)}</span>
+                                    <span className="inline-flex items-center gap-1"><Clock3 className="h-3 w-3" />更新 {formatDate(run.updated_at)} · 总耗时 {duration(run)} · 首 Token {firstTokenDuration(run.first_token_duration_ms)}</span>
                                     <span>尝试 {run.attempts}/{run.max_attempts}</span>
                                 </div>
                             </div>

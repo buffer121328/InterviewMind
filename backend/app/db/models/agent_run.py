@@ -49,9 +49,10 @@ class AgentRunModel(Base):
     step_results: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)  # 步骤级状态、时间及安全摘要，供详情页与恢复诊断使用
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)     # 任务失败时的错误信息
     trace_id: Mapped[str | None] = mapped_column(String, nullable=True)        # 分布式追踪 ID，用于关联上下游日志
+    first_token_duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 任务内最早真实首 Token 延迟；无采集时为空
 
-    # 模型调用、token、时延、成本、fallback 路径和模型错误由 Langfuse 负责；
-    # 这里只保留 trace_id 用于从业务任务跳转/关联到外部观测系统。
+    # 详细模型调用、token、成本、fallback 路径和模型错误由 Langfuse/本地指标事件负责；
+    # AgentRun 只保留 trace 关联和用户可见的任务级首 Token 延迟。
 
     # ── 重试计数 ────────────────────────────────────────────────────
     attempts: Mapped[int] = mapped_column(Integer, default=0)  # 当前已尝试执行次数（业务任务级重试）

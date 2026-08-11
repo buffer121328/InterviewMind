@@ -49,6 +49,8 @@ export interface AgentRun {
     result?: Record<string, unknown> | null;
     error_message?: string | null;
     trace_id?: string | null;
+    /** Earliest real model-request first-token latency captured for this task; absent for historical/non-streaming runs. */
+    first_token_duration_ms?: number | null;
     attempts: number;
     max_attempts: number;
     can_retry: boolean;

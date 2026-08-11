@@ -6,6 +6,13 @@ export function formatAgentRunDate(value?: string | null) { if (!value) return '
 /** Formats elapsed AgentRun time without reading task payloads. */
 export function formatAgentRunDuration(run: AgentRun) { if (!run.started_at) return '-'; const end = run.finished_at ? new Date(run.finished_at).getTime() : Date.now(); const ms = Math.max(0, end - new Date(run.started_at).getTime()); if (ms < 1000) return `${ms}ms`; if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`; return `${Math.floor(ms / 60_000)}m ${Math.round((ms % 60_000) / 1000)}s`; }
 
+/** Formats a real task-level first-token latency while preserving the no-data state. */
+export function formatAgentRunFirstTokenDuration(value?: number | null) {
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return '暂无数据';
+    if (value < 1000) return `${Math.round(value)}ms`;
+    return `${(value / 1000).toFixed(1)}s`;
+}
+
 /** Maps lifecycle status to the existing semantic color classes. */
 export function agentRunStatusClass(status: AgentRunStatus) { if (status === 'succeeded') return 'bg-emerald-50 text-emerald-700'; if (status === 'failed') return 'bg-red-50 text-red-700'; if (status === 'cancelled') return 'bg-slate-100 text-slate-600'; return 'bg-teal-50 text-teal-700'; }
 

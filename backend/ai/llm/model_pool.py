@@ -387,6 +387,40 @@ class _ModelPoolCallback(BaseCallbackHandler):
             "event_type": "llm.request.started",
         })
 
+    @staticmethod
+    def _has_non_empty_text(token: Any, chunk: Any = None) -> bool:
+        """Return whether a streaming callback carries visible text without retaining it."""
+
+        if isinstance(token, str) and token.strip():
+            return True
+        content = getattr(chunk, "content", None)
+        if isinstance(content, str):
+            return bool(content.strip())
+        if isinstance(content, (list, tuple)):
+            for item in content:
+                if isinstance(item, str) and item.strip():
+                    return True
+                if isinstance(item, dict):
+                    text = item.get("text") or item.get("content")
+                    if isinstance(text, str) and text.strip():
+                        return True
+        return False
+
+    def _record_first_chunk(self, kwargs: dict[str, Any], *, token: Any, chunk: Any = None) -> None:
+        """Store only the first non-empty chunk latency for one active model run."""
+
+        if not self._has_non_empty_text(token, chunk):
+            return
+        run_token = self._run_token(kwargs)
+        with self._lock:
+            metrics_entry = self._run_metrics.get(run_token)
+            if run_token not in self._active_runs or metrics_entry is None:
+                return
+            started_at, metrics = metrics_entry
+            if "first_chunk_duration_ms" in metrics:
+                return
+            metrics["first_chunk_duration_ms"] = max(0, int((monotonic() - started_at) * 1000))
+
     def _finish(
         self,
         kwargs: dict[str, Any],
@@ -455,6 +489,17 @@ class _ModelPoolCallback(BaseCallbackHandler):
     ) -> None:
         """接收传统 LLM 开始事件；只统计 prompt 长度，不保存 prompt。"""
         self._start(kwargs, prompts)
+
+    def on_llm_new_token(
+        self,
+        token: str,
+        *args: Any,
+        chunk: Any = None,
+        **kwargs: Any,
+    ) -> None:
+        """Record elapsed time to the first non-empty streamed text chunk only."""
+
+        self._record_first_chunk(kwargs, token=token, chunk=chunk)
 
     def on_llm_end(self, response: Any = None, *args: Any, **kwargs: Any) -> None:
         """接收模型成功事件，记录 token/耗时并释放并发计数。"""
