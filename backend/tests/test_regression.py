@@ -110,7 +110,7 @@ class TestInterviewPlanParsing:
 
     def test_parse_full_format(self):
         """解析完整格式的面试计划"""
-        from ai.agents.interview.interview_planner import parse_plan_response
+        from ai.agents.interview.planning.planner import parse_plan_response
 
         json_str = '''
         {
@@ -142,7 +142,7 @@ class TestInterviewPlanParsing:
 
     def test_parse_simple_format(self):
         """解析简单格式的面试计划"""
-        from ai.agents.interview.interview_planner import parse_plan_response
+        from ai.agents.interview.planning.planner import parse_plan_response
 
         json_str = '''
         [
@@ -157,7 +157,7 @@ class TestInterviewPlanParsing:
 
     def test_parse_with_markdown_wrapper(self):
         """解析带 markdown 代码块的响应"""
-        from ai.agents.interview.interview_planner import parse_plan_response
+        from ai.agents.interview.planning.planner import parse_plan_response
 
         json_str = '''```json
         [{"topic": "自我介绍", "content": "请自我介绍"}]
@@ -168,7 +168,7 @@ class TestInterviewPlanParsing:
 
     def test_fallback_fields(self):
         """解析不完整字段时补默认值"""
-        from ai.agents.interview.interview_planner import parse_plan_response
+        from ai.agents.interview.planning.planner import parse_plan_response
 
         json_str = '''{"questions": [{"content": "test question"}]}'''
 
@@ -186,7 +186,7 @@ class TestBuildPlannerPrompt:
     """build_planner_prompt 回归"""
 
     def test_prompt_contains_required_sections(self):
-        from ai.agents.interview.interview_planner import build_planner_prompt
+        from ai.agents.interview.planning.planner import build_planner_prompt
 
         prompt = build_planner_prompt(
             resume="3年Java经验",
@@ -202,7 +202,7 @@ class TestBuildPlannerPrompt:
         assert "Java高级工程师" in prompt
 
     def test_prompt_with_previous_questions(self):
-        from ai.agents.interview.interview_planner import build_planner_prompt
+        from ai.agents.interview.planning.planner import build_planner_prompt
 
         prompt = build_planner_prompt(
             resume="test resume",
@@ -217,7 +217,7 @@ class TestBuildPlannerPrompt:
         assert "自我介绍" in prompt
 
     def test_prompt_with_memory_context(self):
-        from ai.agents.interview.interview_planner import build_planner_prompt
+        from ai.agents.interview.planning.planner import build_planner_prompt
 
         prompt = build_planner_prompt(
             resume="test",
@@ -279,7 +279,7 @@ class TestRoundStrategies:
     """轮次策略定义"""
 
     def test_all_round_types_defined(self):
-        from ai.agents.interview.interview_planner import ROUND_STRATEGIES
+        from ai.agents.interview.planning.planner import ROUND_STRATEGIES
 
         assert "tech_initial" in ROUND_STRATEGIES
         assert "tech_deep" in ROUND_STRATEGIES
@@ -287,7 +287,7 @@ class TestRoundStrategies:
         assert "voice_default" in ROUND_STRATEGIES
 
     def test_round_strategies_have_name(self):
-        from ai.agents.interview.interview_planner import ROUND_STRATEGIES
+        from ai.agents.interview.planning.planner import ROUND_STRATEGIES
 
         for key, strategy in ROUND_STRATEGIES.items():
             assert "name" in strategy, f"{key} missing 'name'"
@@ -296,7 +296,7 @@ class TestRoundStrategies:
 
     def test_round_names_aligned(self):
         """三轮定位名称对齐文档"""
-        from ai.agents.interview.interview_planner import ROUND_STRATEGIES
+        from ai.agents.interview.planning.planner import ROUND_STRATEGIES
 
         assert ROUND_STRATEGIES["tech_initial"]["name"] == "综合面"
         assert ROUND_STRATEGIES["tech_deep"]["name"] == "技术面"

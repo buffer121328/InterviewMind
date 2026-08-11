@@ -5,7 +5,8 @@ from contextlib import asynccontextmanager
 from types import SimpleNamespace
 
 import pytest
-from ai.agents.interview import voice_interview
+
+from ai.agents.interview.voice import flow as voice_interview
 from ai.runtime.agent_runs.service import get_task_definition
 from ai.workflows.interview import voice_stream
 from ai.workflows.interview.voice_stream import VoiceStreamUseCases

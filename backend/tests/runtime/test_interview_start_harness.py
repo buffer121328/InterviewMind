@@ -90,7 +90,7 @@ async def test_default_interview_start_evaluation_runner_forces_save_to_db_false
         return [{"content": "真实 adapter 输出"}]
 
     monkeypatch.setattr(
-        "ai.agents.interview.interview_planner.generate_interview_plan",
+        "ai.agents.interview.planning.planner.generate_interview_plan",
         generate_interview_plan,
     )
     result = await InterviewStartExecutionAdapter().run(

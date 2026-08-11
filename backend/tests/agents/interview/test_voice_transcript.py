@@ -1,7 +1,7 @@
 """语音转写文本规范化测试。"""
 
+from ai.agents.interview.voice.utils import normalize_voice_transcript
 from app.config import get_settings
-from ai.agents.interview.voice_utils import normalize_voice_transcript
 
 
 def test_normalize_voice_transcript_collapses_whitespace():

@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from ai.agents.interview import voice_interview
+from ai.agents.interview.voice import flow as voice_interview
 
 
 def _event_type(frame: str) -> str:

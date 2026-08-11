@@ -170,7 +170,7 @@ async def node_planner(state: InterviewState):
     6. 候选人分层画像（累积）
     7. 长期记忆上下文
     """
-    from . import interview_planner
+    from .planning import planner as interview_planner
 
     job_desc = state["job_description"]
     resume = state["resume_context"]
@@ -243,7 +243,7 @@ async def node_planner(state: InterviewState):
             logger.error(f"获取轮次信息失败: {e}")
 
     # 明确选中的面经与题库题优先，题库题同时受轮次题型与优先级约束。
-    from .question_plan import merge_question_plan, prepare_candidates
+    from .questions.plan import merge_question_plan, prepare_candidates
     bank_items = []
     bank_count = min(max(int(state.get("question_bank_count", 0) or 0), 0), max_q)
     if bank_count:
@@ -270,7 +270,7 @@ async def node_planner(state: InterviewState):
     retrieval_context = None
     if remaining_questions > 0:
         try:
-            from ai.agents.interview.retrieval_service import (
+            from ai.agents.interview.rag.service import (
                 get_interview_retrieval_service,
             )
             retrieval_svc = get_interview_retrieval_service()

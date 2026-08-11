@@ -5,7 +5,7 @@ import json
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 
-from ai.agents.interview.voice_interview import process_voice_chat
+from ai.agents.interview.voice.flow import process_voice_chat
 from ai.runtime.agent_runs.service import AgentRunService
 from ai.runtime.harness.contracts import StreamExecution
 from ai.runtime.harness.drivers import StreamDriver, StreamDriverConflict

@@ -9,21 +9,22 @@ import json
 import logging
 from typing import Any, AsyncGenerator, Dict, List, Literal, Optional, TypedDict
 
-from ai.agents.interview.voice_context import build_voice_history_context
-from ai.agents.interview.voice_progress import calculate_interview_progress
-from ai.agents.interview.voice_tts import generate_greeting_audio
-from ai.agents.interview.voice_utils import normalize_voice_transcript
 from ai.llm.mimo import MIMO_BASE_URL, mimo_voice_gateway
-from ai.runtime.deadlines import TaskDeadline, TaskDeadlineExceeded
 from ai.prompts.voice import (
     build_interview_voice_system_prompt as _build_system_prompt,
 )
 from ai.prompts.voice import (
     get_opening_message as _get_opening_message,
 )
+from ai.runtime.deadlines import TaskDeadline, TaskDeadlineExceeded
 from app.config import get_settings
 from app.db.repositories.session.session_repo import SessionRepo
 from observability import agent_observation
+
+from .context import build_voice_history_context
+from .progress import calculate_interview_progress
+from .tts import generate_greeting_audio
+from .utils import normalize_voice_transcript
 
 logger = logging.getLogger(__name__)
 
@@ -140,7 +141,7 @@ async def node_planner(
     Returns:
         包含 interview_plan 和 system_prompt 的状态更新
     """
-    from . import interview_planner
+    from ..planning import planner as interview_planner
 
     # 获取轮次信息（多轮面试支持）
     round_index = 1
@@ -183,7 +184,7 @@ async def node_planner(
         except Exception as e:
             logger.error(f"[Voice] 获取轮次信息失败: {e}")
 
-    from .question_plan import merge_question_plan, prepare_candidates
+    from ..questions.plan import merge_question_plan, prepare_candidates
 
     bank_items = []
     bank_count = min(max(question_bank_count, 0), max_questions)

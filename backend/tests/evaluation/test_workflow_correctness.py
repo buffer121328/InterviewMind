@@ -17,7 +17,7 @@ from ai.agents.interview.interview_graph import (
 )
 
 # 被测模块 ─ 规划器
-from ai.agents.interview.interview_planner import (
+from ai.agents.interview.planning.planner import (
     ROUND_STRATEGIES,
     build_planner_prompt,
     parse_plan_response,

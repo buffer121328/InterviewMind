@@ -14,7 +14,7 @@ L2 回归测试套件（~5k tokens, <2min）
 import json
 import pytest
 
-from ai.agents.interview.interview_planner import (
+from ai.agents.interview.planning.planner import (
     parse_plan_response,
     _get_default_questions,
     DEFAULT_QUESTIONS,

@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import pytest
 
-from ai.agents.interview import interview_planner
-from ai.agents.interview.context_compaction import (
+from ai.agents.interview.interview_runtime import InterviewRuntime
+from ai.agents.interview.planning import planner as interview_planner
+from ai.agents.interview.planning.context import (
     assemble_planner_context,
     build_candidate_interview_facts,
     build_previous_round_digest,
     clear_interview_fact_cache,
 )
-from ai.agents.interview.interview_runtime import InterviewRuntime
 from ai.runtime.deadlines import TaskDeadline
 from app.schemas.interview import EvaluatingOutput
 from app.schemas.llm_outputs import PlanOutput

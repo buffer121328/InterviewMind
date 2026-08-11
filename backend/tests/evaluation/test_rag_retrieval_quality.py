@@ -20,7 +20,7 @@ from deepeval import assert_test
 from deepeval.metrics import BaseMetric
 from deepeval.test_case import LLMTestCase
 
-import ai.agents.interview.interview_rag as rag_module
+import ai.agents.interview.rag.pipeline as rag_module
 
 _DATASET = json.loads((Path(__file__).resolve().parents[2] / "evaluation" / "datasets" / "rag_golden.json").read_text())
 CORPUS = _DATASET["corpus"]

@@ -3,8 +3,9 @@
 import base64
 from typing import Any, Optional
 
-from ai.agents.interview.voice_utils import pcm_to_wav
 from ai.llm.mimo import MIMO_BASE_URL, mimo_voice_gateway
+
+from .utils import pcm_to_wav
 
 
 async def generate_greeting_audio(text: str, api_config: dict[str, Any]) -> tuple[Optional[str], str]:

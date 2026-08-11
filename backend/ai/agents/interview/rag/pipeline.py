@@ -13,14 +13,15 @@ from dataclasses import replace
 from time import perf_counter
 from typing import Any, Dict, List, Optional
 
-from ai.agents.interview.interview_rag_models import (
+from app.config import get_settings
+from observability import record_external_io_event
+from observability.runtime_events import ExternalIOObservationEvent, new_runtime_event_id
+
+from .models import (
     RagEvidence,
     RagResult,
     RetrievalQuery,
 )
-from app.config import get_settings
-from observability import record_external_io_event
-from observability.runtime_events import ExternalIOObservationEvent, new_runtime_event_id
 
 logger = logging.getLogger(__name__)
 
@@ -643,7 +644,7 @@ async def run_rag_pipeline(
 
     if AGENTIC_MODE != "off":
         try:
-            from ai.agents.interview.agentic_retrieval import (
+            from .agentic import (
                 AgenticSearchContext,
                 AgenticSearchQuery,
                 grade_evidences,

@@ -199,8 +199,8 @@ async def test_mem0_timeout_degrades_to_empty_with_external_timeout_category(mon
 @pytest.mark.asyncio
 async def test_vector_search_timeout_degrades_without_blocking_other_retrieval(monkeypatch):
     """Vector search has its own deadline and a timeout leaves the non-vector path usable."""
-    from ai.agents.interview import interview_rag as rag
-    from ai.agents.interview.interview_rag_models import RetrievalQuery
+    from ai.agents.interview.rag import pipeline as rag
+    from ai.agents.interview.rag.models import RetrievalQuery
 
     events: list[dict[str, Any]] = []
 

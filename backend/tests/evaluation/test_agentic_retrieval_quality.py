@@ -17,13 +17,13 @@ from deepeval import assert_test
 from deepeval.metrics import BaseMetric
 from deepeval.test_case import LLMTestCase
 
-import ai.agents.interview.interview_rag as rag_module
-from ai.agents.interview.agentic_retrieval import (
+import ai.agents.interview.rag.pipeline as rag_module
+from ai.agents.interview.rag.agentic import (
     AgenticSearchContext,
     AgenticSearchQuery,
     run_agentic_retrieval,
 )
-from ai.agents.interview.interview_rag import RagEvidence, RetrievalQuery
+from ai.agents.interview.rag.pipeline import RagEvidence
 
 
 @dataclass

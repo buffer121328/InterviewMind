@@ -460,7 +460,7 @@ class InterviewRuntime:
         """构建评估提示词打包相关后端逻辑。"""
         from ai.prompts.interview import build_evaluating_prompt
 
-        from .interview_planner import ROUND_STRATEGIES
+        from .planning.planner import ROUND_STRATEGIES
 
         strategy = ROUND_STRATEGIES.get(self.round_type, ROUND_STRATEGIES["tech_initial"])
         state_context = {

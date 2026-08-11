@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from ai.agents.interview.answer_points import (
+from ai.agents.interview.questions.answer_points import (
     ensure_plan_answer_points,
     ensure_question_answer_points,
     format_question_answer_points,

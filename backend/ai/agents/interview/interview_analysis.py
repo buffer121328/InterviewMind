@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional
 
 from app.clock import utc_now
 
-from .answer_points import ensure_plan_answer_points, normalize_answer_points
+from .questions.answer_points import ensure_plan_answer_points, normalize_answer_points
 
 logger = logging.getLogger(__name__)
 

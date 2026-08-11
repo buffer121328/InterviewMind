@@ -397,7 +397,7 @@ async def test_agent_observation_preserves_business_exception(monkeypatch):
 async def test_agent_observation_records_rag_trace_without_raw_private_content(monkeypatch):
     """RAG 观测只记录模式、计数和 trace，不把 JD/简历/证据正文写入 Langfuse 输出。"""
     import observability
-    from ai.agents.interview.interview_rag import RagEvidence, RagResult
+    from ai.agents.interview.rag.pipeline import RagEvidence, RagResult
 
     client = FakeLangfuseClient()
     attributes = []

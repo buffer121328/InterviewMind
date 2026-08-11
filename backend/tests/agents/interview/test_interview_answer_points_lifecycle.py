@@ -5,11 +5,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from ai.agents.interview.answer_points import ensure_plan_answer_points
 from ai.agents.interview.interview_analysis import (
     build_qa_history,
     build_scoring_qa_history,
 )
+from ai.agents.interview.questions.answer_points import ensure_plan_answer_points
 from ai.workflows.analysis.analysis_service import SessionReportAnalysisService
 from ai.workflows.analysis.reviewer_contexts import build_reviewer_contexts
 from ai.workflows.interview.session_actions import InterviewSessionUseCases

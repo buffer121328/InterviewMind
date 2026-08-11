@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import pytest
 from pydantic import ValidationError
 
-from ai.agents.interview.voice_context import build_voice_history_context
+from ai.agents.interview.voice.context import build_voice_history_context
 from ai.prompts.voice import build_interview_voice_system_prompt
 from ai.workflows.analysis.analysis_service import SessionReportAnalysisService
 from app.schemas.llm_outputs import EvidenceChunkOutput, SessionInterviewReportOutput
@@ -257,7 +257,7 @@ def test_voice_prompt_contains_only_current_next_and_progress_summary():
 def test_voice_history_uses_recent_text_and_older_summary_without_metadata(monkeypatch):
     """Audio URLs and internal IDs never enter the bounded rolling-history context."""
     monkeypatch.setattr(
-        "ai.agents.interview.voice_context.get_settings",
+        "ai.agents.interview.voice.context.get_settings",
         lambda: SimpleNamespace(voice_recent_message_count=4, voice_history_max_chars=1200),
     )
     history = [

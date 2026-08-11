@@ -6,15 +6,15 @@ import logging
 from typing import Any
 
 from ai.agents.interview.interview_context import build_interview_context
-from ai.agents.interview.voice_interview import generate_interview_plan
+from ai.agents.interview.voice.flow import generate_interview_plan
 from ai.prompts.voice import build_interview_voice_system_prompt as build_system_prompt
 from ai.prompts.voice import get_opening_message
-from app.db.repositories.session.session_repo import SessionRepo
-from app.domain.interview_rounds import resolve_max_questions
 from ai.workflows.jobs.job_context import (
     JobContextAccessError,
     normalize_owned_job_context_snapshot,
 )
+from app.db.repositories.session.session_repo import SessionRepo
+from app.domain.interview_rounds import resolve_max_questions
 from app.schemas.voice import VoiceCloneRequest, VoiceStartRequest, VoiceStartResponse
 
 logger = logging.getLogger(__name__)

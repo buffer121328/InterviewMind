@@ -3,11 +3,12 @@
 import logging
 from typing import Any, Dict, List, Optional
 
-from ai.agents.interview.interview_rag import run_rag_pipeline
 from app.db.repositories.interview.retrieval_repo import (
     RetrievalRepo,
     get_retrieval_repo,
 )
+
+from .pipeline import run_rag_pipeline
 
 logger = logging.getLogger(__name__)
 

@@ -4,7 +4,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from ai.agents.interview import interview_context, interview_planner, voice_interview
+from ai.agents.interview import interview_context
+from ai.agents.interview.planning import planner as interview_planner
+from ai.agents.interview.voice import flow as voice_interview
 
 
 class _Question:

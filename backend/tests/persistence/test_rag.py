@@ -7,8 +7,8 @@ RAG 层单元测试
 
 import pytest
 
-import ai.agents.interview.interview_rag as rag_module
-from ai.agents.interview.interview_rag import (
+import ai.agents.interview.rag.pipeline as rag_module
+from ai.agents.interview.rag.pipeline import (
     RagEvidence,
     RagResult,
     RetrievalQuery,

@@ -225,7 +225,7 @@ async def _run_interview_start_evaluation(
 ) -> ExecutionResult:
     """使用隔离身份调用真实 planner，明确禁止正式会话持久化。"""
 
-    from ai.agents.interview.interview_planner import generate_interview_plan
+    from ai.agents.interview.planning.planner import generate_interview_plan
 
     return await generate_interview_plan(
         resume=str(payload.get("resume") or payload.get("resume_content") or ""),

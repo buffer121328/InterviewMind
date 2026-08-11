@@ -429,8 +429,8 @@ async def test_rag_repository_events_use_query_fingerprint_without_query_text(mo
     """RAG 仓储观测保留 started/terminal 与指纹，不上传 query 或证据正文。"""
 
     import observability
-    from ai.agents.interview import interview_rag
-    from ai.agents.interview.interview_rag_models import RetrievalQuery
+    from ai.agents.interview.rag import pipeline as interview_rag
+    from ai.agents.interview.rag.models import RetrievalQuery
 
     class FakeRepository:
         """返回结构化和全文检索结果的 owner-scoped 仓储替身。"""

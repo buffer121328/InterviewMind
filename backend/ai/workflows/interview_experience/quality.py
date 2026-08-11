@@ -3,7 +3,7 @@
 import json
 from typing import Any
 
-from ai.agents.interview.answer_points import normalize_answer_points
+from ai.agents.interview.questions.answer_points import normalize_answer_points
 from ai.llm.llm_utils import invoke_structured
 from ai.prompts.interview_experience import build_experience_governance_prompt
 from ai.runtime.deadlines import TaskDeadline

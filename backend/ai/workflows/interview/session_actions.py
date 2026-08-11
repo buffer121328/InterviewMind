@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 
-from ai.agents.interview.answer_points import (
+from ai.agents.interview.questions.answer_points import (
     answer_points_hint,
     ensure_plan_answer_points,
 )
