@@ -312,6 +312,9 @@ class AgentRunService:
         """幂等方式创建 AgentRun：同 user+type+idempotency_key 返回已有记录。"""
         if task_type not in TASK_DEFINITIONS:
             raise ValueError(f"unknown task type: {task_type}")
+        definition = get_agent_definition(task_type)
+        if definition.deprecated:
+            raise ValueError(f"deprecated task type cannot create runs: {task_type}")
         async with async_session() as session:
             existing = await session.scalar(select(AgentRunModel).where(
                 AgentRunModel.user_id == user_id,
@@ -321,7 +324,6 @@ class AgentRunService:
             if existing:
                 return existing, False
             now = _now()
-            definition = get_agent_definition(task_type)
             run = AgentRunModel(
                 id=str(uuid.uuid4()), user_id=user_id, session_id=session_id, task_type=task_type,
                 agent_name=definition.name, agent_version=definition.version, status="queued", stage="queued",
@@ -370,6 +372,8 @@ class AgentRunService:
         if task_type not in TASK_DEFINITIONS:
             raise ValueError(f"unknown task type: {task_type}")
         definition = get_agent_definition(task_type)
+        if definition.deprecated:
+            raise ValueError(f"deprecated task type cannot create runs: {task_type}")
         valid_stages = [step_id for step_id, _title in definition.steps]
         if initial_stage not in valid_stages or initial_stage == "queued":
             raise ValueError(f"invalid initial stage for {task_type}: {initial_stage}")

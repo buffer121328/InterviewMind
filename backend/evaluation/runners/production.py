@@ -17,30 +17,25 @@ async def _run_interview_planner(
     context: EvaluationExecutionContext,
     trace: EvaluationTraceCollector,
 ) -> Any:
-    """调用真实 interview planner，显式关闭数据库保存和正式会话写入。"""
+    """通过 EvaluationDriver 调用 `interview_start` production adapter。"""
 
-    from ai.agents.interview.interview_planner import generate_interview_plan
+    from ai.runtime.harness.contracts import DeferredExecutionResult
+    from ai.workflows.agent_tasks.registry import get_evaluation_driver
+    from app.domain.agent_runs import TASK_TYPE_INTERVIEW_START
 
     trace.start_step("planning")
     try:
-        result = await generate_interview_plan(
-            resume=str(payload.get("resume") or payload.get("resume_content") or ""),
-            job_description=str(payload.get("job_description") or ""),
-            company_info=str(payload.get("company_info") or ""),
-            max_questions=int(payload.get("max_questions") or 5),
-            api_config=dict(payload.get("api_config") or {}),
-            round_type=str(payload.get("round_type") or "tech_initial"),
-            round_index=int(payload.get("round_index") or 1),
-            previous_profile=payload.get("previous_profile"),
-            previous_questions=list(payload.get("previous_questions") or []),
-            output_format=str(payload.get("output_format") or "full"),
+        result = await get_evaluation_driver().run(
+            task_type=TASK_TYPE_INTERVIEW_START,
+            payload=payload,
+            run_id=context.run_id,
+            user_id=context.evaluation_user_id,
             session_id=context.evaluation_session_id,
-            save_to_db=False,
-            generate_hints=bool(payload.get("generate_hints", False)),
-            weakness_report=payload.get("weakness_report"),
-            retrieval_context=payload.get("retrieval_context"),
-            memory_context=str(payload.get("memory_context") or ""),
+            memory_namespace=context.evaluation_memory_namespace,
+            artifact_namespace=context.evaluation_artifact_namespace,
         )
+        if isinstance(result, DeferredExecutionResult):
+            raise TypeError("evaluation adapter cannot return deferred persistence")
         trace.finish_step(
             "planning",
             summary={"question_count": len(result), "saved_to_db": False},
@@ -146,12 +141,18 @@ async def _run_resume_analyzer(
 def build_production_agent_registry() -> AgentAdapterRegistry:
     """注册首批真实生产入口：面试规划/追问与简历分析/优化。"""
 
+    from app.domain.agent_definitions import get_agent_definition
+    from app.domain.agent_runs import TASK_TYPE_INTERVIEW_START
+
+    interview_start = get_agent_definition(TASK_TYPE_INTERVIEW_START)
     registry = AgentAdapterRegistry()
     registry.register(
         CallableAgentAdapter(
             name="interview_planner",
-            version="production",
+            version=interview_start.version,
             entrypoint=_run_interview_planner,
+            prompt_name=interview_start.prompt_name,
+            prompt_version=interview_start.prompt_version,
         )
     )
     registry.register(

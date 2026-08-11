@@ -24,10 +24,10 @@ from ai.runtime.agent_runs.dispatcher import enqueue_agent_run
 from ai.runtime.agent_runs.event_stream import replay_cursor
 from ai.workflows.agent_tasks.registry import execute_registered_task
 from ai.workflows.agent_tasks.types import DeferredExecutionResult
-from ai.workflows.agent_tasks.interview_start import execute_interview_start
 from ai.runtime.agent_runs.outbox import dispatch_pending_outbox
 from app.db.repositories.session.session_repo import SessionRepo
 from app.security.payload_crypto import TaskPayloadConfigurationError
+from app.security.security import safe_error_message
 from ai.runtime.agent_runs.service import (
     AgentRunService,
     first_running_stage,
@@ -96,7 +96,15 @@ class AgentRunUseCases:
             if lease is None:
                 raise AgentRunConflict("当前仍有面试任务在生成，请稍后重试", status_code=409)
             try:
-                result = await execute_interview_start(payload, user_id)
+                async def progress(_stage: str) -> None:
+                    """同步兼容响应不创建 AgentRun，因此仅保留 adapter 进度契约。"""
+
+                result = await execute_registered_task(
+                    TASK_TYPE_INTERVIEW_START,
+                    payload,
+                    user_id,
+                    progress,
+                )
                 return AgentRunResponse(
                     payload={
                         "task_type": TASK_TYPE_INTERVIEW_START,
@@ -263,7 +271,7 @@ class AgentRunUseCases:
                     else:
                         await self._service.succeed(run.id, result)
                 except Exception as exc:
-                    await self._service.fail(run.id, str(exc))
+                    await self._service.fail(run.id, safe_error_message(exc))
                     raise
 
                 completed = await self._service.get(run.id, user_id)

@@ -128,6 +128,8 @@ class CallableAgentAdapter:
     name: str
     version: str
     entrypoint: AgentEntrypoint
+    prompt_name: str | None = None
+    prompt_version: str | None = None
 
     async def run(
         self,
@@ -214,6 +216,10 @@ class AgentEvalRunner:
         context = EvaluationExecutionContext.for_run(run_id)
         trace = EvaluationTraceCollector(evaluation_namespace=f"eval:{run_id}")
         adapter = self.adapter_registry.get(agent_name)
+        authoritative_prompt_name = getattr(adapter, "prompt_name", None)
+        authoritative_prompt_version = getattr(adapter, "prompt_version", None)
+        effective_prompt_name = authoritative_prompt_name or prompt_name
+        effective_prompt_version = authoritative_prompt_version or prompt_version
         started = time.perf_counter()
         final_status = "succeeded"
         error: EvalError | None = None
@@ -274,8 +280,8 @@ class AgentEvalRunner:
         tracing_disabled = get_langfuse_client() is None
         completeness = trace.trace_completeness(
             agent_version=adapter.version,
-            prompt_name=prompt_name,
-            prompt_version=prompt_version,
+            prompt_name=effective_prompt_name,
+            prompt_version=effective_prompt_version,
             model_config_hash=model_config_hash,
             agent_run_id=run_id,
             tracing_disabled=tracing_disabled,
@@ -286,8 +292,8 @@ class AgentEvalRunner:
             dataset_version=case.dataset_version,
             agent_name=adapter.name,
             agent_version=adapter.version,
-            prompt_name=prompt_name,
-            prompt_version=prompt_version,
+            prompt_name=effective_prompt_name,
+            prompt_version=effective_prompt_version,
             model_config_hash=model_config_hash,
             owner_scope_hash=owner_scope_hash,
             evaluation_namespace=f"eval:{run_id}",

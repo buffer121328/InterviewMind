@@ -27,6 +27,11 @@ from app.domain.agent_runs import (
 
 CheckpointPolicy = Literal["none", "memory", "durable"]
 CancellationPolicy = Literal["none", "cooperative"]
+ExecutionMode = Literal["queued", "inline", "stream", "session"]
+MigrationState = Literal["harness", "legacy"]
+SideEffectPolicy = Literal["read_only", "local_write", "external_effect"]
+GraphReferenceMode = Literal["diagnostic", "required"]
+RunGatePolicy = Literal["global", "worker_limit", "none"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,6 +48,13 @@ class AgentDefinition:
     graph_name: str | None = None
     prompt_name: str | None = None
     prompt_version: str | None = None
+    execution_modes: tuple[ExecutionMode, ...] = ("queued", "inline")
+    adapter_key: str | None = None
+    migration_state: MigrationState = "legacy"
+    evaluation_enabled: bool = False
+    side_effect_policy: SideEffectPolicy = "local_write"
+    graph_reference_mode: GraphReferenceMode = "diagnostic"
+    run_gate_policy: RunGatePolicy = "global"
     deprecated: bool = False
 
 
@@ -92,6 +104,8 @@ _DEFINITIONS = (
         graph_name=None,
         prompt_name=None,
         prompt_version=None,
+        adapter_key=TASK_TYPE_EVALUATION_SUITE,
+        migration_state="harness",
     ),
     AgentDefinition(
         name="interview_starter",
@@ -103,6 +117,10 @@ _DEFINITIONS = (
         graph_name="interview",
         prompt_name="interview.planner",
         prompt_version="3",
+        adapter_key=TASK_TYPE_INTERVIEW_START,
+        migration_state="harness",
+        evaluation_enabled=True,
+        graph_reference_mode="required",
     ),
     AgentDefinition(
         name="interview_turn",
@@ -120,6 +138,10 @@ _DEFINITIONS = (
         graph_name="interview",
         prompt_name="interview.evaluating",
         prompt_version="2",
+        execution_modes=("stream",),
+        migration_state="legacy",
+        graph_reference_mode="required",
+        run_gate_policy="none",
     ),
     AgentDefinition(
         name="voice_interview_turn",
@@ -136,6 +158,10 @@ _DEFINITIONS = (
         graph_name="interview",
         prompt_name="voice.interview_system",
         prompt_version="2",
+        execution_modes=("stream",),
+        migration_state="legacy",
+        graph_reference_mode="required",
+        run_gate_policy="none",
     ),
     AgentDefinition(
         name="resume_optimizer",
@@ -146,6 +172,9 @@ _DEFINITIONS = (
         graph_name="resume_optimizer",
         prompt_name="resume.match_analyst",
         prompt_version="1",
+        adapter_key=TASK_TYPE_RESUME_OPTIMIZE,
+        migration_state="harness",
+        graph_reference_mode="required",
     ),
     AgentDefinition(
         name="resume_workspace",
@@ -163,6 +192,8 @@ _DEFINITIONS = (
         graph_name="resume_workspace",
         prompt_name="resume.match_analyst",
         prompt_version="1",
+        adapter_key=TASK_TYPE_RESUME_WORKSPACE,
+        migration_state="harness",
     ),
     AgentDefinition(
         name="resume_generator",
@@ -182,6 +213,10 @@ _DEFINITIONS = (
         graph_name="resume_generator",
         prompt_name="resume.draft_generation",
         prompt_version="1",
+        execution_modes=("session",),
+        migration_state="legacy",
+        graph_reference_mode="required",
+        run_gate_policy="none",
     ),
     AgentDefinition(
         name="ability_profile",
@@ -199,6 +234,8 @@ _DEFINITIONS = (
         graph_name="ability_profile",
         prompt_name="analysis.multi_reviewer_consensus.ability_profile",
         prompt_version="1",
+        adapter_key=TASK_TYPE_ABILITY_PROFILE,
+        migration_state="harness",
     ),
     AgentDefinition(
         name="interview_reporter",
@@ -215,6 +252,9 @@ _DEFINITIONS = (
         graph_name="interview",
         prompt_name="analysis.session_report",
         prompt_version="2",
+        adapter_key=TASK_TYPE_INTERVIEW_REPORT,
+        migration_state="harness",
+        graph_reference_mode="required",
     ),
     AgentDefinition(
         # 只为历史 AgentRun 的详情/事件展示保留；没有 API 或 EXECUTOR。
@@ -232,6 +272,9 @@ _DEFINITIONS = (
             ("saving_result", "历史结果保存步骤"),
         ),
         checkpoint_policy="durable",
+        execution_modes=(),
+        migration_state="legacy",
+        run_gate_policy="none",
         deprecated=True,
     ),
     AgentDefinition(
@@ -250,6 +293,8 @@ _DEFINITIONS = (
         graph_name=None,
         prompt_name="jobs.extraction",
         prompt_version="1",
+        adapter_key=TASK_TYPE_JOB_RECOMMENDATION_CAPTURE,
+        migration_state="harness",
     ),
     AgentDefinition(
         name="job_asset_builder",
@@ -260,6 +305,10 @@ _DEFINITIONS = (
         graph_name="resume_generator",
         prompt_name="resume.jd_match.user",
         prompt_version="1",
+        adapter_key=TASK_TYPE_JOB_ASSETS,
+        migration_state="harness",
+        graph_reference_mode="required",
+        run_gate_policy="worker_limit",
     ),
 )
 

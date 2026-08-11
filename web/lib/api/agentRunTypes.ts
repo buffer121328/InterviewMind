@@ -1,6 +1,20 @@
 export type AgentRunStatus = 'queued' | 'retrying' | 'running' | 'cancel_requested' | 'succeeded' | 'failed' | 'cancelled';
 /** Includes the retired collection type so historical AgentRuns remain readable. */
-export type AgentRunTaskType = 'interview_start' | 'interview_turn' | 'voice_interview_turn' | 'resume_optimize' | 'resume_workspace' | 'resume_generation' | 'interview_report' | 'job_assets' | 'job_recommendation_capture' | 'interview_experience_collect' | 'ability_profile';
+export const AGENT_RUN_TASK_TYPES = [
+    'ability_profile',
+    'evaluation_suite',
+    'interview_experience_collect',
+    'interview_report',
+    'interview_start',
+    'interview_turn',
+    'job_assets',
+    'job_recommendation_capture',
+    'resume_generation',
+    'resume_optimize',
+    'resume_workspace',
+    'voice_interview_turn',
+] as const;
+export type AgentRunTaskType = typeof AGENT_RUN_TASK_TYPES[number];
 
 export const AGENT_RUN_EVENT_TYPES = [
     'run.created',

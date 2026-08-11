@@ -48,6 +48,11 @@ async def lifespan(app: FastAPI):
     # 启动时执行
     logger.info("AI 面试助手后端服务启动中...")
 
+    from ai.workflows.agent_tasks.registry import validate_production_catalog
+
+    validate_production_catalog()
+    logger.info("✓ Agent Harness Catalog 一致性校验通过")
+
     from observability import configure_langfuse
     if configure_langfuse():
         logger.info("Langfuse Agent 观测已启用")
