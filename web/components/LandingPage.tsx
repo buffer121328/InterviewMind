@@ -43,7 +43,7 @@ const modules: Array<{
   {
     view: "interview",
     title: "模拟面试",
-    description: "文字与语音、多轮面试、实时执行计划、回答提示与能力复盘。",
+    description: "文字与语音、多轮面试、带回答要点的定向题目、实时评分与能力复盘。",
     icon: Mic2,
     eyebrow: "Interview",
     accent: "bg-teal-50 text-teal-700",
@@ -51,7 +51,7 @@ const modules: Array<{
   {
     view: "resume",
     title: "简历工作台",
-    description: "竞争力分析、JD 定向优化、素材组装、项目改写与简历生成。",
+    description: "录入目标职位或从岗位库导入 JD，完成竞争力分析、素材组装、项目改写与定向简历生成。",
     icon: FileText,
     eyebrow: "Resume",
     accent: "bg-cyan-50 text-cyan-700",
@@ -59,7 +59,7 @@ const modules: Array<{
   {
     view: "questionbank",
     title: "题库与面经",
-    description: "手动维护、文件导入、面经采集、历史追问沉淀并带入面试。",
+    description: "沉淀模拟面试题、回答要点和历史追问，支持手动维护、文件导入与面经采集。",
     icon: BookOpenCheck,
     eyebrow: "Knowledge",
     accent: "bg-indigo-50 text-indigo-700",
@@ -67,7 +67,7 @@ const modules: Array<{
   {
     view: "boss",
     title: "岗位中心",
-    description: "采集 JD、匹配排序、生成投递资产，并保留预览与确认边界。",
+    description: "采集 JD、匹配排序、提取专业技能基础简历，并生成结合岗位关键词的打招呼文案。",
     icon: Target,
     eyebrow: "Jobs",
     accent: "bg-amber-50 text-amber-700",
@@ -91,10 +91,26 @@ const modules: Array<{
   {
     view: "runs",
     title: "任务运行",
-    description: "查看 AgentRun 阶段、版本和失败原因，支持取消与受控重试。",
+    description: "分组查看 AgentRun 阶段、审计事件和失败原因，长详情可滚动，并支持取消与受控重试。",
     icon: Workflow,
     eyebrow: "Runtime",
     accent: "bg-slate-100 text-slate-700",
+  },
+  {
+    view: "prompts",
+    title: "Prompt 管理",
+    description: "统一查看内置与自定义 Prompt，预览变量替换、管理版本并受控发布到 Langfuse。",
+    icon: Sparkles,
+    eyebrow: "Prompts",
+    accent: "bg-rose-50 text-rose-700",
+  },
+  {
+    view: "evaluations",
+    title: "Agent 评测中心",
+    description: "运行真实 Agent 评测，查看质量趋势与回归，支持人工标注、Judge 校准和发布门禁。",
+    icon: ShieldCheck,
+    eyebrow: "Evaluation",
+    accent: "bg-fuchsia-50 text-fuchsia-700",
   },
 ];
 
@@ -211,7 +227,7 @@ export function LandingPage({ onNavigate, onOpenSettings }: LandingPageProps) {
                 </div>
                 <div className="grid grid-cols-3 border-t border-white/10 bg-black/10">
                   {[
-                    ["7", "正式模块"],
+                    ["9", "正式模块"],
                     ["SSE", "实时事件"],
                     ["Human", "外部确认"],
                   ].map(([value, label]) => (
@@ -239,11 +255,11 @@ export function LandingPage({ onNavigate, onOpenSettings }: LandingPageProps) {
           </div>
 
           <div className="mt-10 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {modules.map((module, index) => (
+            {modules.map((module) => (
               <button
                 key={module.view}
                 onClick={() => onNavigate(module.view)}
-                className={`group surface-panel p-5 text-left transition duration-200 hover:-translate-y-0.5 hover:border-teal-300 hover:shadow-lg ${index === modules.length - 1 ? "lg:col-span-3" : ""}`}
+                className="group surface-panel p-5 text-left transition duration-200 hover:-translate-y-0.5 hover:border-teal-300 hover:shadow-lg"
               >
                 <div className="flex items-start justify-between gap-4">
                   <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${module.accent}`}>

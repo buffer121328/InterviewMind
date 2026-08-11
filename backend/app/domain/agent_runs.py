@@ -1,4 +1,4 @@
-"""Agent run domain rules shared by runtime and HTTP layers."""
+"""提供Agent运行相关后端功能。"""
 
 from __future__ import annotations
 
@@ -26,17 +26,17 @@ TERMINAL_STATUSES: frozenset[str] = frozenset({"succeeded", "failed", "cancelled
 
 
 def is_terminal_status(status: str) -> bool:
-    """Return whether an AgentRun status is terminal."""
+    """处理终态状态相关后端逻辑。"""
     return status in TERMINAL_STATUSES
 
 
 def is_active_status(status: str) -> bool:
-    """Return whether an AgentRun status can still make progress."""
+    """处理活跃状态相关后端逻辑。"""
     return status in ACTIVE_STATUSES
 
 
 def can_cancel_status(status: str) -> bool:
-    """Return whether a run in the given status accepts cancellation."""
+    """处理状态相关后端逻辑。"""
     return status in ACTIVE_STATUSES
 
 
@@ -46,7 +46,7 @@ def build_task_plan_from_steps(
     stage: str,
     status: str,
 ) -> list[dict[str, str]]:
-    """Build the frontend task plan from domain task steps and current state."""
+    """构建任务计划来源相关后端逻辑。"""
     stage_index = next((index for index, item in enumerate(steps) if item[0] == stage), -1)
     terminal_success = status == "succeeded"
     terminal_failure = status in {"failed", "cancelled"}

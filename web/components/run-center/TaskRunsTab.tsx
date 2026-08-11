@@ -9,7 +9,6 @@ import {
     Circle,
     Clock3,
     ExternalLink,
-    Eye,
     Loader2,
     RefreshCw,
     RotateCcw,

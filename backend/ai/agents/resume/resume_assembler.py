@@ -56,14 +56,14 @@ class MaterialSelectionResult:
 
 
 # ============================================================================
-# Prompt compatibility wrappers
+# 提示词兼容封装
 # ============================================================================
 
 SYSTEM_PROMPT = build_assembler_system_prompt()
 
 
 def _material_tokens(value: str) -> set[str]:
-    """Tokenize Chinese/Latin material text deterministically for local JD ranking."""
+    """处理材料令牌相关后端逻辑。"""
     lowered = str(value or "").casefold()
     tokens = set(re.findall(r"[a-z][a-z0-9.+#_-]{1,}|\d+(?:\.\d+)?", lowered))
     for chunk in re.findall(r"[\u4e00-\u9fff]{2,}", lowered):
@@ -78,14 +78,7 @@ def rank_materials_for_jd(
     limit: int | None = None,
     item_max_chars: int | None = None,
 ) -> List[Dict[str, Any]]:
-    """Filter, rank, and clip owner-scoped materials before any model call.
-
-    Args:
-        job_description: Target JD used only for deterministic token overlap.
-        materials: Already owner-filtered repository rows.
-        limit: Optional Top-K override, capped by the configured policy.
-        item_max_chars: Optional per-item character override.
-    """
+    """处理排序材料JD相关后端逻辑。"""
     settings = get_settings()
     top_k = min(limit or settings.resume_material_max_items, settings.resume_material_max_items)
     max_chars = item_max_chars or settings.resume_material_item_max_chars
@@ -121,7 +114,7 @@ def _assemble_material_context(
     job_description: str,
     materials: List[Dict[str, Any]],
 ) -> tuple[str, dict[str, Any]]:
-    """Assemble bounded JD/material model text and safe source audit metadata."""
+    """组装材料上下文相关后端逻辑。"""
     settings = get_settings()
     material_budget = settings.resume_material_max_items * settings.resume_material_item_max_chars
     assembled = ContextAssembler(
@@ -152,7 +145,7 @@ def _assemble_material_context(
 
 
 def build_user_prompt(job_description: str, materials: List[Dict[str, Any]]) -> str:
-    """Build the material-selection payload through the central prompt policy."""
+    """构建用户提示词相关后端逻辑。"""
     materials_text = []
     for material in materials:
         materials_text.append(

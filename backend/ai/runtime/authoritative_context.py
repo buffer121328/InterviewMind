@@ -1,4 +1,4 @@
-"""Lossless context assembly for authoritative JD, resume, and current-Q&A sources."""
+"""提供权威上下文相关后端功能。"""
 
 from __future__ import annotations
 
@@ -10,14 +10,14 @@ from typing import Any, Mapping
 
 @dataclass(frozen=True, slots=True)
 class AuthoritativeContext:
-    """Model context plus credential-free integrity metadata."""
+    """定义权威上下文相关后端数据结构或服务组件。"""
 
     model_context: str
     metadata: dict[str, Any]
 
 
 def _serialize(value: Any) -> str:
-    """Serialize structured authoritative sources deterministically without lossy summarization."""
+    """序列化权威上下文相关后端逻辑。"""
     if isinstance(value, str):
         return value
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
@@ -28,7 +28,7 @@ def assemble_authoritative_context(
     agent_name: str,
     sources: Mapping[str, Any],
 ) -> AuthoritativeContext:
-    """Assemble every authoritative source in full and expose source-version fingerprints."""
+    """组装权威上下文相关后端逻辑。"""
     blocks: list[str] = []
     fingerprints: dict[str, str] = {}
     source_breakdown: dict[str, int] = {}

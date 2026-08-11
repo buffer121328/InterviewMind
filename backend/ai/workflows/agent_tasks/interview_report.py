@@ -5,7 +5,7 @@ from observability import agent_observation
 
 
 async def execute_interview_report(payload: dict, user_id: str, progress: ProgressCallback) -> dict:
-    """Generate a recoverable report and checkpoint completed evidence chunks encrypted at rest."""
+    """执行面试报告相关后端逻辑。"""
     from ai.agents.interview.interview_analysis import build_qa_history
     from ai.workflows.interview.completion import generate_session_reports
     from app.db.repositories.interview.weakness_report_repo import (
@@ -46,7 +46,7 @@ async def execute_interview_report(payload: dict, user_id: str, progress: Progre
             )
 
             async def checkpoint_callback(checkpoint: dict) -> None:
-                """Persist only encrypted evidence progress for the current owner-scoped run."""
+                """处理检查点回调相关后端逻辑。"""
                 await run_service.save_checkpoint(
                     run_id,
                     "generating_reports",

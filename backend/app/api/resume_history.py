@@ -1,4 +1,4 @@
-"""Resume history routes."""
+"""提供简历历史相关后端功能。"""
 
 import logging
 from typing import Literal, Optional
@@ -22,7 +22,7 @@ async def get_completed_sessions(
     user_id: str = Depends(get_current_user_id),
     limit: int = 10,
 ):
-    """List completed interview sessions available for resume workflows."""
+    """获取完成会话相关后端逻辑。"""
     logger.info("获取已完成会话: user_id=%s", user_id)
     return await resume_history_use_cases.get_completed_sessions(user_id=user_id, limit=limit)
 
@@ -35,7 +35,7 @@ async def list_resume_results(
     include_data: bool = Query(default=True, description="是否在列表中返回完整简历和结果 JSON"),
     user_id: str = Depends(get_current_user_id),
 ):
-    """List resume analysis and optimization history."""
+    """列出简历结果相关后端逻辑。"""
     return await resume_history_use_cases.list_resume_results(
         user_id=user_id,
         result_type=result_type,
@@ -50,7 +50,7 @@ async def get_resume_result(
     result_id: int,
     user_id: str = Depends(get_current_user_id),
 ):
-    """Get one resume analysis or optimization result."""
+    """获取简历结果相关后端逻辑。"""
     try:
         return await resume_history_use_cases.get_resume_result(result_id=result_id, user_id=user_id)
     except ResumeHistoryNotFound as exc:
@@ -65,7 +65,7 @@ async def delete_resume_result(
     result_id: int,
     user_id: str = Depends(get_current_user_id),
 ):
-    """Delete one resume analysis or optimization result."""
+    """删除简历结果相关后端逻辑。"""
     try:
         return await resume_history_use_cases.delete_resume_result(result_id=result_id, user_id=user_id)
     except ResumeHistoryNotFound as exc:

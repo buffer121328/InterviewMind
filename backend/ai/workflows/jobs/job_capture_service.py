@@ -39,7 +39,7 @@ def _assemble_job_model_context(
     sources: list[ContextSource],
     total_model_chars: int,
 ) -> tuple[AssembledContext, dict[str, Any]]:
-    """Assemble job-capture inputs and return source-level audit without raw payloads."""
+    """组装岗位模型上下文相关后端逻辑。"""
     source_budgets = {
         source.name: source.max_chars
         for source in sources
@@ -56,7 +56,7 @@ def _assemble_job_model_context(
 
 _INTERNSHIP_MARKERS = ("实习", "实习生", "internship")
 def _is_internship_card(card: dict[str, Any]) -> bool:
-    """Reject internship roles before ranking, persistence, or model calls."""
+    """处理岗位服务相关后端逻辑。"""
     text = " ".join(str(card.get(key) or "") for key in (
         "job_title", "title_summary", "job_description",
     )).casefold()
@@ -66,7 +66,7 @@ def _is_internship_card(card: dict[str, Any]) -> bool:
 
 
 def _clamp_score(value: Any) -> Optional[float]:
-    """Clamp a display-only match score to 0-100, ignoring malformed values."""
+    """处理分数相关后端逻辑。"""
     try:
         score = float(value)
     except (TypeError, ValueError):
@@ -75,7 +75,7 @@ def _clamp_score(value: Any) -> Optional[float]:
 
 
 def _sanitize_cards(raw_cards: list) -> list[dict[str, Any]]:
-    """Bound fields and reject external/navigation/internship cards for both phases."""
+    """脱敏岗位服务相关后端逻辑。"""
     cards: list[dict[str, Any]] = []
     for raw_card in raw_cards:
         if not isinstance(raw_card, dict):
@@ -255,6 +255,9 @@ async def capture_from_imported_cards(
     上游桥接不启动浏览器或复制 profile；本函数不接收 Cookie、HTML 或认证信息，
     只接收最多 20 张经过 URL 白名单约束的有限字段岗位卡片。
     """
+    from ai.agents.jobs.resume_skills import extract_professional_skills
+
+    resume_content = extract_professional_skills(resume_content).content
     capture_log = JobCaptureTextLog(run_id or "untracked")
     top_n = max(1, min(int(top_n), 20))
 

@@ -1,4 +1,4 @@
-"""Interview planning, runtime, coaching, and summary prompt templates."""
+"""提供面试相关后端功能。"""
 
 from ai.prompts.langchain_templates import prompt_template, render_prompt
 from ai.prompts.shared import (
@@ -109,7 +109,7 @@ EVALUATING_PROMPT = prompt_template(
 
 
 def memo_hint(memory_context: str) -> str:
-    """Build a bounded memory hint that never exposes the memory subsystem."""
+    """处理面试相关后端逻辑。"""
     if not memory_context:
         return ""
     return render_prompt(MEMO_HINT_PROMPT, memory_context=memory_context)
@@ -124,7 +124,7 @@ def build_planner_prompt(
     output_format="full",
     planning_context="未提供",
 ):
-    """Build the interview plan prompt only from ContextAssembler output."""
+    """构建规划器提示词相关后端逻辑。"""
     json_format = (
         '{"questions":[{"topic":"考察主题","content":"具体问题","answer_points":["回答结构要点","关键原理或证据要点"]}]}'
         if output_format == "simple"
@@ -143,7 +143,7 @@ def build_planner_prompt(
 
 
 def build_hints_prompt(questions_text: str) -> str:
-    """Build ordered coaching hints for an interview question list."""
+    """构建提示词相关后端逻辑。"""
     return render_prompt(
         HINTS_PROMPT,
         prompt_name="interview.hints",
@@ -154,7 +154,7 @@ def build_hints_prompt(questions_text: str) -> str:
 
 
 def build_opening_prompt(round_index, round_type, strategy_focus, first_question, memory_context=""):
-    """Build the candidate-visible opening without exposing internal context."""
+    """构建提示词相关后端逻辑。"""
     _ = round_type
     return render_prompt(
         OPENING_PROMPT,
@@ -171,7 +171,7 @@ def build_evaluating_prompt(
     runtime_context,
     tool_instruction="",
 ):
-    """Build the constrained answer-evaluation prompt from bounded runtime context."""
+    """构建评估提示词相关后端逻辑。"""
     return render_prompt(
         EVALUATING_PROMPT,
         prompt_name="interview.evaluating",

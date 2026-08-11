@@ -71,10 +71,10 @@ FAILURE_COOLDOWN_SECONDS = 1800  # 30分钟
 # 内存存储
 # ============================================================================
 
-# {user_id: {RateLimitType: [timestamp, ...]}}
+# 说明：{user_id: {RateLimitType: [timestamp, ...]}}
 _rate_buckets: Dict[str, Dict[str, list]] = defaultdict(lambda: defaultdict(list))
 
-# {user_id: {"failures": int, "paused_until": float}}
+# 说明：{user_id: {"failures": int, "paused_until": float}}
 _failure_states: Dict[str, Dict[str, Any]] = defaultdict(
     lambda: {"failures": 0, "paused_until": 0}
 )

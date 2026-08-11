@@ -1,4 +1,4 @@
-"""Central prompts for real-time interview voice and text-to-speech flows."""
+"""提供语音相关后端功能。"""
 
 from __future__ import annotations
 
@@ -50,7 +50,7 @@ TTS_SYSTEM_PROMPT = prompt_template(
 
 
 def get_opening_message(first_question: str | None = None, round_index: int = 1) -> str:
-    """Return a deterministic voice-interview opening without exposing internal state."""
+    """获取消息相关后端逻辑。"""
     question = first_question or "请先做一个简短的自我介绍。"
     if round_index <= 1:
         return f"你好，欢迎参加本次面试。我们先从第一个问题开始：{question}"
@@ -58,7 +58,7 @@ def get_opening_message(first_question: str | None = None, round_index: int = 1)
 
 
 def _covered_topics(interview_plan: list, current_q_idx: int) -> str:
-    """Return a bounded de-duplicated topic summary without exposing prior full questions."""
+    """处理语音相关后端逻辑。"""
     topics: list[str] = []
     seen: set[str] = set()
     for item in interview_plan[: max(0, current_q_idx)]:
@@ -79,7 +79,7 @@ def build_interview_voice_system_prompt(
     last_q_text: str = "",
     max_follow_up: int = 1,
 ) -> str:
-    """Build a compact prompt containing only current/next questions and progress summary."""
+    """构建面试语音系统提示词相关后端逻辑。"""
     current_plan_q = (
         interview_plan[current_q_idx].get("content", "")
         if 0 <= current_q_idx < len(interview_plan)
@@ -112,7 +112,7 @@ def build_interview_voice_system_prompt(
 
 
 def build_tts_system_prompt() -> str:
-    """Build the text-to-speech sanitization prompt."""
+    """构建系统提示词相关后端逻辑。"""
     return render_prompt(
         TTS_SYSTEM_PROMPT,
         prompt_name="voice.tts",

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Sparkles } from "lucide-react";
+import { BriefcaseBusiness, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { useInterviewStore } from "@/store/useInterviewStore";
 import { ResumeGenerationDialog } from "./ResumeGenerationDialog";
@@ -9,6 +9,7 @@ import { ResumePreviewDialog } from "./ResumePreviewDialog";
 import { ResumeProcessingView } from "./ResumeProcessingView";
 import { ResumeInputPanel } from "./resume-tools/ResumeInputPanel";
 import { ResumeSessionPicker } from "./resume-tools/ResumeSessionPicker";
+import { ResumeJobLibraryPickerDialog } from "./resume-tools/ResumeJobLibraryPickerDialog";
 import { ResumeToolEmptyState } from "./resume-tools/ResumeToolEmptyState";
 import { ResumeAnalyzeResultPanel, ResumeJDMatchResultPanel, ResumeOptimizeResultPanel } from "./resume-tools/ResumeResultPanels";
 import { refreshGeneratedResumes } from "@/store/interviewFacade";
@@ -22,6 +23,7 @@ import { restoreResumeHistorySelection, type RestoredResumeWorkspace } from '@/l
 import { hasSatisfactionAsked, markSatisfactionAsked, satisfactionAskKey } from "@/lib/api/satisfaction";
 import { SatisfactionDialog } from "./satisfaction/SatisfactionDialog";
 import type { JobContextSnapshot } from "@/lib/jobContextHandoff";
+import { updateJobContextSnapshot } from "@/lib/jobContextHandoff";
 
 interface ResumeToolsProps {
     apiConfig: ApiConfig | null;
@@ -40,7 +42,7 @@ export function ResumeTools({ apiConfig, resumeContent, jobContext, generationSe
     const [resume, setResume] = useState(resumeContent), [jd, setJd] = useState("");
     const [workspaceJobContext, setWorkspaceJobContext] = useState<JobContextSnapshot | null>(jobContext || null);
     const [sessions, setSessions] = useState<string[]>([]), [includeProfile, setIncludeProfile] = useState(false);
-    const [pickerOpen, setPickerOpen] = useState(false);
+    const [pickerOpen, setPickerOpen] = useState(false), [jobLibraryPickerOpen, setJobLibraryPickerOpen] = useState(false);
     const [mode, setMode] = useState<ResumeOptimizeMode>("balanced");
     const [workspace, setWorkspace] = useState<ResumeWorkspaceView | null>(null), [runStage, setRunStage] = useState("queued");
     const [running, setRunning] = useState(false), [uploading, setUploading] = useState(false), [progress, setProgress] = useState("");
@@ -53,7 +55,10 @@ export function ResumeTools({ apiConfig, resumeContent, jobContext, generationSe
     const { currentResumeResult, fetchCompletedSessions, fetchResumeResults, completedSessions, completedSessionsLoading } = useInterviewStore();
 
     useEffect(() => { void fetchCompletedSessions(); }, [fetchCompletedSessions]);
-    useEffect(() => { if (generationSessionId) setGenerate(true); }, [generationSessionId]);
+    useEffect(() => {
+        if (!generationSessionId) return;
+        queueMicrotask(() => setGenerate(true));
+    }, [generationSessionId]);
     // History is an external store selection; mirror it locally so legacy history remains viewable in the new workspace.
     /* eslint-disable react-hooks/set-state-in-effect */
     useEffect(() => {
@@ -106,22 +111,33 @@ export function ResumeTools({ apiConfig, resumeContent, jobContext, generationSe
         if (!resultId || !review) return; const pending = review.items.filter(item => item.status === "pending"); if (pending.some(item => !decisions[item.item_id])) return toast.warning("还有待确认项"); setReviewSubmitting(true);
         try { const next = await submitResumeReview(resultId, review.version, pending.map(item => ({ item_id: item.item_id, decision: decisions[item.item_id]! }))); setReview(next); toast.success("人工确认已保存"); } catch (error) { toast.error(error instanceof Error ? error.message : "提交人工确认失败"); } finally { setReviewSubmitting(false); }
     }
+    const jobLibraryAction = <button type="button" onClick={() => setJobLibraryPickerOpen(true)} className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-teal-700 hover:bg-teal-50"><BriefcaseBusiness className="h-3.5 w-3.5" />从岗位库导入</button>;
     const picker = <ResumeSessionPicker sessions={completedSessions} selectedSessions={sessions} isOpen={pickerOpen} isLoading={completedSessionsLoading} onToggleOpen={() => setPickerOpen(open => !open)} onToggleSession={id => setSessions(current => current.includes(id) ? current.filter(value => value !== id) : current.length >= 3 ? current : [...current, id])} onOpenSession={onOpenSession} />;
     const optimize = workspace?.content_optimization;
+    const handleResumeJobSelection = (selection: { snapshot: JobContextSnapshot; jobDescription: string }) => {
+        setWorkspaceJobContext(selection.snapshot);
+        setJd(selection.jobDescription);
+        setWorkspace(null);
+        setReview(null);
+        setResultId(undefined);
+        setShowFullOptimization(false);
+    };
+    const clearResumeJobSelection = () => setWorkspaceJobContext(null);
     return <div className="flex min-h-full flex-col gap-6">
         <input ref={fileRef} type="file" accept=".pdf,.doc,.docx,.txt,.md" onChange={upload} className="hidden" />
         <div className="flex items-start justify-between gap-4"><div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-teal-600">Resume workspace</p><h1 className="mt-1 text-2xl font-semibold tracking-tight text-slate-950">一次输入，完成一份可投递的判断</h1><p className="mt-1 text-sm text-slate-500">竞争力、JD 匹配和内容优化会在同一条可恢复流程中完成。</p></div><Sparkles className="hidden h-8 w-8 text-amber-400 sm:block" aria-hidden="true" /></div>
         {workspaceJobContext && !currentResumeResult && <div className="space-y-3 rounded-xl border border-teal-200 bg-teal-50 px-4 py-3 text-sm text-teal-900">
-            <div><span className="font-semibold">已导入岗位：</span>{workspaceJobContext.company_name || "公司未披露"} · {workspaceJobContext.job_title || "岗位未命名"}<span className="ml-2 text-xs text-teal-700">仅预填上下文，点击“开始完整分析”后才会调用模型。</span></div>
+            <div><span className="font-semibold">已导入岗位：</span>{workspaceJobContext.company_name || "公司未披露"} · {workspaceJobContext.job_title || "岗位未命名"}<span className="ml-2 text-xs text-teal-700">仅预填上下文，点击“开始完整分析”后才会调用模型。</span><button type="button" className="ml-2 text-xs font-medium text-teal-700 underline" onClick={clearResumeJobSelection}>清除来源岗位</button></div>
             <div className="grid gap-3 sm:grid-cols-2">
                 <label className="space-y-1 text-xs font-medium text-teal-900">公司名称<input type="text" value={workspaceJobContext.company_name} onChange={event => setWorkspaceJobContext(current => current ? { ...current, company_name: event.target.value } : current)} className="w-full rounded-lg border border-teal-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-teal-500 focus:outline-none" /></label>
                 <label className="space-y-1 text-xs font-medium text-teal-900">岗位名称<input type="text" value={workspaceJobContext.job_title} onChange={event => setWorkspaceJobContext(current => current ? { ...current, job_title: event.target.value } : current)} className="w-full rounded-lg border border-teal-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-teal-500 focus:outline-none" /></label>
             </div>
         </div>}
         <div className="grid items-start gap-6 xl:grid-cols-[minmax(360px,0.8fr)_minmax(0,1.45fr)]">
-            <ResumeInputPanel mode="optimize" resume={resume} jobDescription={jd} isUploading={uploading} isSubmitting={running} submitDisabled={running || !resume.trim() || !jd.trim() || !apiConfig} submitLabel="开始完整分析" submittingLabel="工作区处理中..." optimizeProgress={progress} sessionPicker={picker} includeProfile={includeProfile} optimizeMode={mode} fileInputRef={fileRef} onResumeChange={value => { setResume(value); onResumeChange?.(value); }} onJobDescriptionChange={setJd} onSubmit={startWorkspace} onIncludeProfileChange={setIncludeProfile} onOptimizeModeChange={setMode} />
+            <ResumeInputPanel mode="optimize" resume={resume} jobDescription={jd} isUploading={uploading} isSubmitting={running} submitDisabled={running || !resume.trim() || !jd.trim() || !apiConfig} submitLabel="开始完整分析" submittingLabel="工作区处理中..." optimizeProgress={progress} sessionPicker={picker} includeProfile={includeProfile} optimizeMode={mode} fileInputRef={fileRef} onResumeChange={value => { setResume(value); onResumeChange?.(value); }} onJobDescriptionChange={value => { setJd(value); setWorkspaceJobContext(current => current ? updateJobContextSnapshot(current, { job_description: value }) : current); }} jobLibraryAction={jobLibraryAction} onSubmit={startWorkspace} onIncludeProfileChange={setIncludeProfile} onOptimizeModeChange={setMode} />
             <div className="h-full min-w-0 rounded-2xl border border-slate-200 bg-slate-50/60 p-4 sm:p-5">{running ? <div className="min-h-[520px]"><ResumeProcessingView stage={runStage} message={progress} /></div> : workspace ? <div className="space-y-5 pb-4"><div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4"><p className="text-sm font-semibold text-emerald-900">完整分析结果</p><p className="mt-1 text-xs text-emerald-700">先看结论，再查看各模块依据。你可以继续人工确认并生成简历。</p></div>{workspace.competition_analysis && <ResumeAnalyzeResultPanel result={workspace.competition_analysis} />}{workspace.jd_matching && <ResumeJDMatchResultPanel result={workspace.jd_matching} onToggleOptimize={optimize ? () => setShowFullOptimization(current => !current) : undefined} isOptimizeExpanded={showFullOptimization} />}{optimize && (!workspace.jd_matching || showFullOptimization) && <div><ResumeOptimizeResultPanel result={optimize} review={review} reviewDecisions={decisions} reviewLoading={reviewLoading} reviewSubmitting={reviewSubmitting} onReviewDecision={(id, decision) => setDecisions(current => ({ ...current, [id]: decision }))} onSubmitReview={submitReview} onScrollToGenerate={() => bottomRef.current?.scrollIntoView({ behavior: "smooth" })} onGenerate={() => { if (optimize.requires_user_review && review?.status !== "completed") return toast.warning("请先完成所有改写项的人工确认"); setGenerate(true); }} resultsBottomRef={bottomRef} /></div>}</div> : <div className="min-h-[520px]"><ResumeToolEmptyState type="optimize" /></div>}</div>
         </div>
+        <ResumeJobLibraryPickerDialog open={jobLibraryPickerOpen} onOpenChange={setJobLibraryPickerOpen} onSelect={handleResumeJobSelection} />
         {generate && apiConfig && (optimize || generationSessionId) && <ResumeGenerationDialog isOpen={generate} onClose={() => { setGenerate(false); onGenerationSessionConsumed?.(); }} resumeContent={resume} jobDescription={jd} optimizationResult={optimize || undefined} optimizationResultId={resultId} existingSessionId={generationSessionId || undefined} apiConfig={apiConfig} onSuccess={(id, title, content) => { setGenerate(false); onGenerationSessionConsumed?.(); setPreview({ id, title, content }); void refreshGeneratedResumes(); }} />}
         {preview && <ResumePreviewDialog isOpen={true} onClose={() => setPreview(null)} title={preview.title} content={preview.content} resumeId={preview.id} onContentChange={async content => { const saved = await updateGeneratedResume(preview.id, content); if (!saved) throw new Error("保存简历失败，请重试"); setPreview(current => current ? { ...current, content } : current); void refreshGeneratedResumes(); }} />}
         <SatisfactionDialog

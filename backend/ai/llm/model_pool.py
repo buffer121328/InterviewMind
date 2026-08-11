@@ -1,4 +1,4 @@
-"""Model-pool scheduling and LangChain callback integration."""
+"""提供模型相关后端功能。"""
 
 from __future__ import annotations
 

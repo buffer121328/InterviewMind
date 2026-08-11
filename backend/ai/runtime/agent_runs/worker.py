@@ -39,8 +39,8 @@ async def execute_agent_run(run_id: str) -> None:
     task_type = await service.get_task_type_for_worker(run_id)
     if task_type is None:
         return
-    # Job asset tasks are intentionally allowed to run in parallel; all other LLM
-    # tasks retain the existing single-user gate. Worker thread count caps assets at 5.
+    # 说明：保留这里的兼容性、安全性或流程约束。
+    # 说明：tasks retain the existing single-user gate. Worker thread count caps assets at 5.
     lease = None
     if requires_global_run_gate(task_type):
         lease = await get_run_gate().acquire()

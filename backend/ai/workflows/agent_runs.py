@@ -1,4 +1,4 @@
-"""Agent run application use cases for HTTP routes."""
+"""提供Agent运行相关后端功能。"""
 
 from __future__ import annotations
 
@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass(slots=True)
 class AgentRunResponse:
-    """HTTP-neutral AgentRun response."""
+    """定义Agent运行响应相关后端数据结构或服务组件。"""
 
     payload: dict[str, Any]
     status_code: int = 200
@@ -50,26 +50,26 @@ class AgentRunResponse:
 
 @dataclass(slots=True)
 class AgentRunUseCaseError(Exception):
-    """AgentRun use-case failure."""
+    """定义Agent运行用例案例错误相关后端数据结构或服务组件。"""
 
     message: str
     status_code: int = 400
 
 
 class AgentRunConflict(AgentRunUseCaseError):
-    """AgentRun cannot be changed in its current state."""
+    """定义Agent运行相关后端数据结构或服务组件。"""
 
 
 class AgentRunNotFound(AgentRunUseCaseError):
-    """AgentRun is missing or hidden from this user."""
+    """定义Agent运行相关后端数据结构或服务组件。"""
 
 
 class AgentRunUnavailable(AgentRunUseCaseError):
-    """AgentRun backend is temporarily unavailable."""
+    """定义Agent运行不可用相关后端数据结构或服务组件。"""
 
 
 class AgentRunUseCases:
-    """Create, list, mutate and stream resumable AgentRun tasks."""
+    """定义Agent运行用例案例相关后端数据结构或服务组件。"""
 
     def __init__(self) -> None:
         """初始化 AgentRun 用例服务及其仓储/调度依赖；路由层只通过该服务访问任务生命周期。"""
@@ -77,7 +77,7 @@ class AgentRunUseCases:
         self._session_repo = SessionRepo()
 
     async def _ensure_owned_existing_session(self, session_id: str, user_id: str) -> bool:
-        """Return whether a session exists and belongs to the requesting user."""
+        """确保用户所属会话相关后端逻辑。"""
         return await self._session_repo.get_session(session_id, user_id=user_id) is not None
 
     async def create_interview_start(
@@ -87,7 +87,7 @@ class AgentRunUseCases:
         user_id: str,
         idempotency_key: str,
     ) -> AgentRunResponse:
-        """Create or execute an interview-start task."""
+        """创建面试相关后端逻辑。"""
         if await self._session_repo.get_session(payload["thread_id"]) is not None:
             if not await self._ensure_owned_existing_session(payload["thread_id"], user_id):
                 raise AgentRunNotFound("会话不存在或无权访问", status_code=404)
@@ -121,7 +121,7 @@ class AgentRunUseCases:
         user_id: str,
         idempotency_key: str,
     ) -> AgentRunResponse:
-        """Create a resume-optimization task."""
+        """创建简历相关后端逻辑。"""
         return await self.create_queued_run(
             task_type=TASK_TYPE_RESUME_OPTIMIZE,
             payload=payload,
@@ -136,12 +136,7 @@ class AgentRunUseCases:
         user_id: str,
         idempotency_key: str,
     ) -> AgentRunResponse:
-        """Create a workspace run after owner-scoping every referenced interview session.
-
-        The executor repeats owner-scoped reads as a defense in depth measure, while
-        this boundary rejects inaccessible session references before encrypting and
-        enqueueing the sensitive resume payload.
-        """
+        """创建简历工作区相关后端逻辑。"""
         for session_id in payload.get("session_ids") or []:
             if not await self._ensure_owned_existing_session(session_id, user_id):
                 raise AgentRunNotFound("会话不存在或无权访问", status_code=404)
@@ -159,7 +154,7 @@ class AgentRunUseCases:
         user_id: str,
         idempotency_key: str,
     ) -> AgentRunResponse:
-        """Create one explicit owner-scoped ability-profile run."""
+        """创建能力画像相关后端逻辑。"""
         return await self.create_queued_run(
             task_type=TASK_TYPE_ABILITY_PROFILE,
             payload=payload,
@@ -174,7 +169,7 @@ class AgentRunUseCases:
         user_id: str,
         idempotency_key: str,
     ) -> AgentRunResponse:
-        """Create an interview-report task."""
+        """创建面试报告相关后端逻辑。"""
         if not await self._ensure_owned_existing_session(payload["session_id"], user_id):
             raise AgentRunNotFound("会话不存在或无权访问", status_code=404)
         return await self.create_queued_run(
@@ -192,7 +187,7 @@ class AgentRunUseCases:
         user_id: str,
         idempotency_key: str,
     ) -> AgentRunResponse:
-        """Create a job-assets task."""
+        """创建岗位资产相关后端逻辑。"""
         return await self.create_queued_run(
             task_type=TASK_TYPE_JOB_ASSETS,
             payload=payload,
@@ -207,7 +202,7 @@ class AgentRunUseCases:
         user_id: str,
         idempotency_key: str,
     ) -> AgentRunResponse:
-        """Create a recoverable BOSS DOM import after enforcing user-scoped pacing."""
+        """创建岗位相关后端逻辑。"""
         from integrations.browser_automation.rate_limiter import (
             RateLimitType,
             check_rate,
@@ -233,7 +228,7 @@ class AgentRunUseCases:
         session_id: str | None = None,
         enqueue_fn: Callable[..., Any] | None = None,
     ) -> AgentRunResponse:
-        """Create an AgentRun, executing inline when the queue is disabled."""
+        """创建运行相关后端逻辑。"""
         if not task_queue_enabled():
             lease = await get_run_gate().acquire()
             if lease is None:
@@ -257,7 +252,7 @@ class AgentRunUseCases:
                     raise AgentRunConflict("同一任务正在执行，请稍后查看任务中心", status_code=409)
 
                 async def progress(stage: str) -> None:
-                    """Persist inline progress exactly like the queue worker path."""
+                    """处理进度相关后端逻辑。"""
                     await self._service.mark_stage(run.id, stage)
 
                 execution_payload = {**payload, "_agent_run_id": run.id}
@@ -310,7 +305,7 @@ class AgentRunUseCases:
         offset: int,
         session_id: str | None = None,
     ) -> dict[str, Any]:
-        """List AgentRuns for one user, optionally narrowed to one owned session."""
+        """列出运行相关后端逻辑。"""
         if task_type:
             try:
                 get_agent_definition(task_type)
@@ -342,7 +337,7 @@ class AgentRunUseCases:
         }
 
     async def summarize_runs(self, *, user_id: str) -> dict[str, int]:
-        """Return unfiltered lifecycle totals for the authenticated user's task history."""
+        """汇总运行相关后端逻辑。"""
         return await self._service.summarize_runs(user_id)
 
     async def list_grouped_runs(
@@ -354,13 +349,7 @@ class AgentRunUseCases:
         limit: int,
         offset: int,
     ) -> dict[str, Any]:
-        """List runs grouped by session, with pagination applied to session groups.
-
-        Response shape: ``groups`` contains zero or more ``session`` groups and,
-        when matching unassociated runs exist, one ``other`` group. ``total`` and
-        ``session_total`` count session groups (the paginated resource), while
-        ``other_total`` counts all matching unassociated child runs.
-        """
+        """列出分组运行相关后端逻辑。"""
         if task_type:
             try:
                 get_agent_definition(task_type)
@@ -411,21 +400,21 @@ class AgentRunUseCases:
         }
 
     async def get_run(self, *, run_id: str, user_id: str) -> dict[str, Any]:
-        """Get one AgentRun."""
+        """获取运行相关后端逻辑。"""
         run = await self._service.get(run_id, user_id)
         if not run:
             raise AgentRunNotFound("任务不存在或无权访问", status_code=404)
         return serialize_run(run)
 
     async def cancel_run(self, *, run_id: str, user_id: str) -> dict[str, Any]:
-        """Cancel one non-terminal AgentRun."""
+        """取消运行相关后端逻辑。"""
         run = await self._service.cancel(run_id, user_id)
         if not run:
             raise AgentRunConflict("任务当前不可取消", status_code=409)
         return serialize_run(run)
 
     async def retry_run(self, *, run_id: str, user_id: str) -> AgentRunResponse:
-        """Retry one retryable AgentRun."""
+        """处理重试运行相关后端逻辑。"""
         run = await self._service.retry(run_id, user_id)
         if not run:
             raise AgentRunConflict("任务不可重试或已超过最大尝试次数", status_code=409)
@@ -442,7 +431,7 @@ class AgentRunUseCases:
         after_sequence: int,
         limit: int,
     ) -> dict[str, Any]:
-        """List AgentRun events."""
+        """列出事件相关后端逻辑。"""
         events = await self._service.list_events(
             run_id,
             user_id,
@@ -461,7 +450,7 @@ class AgentRunUseCases:
         after_sequence: int,
         last_event_id: str | None,
     ) -> AsyncGenerator[str, None]:
-        """Open an AgentRun SSE stream after validating ownership."""
+        """处理流式事件相关后端逻辑。"""
         run = await self._service.get(run_id, user_id)
         if not run:
             raise AgentRunNotFound("任务不存在或无权访问", status_code=404)

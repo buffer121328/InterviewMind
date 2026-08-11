@@ -39,7 +39,7 @@ class InterviewReportUseCases:
         self._question_bank_repo = get_question_bank_repo()
 
     async def generate_profile(self, *, request: ProfileGenerateRequest | None, user_id: str) -> dict[str, object]:
-        """Compatibility entry that routes every explicit generation through Ability Profile AgentRun."""
+        """生成画像相关后端逻辑。"""
         import uuid
 
         from ai.workflows.agent_runs import agent_run_use_cases
@@ -76,12 +76,7 @@ class InterviewReportUseCases:
         session_id: str,
         user_id: str,
     ) -> SessionMarkdownReportResponse:
-        """Return one owner-scoped Markdown report assembled from both persisted artifacts.
-
-        The endpoint deliberately exposes neither the resume snapshot nor raw model
-        payloads. A report becomes downloadable only after both parts of the single
-        report-generation task have been persisted.
-        """
+        """获取会话报告相关后端逻辑。"""
         session = await self._session_repo.get_session(session_id, user_id=user_id)
         if not session:
             raise InterviewReportNotFound(message="会话不存在或无权访问")
@@ -134,7 +129,7 @@ class InterviewReportUseCases:
         request: SaveReportQuestionsRequest,
         user_id: str,
     ) -> SaveReportQuestionsResponse:
-        """Persist selected owner-scoped report questions idempotently by their stored indices."""
+        """保存题目相关后端逻辑。"""
         session = await self._session_repo.get_session(session_id, user_id=user_id)
         if not session:
             raise InterviewReportNotFound(message="会话不存在或无权访问")

@@ -79,7 +79,7 @@ class ApplicationCreateRequest(BaseModel):
     source_url: Optional[str] = Field(None, max_length=2048)
     external_job_id: Optional[str] = Field(None, max_length=200)
     captured_job_id: Optional[int] = None
-    greeting_text: Optional[str] = Field(None, max_length=500)
+    greeting_text: Optional[str] = Field(None, max_length=800)
     send_status: Optional[str] = Field(None, max_length=50)
 
 
@@ -92,7 +92,7 @@ class ApplicationUpdateRequest(BaseModel):
     latest_status: Optional[str] = Field(None, description="当前状态")
     priority: Optional[str] = Field(None, description="优先级")
     notes: Optional[str] = Field(None, description="备注")
-    greeting_text: Optional[str] = Field(None, max_length=500)
+    greeting_text: Optional[str] = Field(None, max_length=800)
     send_status: Optional[Literal["pending", "sending", "sent", "failed", "unknown"]] = None
 
 
@@ -104,13 +104,13 @@ class EventCreateRequest(BaseModel):
 
 
 class ApplicationResumeLinkRequest(BaseModel):
-    """Replace or clear the owner-scoped generated resume linked to an application."""
+    """定义投递简历链接请求相关后端数据结构或服务组件。"""
 
     resume_id: Optional[int] = Field(default=None, ge=1, description="生成简历 ID；null 表示解除关联")
 
 
 class LinkedResumeAsset(BaseModel):
-    """Owner-scoped generated resume metadata embedded in an application detail."""
+    """定义关联简历资产相关后端数据结构或服务组件。"""
 
     id: int
     title: str

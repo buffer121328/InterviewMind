@@ -1,4 +1,4 @@
-"""Project rewrite routes."""
+"""提供简历项目改写相关后端功能。"""
 
 import logging
 from typing import Optional
@@ -27,7 +27,7 @@ async def project_rewrite_endpoint(
     request: ProjectRewriteRequest,
     user_id: str = Depends(get_current_user_id),
 ):
-    """Rewrite project experience with a selected rewrite mode."""
+    """处理项目改写端点相关后端逻辑。"""
     try:
         return await project_rewrite_use_cases.rewrite(request=request, user_id=user_id)
     except ProjectRewriteBadRequest as exc:
@@ -43,7 +43,7 @@ async def list_project_rewrite_results(
     limit: int = 20,
     user_id: str = Depends(get_current_user_id),
 ):
-    """List project rewrite history."""
+    """列出项目改写结果相关后端逻辑。"""
     return await project_rewrite_use_cases.list_results(
         user_id=user_id,
         rewrite_mode=rewrite_mode,
@@ -56,7 +56,7 @@ async def get_project_rewrite_result(
     rewrite_id: int,
     user_id: str = Depends(get_current_user_id),
 ):
-    """Get one project rewrite result."""
+    """获取项目改写结果相关后端逻辑。"""
     try:
         return await project_rewrite_use_cases.get_result(rewrite_id=rewrite_id, user_id=user_id)
     except ProjectRewriteNotFound as exc:
@@ -71,7 +71,7 @@ async def delete_project_rewrite_result(
     rewrite_id: int,
     user_id: str = Depends(get_current_user_id),
 ):
-    """Delete one project rewrite record."""
+    """删除项目改写结果相关后端逻辑。"""
     try:
         return await project_rewrite_use_cases.delete_result(rewrite_id=rewrite_id, user_id=user_id)
     except ProjectRewriteNotFound as exc:

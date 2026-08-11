@@ -35,16 +35,16 @@ class JobApplicationModel(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime)
 
     # === BOSS 自动化扩展字段 ===
-    source_platform: Mapped[str | None] = mapped_column(String, nullable=True)     # boss/lagou/...
+    source_platform: Mapped[str | None] = mapped_column(String, nullable=True)     # 说明：boss/lagou/...
     source_url: Mapped[str | None] = mapped_column(String, nullable=True)          # 岗位链接
     external_job_id: Mapped[str | None] = mapped_column(String, nullable=True)     # 平台侧岗位ID
-    captured_job_id: Mapped[int | None] = mapped_column(Integer, nullable=True)    # FK -> captured_jobs
+    captured_job_id: Mapped[int | None] = mapped_column(Integer, nullable=True)    # 说明：FK -> captured_jobs
     greeting_text: Mapped[str | None] = mapped_column(Text, nullable=True)          # 使用的打招呼文案
-    send_status: Mapped[str | None] = mapped_column(String, nullable=True)          # pending/sending/sent/failed/unknown
+    send_status: Mapped[str | None] = mapped_column(String, nullable=True)          # 说明：pending/sending/sent/failed/unknown
     send_attempts: Mapped[int] = mapped_column(Integer, default=0)                 # 发送尝试次数
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)             # 最后错误信息
     last_screenshot_path: Mapped[str | None] = mapped_column(String, nullable=True) # 最后截图路径
-    jd_analysis_id: Mapped[int | None] = mapped_column(Integer, nullable=True)     # FK -> jd_analysis_results
+    jd_analysis_id: Mapped[int | None] = mapped_column(Integer, nullable=True)     # 说明：FK -> jd_analysis_results
     custom_resume_id: Mapped[int | None] = mapped_column(Integer, nullable=True)   # 岗位专用简历 ID
 
     # 关系

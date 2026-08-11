@@ -1,4 +1,4 @@
-"""API configuration validation use cases."""
+"""提供配置相关后端功能。"""
 
 from __future__ import annotations
 
@@ -14,10 +14,10 @@ logger = logging.getLogger(__name__)
 
 
 class ApiConfigUseCases:
-    """Validate user-provided model API configuration outside the HTTP layer."""
+    """定义API配置用例案例相关后端数据结构或服务组件。"""
 
     async def validate(self, request: ApiConfigValidateRequest) -> dict[str, object]:
-        """Validate API credentials by issuing a minimal model request."""
+        """校验配置相关后端逻辑。"""
         try:
             if request.kind == "embedding":
                 await llms.model_gateway.create_embeddings(

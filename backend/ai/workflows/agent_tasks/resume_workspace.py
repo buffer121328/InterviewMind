@@ -1,4 +1,4 @@
-"""Recoverable executor for the unified Resume Workspace workflow."""
+"""提供简历工作区相关后端功能。"""
 
 from __future__ import annotations
 
@@ -21,12 +21,7 @@ _WORKSPACE_CHECKPOINT_VERSION = "resume.workspace.phase4.v1"
 
 
 def _public_workspace_result(result_id: int, result_data: dict[str, Any]) -> dict[str, Any]:
-    """Map the persisted parent result to the public workspace response.
-
-    ``result_data`` uses the established ``optimize`` shape at its top level so
-    existing generation and high-risk review endpoints retain their approval
-    gate. Workspace-only analysis is nested under ``workspace``.
-    """
+    """处理公开工作区结果相关后端逻辑。"""
     from ai.agents.resume.result_mapper import pipeline_to_optimize_result
     from ai.agents.resume.resume_review import public_review_state
 
@@ -45,7 +40,7 @@ def _public_workspace_result(result_id: int, result_data: dict[str, Any]) -> dic
 
 
 def _pipeline_jd_analysis(jd_matching: dict[str, Any]) -> dict[str, Any]:
-    """Translate the richer workspace JD result into the optimization pipeline contract."""
+    """处理流水线JD分析相关后端逻辑。"""
     match_score = float(jd_matching.get("overall_match_score") or 0)
     matched = list(jd_matching.get("matched_keywords") or [])
     missing = list(jd_matching.get("missing_keywords") or [])
@@ -70,14 +65,14 @@ def _pipeline_jd_analysis(jd_matching: dict[str, Any]) -> dict[str, Any]:
 
 
 def _compact_json(value: Any) -> str:
-    """Serialize bounded shared IR for model prompts without restoring raw source documents."""
+    """处理紧凑JSON相关后端逻辑。"""
     if hasattr(value, "model_dump"):
         value = value.model_dump()
     return json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
 
 
 def _local_jd_matching(bundle: Any) -> dict[str, Any]:
-    """Build a deterministic degraded JD match from direct evidence only."""
+    """处理本地JD相关后端逻辑。"""
     matched = bundle.match_map.matched_evidence
     missing = bundle.match_map.missing_requirements
     total = len(matched) + len(missing)
@@ -100,7 +95,7 @@ def _local_jd_matching(bundle: Any) -> dict[str, Any]:
 
 
 def _local_competition_analysis(bundle: Any) -> dict[str, Any]:
-    """Return a deterministic numeric fallback when the competition model is unavailable."""
+    """处理本地竞赛分析相关后端逻辑。"""
     facts = bundle.fact_sheet
     evidence_count = sum(
         len(items)
@@ -125,7 +120,7 @@ def _local_competition_analysis(bundle: Any) -> dict[str, Any]:
 
 
 def _checkpoint_matches(checkpoint: Mapping[str, Any] | None, cache_identity: str) -> bool:
-    """Validate a checkpoint against source, owner-bound identity, and schema version."""
+    """处理检查点相关后端逻辑。"""
     return bool(
         checkpoint
         and checkpoint.get("version") == _WORKSPACE_CHECKPOINT_VERSION
@@ -140,7 +135,7 @@ async def _load_checkpoint(
     user_id: str,
     stage: str,
 ) -> dict[str, Any] | None:
-    """Load an encrypted owner-scoped checkpoint and degrade safely if persistence is unavailable."""
+    """加载检查点相关后端逻辑。"""
     if service is None:
         return None
     try:
@@ -162,7 +157,7 @@ async def _save_checkpoint(
     stage: str,
     checkpoint: dict[str, Any],
 ) -> None:
-    """Save only through AgentRun encryption and never expose checkpoint bodies in events."""
+    """保存检查点相关后端逻辑。"""
     if service is None:
         return
     try:
@@ -180,13 +175,7 @@ async def execute_resume_workspace(
     user_id: str,
     progress: ProgressCallback,
 ) -> dict | DeferredExecutionResult:
-    """Run the compact, parallel, recoverable Resume Workspace workflow.
-
-    Competition and JD analysis consume the shared fact IR in parallel. The rewrite
-    pipeline receives the original resume once for ChangeItem assembly and fact review.
-    Completed business stages are encrypted by AgentRun and reused only when owner and
-    source fingerprints match. High-risk changes remain pending user confirmation.
-    """
+    """执行简历工作区相关后端逻辑。"""
     from ai.agents.resume.jd_matcher import match_jd
     from ai.agents.resume.resume_analyzer_graph import analyze_resume
     from ai.agents.resume.resume_context import assemble_resume_context
@@ -287,7 +276,7 @@ async def execute_resume_workspace(
         await progress("competition_analysis")
 
         async def competition_call() -> dict[str, Any]:
-            """Run competition analysis on compact shared facts within the workspace deadline."""
+            """处理竞赛相关后端逻辑。"""
             return await analyze_resume(
                 resume_content=compact_resume,
                 job_description=compact_jd,
@@ -299,7 +288,7 @@ async def execute_resume_workspace(
             )
 
         async def match_call() -> dict[str, Any]:
-            """Run JD matching on the same IR without retransmitting full source documents."""
+            """处理简历工作区相关后端逻辑。"""
             return await match_jd(
                 mode="smart",
                 resume_content=compact_resume,
@@ -415,10 +404,10 @@ async def _deferred_or_persist(
     agent_run_id: str,
     user_id: str,
 ) -> dict | DeferredExecutionResult:
-    """Persist the single parent result transactionally or return its deferred writer."""
+    """处理简历工作区相关后端逻辑。"""
 
     async def persist_result(session: AsyncSession | None = None) -> dict:
-        """Save once in the AgentRun transaction while retaining the pending review gate."""
+        """持久化结果相关后端逻辑。"""
         result_id = await resume_repo.save_result(
             user_id=user_id,
             result_type="optimize",

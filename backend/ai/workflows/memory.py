@@ -1,4 +1,4 @@
-"""Memory application use cases."""
+"""提供记忆相关后端功能。"""
 
 from __future__ import annotations
 
@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 
 
 def _memory_unavailable_message(memory_service) -> str:
-    """Return a stable sanitized diagnosis without exposing credentials or DSNs."""
+    """处理记忆不可用消息相关后端逻辑。"""
     category = getattr(memory_service, "readiness_category", "initialization_failed")
     return {
         "model_channels_missing": MEMORY_DISABLED_MESSAGE,
@@ -45,7 +45,7 @@ def _memory_unavailable_message(memory_service) -> str:
 
 
 async def get_owner_memory_service(user_id: str, api_config: dict | None):
-    """Use request model config, or fall back to server environment settings."""
+    """获取用户记忆服务相关后端逻辑。"""
 
     del user_id
     return await get_agent_memory_service(api_config)
@@ -53,13 +53,13 @@ async def get_owner_memory_service(user_id: str, api_config: dict | None):
 
 @dataclass(slots=True)
 class MemoryUseCaseError(Exception):
-    """Memory use-case failure."""
+    """定义记忆用例案例错误相关后端数据结构或服务组件。"""
 
     message: str
 
 
 class MemoryUseCases:
-    """Query and mutate long-term user memories."""
+    """定义记忆用例案例相关后端数据结构或服务组件。"""
 
     async def list_memories(
         self,
@@ -68,7 +68,7 @@ class MemoryUseCases:
         page_size: int,
         api_config: dict | None = None,
     ) -> MemoryListResponse:
-        """List memories using request-scoped model credentials without persisting them."""
+        """列出记忆相关后端逻辑。"""
         memory_service = await get_owner_memory_service(user_id, api_config)
         if not memory_service.is_enabled:
             return MemoryListResponse(
@@ -98,7 +98,7 @@ class MemoryUseCases:
         memory_type: str | None,
         api_config: dict | None = None,
     ) -> MemorySearchResponse:
-        """Search memories using request-scoped model credentials without persisting them."""
+        """搜索记忆相关后端逻辑。"""
         memory_service = await get_owner_memory_service(user_id, api_config)
         if not memory_service.is_enabled:
             return MemorySearchResponse(
@@ -127,7 +127,7 @@ class MemoryUseCases:
         memory_id: str,
         api_config: dict | None = None,
     ) -> MemoryHistoryResponse:
-        """Return memory history through the same request-scoped mem0 client."""
+        """获取历史相关后端逻辑。"""
         memory_service = await get_owner_memory_service(user_id, api_config)
         if not memory_service.is_enabled:
             return MemoryHistoryResponse(
@@ -150,7 +150,7 @@ class MemoryUseCases:
         user_id: str,
         request: MemoryConsolidateRequest,
     ) -> MemoryConsolidationResponse:
-        """Preview or explicitly apply owner-scoped historical memory consolidation."""
+        """处理合并记忆相关后端逻辑。"""
         if not request.dry_run and not request.confirm:
             raise MemoryUseCaseError("实际整合长期记忆前必须显式 confirm=true")
 
@@ -178,7 +178,7 @@ class MemoryUseCases:
         user_id: str,
         request: MemoryCleanupRequest,
     ) -> MemoryCleanupResponse:
-        """Preview, mark, or delete only memories eligible under gradual decay."""
+        """清理记忆相关后端逻辑。"""
 
         if not request.dry_run and not request.confirm:
             raise MemoryUseCaseError("应用长期记忆清理前必须显式 confirm=true")
@@ -205,7 +205,7 @@ class MemoryUseCases:
         user_id: str,
         request: MemoryCreateRequest,
     ) -> MemoryWriteResponse:
-        """Create a raw user-authored memory without automatic extraction."""
+        """处理新增记忆相关后端逻辑。"""
         api_config = request.api_config.model_dump() if request.api_config else None
         memory_service = await get_owner_memory_service(user_id, api_config)
         if not memory_service.is_enabled:
@@ -227,7 +227,7 @@ class MemoryUseCases:
         memory_id: str,
         request: MemoryUpdateRequest,
     ) -> MemoryWriteResponse:
-        """Replace one owner-scoped memory after the service validates ownership."""
+        """更新记忆相关后端逻辑。"""
         api_config = request.api_config.model_dump() if request.api_config else None
         memory_service = await get_owner_memory_service(user_id, api_config)
         if not memory_service.is_enabled:
@@ -248,7 +248,7 @@ class MemoryUseCases:
         memory_id: str,
         api_config: dict | None = None,
     ) -> MemoryDeleteResponse:
-        """Delete one owner-scoped memory through the request-scoped mem0 client."""
+        """删除记忆相关后端逻辑。"""
         memory_service = await get_owner_memory_service(user_id, api_config)
         if not memory_service.is_enabled:
             return MemoryDeleteResponse(success=False, message=_memory_unavailable_message(memory_service))
@@ -271,7 +271,7 @@ class MemoryUseCases:
         user_id: str,
         request: MemoryDeleteAllRequest,
     ) -> MemoryDeleteResponse:
-        """Delete all memories for one user when explicitly confirmed."""
+        """删除记忆相关后端逻辑。"""
         if not request.confirm:
             return MemoryDeleteResponse(success=False, message="需要 confirm=true 才能清空全部记忆")
 
@@ -290,7 +290,7 @@ memory_use_cases = MemoryUseCases()
 
 
 def _memory_id_from_result(result: object) -> str | None:
-    """Extract the first mem0 result id across its supported response shapes."""
+    """处理记忆ID来源结果相关后端逻辑。"""
     if not isinstance(result, dict):
         return None
     if isinstance(result.get("id"), str):

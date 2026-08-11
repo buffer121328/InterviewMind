@@ -564,7 +564,7 @@ def build_baseline_comparison(
     current_agent_name: str, current_model_config_hash: str,
     baseline_snapshot: dict[str, Any],
 ) -> dict[str, Any]:
-    """Compare only the same dataset and Agent while recording both model configs."""
+    """构建评测相关后端逻辑。"""
     reasons: list[str] = []
     if baseline_snapshot.get("dataset_version") != current_dataset_version:
         reasons.append("dataset_version_mismatch")

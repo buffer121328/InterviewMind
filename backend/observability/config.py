@@ -1,11 +1,11 @@
-"""Environment-backed Langfuse configuration without client lifecycle state."""
+"""提供配置相关后端功能。"""
 
 import os
 from dataclasses import dataclass
 
 
 def _env_bool(name: str, default: bool = False) -> bool:
-    """Read a boolean environment variable."""
+    """处理环境变量相关后端逻辑。"""
     raw = os.getenv(name)
     if raw is None:
         return default
@@ -13,7 +13,7 @@ def _env_bool(name: str, default: bool = False) -> bool:
 
 
 def _env_int(name: str, default: int) -> int:
-    """Read a positive integer environment variable with a safe fallback."""
+    """处理环境变量整数相关后端逻辑。"""
     try:
         return max(1, int(os.getenv(name, str(default))))
     except ValueError:
@@ -21,7 +21,7 @@ def _env_int(name: str, default: int) -> int:
 
 
 def _env_non_negative_int(name: str, default: int) -> int:
-    """Read an integer option where zero is a valid value, such as retry count."""
+    """处理环境变量整数相关后端逻辑。"""
 
     try:
         return max(0, int(os.getenv(name, str(default))))
@@ -30,7 +30,7 @@ def _env_non_negative_int(name: str, default: int) -> int:
 
 
 def _env_float_optional(name: str) -> float | None:
-    """Read an optional float environment variable."""
+    """处理环境变量浮点数相关后端逻辑。"""
     raw = os.getenv(name)
     if not raw:
         return None
@@ -41,7 +41,7 @@ def _env_float_optional(name: str) -> float | None:
 
 
 def _env_float(name: str, default: float) -> float:
-    """Read a float environment variable with a safe fallback for best-effort knobs."""
+    """处理环境变量浮点数相关后端逻辑。"""
 
     value = _env_float_optional(name)
     return default if value is None else value

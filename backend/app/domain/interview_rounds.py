@@ -1,4 +1,4 @@
-"""Unified interview round types and default question-count rules."""
+"""提供面试相关后端功能。"""
 
 from __future__ import annotations
 
@@ -28,18 +28,18 @@ INTERVIEW_CLOSING_MESSAGE: Final[str] = (
 
 
 def validate_next_round_index(round_index: int) -> int:
-    """Validate the next round index against the product-wide three-round cap."""
+    """校验轮次索引相关后端逻辑。"""
     if round_index < 2 or round_index > MAX_INTERVIEW_ROUNDS:
         raise ValueError(f"同一家公司最多只能进行 {MAX_INTERVIEW_ROUNDS} 轮面试")
     return round_index
 
 def valid_round_types() -> tuple[str, ...]:
-    """Return the currently supported interview round types."""
+    """处理有效轮次类型相关后端逻辑。"""
     return tuple(ROUND_TYPE_DEFAULT_QUESTIONS.keys())
 
 
 def resolve_round_type(round_type: str | None = None, *, round_index: int | None = None) -> str:
-    """Resolve and validate an interview round type."""
+    """解析轮次类型相关后端逻辑。"""
     candidate = round_type or ROUND_INDEX_DEFAULT_TYPES.get(round_index or 1, "hr_comprehensive")
     if candidate not in ROUND_TYPE_DEFAULT_QUESTIONS:
         allowed = ", ".join(valid_round_types())
@@ -52,7 +52,7 @@ def default_questions_for_round_type(
     *,
     round_index: int | None = None,
 ) -> int:
-    """Return the default question count for an interview round type."""
+    """处理默认题目轮次类型相关后端逻辑。"""
     return ROUND_TYPE_DEFAULT_QUESTIONS[resolve_round_type(round_type, round_index=round_index)]
 
 
@@ -62,7 +62,7 @@ def resolve_max_questions(
     *,
     round_index: int | None = None,
 ) -> int:
-    """Resolve maximum questions, using the round default when unspecified."""
+    """解析最大题目相关后端逻辑。"""
     resolved_round_type = resolve_round_type(round_type, round_index=round_index)
     resolved = max_questions if max_questions is not None else ROUND_TYPE_DEFAULT_QUESTIONS[resolved_round_type]
     try:

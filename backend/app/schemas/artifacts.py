@@ -1,4 +1,4 @@
-"""Bounded request and response contracts for private report exports."""
+"""提供产物相关后端功能。"""
 
 from typing import Literal
 
@@ -17,7 +17,7 @@ ArtifactSourceType = Literal[
 
 
 class ArtifactExportRequest(BaseModel):
-    """Request one export from an existing owner-scoped report source."""
+    """定义产物请求相关后端数据结构或服务组件。"""
 
     source_type: ArtifactSourceType
     source_id: str = Field(min_length=1, max_length=128)
@@ -25,7 +25,7 @@ class ArtifactExportRequest(BaseModel):
 
 
 class ArtifactResponse(BaseModel):
-    """Safe artifact metadata; storage keys are intentionally never returned."""
+    """定义产物响应相关后端数据结构或服务组件。"""
 
     id: int
     source_type: ArtifactSourceType

@@ -85,7 +85,7 @@ export function BossSearchCapturePanel({
                     />
                 </label>
                 <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs leading-5 text-blue-900">
-                    基础简历会参与筛选：先计算透明关键词重合分，再由 Fast 模型做语义匹配，默认按 20% 关键词分 + 80% 语义分排序；模型解析失败时自动回退本地关键词分。
+                    基础简历只提取专业技能参与筛选：先计算透明关键词重合分，再由 Fast 模型做语义匹配，默认按 20% 关键词分 + 80% 语义分排序；模型解析失败时自动回退本地关键词分。
                 </div>
                 <div className="space-y-2">
                     <div className="flex items-center justify-between gap-2">
@@ -100,7 +100,7 @@ export function BossSearchCapturePanel({
                         className="min-h-56 text-xs leading-5"
                         value={resumeContent}
                         onChange={event => onResumeContentChange(event.target.value)}
-                        placeholder="粘贴基础简历；它会用于岗位排序、匹配度分析、定制简历和打招呼文案。"
+                        placeholder="粘贴简历；采集时只使用专业技能段落，用于岗位排序与打招呼文案。"
                     />
                 </div>
                 <Button className="w-full bg-teal-700 hover:bg-teal-800" onClick={() => void onCapture()} disabled={captureBusy || checkingTab}>

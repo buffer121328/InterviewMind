@@ -1,4 +1,4 @@
-"""Shared naming contract for application-owned Redis keys."""
+"""提供键相关后端功能。"""
 
 from __future__ import annotations
 
@@ -7,12 +7,7 @@ REDIS_KEY_SCHEMA_VERSION = "v1"
 
 
 def build_redis_key(domain: str, kind: str, *segments: object) -> str:
-    """Build a versioned Redis key from caller-sanitized, non-sensitive segments.
-
-    ``v1`` versions the key layout and value contract. It changes only when the
-    Redis representation becomes incompatible, not whenever the stored data is
-    updated.
-    """
+    """根据调用方已清洗且不含敏感信息的片段构建带版本的 Redis 键。"""
 
     return ":".join(
         (

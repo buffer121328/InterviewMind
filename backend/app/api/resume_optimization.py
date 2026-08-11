@@ -1,4 +1,4 @@
-"""Resume analysis, optimization, review, and streaming routes."""
+"""提供简历优化相关后端功能。"""
 
 import logging
 
@@ -30,7 +30,7 @@ async def analyze_resume_endpoint(
     request: ResumeAnalyzeRequest,
     user_id: str = Depends(get_current_user_id),
 ):
-    """Analyze a resume against an optional job description."""
+    """分析简历端点相关后端逻辑。"""
     try:
         return await resume_optimization_use_cases.analyze_resume(request=request, user_id=user_id)
     except ResumeOptimizationBadRequest as exc:
@@ -45,7 +45,7 @@ async def optimize_resume_endpoint(
     request: ResumeOptimizeRequest,
     user_id: str = Depends(get_current_user_id),
 ):
-    """Optimize resume content through the application layer pipeline."""
+    """优化简历端点相关后端逻辑。"""
     try:
         return await resume_optimization_use_cases.optimize_resume(request=request, user_id=user_id)
     except ResumeOptimizationBadRequest as exc:
@@ -60,7 +60,7 @@ async def get_resume_review(
     result_id: int,
     user_id: str = Depends(get_current_user_id),
 ):
-    """Get the public review state for an optimization result."""
+    """获取简历复核相关后端逻辑。"""
     try:
         return await resume_optimization_use_cases.get_resume_review(result_id=result_id, user_id=user_id)
     except ResumeOptimizationNotFound as exc:
@@ -73,7 +73,7 @@ async def submit_resume_review(
     request: ResumeReviewRequest,
     user_id: str = Depends(get_current_user_id),
 ):
-    """Submit manual review decisions for an optimization result."""
+    """提交简历复核相关后端逻辑。"""
     try:
         return await resume_optimization_use_cases.submit_resume_review(
             result_id=result_id,
@@ -93,7 +93,7 @@ async def optimize_resume_stream_endpoint(
     request: ResumeOptimizeRequest,
     user_id: str = Depends(get_current_user_id),
 ):
-    """Stream resume optimization progress through SSE."""
+    """优化简历流式端点相关后端逻辑。"""
     try:
         event_generator = resume_optimization_use_cases.optimize_resume_stream(request=request, user_id=user_id)
     except ResumeOptimizationBadRequest as exc:

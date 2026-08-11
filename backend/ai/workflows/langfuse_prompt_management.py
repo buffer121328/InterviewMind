@@ -1,4 +1,4 @@
-"""Bounded server-side Langfuse Prompt Management integration."""
+"""提供Langfuse提示词管理相关后端功能。"""
 
 import logging
 import re
@@ -21,16 +21,16 @@ _TEMPLATE_VARIABLE = re.compile(r"{{\s*([A-Za-z_][A-Za-z0-9_]*)\s*}}")
 
 
 class PromptManagementUnavailable(Exception):
-    """Raised when the opt-in prompt-management client is not safely available."""
+    """定义提示词管理不可用相关后端数据结构或服务组件。"""
 
 
 class PromptManagementRemoteError(Exception):
-    """Raised for a Langfuse API failure without exposing remote response content."""
+    """定义提示词管理错误相关后端数据结构或服务组件。"""
 
 
 @dataclass(frozen=True)
 class PromptListPage:
-    """Safe metadata page returned by the Langfuse Prompt Management service."""
+    """定义提示词列表分页相关后端数据结构或服务组件。"""
 
     items: list[PromptMetadataResponse]
     total: int
@@ -39,15 +39,10 @@ class PromptListPage:
 
 
 class LangfusePromptManagementService:
-    """Expose only prompt CRUD-like operations backed by the installed Langfuse SDK.
-
-    This service never accepts remote URLs, credentials, arbitrary SDK resource names,
-    or model-execution instructions. SDK exceptions are logged only by type so prompt
-    templates and credentials cannot enter application logs.
-    """
+    """定义Langfuse提示词管理服务相关后端数据结构或服务组件。"""
 
     def _client(self) -> Any:
-        """Return a configured SDK client or raise a safe, feature-level error."""
+        """处理客户端相关后端逻辑。"""
         config = LangfuseConfig.from_env()
         if (
             not config.enabled
@@ -62,7 +57,7 @@ class LangfusePromptManagementService:
         return client
 
     def list_prompts(self, *, page: int, limit: int, label: str | None = None) -> PromptListPage:
-        """List only prompt metadata through Langfuse's explicit public API resource."""
+        """列出提示词相关后端逻辑。"""
         try:
             response = self._client().api.prompts.list(page=page, limit=limit, label=label)
             items = [self._metadata(item) for item in getattr(response, "data", [])]
@@ -76,12 +71,12 @@ class LangfusePromptManagementService:
             raise PromptManagementRemoteError() from error
 
     def fetch_prompt(self, *, name: str, version: int | None, label: str | None) -> PromptVersionResponse:
-        """Fetch one explicitly selected prompt version or label without path interpolation."""
+        """获取提示词相关后端逻辑。"""
         if (version is None) == (label is None):
             raise ValueError("exactly one of version or label is required")
         try:
-            # The official generated SDK owns its URL encoding; names are additionally
-            # schema-restricted so encoded slashes cannot alter an application route.
+            # 说明：保留这里的兼容性、安全性或流程约束。
+            # 说明：schema-restricted so encoded slashes cannot alter an application route.
             prompt = self._client().api.prompts.get(name, version=version, label=label, resolve=False)
             return self._version(prompt)
         except PromptManagementUnavailable:
@@ -91,7 +86,7 @@ class LangfusePromptManagementService:
             raise PromptManagementRemoteError() from error
 
     def create_version(self, request: PromptCreateRequest) -> PromptVersionResponse:
-        """Create a new immutable version using only validated content and labels."""
+        """创建版本相关后端逻辑。"""
         try:
             prompt = self._client().create_prompt(
                 name=request.name,
@@ -110,7 +105,7 @@ class LangfusePromptManagementService:
             raise PromptManagementRemoteError() from error
 
     def update_labels(self, *, name: str, version: int, labels: list[str]) -> PromptVersionResponse:
-        """Promote or demote an immutable version by replacing its validated labels."""
+        """更新标签相关后端逻辑。"""
         try:
             prompt = self._client().update_prompt(name=name, version=version, new_labels=labels)
             return self._version(prompt)
@@ -121,11 +116,7 @@ class LangfusePromptManagementService:
             raise PromptManagementRemoteError() from error
 
     def sync_builtin_production_prompts(self) -> PromptBuiltinSyncResponse:
-        """Create missing production prompts from the latest local registry versions.
-
-        Existing production prompts are never overwritten. This makes the operation
-        safe to retry after a partial remote failure and preserves cloud-owned edits.
-        """
+        """同步内置生产提示词相关后端逻辑。"""
         from ai.prompts.management_catalog import latest_builtin_managed_prompts
 
         try:
@@ -173,11 +164,7 @@ class LangfusePromptManagementService:
     def preview(
         self, *, name: str, version: int | None, label: str | None, values: dict[str, str]
     ) -> PromptPreviewResponse:
-        """Compile simple mustache variables locally after fetching a selected prompt.
-
-        Compilation is string substitution only: it neither invokes a model nor resolves
-        Langfuse dependencies/placeholders. Unprovided variables remain visible to callers.
-        """
+        """预览Langfuse提示词管理相关后端逻辑。"""
         fetched = self.fetch_prompt(name=name, version=version, label=label)
         if isinstance(fetched.prompt, str):
             compiled, unresolved = self._compile_text(fetched.prompt, values)
@@ -197,7 +184,7 @@ class LangfusePromptManagementService:
 
     @staticmethod
     def _compile_text(template: str, values: dict[str, str]) -> tuple[str, set[str]]:
-        """Substitute provided simple variables once and return variables left unresolved."""
+        """处理文本相关后端逻辑。"""
         unresolved: set[str] = set()
 
         def replace(match: re.Match[str]) -> str:
@@ -211,7 +198,7 @@ class LangfusePromptManagementService:
 
     @staticmethod
     def _metadata(value: Any) -> PromptMetadataResponse:
-        """Map SDK metadata to an explicit response model without template content."""
+        """处理元数据相关后端逻辑。"""
         from ai.prompts.management_catalog import prompt_presentation
 
         name = str(getattr(value, "name"))
@@ -230,7 +217,7 @@ class LangfusePromptManagementService:
 
     @staticmethod
     def _version(value: Any) -> PromptVersionResponse:
-        """Map either a generated prompt object or SDK prompt client to a safe schema."""
+        """处理版本相关后端逻辑。"""
         from ai.prompts.management_catalog import prompt_presentation
 
         source = value
@@ -259,12 +246,7 @@ class LangfusePromptManagementService:
 
     @staticmethod
     def _prompt_type(value: Any, content: Any = None) -> PromptType:
-        """Normalize generated prompt types and infer type for SDK prompt clients.
-
-        The inspected SDK's ``create_prompt`` returns a prompt client with no ``type``
-        attribute, while the generated public API returns a prompt object with one.
-        Only those two response shapes are accepted.
-        """
+        """处理提示词类型相关后端逻辑。"""
         raw = getattr(value, "type", "")
         normalized = str(getattr(raw, "value", raw)).lower()
         if not normalized and isinstance(content, str):
@@ -277,7 +259,7 @@ class LangfusePromptManagementService:
 
     @staticmethod
     def _chat_message(value: Any) -> PromptChatMessage:
-        """Normalize a Langfuse chat message while retaining only role and content."""
+        """处理聊天消息相关后端逻辑。"""
         if isinstance(value, dict):
             role, content = value.get("role"), value.get("content")
         else:
@@ -288,5 +270,5 @@ class LangfusePromptManagementService:
 
     @staticmethod
     def _log_remote_failure(operation: str, error: Exception) -> None:
-        """Log failure classification only, intentionally excluding templates and SDK details."""
+        """处理日志失败相关后端逻辑。"""
         logger.warning("Langfuse prompt management %s failed: %s", operation, type(error).__name__)

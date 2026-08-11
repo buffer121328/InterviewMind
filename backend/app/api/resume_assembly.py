@@ -1,4 +1,4 @@
-"""Resume assembly routes."""
+"""提供简历组装相关后端功能。"""
 
 import logging
 
@@ -20,7 +20,7 @@ async def assemble_resume(
     request: dict,
     user_id: str = Depends(get_current_user_id),
 ):
-    """Assemble a tailored resume from selected candidate materials."""
+    """组装简历相关后端逻辑。"""
     try:
         return await resume_assembly_use_cases.assemble_resume(request=request, user_id=user_id)
     except ResumeAssemblyBadRequest as exc:
@@ -35,7 +35,7 @@ async def list_assembly_results(
     limit: int = 20,
     user_id: str = Depends(get_current_user_id),
 ):
-    """List resume assembly results."""
+    """列出组装结果相关后端逻辑。"""
     return await resume_assembly_use_cases.list_assembly_results(user_id=user_id, limit=limit)
 
 
@@ -44,7 +44,7 @@ async def get_assembly_result(
     result_id: int,
     user_id: str = Depends(get_current_user_id),
 ):
-    """Get one resume assembly result."""
+    """获取组装结果相关后端逻辑。"""
     try:
         return await resume_assembly_use_cases.get_assembly_result(result_id=result_id, user_id=user_id)
     except ResumeAssemblyNotFound as exc:
@@ -59,7 +59,7 @@ async def delete_assembly_result(
     result_id: int,
     user_id: str = Depends(get_current_user_id),
 ):
-    """Delete one resume assembly result."""
+    """删除组装结果相关后端逻辑。"""
     try:
         return await resume_assembly_use_cases.delete_assembly_result(result_id=result_id, user_id=user_id)
     except ResumeAssemblyNotFound as exc:

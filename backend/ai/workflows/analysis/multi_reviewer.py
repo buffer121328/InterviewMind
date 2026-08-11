@@ -1,10 +1,4 @@
-"""Parallel map-reduce reviewers for interview reports and aggregate ability profiles.
-
-The graph is intentionally read-only: each reviewer receives the same bounded context,
-produces an independent structured assessment, and a reducer synthesizes the public
-report. Model channels are selected per perspective so deployments may use distinct
-model families without changing workflow code.
-"""
+"""提供多评审相关后端功能。"""
 
 from __future__ import annotations
 
@@ -32,7 +26,7 @@ ReviewMode = Literal["session_report", "ability_profile"]
 
 
 class ReviewerAssessment(BaseModel):
-    """One isolated reviewer's evidence-bound score and findings."""
+    """定义评审相关后端数据结构或服务组件。"""
 
     perspective: ReviewPerspective
     score: float | None = Field(default=None, ge=0, le=10)
@@ -46,7 +40,7 @@ class ReviewerAssessment(BaseModel):
 
 
 class AbilityConsensusOutput(BaseModel):
-    """Reducer output for deterministic aggregate scores plus multi-reviewer narrative."""
+    """定义能力共识输出相关后端数据结构或服务组件。"""
 
     overall_assessment: str = Field(default="")
     key_strengths: list[str] = Field(default_factory=list)
@@ -57,7 +51,7 @@ class AbilityConsensusOutput(BaseModel):
 
 @dataclass(frozen=True, slots=True)
 class ReviewerSpec:
-    """Static reviewer routing configuration with independent prompt/model controls."""
+    """定义评审相关后端数据结构或服务组件。"""
 
     perspective: ReviewPerspective
     channel: str
@@ -66,7 +60,7 @@ class ReviewerSpec:
 
 @dataclass(frozen=True, slots=True)
 class ReviewMapReduceResult:
-    """Public result containing the consensus artifact and auditable reviewer summaries."""
+    """定义复核映射归约结果相关后端数据结构或服务组件。"""
 
     output: SessionInterviewReportOutput | AbilityConsensusOutput
     assessments: tuple[ReviewerAssessment, ...]
@@ -81,7 +75,7 @@ _REVIEWERS = (
 
 
 class _ReviewState(TypedDict, total=False):
-    """Transient read-only LangGraph state for map-reduce evaluation."""
+    """定义复核状态相关后端数据结构或服务组件。"""
 
     mode: ReviewMode
     context: str
@@ -96,7 +90,7 @@ class _ReviewState(TypedDict, total=False):
 
 
 def _dispatch_reviewers(state: _ReviewState) -> list[Send]:
-    """Fan out one bounded context to four isolated reviewer nodes."""
+    """处理评审相关后端逻辑。"""
     return [
         Send(
             "review_one",
@@ -114,7 +108,7 @@ def _dispatch_reviewers(state: _ReviewState) -> list[Send]:
 
 
 async def _review_one(state: _ReviewState) -> dict[str, Any]:
-    """Run one independent reviewer and convert isolated failures into explicit evidence gaps."""
+    """处理复核相关后端逻辑。"""
     from ai.prompts.analysis import build_multi_reviewer_prompt
 
     reviewer = state["reviewer"]
@@ -153,7 +147,7 @@ async def _review_one(state: _ReviewState) -> dict[str, Any]:
 
 
 async def _compose_narrative(state: _ReviewState) -> dict[str, Any]:
-    """Compose one evidence-grounded narrative, resolving conflicts and partial reviewer failure."""
+    """处理多评审相关后端逻辑。"""
     from ai.prompts.analysis import build_multi_reviewer_consensus_prompt
 
     assessments = list(state.get("assessments", []))
@@ -195,7 +189,7 @@ async def _compose_narrative(state: _ReviewState) -> dict[str, Any]:
 
 
 def build_multi_reviewer_graph():
-    """Build the side-effect-free LangGraph Send map-reduce evaluator."""
+    """构建多评审图相关后端逻辑。"""
     graph = StateGraph(_ReviewState)
     graph.add_node("review_one", _review_one)
     graph.add_node("compose_narrative", _compose_narrative)
@@ -217,7 +211,7 @@ async def run_multi_reviewer_map_reduce(
     review_contexts: dict[str, str] | None = None,
     reviewer_perspectives: tuple[ReviewPerspective, ...] | None = None,
 ) -> ReviewMapReduceResult:
-    """Run selected perspective reviewers and one Narrative Composer under a shared deadline."""
+    """运行多评审映射归约相关后端逻辑。"""
     selected_reviewers = tuple(
         reviewer for reviewer in _REVIEWERS
         if reviewer_perspectives is None or reviewer.perspective in reviewer_perspectives

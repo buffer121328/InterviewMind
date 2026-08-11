@@ -1,4 +1,4 @@
-"""State and state-conversion helpers for the resume pipeline graph."""
+"""提供简历流水线状态相关后端功能。"""
 
 import hashlib
 import json

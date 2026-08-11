@@ -11,7 +11,7 @@ from app.schemas.schemas import ModelChannelConfig
 
 
 class MemoryApiConfig(BaseModel):
-    """Only the request-scoped model channels used by mem0."""
+    """定义记忆API配置相关后端数据结构或服务组件。"""
 
     mem0_llm: Optional[ModelChannelConfig] = None
     mem0_embedder: Optional[ModelChannelConfig] = None
@@ -19,7 +19,7 @@ class MemoryApiConfig(BaseModel):
 
 
 class MemoryAccessRequest(BaseModel):
-    """Request-scoped mem0 model channels; credentials are used in memory only and are never persisted."""
+    """定义记忆请求相关后端数据结构或服务组件。"""
 
     api_config: Optional[MemoryApiConfig] = Field(
         default=None,
@@ -28,13 +28,13 @@ class MemoryAccessRequest(BaseModel):
 
 
 class MemoryListRequest(MemoryAccessRequest):
-    """Request for an owner-scoped memory list."""
+    """定义记忆列表请求相关后端数据结构或服务组件。"""
 
     page_size: int = Field(default=100, ge=1, le=1000)
 
 
 class MemorySearchRequest(MemoryAccessRequest):
-    """Request for an owner-scoped semantic memory search."""
+    """定义记忆搜索请求相关后端数据结构或服务组件。"""
 
     query: str = Field(min_length=1, max_length=500)
     limit: int = Field(default=5, ge=1, le=20)
@@ -42,14 +42,14 @@ class MemorySearchRequest(MemoryAccessRequest):
 
 
 class MemoryCreateRequest(MemoryAccessRequest):
-    """Request for a user-authored memory; the service stores it without LLM inference."""
+    """定义记忆请求相关后端数据结构或服务组件。"""
 
     content: str = Field(min_length=1, max_length=2000)
     memory_type: Optional[str] = Field(default=None, max_length=100)
 
 
 class MemoryUpdateRequest(MemoryAccessRequest):
-    """Request for replacing one owner-scoped memory's content."""
+    """定义记忆请求相关后端数据结构或服务组件。"""
 
     content: str = Field(min_length=1, max_length=2000)
 
@@ -108,7 +108,7 @@ class MemoryDeleteResponse(BaseModel):
 
 
 class MemoryWriteResponse(BaseModel):
-    """Response for manual memory creation or update."""
+    """定义记忆写入响应相关后端数据结构或服务组件。"""
 
     success: bool = Field(description="是否成功")
     message: str = Field(description="提示消息")
@@ -121,7 +121,7 @@ class MemoryDeleteAllRequest(MemoryAccessRequest):
 
 
 class MemoryConsolidateRequest(MemoryAccessRequest):
-    """Preview or explicitly apply historical memory consolidation."""
+    """定义记忆合并请求相关后端数据结构或服务组件。"""
 
     dry_run: bool = Field(default=True, description="true 时只生成整合预览，不修改数据")
     confirm: bool = Field(default=False, description="实际执行时必须显式设为 true")
@@ -129,7 +129,7 @@ class MemoryConsolidateRequest(MemoryAccessRequest):
 
 
 class MemoryConsolidationOperation(BaseModel):
-    """Content-free audit summary for one historical lifecycle decision."""
+    """定义记忆合并操作相关后端数据结构或服务组件。"""
 
     memory_id: str
     action: str
@@ -138,7 +138,7 @@ class MemoryConsolidationOperation(BaseModel):
 
 
 class MemoryConsolidationResponse(BaseModel):
-    """Historical memory consolidation preview or apply result."""
+    """定义记忆合并响应相关后端数据结构或服务组件。"""
 
     success: bool
     dry_run: bool
@@ -151,7 +151,7 @@ class MemoryConsolidationResponse(BaseModel):
 
 
 class MemoryCleanupRequest(MemoryAccessRequest):
-    """Preview or apply the two-stage inactivity cleanup policy."""
+    """定义记忆清理请求相关后端数据结构或服务组件。"""
 
     dry_run: bool = Field(default=True, description="true 时只预览 KEEP/MARK/DELETE")
     confirm: bool = Field(default=False, description="应用 MARK/DELETE 前必须显式为 true")
@@ -159,7 +159,7 @@ class MemoryCleanupRequest(MemoryAccessRequest):
 
 
 class MemoryCleanupOperation(BaseModel):
-    """Content-free retention cleanup audit item."""
+    """定义记忆清理操作相关后端数据结构或服务组件。"""
 
     memory_id: str
     action: str
@@ -169,7 +169,7 @@ class MemoryCleanupOperation(BaseModel):
 
 
 class MemoryCleanupResponse(BaseModel):
-    """Two-stage cleanup preview or application result."""
+    """定义记忆清理响应相关后端数据结构或服务组件。"""
 
     success: bool
     dry_run: bool

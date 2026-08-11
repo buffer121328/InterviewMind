@@ -373,13 +373,7 @@ async def stage3_rewrite_agent(state: PipelineState, mode: str = "balanced") -> 
 # ============================================================================
 
 async def stage4_assemble(state: PipelineState) -> PipelineState:
-    """Apply ChangeItems locally so full-resume generation happens at most once upstream.
-
-    Exact ``original_text`` replacements are deterministic. Only explicit
-    ``suggest_addition``/``fact_inference`` items without an original snippet are
-    appended under a review section; malformed polish/restructure items are ignored.
-    This stage never invents content or consumes the JD.
-    """
+    """处理阶段相关后端逻辑。"""
     _append_trace(
         state,
         step="stage4_assemble",

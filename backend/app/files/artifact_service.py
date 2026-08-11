@@ -1,4 +1,4 @@
-"""Private HTML/PDF report exports stored on a Docker-mounted persistent volume."""
+"""提供产物服务相关后端功能。"""
 
 from __future__ import annotations
 
@@ -34,33 +34,33 @@ _MIME = {"html": "text/html; charset=utf-8", "pdf": "application/pdf"}
 
 
 class ArtifactNotFound(Exception):
-    """Raised when an export source or artifact is unavailable to the current owner."""
+    """定义产物相关后端数据结构或服务组件。"""
 
 
 class ArtifactStorageUnavailable(Exception):
-    """Raised when the private artifact volume cannot accept a write."""
+    """定义产物存储不可用相关后端数据结构或服务组件。"""
 
 
 class ArtifactService:
-    """Render owner-scoped persisted reports to private files and serve them only after DB checks."""
+    """定义产物服务相关后端数据结构或服务组件。"""
 
     def __init__(self, storage_dir: str | None = None) -> None:
-        """Use the configured volume directory, never the publicly mounted static directory."""
+        """初始化产物服务相关状态。"""
         self._root = Path(storage_dir or get_settings().artifact_storage_dir).resolve()
 
     @staticmethod
     def _now() -> datetime:
-        """Return a shared timestamp for metadata writes."""
+        """处理产物服务相关后端逻辑。"""
         return utc_now()
 
     @staticmethod
     def _safe_filename(title: str, extension: str) -> str:
-        """Create a bounded download name without path separators or unsafe Unicode control characters."""
+        """处理安全文件名相关后端逻辑。"""
         stem = _SAFE_NAME.sub("-", title).strip(".-")[:100] or "report"
         return f"{stem}.{extension}"
 
     async def _source(self, request: ArtifactExportRequest, user_id: str) -> tuple[str, dict[str, Any], str | None]:
-        """Read one report source under owner filtering and return title, display-safe data and optional run link."""
+        """处理来源相关后端逻辑。"""
         async with async_session() as session:
             if request.source_type == "generated_resume":
                 row = await session.scalar(select(GeneratedResumeModel).where(GeneratedResumeModel.id == int(request.source_id), GeneratedResumeModel.user_id == user_id))
@@ -110,7 +110,7 @@ class ArtifactService:
 
     @staticmethod
     def _inline_markdown_html(text: str) -> str:
-        """Escape resume text first, then apply the small inline subset used by generated resumes."""
+        """处理行内MarkdownHTML相关后端逻辑。"""
         escaped = html.escape(text)
         escaped = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", escaped)
         escaped = re.sub(r"`(.+?)`", r"<code>\1</code>", escaped)
@@ -118,7 +118,7 @@ class ArtifactService:
 
     @classmethod
     def _markdown_html(cls, markdown: str) -> str:
-        """Render a safe resume-oriented Markdown subset without accepting raw HTML."""
+        """处理MarkdownHTML相关后端逻辑。"""
         parts: list[str] = []
         paragraph: list[str] = []
         list_kind: str | None = None
@@ -168,7 +168,7 @@ class ArtifactService:
 
     @staticmethod
     def _resume_styles() -> str:
-        """Return the shared professional color and A4 layout used by HTML exports."""
+        """处理简历相关后端逻辑。"""
         return """
         :root{--ink:#172033;--muted:#526173;--teal:#0f766e;--teal-dark:#164e63;--teal-soft:#ecfdf5;--line:#cbd5e1}
         *{box-sizing:border-box}html,body{margin:0;padding:0;background:#e8eef1;color:var(--ink)}
@@ -189,7 +189,7 @@ class ArtifactService:
 
     @classmethod
     def _resume_html_document(cls, title: str, markdown: str) -> str:
-        """Render generated resume Markdown as a styled standalone A4 document."""
+        """处理简历HTML文档相关后端逻辑。"""
         body = cls._markdown_html(markdown)
         exported_at = utc_now().strftime("%Y-%m-%d %H:%M")
         return (
@@ -202,19 +202,19 @@ class ArtifactService:
 
     @staticmethod
     def _html_document(title: str, report: dict[str, Any]) -> str:
-        """Render a self-contained escaped generic report document."""
+        """处理HTML文档相关后端逻辑。"""
         body = html.escape(json.dumps(report, ensure_ascii=False, indent=2, default=str))
         return f"<!doctype html><html lang='zh-CN'><head><meta charset='utf-8'><title>{html.escape(title)}</title><style>body{{font-family:Arial,'Microsoft YaHei',sans-serif;max-width:900px;margin:40px auto;color:#172033;line-height:1.65}}h1{{border-bottom:2px solid #0f766e;padding-bottom:12px}}pre{{white-space:pre-wrap;word-break:break-word;background:#f8fafc;padding:20px;border-radius:10px}}</style></head><body><h1>{html.escape(title)}</h1><p>导出时间：{utc_now().strftime('%Y-%m-%d %H:%M')}</p><pre>{body}</pre></body></html>"
 
     @staticmethod
     def _plain_inline_markdown(text: str) -> str:
-        """Remove visual Markdown markers while preserving their readable text."""
+        """处理纯文本行内Markdown相关后端逻辑。"""
         text = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"\1 (\2)", text)
         return re.sub(r"[*_`~]", "", text).strip()
 
     @classmethod
     def _markdown_blocks(cls, markdown: str) -> list[tuple[str, str]]:
-        """Parse the generated-resume block subset into PDF layout primitives."""
+        """处理Markdown相关后端逻辑。"""
         blocks: list[tuple[str, str]] = []
         paragraph: list[str] = []
 
@@ -249,7 +249,7 @@ class ArtifactService:
 
     @staticmethod
     def _wrap_pdf_text(text: str, width: float, fontname: str, fontsize: float) -> list[str]:
-        """Wrap Chinese, Latin text and long URLs by measured glyph width."""
+        """封装PDF文本相关后端逻辑。"""
         if not text:
             return [""]
         lines: list[str] = []
@@ -267,7 +267,7 @@ class ArtifactService:
 
     @classmethod
     def _pdf_from_blocks(cls, blocks: list[tuple[str, str]]) -> bytes:
-        """Lay out measured lines individually so oversized text can never yield a blank PDF."""
+        """处理PDF来源相关后端逻辑。"""
         document = fitz.open()
         page_width, page_height = fitz.paper_size("a4")
         margin_x, top_y, bottom_y = 48.0, 44.0, page_height - 42.0
@@ -355,18 +355,18 @@ class ArtifactService:
 
     @classmethod
     def _resume_pdf_bytes(cls, markdown: str) -> bytes:
-        """Create a colored, paginated PDF from generated resume Markdown."""
+        """处理简历PDF相关后端逻辑。"""
         return cls._pdf_from_blocks(cls._markdown_blocks(markdown))
 
     @classmethod
     def _pdf_bytes(cls, title: str, report: dict[str, Any]) -> bytes:
-        """Create a readable generic PDF without relying on all-or-nothing text boxes."""
+        """处理PDF相关后端逻辑。"""
         blocks = [("h1", title)]
         blocks.extend(("paragraph", line) for line in json.dumps(report, ensure_ascii=False, indent=2, default=str).splitlines())
         return cls._pdf_from_blocks(blocks)
 
     async def export(self, request: ArtifactExportRequest, user_id: str) -> ArtifactModel:
-        """Regenerate a format-specific private export after owner-scoping its source record."""
+        """处理产物服务相关后端逻辑。"""
         title, report, agent_run_id = await self._source(request, user_id)
         if request.source_type in {"generated_resume", "interview_report"}:
             markdown = str(
@@ -412,14 +412,14 @@ class ArtifactService:
             return artifact
 
     def _path(self, storage_key: str) -> Path:
-        """Resolve only a storage key inside the configured root to prevent traversal outside the volume."""
+        """处理产物服务相关后端逻辑。"""
         path = (self._root / storage_key).resolve()
         if self._root not in path.parents:
             raise ArtifactNotFound()
         return path
 
     async def get_download(self, artifact_id: int, user_id: str) -> tuple[ArtifactModel, Path]:
-        """Load metadata and file only when both artifact and file belong to the requesting owner."""
+        """获取下载相关后端逻辑。"""
         async with async_session() as session:
             artifact = await session.scalar(select(ArtifactModel).where(ArtifactModel.id == artifact_id, ArtifactModel.user_id == user_id))
         if not artifact:

@@ -22,6 +22,7 @@ web/.next/
 
 # Data & runtime
 data/
+/output/
 /backend/data/browser_profiles/
 backend/.deepeval/
 logs/
@@ -51,3 +52,5 @@ README.local.md
 .deepeval/
 .reasonix/
 reasonix.toml
+
+.codex/npm-cache/

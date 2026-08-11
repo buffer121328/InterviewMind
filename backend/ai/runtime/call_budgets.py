@@ -1,4 +1,4 @@
-"""Validated node/attempt budgets for latency-sensitive Agent calls."""
+"""提供预算相关后端功能。"""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True, slots=True)
 class CallBudget:
-    """One node's timeout, shared task deadline, retry count, and start reserve."""
+    """定义预算相关后端数据结构或服务组件。"""
 
     node_timeout: float
     task_deadline: float
@@ -16,7 +16,7 @@ class CallBudget:
 
 
 def validate_call_budget(budget: CallBudget) -> CallBudget:
-    """Reject budgets that can start an attempt with no room for its safety reserve."""
+    """校验预算相关后端逻辑。"""
     if budget.node_timeout <= 0 or budget.task_deadline <= 0:
         raise ValueError("timeouts must be positive")
     if budget.max_attempts < 1 or budget.min_remaining < 0:

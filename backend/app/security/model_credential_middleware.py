@@ -1,4 +1,4 @@
-"""ASGI middleware that hydrates model credential references from Redis."""
+"""提供模型凭据中间件相关后端功能。"""
 
 from __future__ import annotations
 
@@ -24,15 +24,15 @@ _EXCLUDED_PATH_PREFIXES = (
 
 
 class ModelCredentialHydrationMiddleware:
-    """Resolve request credential IDs before FastAPI schema validation and workflows."""
+    """定义模型凭据注入中间件相关后端数据结构或服务组件。"""
 
     def __init__(self, app: ASGIApp) -> None:
-        """Wrap an ASGI application without buffering non-JSON requests."""
+        """初始化模型凭据中间件相关状态。"""
 
         self.app = app
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        """Hydrate JSON api_config nodes and preserve the original ASGI request contract."""
+        """处理模型凭据中间件相关后端逻辑。"""
 
         if not self._should_inspect(scope):
             await self.app(scope, receive, send)
@@ -77,7 +77,7 @@ class ModelCredentialHydrationMiddleware:
 
     @staticmethod
     def _allowed_channels(scope: Scope, payload: Any) -> frozenset[str] | None:
-        """Limit memory routes to the LLM and the selected embedding fallback channel."""
+        """处理渠道相关后端逻辑。"""
 
         path = str(scope.get("path", ""))
         if path != "/api/memory" and not path.startswith("/api/memory/"):
@@ -95,9 +95,9 @@ class ModelCredentialHydrationMiddleware:
 
     @staticmethod
     def _should_inspect(scope: Scope) -> bool:
-        """Return whether this request can contain a JSON business payload."""
+        """处理是否应当检查相关后端逻辑。"""
 
-        if scope["type"] != "http" or scope.get("method") not in {"POST", "PUT", "PATCH"}:
+        if scope["type"] != "http" or scope.get("method") not in {"POST", "PUT", "PATCH", "DELETE"}:
             return False
         path = scope.get("path", "")
         if path.startswith(_EXCLUDED_PATH_PREFIXES):
@@ -107,7 +107,7 @@ class ModelCredentialHydrationMiddleware:
 
     @staticmethod
     async def _read_body(receive: Receive) -> bytes:
-        """Read the complete ASGI HTTP body."""
+        """读取模型凭据中间件相关后端逻辑。"""
 
         chunks: list[bytes] = []
         more_body = True
@@ -121,7 +121,7 @@ class ModelCredentialHydrationMiddleware:
 
     @staticmethod
     def _replacement_receive(body: bytes, original_receive: Receive) -> Receive:
-        """Create a receive callable that replays the rewritten body exactly once."""
+        """处理接收相关后端逻辑。"""
 
         delivered = False
 
@@ -136,7 +136,7 @@ class ModelCredentialHydrationMiddleware:
 
     @staticmethod
     def _header(scope: Scope, name: bytes) -> str | None:
-        """Read a case-insensitive ASCII request header."""
+        """处理请求头相关后端逻辑。"""
 
         for key, value in scope.get("headers", []):
             if key.lower() == name:
@@ -145,7 +145,7 @@ class ModelCredentialHydrationMiddleware:
 
     @staticmethod
     def _with_content_length(scope: Scope, length: int) -> Scope:
-        """Clone an HTTP scope with the rewritten Content-Length header."""
+        """处理内容相关后端逻辑。"""
 
         updated = dict(scope)
         headers = [(key, value) for key, value in scope.get("headers", []) if key.lower() != b"content-length"]

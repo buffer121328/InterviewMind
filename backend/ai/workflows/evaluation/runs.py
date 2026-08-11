@@ -35,7 +35,7 @@ from ai.workflows.evaluation.service import EvaluationUseCaseError
 
 
 def _evaluation_run_id_for_idempotency(user_id: str, idempotency_key: str) -> str:
-    """Derive a stable owner-scoped EvaluationRun id from the API idempotency key."""
+    """处理评测运行ID幂等相关后端逻辑。"""
 
     digest = hashlib.sha256(
         f"{user_id}\0{TASK_TYPE_EVALUATION_SUITE}\0{idempotency_key}".encode()

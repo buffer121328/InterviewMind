@@ -46,7 +46,7 @@ class CapturedJobModel(Base):
     source_hash = Column(String, nullable=False, index=True)  # 去重标识
 
     # 状态
-    status = Column(String, nullable=False, default="pending")  # pending/.../applying/applied/manual_takeover
+    status = Column(String, nullable=False, default="pending")  # 说明：pending/.../applying/applied/manual_takeover
 
     # 时间
     captured_at = Column(DateTime, nullable=False, server_default=func.now())

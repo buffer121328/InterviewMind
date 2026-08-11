@@ -227,7 +227,7 @@ async def _complete_generation(
     from ai.agents.resume import resume_generation_graph
 
     async def report_progress(stage: str, phase: str, result: dict[str, Any]) -> None:
-        """Persist the current real graph stage without storing model output in AgentRun events."""
+        """上报进度相关后端逻辑。"""
         updates: dict[str, Any] = {"status": stage}
         if phase == "completed" and stage == "draft_generation":
             updates["draft_content"] = result.get("draft_content", "")

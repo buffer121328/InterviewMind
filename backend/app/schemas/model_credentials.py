@@ -1,10 +1,10 @@
-"""Schemas for the minimal local model-name to API-key Redis store."""
+"""提供模型凭据相关后端功能。"""
 
 from pydantic import BaseModel, Field, model_validator
 
 
 class ModelCredentialPutRequest(BaseModel):
-    """Save a new API key or move an existing model-name key without exposing it."""
+    """定义模型凭据写入请求相关后端数据结构或服务组件。"""
 
     model_name: str = Field(min_length=1, max_length=256)
     api_key: str | None = Field(default=None, max_length=16_384)
@@ -13,7 +13,7 @@ class ModelCredentialPutRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_write_source(self):
-        """Require either a newly entered API key or an existing source model."""
+        """校验写入来源相关后端逻辑。"""
 
         if not (self.api_key and self.api_key.strip()) and not (
             self.source_model and self.source_model.strip()
@@ -23,20 +23,20 @@ class ModelCredentialPutRequest(BaseModel):
 
 
 class ModelCredentialLookup(BaseModel):
-    """Identify one technical model name and its previous UI UUID for migration."""
+    """定义模型凭据查询相关后端数据结构或服务组件。"""
 
     model_name: str = Field(min_length=1, max_length=256)
     legacy_id: str | None = Field(default=None, max_length=128)
 
 
 class ModelCredentialStatusRequest(BaseModel):
-    """Request API-key availability for locally configured technical model names."""
+    """定义模型凭据状态请求相关后端数据结构或服务组件。"""
 
     models: list[ModelCredentialLookup] = Field(default_factory=list, max_length=200)
 
 
 class ModelCredentialStatus(BaseModel):
-    """Expose API-key availability without returning the secret."""
+    """定义模型凭据状态相关后端数据结构或服务组件。"""
 
     model_name: str
     stored: bool

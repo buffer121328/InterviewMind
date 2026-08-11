@@ -1,4 +1,4 @@
-"""Recoverable task for importing cards from an existing logged-in BOSS tab."""
+"""提供岗位相关后端功能。"""
 
 from ai.workflows.agent_tasks.types import ExecutionResult, ProgressCallback
 from observability import agent_observation
@@ -9,12 +9,15 @@ async def execute_job_recommendation_capture(
     user_id: str,
     progress: ProgressCallback,
 ) -> ExecutionResult:
-    """Validate browser-bridge DOM cards and persist the public result in AgentRun."""
+    """执行岗位相关后端逻辑。"""
+    from ai.agents.jobs.resume_skills import extract_professional_skills
     from ai.workflows.jobs.job_capture_service import (
         capture_from_imported_cards,
     )
 
     run_id = str(payload.get("_agent_run_id") or "")
+    resume_extraction = extract_professional_skills(str(payload.get("resume_content") or ""))
+    resume_content = resume_extraction.content
     raw_cards = payload.get("cards")
     imported_cards = (
         [card for card in raw_cards if isinstance(card, dict)]
@@ -29,7 +32,8 @@ async def execute_job_recommendation_capture(
         run_id=run_id or None,
         input_payload={
             "query_length": len(str(payload.get("query") or "")),
-            "resume_length": len(str(payload.get("resume_content") or "")),
+            "resume_length": len(resume_content),
+            "resume_skills_matched": resume_extraction.matched,
             "top_n": int(payload.get("top_n", 3)),
             "has_city": bool(payload.get("city")),
             "imported_card_count": min(len(imported_cards), 20),
@@ -39,7 +43,7 @@ async def execute_job_recommendation_capture(
         result = await capture_from_imported_cards(
             user_id=user_id,
             query=str(payload.get("query") or ""),
-            resume_content=str(payload.get("resume_content") or ""),
+            resume_content=resume_content,
             imported_cards=imported_cards,
             source_page_url=str(payload.get("source_page_url") or ""),
             api_config=payload.get("api_config"),

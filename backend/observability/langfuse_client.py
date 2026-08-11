@@ -1,4 +1,4 @@
-"""Lazy Langfuse SDK adapters isolated from observation lifecycle state."""
+"""提供Langfuse客户端相关后端功能。"""
 
 from typing import Any
 

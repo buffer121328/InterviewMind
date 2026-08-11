@@ -339,7 +339,7 @@ class WeaknessCategory(BaseModel):
 
     @model_validator(mode="after")
     def fill_missing_description(self) -> "WeaknessCategory":
-        """Use the category label as a bounded fallback when the model omits its explanation."""
+        """处理填充描述相关后端逻辑。"""
         if not self.description.strip():
             self.description = f"{self.category}表现仍有提升空间"
         if self.severity not in {"high", "medium", "low"}:

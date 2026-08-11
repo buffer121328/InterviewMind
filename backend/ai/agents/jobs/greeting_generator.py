@@ -5,7 +5,7 @@
 3 种风格：professional / technical / result_oriented。
 
 核心约束（文档 Section 6.4 & 10.2）：
-- 完整但克制（100–220 个中文字符）
+- 完整但克制（260–680 个中文字符）
 - 真实（不承诺不存在经历）
 - 相关（与岗位匹配）
 - 不输出"我非常适合"
@@ -25,13 +25,13 @@ logger = logging.getLogger(__name__)
 
 
 # ============================================================================
-# LLM Output Schema
+# LLM 输出模式
 # ============================================================================
 
 class GreetingItemOutput(BaseModel):
     """数据对象，承载 `GreetingItemOutput` 的结构化字段和跨模块契约；只表达数据，不在构造或序列化时执行外部调用。"""
     tone: Literal["professional", "technical", "result_oriented"] = Field(description="文案风格")
-    message_text: str = Field(min_length=100, max_length=220, description="100–220 字的第一人称打招呼文案")
+    message_text: str = Field(min_length=260, max_length=680, description="260–680 字的第一人称打招呼文案")
     highlights_used: List[str] = Field(description="使用的亮点")
     risk_notes: str = Field(default="", description="风险提示（如有不实内容此处注明）")
 
@@ -47,7 +47,7 @@ class GreetingListOutput(BaseModel):
 
 
 class GreetingReflectionOutput(BaseModel):
-    """Self-review result for truthfulness, relevance, and length-contract compliance."""
+    """定义招呼语输出相关后端数据结构或服务组件。"""
 
     approved: bool = Field(default=False)
     truthfulness_pass: bool = Field(default=False)
@@ -69,14 +69,9 @@ async def generate_greetings(
     deadline: TaskDeadline | None = None,
     call_metadata: dict[str, Any] | None = None,
 ) -> List[Dict[str, Any]]:
-    """Generate, reflect on, and at most once rewrite three outreach messages.
-
-    The writer and reflector use separate model channels. Both rounds share the caller's
-    deadline; failure or a second rejected draft falls back to deterministic evidence-only
-    copy rather than returning an unreviewed model draft.
-    """
+    """生成招呼语相关后端逻辑。"""
     from ai.llm.llm_utils import invoke_structured
-    from ai.prompts.jobs import build_greeting_prompt, build_greeting_reflection_prompt
+    from ai.prompts.jobs import CANDIDATE_INTRODUCTION, build_greeting_prompt, build_greeting_reflection_prompt
 
     if isinstance(candidate_highlights, str):
         raw_highlights = [
@@ -166,6 +161,7 @@ async def generate_greetings(
     except Exception as exc:
         logger.error("[GreetingGenerator] 生成或自审失败: %s", type(exc).__name__)
         return _generate_fallback_greetings(company_name, job_title, highlights)
+    return _generate_fallback_greetings(company_name, job_title, highlights)
 
 
 def _validate_generated_greetings(
@@ -173,7 +169,7 @@ def _validate_generated_greetings(
     *,
     highlights: list[str],
 ) -> tuple[list[dict[str, Any]], list[str]]:
-    """Return normalized drafts plus deterministic issues that the reflector must not override."""
+    """校验生成招呼语相关后端逻辑。"""
     by_tone = {str(item.get("tone") or ""): dict(item) for item in raw_greetings}
     expected_tones = ("professional", "technical", "result_oriented")
     if any(tone not in by_tone for tone in expected_tones):
@@ -189,8 +185,8 @@ def _validate_generated_greetings(
             issues.append(f"{tone} 使用了招聘方口吻")
         if "我" not in message_text:
             issues.append(f"{tone} 缺少候选人第一人称主体")
-        if not 100 <= len(message_text) <= 220:
-            issues.append(f"{tone} 不满足 100-220 字长度契约")
+        if not 260 <= len(message_text) <= 680:
+            issues.append(f"{tone} 不满足 260-680 字长度契约")
         unsupported = [
             item
             for item in greeting.get("highlights_used", [])
@@ -212,26 +208,30 @@ def _generate_fallback_greetings(
     """模型失败时只使用传入的真实亮点，生成三条可编辑的第一人称文案。"""
     company = (company_name or "贵司")[:40]
     role = (job_title or "目标岗位")[:40]
+    from ai.prompts.jobs import CANDIDATE_INTRODUCTION
+
     evidence = list(highlights or [])[:3]
-    evidence_text = evidence[0][:70] if evidence else "我会基于简历中的真实项目经历说明自己与岗位要求的对应关系"
-    used = evidence[:1]
+    evidence_text = ("；".join(item[:80] for item in evidence)[:160] if evidence else "可结合简历中的真实项目经历说明与岗位要求的对应关系")
+    jd_keywords = f"我也会重点结合{role}的职责和岗位介绍中的关键技术要求，说明相关实践与可验证的项目证据。"
+    used = evidence[:3]
     risk_note = "[兜底文案] 模型生成失败，请在发送前结合岗位与简历复核"
+    base = CANDIDATE_INTRODUCTION
     return [
         {
             "tone": "professional",
-            "message_text": f"您好，我关注到{company}正在招聘{role}。{evidence_text}。我希望把已有经验用于岗位中的实际业务和协作场景，也愿意进一步说明我承担的职责、使用的方法和可验证结果。希望有机会与您沟通岗位重点及团队当前需求。",
+            "message_text": f"您好，我关注到{company}正在招聘{role}。{base}{jd_keywords}目前与岗位最相关的技能和经历包括：{evidence_text}。希望有机会进一步沟通岗位重点与团队业务。",
             "highlights_used": used,
             "risk_notes": risk_note,
         },
         {
             "tone": "technical",
-            "message_text": f"您好，我对{company}的{role}岗位很感兴趣。{evidence_text}。我关注工程实现、接口边界、可维护性和交付质量，也希望结合岗位描述进一步介绍我的技术取舍与问题解决过程。希望有机会了解团队技术栈、核心场景和当前挑战。",
+            "message_text": f"您好，我对{company}的{role}岗位很感兴趣。{base}{jd_keywords}我希望进一步说明自己在工程实现、接口边界、可维护性、工具治理、失败恢复和交付质量方面的技术取舍，并结合真实项目解释与岗位关键词的对应关系。希望有机会进一步沟通。",
             "highlights_used": used,
             "risk_notes": risk_note,
         },
         {
             "tone": "result_oriented",
-            "message_text": f"您好，我正在关注{company}的{role}岗位。{evidence_text}。我习惯围绕业务目标拆解任务，并用真实项目中的职责、过程和结果说明自己的贡献；如果方向合适，我可以继续补充与岗位最相关的案例。希望有机会进一步沟通团队业务。",
+            "message_text": f"您好，我正在关注{company}的{role}岗位。{base}{jd_keywords}我习惯围绕业务目标拆解任务，用真实项目中的职责、过程和结果说明自己的贡献，也可以优先补充与岗位最相关的案例。希望有机会进一步沟通团队业务。",
             "highlights_used": used,
             "risk_notes": risk_note,
         },

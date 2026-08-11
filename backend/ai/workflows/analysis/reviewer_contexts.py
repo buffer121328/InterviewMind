@@ -1,4 +1,4 @@
-"""Perspective-specific reviewer context and dynamic reviewer selection policies."""
+"""提供评审上下文相关后端功能。"""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ PERSPECTIVES = ("technical_depth", "communication", "job_fit", "factual_risk")
 
 
 def _items(evidence: Iterable[Any]) -> list[dict[str, Any]]:
-    """Normalize Pydantic or mapping evidence items without mutating caller data."""
+    """处理条目相关后端逻辑。"""
     normalized = []
     for item in evidence:
         if hasattr(item, "model_dump"):
@@ -25,20 +25,34 @@ def build_reviewer_contexts(
     job_description: str,
     company_info: str,
     evidence: Iterable[Any],
+    answer_points_by_question: Mapping[str, list[str]] | None = None,
 ) -> dict[str, str]:
-    """Build distinct, evidence-bound context views for each report reviewer."""
+    """构建评审上下文相关后端逻辑。"""
     rows = _items(evidence)
-    def project(*keys: str) -> list[dict[str, Any]]:
-        """Project evidence to the fields needed by one reviewer while retaining Q ids."""
+    standards = {
+        str(key): [str(point) for point in value if str(point).strip()]
+        for key, value in (answer_points_by_question or {}).items()
+        if value
+    }
+
+    def project(*keys: str, include_points: bool = False) -> list[dict[str, Any]]:
+        """处理项目相关后端逻辑。"""
         return [
-            {key: row.get(key) for key in ("question_id", *keys) if row.get(key) not in (None, [], "")}
+            {
+                **{key: row.get(key) for key in ("question_id", *keys) if row.get(key) not in (None, [], "")},
+                **({"answer_points": standards.get(str(row.get("question_id")))}
+                   if include_points and standards.get(str(row.get("question_id"))) else {}),
+            }
             for row in rows
         ]
     return {
         "technical_depth": json.dumps({
             "resume": resume,
             "job_description": job_description,
-            "evidence": project("question_summary", "candidate_claims", "demonstrated_skills", "score_or_signal"),
+            "evidence": project(
+                "question_summary", "candidate_claims", "demonstrated_skills", "score_or_signal",
+                include_points=True,
+            ),
         }, ensure_ascii=False),
         "communication": json.dumps({
             "evidence": project("question_summary", "communication_observations", "candidate_claims"),
@@ -47,7 +61,7 @@ def build_reviewer_contexts(
             "job_description": job_description,
             "company_info": company_info,
             "resume": resume,
-            "evidence": project("demonstrated_skills", "candidate_claims"),
+            "evidence": project("demonstrated_skills", "candidate_claims", include_points=True),
         }, ensure_ascii=False),
         "factual_risk": json.dumps({
             "resume": resume,
@@ -57,7 +71,7 @@ def build_reviewer_contexts(
 
 
 def select_ability_reviewers(profiles: Iterable[Mapping[str, Any]]) -> tuple[str, ...]:
-    """Select the minimum sufficient reviewers from persisted profile evidence coverage."""
+    """选择能力评审相关后端逻辑。"""
     rows = [dict(item) for item in profiles]
     if not rows:
         return ()

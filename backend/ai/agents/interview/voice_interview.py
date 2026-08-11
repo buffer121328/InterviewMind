@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 
 async def _voice_attempt(awaitable, *, deadline: TaskDeadline):
-    """Run one ASR/chat/TTS attempt only when the shared voice deadline has safe room."""
+    """处理语音相关后端逻辑。"""
     settings = get_settings()
     timeout = deadline.timeout_for_next_attempt(
         settings.voice_interview_node_timeout_seconds,

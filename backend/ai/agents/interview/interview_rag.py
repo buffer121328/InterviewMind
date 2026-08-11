@@ -89,7 +89,7 @@ _SOURCE_PRIORITY = {
 }
 
 
-# ── Query Builder ─────────────────────────────────────────
+# 说明：保留这里的兼容性、安全性或流程约束。
 
 
 def build_queries(
@@ -145,7 +145,7 @@ def build_queries(
     return queries[:3]
 
 
-# ── Reranker ──────────────────────────────────────────────
+# 说明：保留这里的兼容性、安全性或流程约束。
 
 
 def _compute_freshness_score(metadata: Dict[str, Any]) -> float:
@@ -221,7 +221,7 @@ def rerank_evidences(
     return deduped[:max_results]
 
 
-# ── Fact Guard ────────────────────────────────────────────
+# 说明：保留这里的兼容性、安全性或流程约束。
 
 
 def fact_guard(
@@ -610,7 +610,7 @@ async def run_rag_pipeline(
     started_at = perf_counter()
     repo = get_rag_index_repo()
 
-    # Step 1: Query Builder
+    # 第 1 步：查询构建器
     queries = build_queries(
         job_description=job_description,
         resume=resume,
@@ -628,7 +628,7 @@ async def run_rag_pipeline(
 
     logger.info(f"[RAG] user={user_id}, queries={len(queries)}, vector={VECTOR_ENABLED}")
 
-    # Step 2-3: Retriever + Reranker
+    # 第 2-3 步：召回器 + 重排器
     all_evidences = await _retrieve_queries(repo=repo, user_id=user_id, queries=queries, api_config=api_config)
     reranked = _rank_evidence_copies(all_evidences, max_results=15)
 
@@ -752,7 +752,7 @@ async def run_rag_pipeline(
         final_issues=final_issues,
         agentic_error_type=agentic_error_type,
     )
-    # Step 5: Fact Guard
+    # 第 5 步：事实防护
     guard_result = fact_guard(reranked, user_id)
 
     # Step 6: 构建结果

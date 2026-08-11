@@ -1,4 +1,4 @@
-"""Serializable views of the built-in prompt registry for Langfuse sync."""
+"""提供管理相关后端功能。"""
 
 from __future__ import annotations
 
@@ -15,8 +15,8 @@ _CHAT_ROLE_BY_TEMPLATE = {
     "AIMessagePromptTemplate": "assistant",
 }
 _KNOWN_HISTORICAL_PRESENTATIONS = {
-    # Langfuse Cloud 中可能仍有迁移前的远端版本；这里只提供安全展示元数据，
-    # 不把它们重新注册为内置 Prompt。远端项目完成归档后在 Prompt 资产清理阶段删除。
+    # Langfuse Cloud 中可能仍有迁移前的远端版本；它们虽然不再参与代码注册，
+    # 但仍属于本产品维护的历史内置提示词，列表展示应保留“内置”标签。
     "analysis.candidate_profile": ("单场能力画像", "能力分析"),
     "analysis.weakness_report": ("短板报告", "能力分析"),
 }
@@ -24,7 +24,7 @@ _KNOWN_HISTORICAL_PRESENTATIONS = {
 
 @dataclass(frozen=True, slots=True)
 class BuiltinManagedPrompt:
-    """One latest built-in prompt in the shape accepted by Langfuse."""
+    """定义内置托管提示词相关后端数据结构或服务组件。"""
 
     name: str
     version: str
@@ -35,7 +35,7 @@ class BuiltinManagedPrompt:
 
 @dataclass(frozen=True, slots=True)
 class PromptPresentation:
-    """Chinese presentation metadata for one built-in or custom managed prompt."""
+    """定义提示词展示相关后端数据结构或服务组件。"""
 
     display_name: str
     functional_group: str
@@ -43,7 +43,7 @@ class PromptPresentation:
 
 
 def _builtin_functional_group(name: str) -> str:
-    """Map a registered prompt namespace to its stable Chinese functional group."""
+    """处理内置相关后端逻辑。"""
     if name.startswith("interview."):
         return "模拟面试"
     if name.startswith("voice."):
@@ -72,7 +72,7 @@ def _builtin_functional_group(name: str) -> str:
 
 
 def prompt_presentation(name: str) -> PromptPresentation:
-    """Return backend-owned Chinese display metadata without exposing prompt content."""
+    """处理提示词展示相关后端逻辑。"""
     versions = prompt_registry.versions(name)
     if not versions:
         historical = _KNOWN_HISTORICAL_PRESENTATIONS.get(name)
@@ -96,7 +96,7 @@ def prompt_presentation(name: str) -> PromptPresentation:
 
 
 def _to_mustache(template: str) -> str:
-    """Convert LangChain's single-brace variables to Langfuse mustache variables."""
+    """处理管理相关后端逻辑。"""
     return _LANGCHAIN_VARIABLE.sub(r"{{\1}}", template)
 
 
@@ -131,7 +131,7 @@ def _serialize_prompt(name: str, version: str) -> BuiltinManagedPrompt | None:
 
 
 def latest_builtin_managed_prompts() -> tuple[BuiltinManagedPrompt, ...]:
-    """Return one latest registered version per prompt name in stable order."""
+    """处理内置托管提示词相关后端逻辑。"""
     prompts: list[BuiltinManagedPrompt] = []
     for name in prompt_registry.names():
         versions = prompt_registry.versions(name)

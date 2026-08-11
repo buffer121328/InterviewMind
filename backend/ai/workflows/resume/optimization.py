@@ -42,7 +42,7 @@ async def optimize_resume_streaming(
     api_config: dict | None = None,
     mode: str = "balanced",
 ) -> AsyncGenerator[dict, None]:
-    """Compatibility SSE adapter backed by the current 6-stage pipeline."""
+    """优化简历相关后端逻辑。"""
     yield {"type": "progress", "stage": "preparing", "message": "正在读取简历、JD 与关联面试"}
     yield {"type": "progress", "stage": "optimizing", "message": "正在执行简历优化流水线"}
     pipeline_result = await run_pipeline(

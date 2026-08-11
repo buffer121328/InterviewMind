@@ -1,4 +1,4 @@
-"""Normalize, deduplicate, and persist captured jobs."""
+"""提供岗位相关后端功能。"""
 
 import logging
 from datetime import datetime

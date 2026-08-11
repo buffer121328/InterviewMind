@@ -149,7 +149,7 @@ async def set_application_resume(
     request: ApplicationResumeLinkRequest,
     x_user_id: Optional[str] = Header(None, alias="X-User-ID"),
 ):
-    """Replace or clear one owner-scoped application resume reference."""
+    """处理设置投递简历相关后端逻辑。"""
     return await _call_use_case(
         lambda: application_use_cases.set_application_resume(
             application_id=application_id,

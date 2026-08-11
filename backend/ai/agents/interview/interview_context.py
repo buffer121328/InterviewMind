@@ -72,7 +72,7 @@ async def load_interview_memory(
     company_info: str,
     api_config: dict[str, Any] | None = None,
 ) -> tuple[str, list[dict[str, Any]]]:
-    """Read long-term memory through the request-scoped model channels when provided."""
+    """加载面试记忆相关后端逻辑。"""
     try:
         from ai.memory import format_memory_context, get_agent_memory_service
 
@@ -105,7 +105,7 @@ async def build_interview_context(
     session_metadata: Any | None = None,
     api_config: dict[str, Any] | None = None,
 ) -> InterviewContextSnapshot:
-    """Build shared interview context while preserving request-scoped mem0 configuration."""
+    """构建面试上下文相关后端逻辑。"""
     stored_resume = getattr(session_metadata, "resume_content", None)
     stored_jd = getattr(session_metadata, "job_description", None)
     stored_company = getattr(session_metadata, "company_info", None)

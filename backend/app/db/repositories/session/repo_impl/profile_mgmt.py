@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 def build_recent_company_profiles_stmt(*, limit: int, user_id: str):
-    """Build the owner-scoped query used by the cross-company ability profile."""
+    """构建最近公司画像相关后端逻辑。"""
     return (
         select(SessionModel.company_profile)
         .where(
@@ -27,7 +27,7 @@ def build_recent_company_profiles_stmt(*, limit: int, user_id: str):
 
 
 def build_recent_company_profile_records_stmt(*, limit: int, user_id: str):
-    """Build the owner-scoped query used by the growth-record source timeline."""
+    """构建最近公司画像记录相关后端逻辑。"""
     return (
         select(
             SessionModel.session_id,
@@ -80,7 +80,7 @@ class ProfileService(BaseService):
             return row or None
 
     async def get_series_round_profiles(self, series_id: str, user_id: str) -> List[Dict[str, Any]]:
-        """Return the three completed round profiles for one owner and series."""
+        """获取序列轮次画像相关后端逻辑。"""
         async with async_session() as db:
             rows = (
                 await db.execute(
@@ -109,7 +109,7 @@ class ProfileService(BaseService):
             ]
 
     async def save_company_profile(self, session_id: str, profile_data: Dict[str, Any], user_id: str) -> bool:
-        """Idempotently store the one company profile on its third-round session."""
+        """保存公司画像相关后端逻辑。"""
         async with async_session() as db:
             result = await db.execute(
                 update(SessionModel)
@@ -138,7 +138,7 @@ class ProfileService(BaseService):
             return row or None
 
     async def get_series_final_profiles(self, limit: int, user_id: str) -> List[Dict[str, Any]]:
-        """Return only recent completed company profiles, never individual rounds."""
+        """获取序列最终画像相关后端逻辑。"""
         async with async_session() as db:
             rows = (await db.execute(build_recent_company_profiles_stmt(limit=limit, user_id=user_id))).scalars().all()
             profiles: List[Dict[str, Any]] = []
@@ -151,7 +151,7 @@ class ProfileService(BaseService):
             return profiles
 
     async def get_series_final_profile_records(self, limit: int, user_id: str) -> List[Dict[str, Any]]:
-        """Return owner-scoped company-profile sources with stable timeline metadata."""
+        """获取序列最终画像记录相关后端逻辑。"""
         async with async_session() as db:
             rows = (await db.execute(
                 build_recent_company_profile_records_stmt(limit=limit, user_id=user_id)

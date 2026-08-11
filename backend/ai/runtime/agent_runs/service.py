@@ -112,8 +112,8 @@ def serialize_run(run: AgentRunModel) -> dict:
     return {
         "run_id": run.id,
         "session_id": getattr(run, "session_id", None),
-        # Only set by an ownership-scoped lookup; never derive session display data
-        # from the encrypted task payload.
+        # 说明：保留这里的兼容性、安全性或流程约束。
+        # 说明：from the encrypted task payload.
         "session_title": getattr(run, "session_title", None),
         "session_status": getattr(run, "session_status", None),
         "session_question_count": getattr(run, "session_question_count", None),
@@ -246,11 +246,7 @@ class AgentRunService:
         trace_id: str | None = None,
         model_events: list[dict[str, Any]] | None = None,
     ) -> None:
-        """Persist a Trace link and credential-free model metrics without blocking the run.
-
-        ``observation_id`` is always local and supports idempotent writes. ``trace_id``
-        is stored on the AgentRun only when Langfuse actually created the trace.
-        """
+        """记录观测相关后端逻辑。"""
         async with UnitOfWork(async_session) as uow:
             session = uow.db
             run = await session.get(AgentRunModel, run_id, with_for_update=True)
@@ -370,12 +366,7 @@ class AgentRunService:
         initial_stage: str,
         session_id: str | None = None,
     ) -> tuple[AgentRunModel, bool]:
-        """Create an immediately running AgentRun without publishing an outbox task.
-
-        Interactive HTTP workflows use this path after their user-input gate has
-        completed.  The encrypted payload contains only a resumable reference,
-        while lifecycle events and step results remain visible in Run Center.
-        """
+        """创建行内相关后端逻辑。"""
         if task_type not in TASK_DEFINITIONS:
             raise ValueError(f"unknown task type: {task_type}")
         definition = get_agent_definition(task_type)
@@ -461,13 +452,7 @@ class AgentRunService:
         runs: list[AgentRunModel],
         user_id: str,
     ) -> None:
-        """Attach owner-scoped interview-session display summaries in one query.
-
-        AgentRun status describes one background execution, not the lifecycle of
-        the linked interview.  The extra session fields let clients distinguish a
-        completed turn-generation task from a completed interview without reading
-        or decrypting the task payload.
-        """
+        """附加用户所属会话相关后端逻辑。"""
         session_ids = {run.session_id for run in runs if run.session_id}
         if not session_ids:
             return
@@ -492,7 +477,7 @@ class AgentRunService:
             setattr(run, "session_max_questions", summary.max_questions if summary else None)
 
     async def get_task_type_for_worker(self, run_id: str) -> str | None:
-        """Read only the task type needed to select an execution concurrency gate."""
+        """获取任务类型Worker相关后端逻辑。"""
         async with async_session() as session:
             return await session.scalar(
                 select(AgentRunModel.task_type).where(AgentRunModel.id == run_id)
@@ -516,11 +501,7 @@ class AgentRunService:
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[list[AgentRunModel], int]:
-        """List owner-scoped AgentRuns with optional status, task, and session filters.
-
-        Current AgentRuns always persist their session link at creation time, so
-        list reads never decrypt task payloads.
-        """
+        """列出运行相关后端逻辑。"""
         async with async_session() as session:
             filters = [AgentRunModel.user_id == user_id]
             if status:
@@ -542,11 +523,7 @@ class AgentRunService:
             return runs, int(total or 0)
 
     async def summarize_runs(self, user_id: str) -> dict[str, int]:
-        """Return exact whole-history lifecycle counts for one owner's AgentRuns.
-
-        This aggregate intentionally has no UI filter or pagination input, so the
-        Run Center never reports a page-sized number as an active or historical total.
-        """
+        """汇总运行相关后端逻辑。"""
         async with async_session() as session:
             rows = await session.execute(
                 select(AgentRunModel.status, func.count(AgentRunModel.id))
@@ -570,13 +547,7 @@ class AgentRunService:
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[list[tuple[str, list[AgentRunModel]]], list[AgentRunModel], int]:
-        """List matching runs in pages of interview sessions, plus unassociated runs.
-
-        Status and task-type predicates apply before session IDs are selected, so a
-        returned session contains every one of its matching child runs rather than
-        a page-sized subset.  Session titles are resolved separately through the
-        owner-scoped session lookup and never from encrypted task payloads.
-        """
+        """列出分组运行相关后端逻辑。"""
         filters = [AgentRunModel.user_id == user_id]
         if status:
             filters.append(AgentRunModel.status == status)

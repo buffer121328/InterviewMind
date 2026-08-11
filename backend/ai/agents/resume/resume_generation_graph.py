@@ -370,7 +370,7 @@ def build_resume_generation_graph(
     workflow = StateGraph(ResumeGenerationState)
 
     def tracked_node(stage: str, node):
-        """Wrap one graph node with non-sensitive started/completed progress events."""
+        """处理节点相关后端逻辑。"""
         if progress_callback is None:
             return node
 

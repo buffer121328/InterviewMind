@@ -1,4 +1,4 @@
-"""Backend-only text logging for BOSS collection runs."""
+"""提供岗位日志相关后端功能。"""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ _SAFE_RUN_ID = re.compile(r"[^A-Za-z0-9_-]+")
 
 
 class JobCaptureTextLog:
-    """Append sanitized lifecycle messages to the private artifact volume."""
+    """定义岗位文本日志相关后端数据结构或服务组件。"""
 
     def __init__(self, run_id: str) -> None:
         safe_run_id = _SAFE_RUN_ID.sub("-", run_id).strip("-")[:100] or "unknown"
@@ -23,7 +23,7 @@ class JobCaptureTextLog:
         self.path = root / "job-capture-logs" / f"job-capture-{safe_run_id}.txt"
 
     async def write(self, message: str) -> None:
-        """Append one bounded single-line message without exposing request payloads."""
+        """处理写入相关后端逻辑。"""
         safe_message = " ".join(str(message).replace("\x00", "").split())[:500]
         line = f"{datetime.now().isoformat(timespec='seconds')} {safe_message}\n"
 

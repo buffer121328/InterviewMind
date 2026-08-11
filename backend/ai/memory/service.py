@@ -66,9 +66,8 @@ INTERVIEW_MEMORY_EXTRACTION_INSTRUCTIONS = """
 禁止提取助手生成的事实、评分、优势、反馈、辅导建议、回答模板、临时面试表现、通用经验、假设示例、寒暄确认，或本应合并进既有项目摘要的组件级细节。不得从一次回答推断人格或长期短板。用户补充既有项目、技术栈或目标时，应生成适合合并到该规范主题的候选记忆，而不是独立碎片。
 """.strip()
 
-# mem0 upstream enables anonymous PostHog telemetry by default.  Keep this
-# product's memory runtime private/offline unless an operator explicitly opts in
-# before importing this module.
+# mem0 上游默认启用匿名 PostHog 遥测；除非运维人员在导入本模块前明确选择启用，
+# 否则本产品的记忆运行时保持私有和离线。
 os.environ.setdefault("MEM0_TELEMETRY", "False")
 
 # 全局单例
@@ -78,7 +77,7 @@ _last_memory_readiness_category: str | None = None
 
 
 def classify_memory_initialization_error(exc: BaseException) -> str:
-    """Map dependency failures to stable credential-free readiness categories."""
+    """将依赖故障映射为稳定且不含凭据的就绪状态类别。"""
     text = f"{type(exc).__name__} {exc}".casefold()
     if any(token in text for token in (
         "password authentication failed",
@@ -110,7 +109,7 @@ async def _run_mem0_call(
     timeout: float,
     **kwargs: Any,
 ) -> Any:
-    """Run one synchronous mem0 operation with an independent external-I/O timeout."""
+    """在独立外部 IO 超时约束下运行一次同步 mem0 操作。"""
     return await asyncio.wait_for(
         asyncio.to_thread(function, *args, **kwargs),
         timeout=timeout,
@@ -118,7 +117,7 @@ async def _run_mem0_call(
 
 
 def _external_error_category(exc: BaseException) -> str:
-    """Distinguish external dependency timeout from other degraded I/O failures."""
+    """区分外部依赖超时与其他降级 IO 故障。"""
     return "external_io_timeout" if isinstance(exc, TimeoutError) else "external_io_error"
 
 
@@ -187,7 +186,7 @@ def _retention_metadata() -> dict:
 
 
 def _retention_class_metadata(retention_class: MemoryRetentionClass) -> dict[str, Any]:
-    """Build non-content metadata used by gradual cleanup policies."""
+    """构建渐进清理策略使用的不含正文元数据。"""
 
     now = datetime.now(timezone.utc)
     settings = get_settings()
@@ -242,7 +241,7 @@ class AgentMemoryService:
         self._readiness_category = "not_initialized" if config is not None else "model_channels_missing"
 
     async def initialize(self) -> bool:
-        """Initialize the mem0 client and return whether it is ready for requests."""
+        """初始化 mem0 客户端，并返回其是否已可处理请求。"""
         if not self._enabled:
             logger.info("AgentMemoryService 已禁用")
             return False
@@ -276,12 +275,12 @@ class AgentMemoryService:
 
     @property
     def initialization_error(self) -> str | None:
-        """Return only the safe exception type from the latest initialization attempt."""
+        """仅返回最近一次初始化尝试的安全异常类型。"""
         return self._initialization_error
 
     @property
     def readiness_category(self) -> str:
-        """Return one stable sanitized readiness category for API diagnostics."""
+        """返回一个稳定且已脱敏的就绪状态类别，用于 API 诊断。"""
         return self._readiness_category
 
     async def search_memories(
@@ -351,8 +350,8 @@ class AgentMemoryService:
                         ],
                     )
             except Exception as exc:
-                # Access telemetry is best-effort; Redis/readiness drift must not
-                # erase an otherwise successful owner-scoped mem0 search.
+                # 访问遥测是尽力而为；Redis 或就绪状态漂移不应
+                # 抹掉一次原本成功的用户范围 mem0 查询。
                 logger.warning("记忆访问状态记录失败: %s", type(exc).__name__)
 
             _record_mem0_event(
@@ -382,7 +381,7 @@ class AgentMemoryService:
         dry_run: bool = True,
         max_memories: int = 500,
     ) -> dict[str, Any]:
-        """Mark inactive decay-eligible memories, then delete only after grace."""
+        """先标记可衰减的非活跃记忆，仅在宽限期后删除。"""
 
         if not self.is_enabled:
             return {
@@ -460,7 +459,7 @@ class AgentMemoryService:
         }
 
     async def _maybe_run_retention_cleanup(self, user_id: str) -> None:
-        """Run at most one two-stage cleanup sweep per active owner per day."""
+        """每个活跃用户每天最多运行一次两阶段清理扫描。"""
 
         retention_store = get_memory_retention_store()
         if retention_store is None or not await retention_store.acquire_daily_sweep(user_id):
@@ -477,7 +476,7 @@ class AgentMemoryService:
         timeout_seconds: float | None = None,
         max_tokens: int | None = None,
     ) -> object | None:
-        """Run one bounded lifecycle planning call through the request-scoped mem0 LLM."""
+        """通过请求范围内的 mem0 LLM 运行一次有边界的生命周期规划调用。"""
         llm = getattr(self._memory, "llm", None)
         generate_response = getattr(llm, "generate_response", None)
         if not callable(generate_response):
@@ -490,10 +489,9 @@ class AgentMemoryService:
         model_name = str(getattr(llm_config, "model", "")).lower()
         base_url = str(getattr(llm_config, "openai_base_url", "")).lower()
         if model_name.startswith("deepseek") or "api.deepseek.com" in base_url:
-            # DeepSeek thinking mode can consume the whole completion budget in
-            # reasoning_content and leave the requested lifecycle JSON empty.
-            # Lifecycle classification benefits from deterministic structured
-            # output, not chain-of-thought, so disable thinking for this call.
+            # DeepSeek 思考模式可能把全部生成预算消耗在 reasoning_content 中，
+            # 导致请求的生命周期 JSON 为空。生命周期分类更依赖确定性的结构化输出，
+            # 而不是思维链，因此本次调用关闭思考模式。
             generation_options["extra_body"] = {"thinking": {"type": "disabled"}}
         try:
             return await _run_mem0_call(
@@ -507,7 +505,7 @@ class AgentMemoryService:
             return None
 
     async def _delete_memory_record(self, memory_id: str) -> bool:
-        """Delete one already owner-validated record without another full owner scan."""
+        """删除一条已完成用户归属校验的记录，不再执行完整归属扫描。"""
         try:
             await _run_mem0_call(
                 self._memory.delete,
@@ -525,16 +523,16 @@ class AgentMemoryService:
         content: str,
         metadata: dict[str, Any] | None = None,
     ) -> bool:
-        """Update one already owner-validated record without another full owner scan."""
+        """更新一条已完成用户归属校验的记录，不再执行完整归属扫描。"""
         try:
-            await _run_mem0_call(
+            result = await _run_mem0_call(
                 self._memory.update,
                 memory_id=memory_id,
                 data=content,
                 metadata=metadata,
                 timeout=get_settings().mem0_add_timeout_seconds,
             )
-            return True
+            return result is not None and result is not False
         except Exception as exc:
             logger.warning("记忆生命周期更新失败: %s", type(exc).__name__)
             return False
@@ -545,7 +543,7 @@ class AgentMemoryService:
         existing: list[dict[str, Any]],
         new_records: list[dict[str, Any]],
     ) -> None:
-        """Reconcile later-round candidates against owned existing memories."""
+        """将后续轮次候选记忆与当前用户既有记忆进行对账。"""
         if not new_records:
             return
         raw_plan = await self._generate_lifecycle_response(
@@ -571,8 +569,8 @@ class AgentMemoryService:
                     )
                     if admitted:
                         continue
-                # Admission is opt-in. If classification or retention tagging
-                # cannot be completed, remove the temporary extracted record.
+                # 写入长期记忆必须显式接纳；如果分类或保留等级标注无法完成，
+                # 就移除临时抽取出的记录。
                 await self._delete_memory_record(operation.new_id)
                 continue
             if operation.action in {LifecycleAction.DISCARD, LifecycleAction.NONE}:
@@ -589,8 +587,8 @@ class AgentMemoryService:
                         operation.content,
                         metadata or None,
                     )
-                # The extracted candidate is only a staging record. The source
-                # interview remains available even if the canonical update fails.
+                # 抽取出的候选项只是暂存记录；即使规范记录更新失败，
+                # 原始面试内容仍然可用。
                 await self._delete_memory_record(operation.new_id)
                 continue
             if operation.action is LifecycleAction.DELETE and operation.target_id:
@@ -604,7 +602,7 @@ class AgentMemoryService:
         dry_run: bool = True,
         max_memories: int = 200,
     ) -> dict[str, Any]:
-        """Preview or apply an owner-scoped, LLM-validated historical consolidation plan."""
+        """预览或应用限定在当前用户范围内、经 LLM 校验的历史合并计划。"""
         if not self.is_enabled:
             return {
                 "dry_run": dry_run,
@@ -626,10 +624,9 @@ class AgentMemoryService:
         raw_plan = await self._generate_lifecycle_response(
             build_historical_consolidation_prompt(records=owned_records),
             timeout_seconds=max(get_settings().mem0_add_timeout_seconds, 180.0),
-            # Historical batches need substantially more output room than one
-            # incremental turn.  Some OpenAI-compatible reasoning models emit
-            # hidden reasoning before the requested JSON; the request-scoped
-            # mem0 default of 2k tokens can therefore finish with empty content.
+            # 历史批次比单次增量轮次需要更多输出空间。部分兼容 OpenAI 的推理模型
+            # 会在请求的 JSON 之前生成隐藏推理内容；因此，请求范围 mem0 默认的
+            # 2k token 可能最终产出空内容。
             max_tokens=max(get_settings().llm_max_tokens, 8000),
         )
         operations = parse_historical_plan(
@@ -780,7 +777,7 @@ class AgentMemoryService:
         memory_type: str,
         metadata: Optional[dict] = None,
     ) -> Optional[dict]:
-        """Do not duplicate assistant-generated report artifacts into long-term memory."""
+        """不要将助手生成的报告产物重复写入长期记忆。"""
         _ = (user_id, session_id, content, memory_type, metadata)
         logger.info("跳过面试报告到长期记忆的自动沉淀")
         return None
@@ -793,7 +790,7 @@ class AgentMemoryService:
         memory_type: str | None = None,
         metadata: Optional[dict] = None,
     ) -> Optional[dict]:
-        """Store one user-authored memory without asking mem0 to infer or rewrite it."""
+        """存储一条用户手写记忆，不要求 mem0 推断或重写。"""
         if not self.is_enabled:
             return None
 
@@ -926,7 +923,7 @@ class AgentMemoryService:
         memory_id: str,
         content: str,
     ) -> Optional[dict]:
-        """Update one memory after verifying that it belongs to the current user."""
+        """在确认记忆属于当前用户后更新一条记忆。"""
         if not self.is_enabled:
             return None
 
@@ -941,8 +938,8 @@ class AgentMemoryService:
             try:
                 retention_class = MemoryRetentionClass(raw_retention_class)
             except ValueError:
-                # A user-authored edit explicitly reconfirms a legacy record.
-                # Manual and legacy memories fail closed into the protected tier.
+                # 用户手工编辑会显式重新确认旧记录。
+                # 手工记忆和旧记忆按保守策略归入受保护等级。
                 retention_class = MemoryRetentionClass.CORE
             metadata.update(_retention_class_metadata(retention_class))
             result = await _run_mem0_call(
@@ -952,9 +949,13 @@ class AgentMemoryService:
                 metadata=metadata,
                 timeout=get_settings().mem0_add_timeout_seconds,
             )
-            retention_store = get_memory_retention_store()
-            if retention_store is not None:
-                await retention_store.record_access(user_id, [memory_id])
+            try:
+                retention_store = get_memory_retention_store()
+                if retention_store is not None:
+                    await retention_store.record_access(user_id, [memory_id])
+            except Exception as exc:
+                # 访问遥测是尽力而为；Redis 就绪状态漂移不应抹掉一次已经成功的 mem0 更新。
+                logger.warning("记忆访问状态记录失败: %s", type(exc).__name__)
             return result
         except Exception as exc:
             logger.error("更新记忆失败: %s", type(exc).__name__)
@@ -1064,8 +1065,8 @@ async def get_agent_memory_service(api_config: Optional[dict[str, Any]] = None) 
             return _agent_memory_service
         candidate = AgentMemoryService(config)
         await candidate.initialize()
-        # Failed initialization must not poison the process singleton forever.
-        # A later request may arrive after PostgreSQL or model configuration recovers.
+        # 初始化失败不应永久污染进程单例。
+        # 后续请求可能在 PostgreSQL 或模型配置恢复后到达。
         _last_memory_readiness_category = candidate.readiness_category
         if candidate.is_enabled:
             _agent_memory_service = candidate
@@ -1088,7 +1089,7 @@ async def get_agent_memory_service(api_config: Optional[dict[str, Any]] = None) 
 
 
 def get_agent_memory_runtime_status() -> dict[str, Any]:
-    """Return a credential-free snapshot of mem0 readiness in this process."""
+    """返回当前进程中 mem0 就绪状态的无凭据快照。"""
     server_ready = bool(_agent_memory_service and _agent_memory_service.is_enabled)
     request_scoped_ready = sum(
         1 for service in _agent_memory_services.values() if service.is_enabled
@@ -1118,7 +1119,7 @@ def get_agent_memory_runtime_status() -> dict[str, Any]:
 
 
 async def close_agent_memory_service() -> None:
-    """Clear all process-local mem0 clients without exposing request credentials."""
+    """清理所有进程本地 mem0 客户端，不暴露请求凭据。"""
     global _agent_memory_service, _last_memory_readiness_category
     _agent_memory_service = None
     _last_memory_readiness_category = None

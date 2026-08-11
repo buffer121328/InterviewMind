@@ -102,12 +102,12 @@ def score_jd_match_fast(
 
 
 def build_user_prompt(resume_content: str, job_description: str) -> str:
-    """Build the detailed JD-match prompt through the central prompt policy."""
+    """构建用户提示词相关后端逻辑。"""
     return build_jd_match_user_prompt(resume_content, job_description)
 
 
 def _deterministic_match_fallback(resume_content: str, job_description: str) -> Dict[str, Any]:
-    """Return a stable evidence-only score when a provider emits malformed structured JSON."""
+    """处理确定性兜底相关后端逻辑。"""
     token_pattern = r"[a-z][a-z0-9+#.-]{1,30}|[\u4e00-\u9fff]{2,8}"
     resume_terms = set(re.findall(token_pattern, resume_content.casefold()))
     job_terms = set(re.findall(token_pattern, job_description.casefold()))

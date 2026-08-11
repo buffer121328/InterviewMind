@@ -59,7 +59,7 @@ def trace_fingerprint(value: str) -> str:
 
 
 def _safe_mapping_key(value: Any, index: int) -> str:
-    """Keep ordinary schema keys readable while hashing secret-like or attacker-controlled keys."""
+    """处理安全映射键相关后端逻辑。"""
 
     raw_key = str(value)
     normalized = raw_key.casefold()

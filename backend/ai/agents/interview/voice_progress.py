@@ -1,4 +1,4 @@
-"""Progress inference for voice interview conversations."""
+"""提供语音进度相关后端功能。"""
 
 import logging
 import re

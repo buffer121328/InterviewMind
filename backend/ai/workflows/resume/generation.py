@@ -139,7 +139,7 @@ class ResumeGenerationUseCases:
         )
 
         async def mark_stage(stage: str) -> None:
-            """Forward a real graph stage to the owner-scoped interactive AgentRun."""
+            """标记阶段相关后端逻辑。"""
             await run_service.mark_stage(run.id, stage)
 
         try:
@@ -193,7 +193,7 @@ class ResumeGenerationUseCases:
         user_id: str,
         run_service: AgentRunService,
     ) -> None:
-        """Reject submissions outside an owner-scoped waiting Resume Generation session."""
+        """校验生成相关后端逻辑。"""
         session = await session_store.get(request.session_id, user_id=user_id)
         if session is None:
             raise ResumeGenerationNotFound(message="会话不存在或已过期")

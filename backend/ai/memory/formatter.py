@@ -81,7 +81,7 @@ def format_memory_context(
             break
 
         lines.append(line)
-        total_chars += len(line) + 1  # +1 for newline
+        total_chars += len(line) + 1  # 额外预留一个换行符
 
     return "\n".join(lines)
 

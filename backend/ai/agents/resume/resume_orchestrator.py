@@ -245,7 +245,7 @@ async def _run_pipeline(
 
 
 def _build_resume_graph() -> StateGraph:
-    """Build the fixed resume DAG using the current stage function bindings."""
+    """构建简历图相关后端逻辑。"""
     return build_resume_graph(
         stage1_jd_analysis=stage1_jd_analysis,
         stage2_material_selection=stage2_material_selection,
@@ -260,5 +260,5 @@ def _build_resume_graph() -> StateGraph:
 
 
 def build_resume_optimizer_graph():
-    """Build the current resume optimization graph."""
+    """构建简历优化器图相关后端逻辑。"""
     return _build_resume_graph().compile(name="resume-optimization-pipeline")

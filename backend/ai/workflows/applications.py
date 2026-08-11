@@ -132,7 +132,7 @@ class ApplicationUseCases:
         user_id: Optional[str],
         request: ApplicationResumeLinkRequest,
     ) -> ApplicationDetailResponse:
-        """Replace or clear an application resume after owner validation."""
+        """处理设置投递简历相关后端逻辑。"""
         resolved_user_id = self.resolve_user_id(user_id)
         await self._get_application_or_raise(application_id, resolved_user_id)
         if request.resume_id is not None:
@@ -161,7 +161,7 @@ class ApplicationUseCases:
         application,
         user_id: str,
     ):
-        """Attach only an owner-visible generated resume to an application detail."""
+        """附加关联简历相关后端逻辑。"""
         resume_id = application.generated_resume_id or application.custom_resume_id
         if not resume_id:
             return application.model_copy(update={"linked_resume": None})

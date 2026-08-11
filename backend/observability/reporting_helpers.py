@@ -51,12 +51,7 @@ def render_managed_prompt(
     version: str | int | None = None,
     prompt_type: str = "text",
 ) -> str:
-    """Render a Langfuse-managed prompt with a local fallback.
-
-    Prompt management is opt-in via LANGFUSE_PROMPT_MANAGEMENT_ENABLED=true.
-    When disabled, unavailable, or failing, this returns the already-rendered local
-    fallback so production traffic is not coupled to Langfuse availability.
-    """
+    """渲染托管提示词相关后端逻辑。"""
     import observability
 
     if not observability._configured:
@@ -69,8 +64,8 @@ def render_managed_prompt(
         "type": prompt_type,
         "cache_ttl_seconds": config.prompt_cache_ttl_seconds,
         "fallback": fallback,
-        # Prompt Management is optional; the render path must not accumulate
-        # Langfuse retries before a model-call deadline even starts.
+        # Prompt Management 是可选能力；渲染路径不应累积
+        # Langfuse 重试，避免模型调用期限尚未开始就被消耗。
         "max_retries": config.prompt_max_retries,
         "fetch_timeout_seconds": config.prompt_fetch_timeout_seconds,
     }

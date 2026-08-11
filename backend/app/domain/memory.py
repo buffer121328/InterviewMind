@@ -1,4 +1,4 @@
-"""Memory domain mapping rules independent of HTTP routing."""
+"""提供记忆相关后端功能。"""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ _ASSISTANT_DERIVED_PREFIXES = (
 
 
 def normalize_memory_text(text: str) -> str:
-    """Normalize presentation-only differences without changing semantic word content."""
+    """规范化记忆文本相关后端逻辑。"""
 
     normalized = unicodedata.normalize("NFKC", text).casefold()
     return "".join(
@@ -33,13 +33,7 @@ def normalize_memory_text(text: str) -> str:
 
 
 def canonicalize_memory_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Build a non-destructive user-focused projection of mem0 records.
-
-    Assistant-attributed extraction noise is omitted. Records that differ only by
-    Unicode width, case, spacing, or punctuation share one canonical slot. Search
-    results prefer the highest score; list results otherwise prefer the most recently
-    updated record while preserving the first slot's ordering.
-    """
+    """处理规范化记忆记录相关后端逻辑。"""
 
     canonical: list[dict[str, Any]] = []
     positions: dict[str, int] = {}
@@ -77,7 +71,7 @@ def _is_assistant_derived_memory(
     attributed_to: Any,
     source: Any,
 ) -> bool:
-    """Identify explicit or conservatively phrased assistant-derived chat memories."""
+    """处理记忆相关后端逻辑。"""
 
     if isinstance(attributed_to, str) and attributed_to.casefold() == "assistant":
         return True
@@ -89,7 +83,7 @@ def _is_assistant_derived_memory(
 
 
 def _memory_record_rank(record: dict[str, Any]) -> tuple[int, float, str]:
-    """Rank duplicate candidates by search relevance and then recency."""
+    """处理记忆记录排序相关后端逻辑。"""
 
     score = record.get("score")
     numeric_score = float(score) if isinstance(score, int | float) else 0.0
@@ -98,7 +92,7 @@ def _memory_record_rank(record: dict[str, Any]) -> tuple[int, float, str]:
 
 
 def memory_record_to_item(record: dict[str, Any]) -> dict[str, Any]:
-    """Normalize a mem0 memory record into the API/domain memory item shape."""
+    """处理记忆记录条目相关后端逻辑。"""
     metadata = record.get("metadata")
     item = {
         "id": record.get("id", ""),
@@ -113,7 +107,7 @@ def memory_record_to_item(record: dict[str, Any]) -> dict[str, Any]:
 
 
 def memory_history_record_to_item(record: dict[str, Any], *, memory_id: str) -> dict[str, Any]:
-    """Normalize one mem0 memory history record."""
+    """处理记忆历史记录条目相关后端逻辑。"""
     return {
         "id": record.get("id", ""),
         "memory_id": memory_id,

@@ -55,7 +55,7 @@ async def list_memories_with_model_config(
     request: MemoryListRequest,
     user_id: str = Depends(get_current_user_id),
 ):
-    """List memories using front-end model channels without persisting credentials."""
+    """列出记忆模型配置相关后端逻辑。"""
     try:
         api_config = request.api_config.model_dump() if request.api_config else None
         return await memory_use_cases.list_memories(
@@ -93,7 +93,7 @@ async def search_memories_with_model_config(
     request: MemorySearchRequest,
     user_id: str = Depends(get_current_user_id),
 ):
-    """Search memories using front-end model channels without placing credentials in the URL."""
+    """搜索记忆模型配置相关后端逻辑。"""
     try:
         api_config = request.api_config.model_dump() if request.api_config else None
         return await memory_use_cases.search_memories(
@@ -113,7 +113,7 @@ async def consolidate_memories(
     request: MemoryConsolidateRequest,
     user_id: str = Depends(get_current_user_id),
 ):
-    """Preview or explicitly apply owner-scoped historical memory consolidation."""
+    """处理合并记忆相关后端逻辑。"""
     try:
         return await memory_use_cases.consolidate_memories(
             user_id=user_id,
@@ -134,7 +134,7 @@ async def cleanup_memories(
     request: MemoryCleanupRequest,
     user_id: str = Depends(get_current_user_id),
 ):
-    """Preview or apply two-stage owner-scoped retention cleanup."""
+    """清理记忆相关后端逻辑。"""
 
     try:
         return await memory_use_cases.cleanup_memories(user_id=user_id, request=request)
@@ -153,7 +153,7 @@ async def add_memory(
     request: MemoryCreateRequest,
     user_id: str = Depends(get_current_user_id),
 ):
-    """Add one user-authored memory without automatic LLM extraction."""
+    """处理新增记忆相关后端逻辑。"""
     try:
         return await memory_use_cases.add_memory(user_id=user_id, request=request)
     except Exception as exc:
@@ -180,7 +180,7 @@ async def get_memory_history_with_model_config(
     request: MemoryAccessRequest,
     user_id: str = Depends(get_current_user_id),
 ):
-    """Read one memory history through request-scoped model channels."""
+    """获取记忆历史模型配置相关后端逻辑。"""
     try:
         api_config = request.api_config.model_dump() if request.api_config else None
         return await memory_use_cases.get_history(
@@ -199,7 +199,7 @@ async def delete_memory(
     request: MemoryAccessRequest | None = Body(default=None),
     user_id: str = Depends(get_current_user_id),
 ):
-    """Delete one memory using request-scoped model channels when supplied."""
+    """删除记忆相关后端逻辑。"""
     try:
         api_config = request.api_config.model_dump() if request and request.api_config else None
         return await memory_use_cases.delete_memory(
@@ -218,7 +218,7 @@ async def update_memory(
     request: MemoryUpdateRequest,
     user_id: str = Depends(get_current_user_id),
 ):
-    """Update one owner-scoped memory after validating its ownership."""
+    """更新记忆相关后端逻辑。"""
     try:
         return await memory_use_cases.update_memory(
             user_id=user_id,
@@ -235,7 +235,7 @@ async def delete_all_memories(
     request: MemoryDeleteAllRequest = Body(...),
     user_id: str = Depends(get_current_user_id),
 ):
-    """Clear all owner-scoped memories through the request-scoped mem0 client."""
+    """删除记忆相关后端逻辑。"""
     try:
         return await memory_use_cases.delete_all(user_id=user_id, request=request)
     except Exception as exc:

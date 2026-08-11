@@ -120,7 +120,7 @@ class AnnotationUseCasesMixin:
 
 
 def _mirror_human_annotation(row: Any) -> None:
-    """Best-effort mirror one human revision without uploading case content."""
+    """处理标注相关后端逻辑。"""
 
     try:
         from observability.evaluation_reporting import EvaluationScore, report_score

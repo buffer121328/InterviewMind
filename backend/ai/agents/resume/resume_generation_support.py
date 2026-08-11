@@ -1,4 +1,4 @@
-"""Shared bounded-context helpers for the resume generation and adversarial review nodes."""
+"""提供简历生成相关后端功能。"""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from ai.runtime.deadlines import TaskDeadline, get_current_task_deadline
 
 @dataclass(frozen=True, slots=True)
 class GenerationStageContext:
-    """Store per-source bounded text plus safe aggregate audit metadata."""
+    """定义生成阶段上下文相关后端数据结构或服务组件。"""
 
     values: dict[str, str]
     call_metadata: dict[str, Any]
@@ -25,7 +25,7 @@ def bounded_generation_sources(
     stage: str,
     sources: list[tuple[str, Any, int, str]],
 ) -> GenerationStageContext:
-    """Bound every source independently without exposing source plaintext in audit metadata."""
+    """处理生成相关后端逻辑。"""
     values: dict[str, str] = {}
     source_breakdown: dict[str, int] = {}
     truncated_sources: list[str] = []
@@ -85,7 +85,7 @@ def bounded_generation_sources(
 
 
 def compact_optimization_result(value: dict[str, Any]) -> dict[str, Any]:
-    """Select only generation-relevant optimizer fields and cap untrusted list sizes."""
+    """处理紧凑优化结果相关后端逻辑。"""
     keyword_analysis = get_keyword_analysis(value)
     return {
         "key_improvements": list(value.get("key_improvements") or [])[:8],
@@ -99,7 +99,7 @@ def compact_optimization_result(value: dict[str, Any]) -> dict[str, Any]:
 
 
 def safe_json_mapping(value: str) -> dict[str, Any]:
-    """Decode bounded structured context and degrade to an empty mapping after clipping."""
+    """处理安全JSON映射相关后端逻辑。"""
     try:
         parsed = json.loads(value or "{}")
     except (TypeError, ValueError):
@@ -108,11 +108,11 @@ def safe_json_mapping(value: str) -> dict[str, Any]:
 
 
 def current_generation_deadline() -> TaskDeadline | None:
-    """Return the shared resume-generation deadline bound by the session runner."""
+    """处理当前生成相关后端逻辑。"""
     return get_current_task_deadline()
 
 
 def get_keyword_analysis(optimization_result: dict[str, Any]) -> dict[str, Any]:
-    """Normalize optional legacy keyword analysis into a stable mapping."""
+    """获取分析相关后端逻辑。"""
     value = optimization_result.get("keyword_analysis")
     return value if isinstance(value, dict) else {}

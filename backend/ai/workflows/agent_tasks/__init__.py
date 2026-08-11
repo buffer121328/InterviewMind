@@ -21,7 +21,7 @@ _EXECUTOR_MODULES = {
 
 
 def __getattr__(name: str):
-    """Load a named task executor only when a caller explicitly requests it."""
+    """处理后端逻辑相关后端逻辑。"""
     try:
         module_name = _EXECUTOR_MODULES[name]
     except KeyError as exc:

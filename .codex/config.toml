@@ -1,0 +1,28 @@
+# Project-scoped Codex settings.
+sandbox_mode = "workspace-write"
+
+[mcp_servers.dbhub]
+# DBHub reads the root .env from its working directory, keeping DATABASE_URL
+# and its credentials out of this configuration file.
+command = "npx"
+args = [
+  "-y",
+  "@bytebase/dbhub@1.2.0",
+  "--transport",
+  "stdio"
+]
+cwd = "/Users/cheng/Downloads/DesktopOrganizer/学习资料/agent_interview"
+enabled_tools = [
+  "execute_sql",
+  "search_objects"
+]
+default_tools_approval_mode = "prompt"
+startup_timeout_sec = 30
+tool_timeout_sec = 60
+
+[mcp_servers.dbhub.env]
+# Keep npx's package cache local to the project; it contains no DB credentials.
+npm_config_cache = "/Users/cheng/Downloads/DesktopOrganizer/学习资料/agent_interview/.codex/npm-cache"
+
+[sandbox_workspace_write]
+network_access = true

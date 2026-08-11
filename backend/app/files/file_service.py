@@ -4,7 +4,7 @@ import logging
 import zipfile
 from typing import List
 from fastapi import UploadFile
-import fitz # pymupdf
+import fitz # PyMuPDF 解析支持
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)

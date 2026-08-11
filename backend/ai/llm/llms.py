@@ -132,7 +132,7 @@ def _resolve_channel_config(api_config: dict, channel: str) -> dict:
 
 
 def _valid_model_channel(config: dict | None) -> dict | None:
-    """Return a complete OpenAI-compatible model channel config, or None."""
+    """处理有效模型渠道相关后端逻辑。"""
     if not isinstance(config, dict):
         return None
     if config.get("api_key") and config.get("base_url") and config.get("model"):
@@ -141,7 +141,7 @@ def _valid_model_channel(config: dict | None) -> dict | None:
 
 
 def get_embedding_client_config_from_api_config(api_config: dict | None = None) -> dict:
-    """Resolve RAG embedding config from request api_config, falling back to env."""
+    """获取嵌入客户端配置来源API配置相关后端逻辑。"""
     request_config = _valid_model_channel((api_config or {}).get("rag_embedding"))
     if request_config:
         return {

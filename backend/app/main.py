@@ -30,7 +30,6 @@ from app.security.model_credential_middleware import ModelCredentialHydrationMid
 from app.security.security import redact_secrets, safe_error_message
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
 from fastapi.responses import JSONResponse
 
 # 配置日志
@@ -217,32 +216,6 @@ app = FastAPI(
 )
 
 
-@app.get("/docs", include_in_schema=False)
-async def legacy_swagger_ui():
-    """Serve the direct-backend Swagger URL while `/api/docs` remains canonical."""
-
-    return get_swagger_ui_html(
-        openapi_url="/openapi.json",
-        title=f"{app.title} - Swagger UI",
-    )
-
-
-@app.get("/redoc", include_in_schema=False)
-async def legacy_redoc_ui():
-    """Serve the direct-backend ReDoc URL using the compatibility schema alias."""
-
-    return get_redoc_html(
-        openapi_url="/openapi.json",
-        title=f"{app.title} - ReDoc",
-    )
-
-
-@app.get("/openapi.json", include_in_schema=False)
-async def legacy_openapi_schema():
-    """Return the OpenAPI document for existing direct-backend development clients."""
-
-    return JSONResponse(app.openapi())
-
 # 凭据解析位于业务路由之前；CORS 后注册使其保持最外层并覆盖凭据错误响应。
 app.add_middleware(ModelCredentialHydrationMiddleware)
 
@@ -307,9 +280,7 @@ async def root():
 # 健康检查
 @app.get("/health")
 async def health_check():
-    """
-    Return service health plus a credential-free mem0 readiness snapshot.
-    """
+    """处理健康检查相关后端逻辑。"""
     from ai.memory.service import get_agent_memory_runtime_status
 
     return {
@@ -364,7 +335,7 @@ if __name__ == "__main__":
     debug = os.getenv("DEBUG", "false").lower() == "true"
 
     logger.info(f"启动服务器: http://{host}:{port}")
-    logger.info(f"API 文档: http://{host}:{port}/docs")
+    logger.info(f"API 文档: http://{host}:{port}/api/docs")
     logger.info("按 Ctrl+C 可以正常关闭服务器")
 
     try:

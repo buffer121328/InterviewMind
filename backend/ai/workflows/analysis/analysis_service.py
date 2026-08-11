@@ -1,4 +1,4 @@
-"""Budgeted interview profile, weakness-report, and recoverable evidence analysis."""
+"""提供分析服务相关后端功能。"""
 
 from __future__ import annotations
 
@@ -49,7 +49,7 @@ _REVIEW_PERSPECTIVES = (
 
 
 class SessionReportAnalysisService:
-    """Generate evidence-consistent reports with bounded prompts and recoverable chunks."""
+    """定义会话报告分析服务相关后端数据结构或服务组件。"""
 
     async def generate_session_report(
         self,
@@ -63,12 +63,7 @@ class SessionReportAnalysisService:
         report_checkpoint: Mapping[str, Any] | None = None,
         checkpoint_callback: ReportCheckpointCallback | None = None,
     ) -> tuple[CandidateProfile, Dict[str, Any]]:
-        """Generate both report artifacts without allowing long QA history to form an unbounded prompt.
-
-        Short sessions use one structured call. Long sessions first create 4-5 question evidence
-        chunks, checkpoint each completed chunk through the owner-scoped AgentRun service, then
-        summarize only the evidence. A retry can therefore skip already completed chunks.
-        """
+        """生成会话报告相关后端逻辑。"""
         if not qa_history:
             raise ValueError("qa_history must not be empty")
 
@@ -161,7 +156,7 @@ class SessionReportAnalysisService:
         api_config: Optional[Dict[str, Any]],
         deadline: TaskDeadline,
     ) -> tuple[SessionInterviewReportOutput, list[QuestionEvidence], list[dict[str, Any]]]:
-        """Run four isolated reviewers in parallel, then reduce a short-session consensus report."""
+        """生成分析服务相关后端逻辑。"""
         from ai.workflows.analysis.multi_reviewer import run_multi_reviewer_map_reduce
 
         qa_text = self._format_qa(qa_history)
@@ -212,7 +207,7 @@ class SessionReportAnalysisService:
         report_checkpoint: Mapping[str, Any] | None,
         checkpoint_callback: ReportCheckpointCallback | None,
     ) -> list[QuestionEvidence]:
-        """Generate missing evidence chunks and persist encrypted progress after each completed block."""
+        """生成证据片段相关后端逻辑。"""
         from ai.prompts.analysis import build_evidence_chunk_prompt
 
         message_version = self._message_version(qa_history)
@@ -223,7 +218,7 @@ class SessionReportAnalysisService:
         )
         completed_items = checkpoint.get("items") if reusable else []
         completed_by_index = {
-            int(item.get("chunk_index")): dict(item)
+            int(str(item.get("chunk_index"))): dict(item)
             for item in completed_items or []
             if isinstance(item, Mapping) and str(item.get("chunk_index", "")).isdigit()
         }
@@ -289,10 +284,11 @@ class SessionReportAnalysisService:
         job_description: str,
         company_info: str,
         evidence: list[QuestionEvidence],
+        qa_history: List[Dict[str, Any]],
         api_config: Optional[Dict[str, Any]],
         deadline: TaskDeadline,
     ) -> tuple[SessionInterviewReportOutput, list[dict[str, Any]]]:
-        """Run parallel reviewers over cached evidence and reduce one final consensus report."""
+        """生成来源证据相关后端逻辑。"""
         from ai.workflows.analysis.multi_reviewer import run_multi_reviewer_map_reduce
 
         base_context = self._assemble_report_context(
@@ -373,7 +369,7 @@ class SessionReportAnalysisService:
         qa_text: str,
         include_qa: bool,
     ) -> AssembledContext:
-        """Assemble report sources with QA evidence ahead of resume and company background."""
+        """组装报告上下文相关后端逻辑。"""
         sources = [
             ContextSource(
                 name="qa_history",
@@ -423,7 +419,7 @@ class SessionReportAnalysisService:
         *,
         start_index: int,
     ) -> AssembledContext:
-        """Give every question in a chunk its own required cap so one long answer cannot evict peers."""
+        """组装证据片段相关后端逻辑。"""
         sources = []
         for offset, item in enumerate(qa_chunk):
             question_id = f"Q{start_index + offset + 1}"
@@ -453,7 +449,7 @@ class SessionReportAnalysisService:
         cls,
         qa_history: List[Dict[str, Any]],
     ) -> tuple[CandidateProfile, Dict[str, Any]]:
-        """Build a deterministic report from persisted Q&A without inventing scores."""
+        """构建报告相关后端逻辑。"""
 
         evidence = cls._normalize_evidence([], qa_history)
         missing_note = "模型评审不可用，未生成能力评分；请补充可验证的背景、行动和结果。"
@@ -538,7 +534,7 @@ class SessionReportAnalysisService:
         *,
         start_index: int = 0,
     ) -> list[QuestionEvidence]:
-        """Return exactly one evidence item per QA pair and fill only non-inferential excerpts locally."""
+        """规范化证据相关后端逻辑。"""
         by_id = {item.question_id.upper(): item for item in evidence}
         normalized: list[QuestionEvidence] = []
         for offset, qa in enumerate(qa_history):
@@ -604,7 +600,7 @@ class SessionReportAnalysisService:
         message_version: str,
         chunk_index: int,
     ) -> str:
-        """Build the documented session/message/chunk/prompt idempotency key."""
+        """处理片段幂等键相关后端逻辑。"""
         return (
             f"{session_id}:{message_version}:chunk:{chunk_index}:"
             f"{REPORT_CHECKPOINT_VERSION}"
@@ -616,10 +612,10 @@ class SessionReportAnalysisService:
         *,
         total_questions: int,
     ) -> CandidateProfile:
-        """Map the model contract into the persisted session-profile domain model."""
+        """处理候选人画像相关后端逻辑。"""
 
         def dimension(value: DimensionAnalysis) -> DimensionScore:
-            """Convert one validated LLM dimension into the stable domain representation."""
+            """处理维度相关后端逻辑。"""
             return DimensionScore(
                 score=value.score,
                 evidence=value.evidence,
@@ -650,7 +646,7 @@ _session_report_analysis_service: SessionReportAnalysisService | None = None
 
 
 def get_session_report_analysis_service() -> SessionReportAnalysisService:
-    """Return the process-wide stateless session-report analysis service."""
+    """获取会话报告分析服务相关后端逻辑。"""
     global _session_report_analysis_service
     if _session_report_analysis_service is None:
         _session_report_analysis_service = SessionReportAnalysisService()

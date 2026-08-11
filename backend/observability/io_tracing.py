@@ -1,10 +1,4 @@
-"""Langfuse external-I/O observation lifecycle adapter.
-
-Runtime callers emit immutable :class:`ExternalIOObservationEvent` facts. This
-module projects the same safe payload into bounded Langfuse ``span``
-observations so dependency latency and failures can be inspected without
-uploading queries, URLs, documents, browser content, or credentials.
-"""
+"""提供IO相关后端功能。"""
 
 from __future__ import annotations
 
@@ -20,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass(slots=True)
 class _ActiveExternalIOSpan:
-    """Hold a Langfuse context manager and span across one async I/O call."""
+    """定义活跃外部IO 跨度相关后端数据结构或服务组件。"""
 
     context_manager: Any
     span: Any
@@ -32,7 +26,7 @@ _active_external_io_spans: ContextVar[
 
 
 def _get_active_spans() -> dict[str, _ActiveExternalIOSpan]:
-    """Return the task-local span registry, creating it lazily."""
+    """获取活跃跨度相关后端逻辑。"""
 
     spans = _active_external_io_spans.get()
     if spans is None:
@@ -42,7 +36,7 @@ def _get_active_spans() -> dict[str, _ActiveExternalIOSpan]:
 
 
 def _langfuse_client() -> Any | None:
-    """Read the active Langfuse client without coupling I/O callers to it."""
+    """处理Langfuse客户端相关后端逻辑。"""
 
     try:
         from observability import get_langfuse_client, is_agent_observation_active
@@ -59,7 +53,7 @@ def _start_context_manager(
     client: Any,
     event: ExternalIOObservationEvent,
 ) -> _ActiveExternalIOSpan | None:
-    """Create one dependency span containing only the event safe projection."""
+    """启动上下文管理器相关后端逻辑。"""
 
     metadata = event.to_langfuse_payload()
     context_manager = client.start_as_current_observation(
@@ -73,7 +67,7 @@ def _start_context_manager(
 
 
 def start_external_io_span(event: ExternalIOObservationEvent) -> None:
-    """Start a dependency span under the current Agent/Tool observation."""
+    """启动外部IO跨度相关后端逻辑。"""
 
     client = _langfuse_client()
     if client is None:
@@ -90,13 +84,13 @@ def start_external_io_span(event: ExternalIOObservationEvent) -> None:
 
 
 def finish_external_io_span(event: ExternalIOObservationEvent) -> None:
-    """Update and close the span for a terminal dependency event."""
+    """完成外部IO跨度相关后端逻辑。"""
 
     spans = _active_external_io_spans.get() or {}
     active = spans.pop(event.call_id, None)
     if active is None:
-        # Some adapters can only observe the terminal result. Preserve drill-down
-        # by emitting a short span instead of requiring a synthetic started event.
+        # 部分适配器只能观测最终结果；保留下钻能力，
+        # 通过发出短跨度来替代强制合成 started 事件。
         start_external_io_span(event)
         active = (_active_external_io_spans.get() or {}).pop(event.call_id, None)
     if active is None:
@@ -126,7 +120,7 @@ def finish_external_io_span(event: ExternalIOObservationEvent) -> None:
 
 
 def observe_external_io_event(event: ExternalIOObservationEvent) -> None:
-    """Advance the Langfuse span lifecycle from one immutable runtime event."""
+    """处理观测外部IO事件相关后端逻辑。"""
 
     if event.status == "started":
         start_external_io_span(event)
@@ -136,7 +130,7 @@ def observe_external_io_event(event: ExternalIOObservationEvent) -> None:
 
 
 def reset_external_io_spans() -> None:
-    """Close orphaned dependency spans at request/test teardown."""
+    """重置外部IO跨度相关后端逻辑。"""
 
     spans = _active_external_io_spans.get() or {}
     for call_id, active in list(spans.items()):

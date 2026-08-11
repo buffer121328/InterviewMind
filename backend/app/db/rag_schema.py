@@ -1,9 +1,4 @@
-"""RAG pgvector schema preflight helpers.
-
-The configured embedding dimension is a runtime setting, while PostgreSQL stores
-the dimension in the ``rag_chunks.embedding`` column typmod.  These helpers make
-that contract explicit before an indexing request reaches pgvector.
-"""
+"""提供RAG模式相关后端功能。"""
 
 from __future__ import annotations
 
@@ -30,11 +25,11 @@ _VECTOR_TYPE_PATTERN = re.compile(r"^vector\((\d+)\)$")
 
 
 class RagVectorSchemaError(RuntimeError):
-    """Signal that the RAG vector column is missing, malformed, or dimensionally incompatible."""
+    """定义RAG向量模式错误相关后端数据结构或服务组件。"""
 
 
 def configured_embedding_dimension() -> int:
-    """Return the positive ``EMBEDDING_DIM`` setting or fail with a stable configuration error."""
+    """处理已配置嵌入维度相关后端逻辑。"""
 
     raw_value = os.getenv("EMBEDDING_DIM", "1536").strip()
     try:
@@ -51,18 +46,7 @@ def validate_rag_vector_type(
     *,
     expected_dimension: int | None = None,
 ) -> int:
-    """Validate a PostgreSQL formatted type such as ``vector(1536)`` against configuration.
-
-    Args:
-        database_type: Value returned by PostgreSQL ``format_type`` for the embedding column.
-        expected_dimension: Expected dimension; defaults to the current ``EMBEDDING_DIM``.
-
-    Returns:
-        The validated database vector dimension.
-
-    Raises:
-        RagVectorSchemaError: The column is missing, is not fixed-dimension pgvector, or mismatches.
-    """
+    """校验RAG向量类型相关后端逻辑。"""
 
     expected = expected_dimension or configured_embedding_dimension()
     if expected <= 0:
@@ -90,7 +74,7 @@ async def validate_rag_vector_connection(
     *,
     expected_dimension: int | None = None,
 ) -> int:
-    """Read and validate the RAG vector type through an existing async SQLAlchemy connection."""
+    """校验RAG向量连接相关后端逻辑。"""
 
     result = await connection.execute(text(RAG_VECTOR_TYPE_SQL))
     return validate_rag_vector_type(
@@ -104,7 +88,7 @@ async def validate_rag_vector_schema(
     *,
     expected_dimension: int | None = None,
 ) -> int:
-    """Open a short-lived connection and fail startup before an incompatible pgvector write."""
+    """校验RAG向量模式相关后端逻辑。"""
 
     async with engine.connect() as connection:
         return await validate_rag_vector_connection(
@@ -114,7 +98,7 @@ async def validate_rag_vector_schema(
 
 
 def read_rag_vector_type(connection: Any) -> str | None:
-    """Read the formatted vector type through a synchronous DB-API style connection."""
+    """读取RAG向量类型相关后端逻辑。"""
 
     row = connection.execute(RAG_VECTOR_TYPE_SQL).fetchone()
     return str(row[0]) if row and row[0] is not None else None

@@ -1,10 +1,4 @@
-"""Utilities for reporting offline evaluation results to Langfuse.
-
-The production app already records traces for Agent runs. This module is the
-bridge for offline/CI evaluation suites (for example DeepEval): convert metric
-objects or simple dicts into Langfuse scores without requiring tests to know the
-Langfuse SDK shape.
-"""
+"""提供评测上报相关后端功能。"""
 
 from __future__ import annotations
 
@@ -19,7 +13,7 @@ ScoreDataType = Literal["NUMERIC", "CATEGORICAL", "BOOLEAN", "TEXT", "CORRECTION
 
 @dataclass(frozen=True, slots=True)
 class EvaluationScore:
-    """A Langfuse score payload produced by an offline evaluator."""
+    """离线评测器生成的 Langfuse 分数载荷。"""
 
     name: str
     value: float | str | bool
@@ -35,7 +29,7 @@ class EvaluationScore:
 
 
 def evaluation_reporting_enabled() -> bool:
-    """Return whether offline evaluation results should be sent to Langfuse."""
+    """处理评测上报启用状态相关后端逻辑。"""
 
     return os.getenv("LANGFUSE_EVAL_REPORTING_ENABLED", "true").lower() in {"1", "true", "yes"}
 
@@ -57,11 +51,7 @@ def build_score_from_metric(
     score_prefix: str = "eval",
     metadata: dict[str, Any] | None = None,
 ) -> EvaluationScore:
-    """Build an EvaluationScore from a DeepEval-like metric object.
-
-    Supported metric shapes are intentionally duck-typed: objects or dicts with
-    fields such as name, score, success, reason, threshold, and evaluation_model.
-    """
+    """构建分数来源指标相关后端逻辑。"""
 
     metric_name = str(_metric_attr(metric, "name", "metric"))
     raw_score = _metric_attr(metric, "score", None)
@@ -116,12 +106,7 @@ def report_deepeval_assertion(
     metadata: dict[str, Any] | None = None,
     force: bool = False,
 ) -> dict[str, int]:
-    """Report metrics from a successful deepeval.assert_test call.
-
-    This intentionally avoids uploading test input or actual output, as golden
-    cases can contain resume/JD content. Linkage targets can be supplied by env
-    variables in CI or one-off evaluation scripts.
-    """
+    """上报DeepEval断言相关后端逻辑。"""
 
     merged_metadata: dict[str, Any] = {
         "source": "deepeval.assert_test",
@@ -149,7 +134,7 @@ def report_deepeval_assertion(
 
 
 def report_score(score: EvaluationScore, *, force: bool = False) -> bool:
-    """Report one score to Langfuse if enabled or forced."""
+    """上报分数相关后端逻辑。"""
 
     if not force and not evaluation_reporting_enabled():
         return False
@@ -169,7 +154,7 @@ def report_score(score: EvaluationScore, *, force: bool = False) -> bool:
 
 
 def report_scores(scores: Iterable[EvaluationScore], *, force: bool = False) -> dict[str, int]:
-    """Report multiple scores and return a compact success summary."""
+    """上报分数相关后端逻辑。"""
 
     attempted = 0
     reported = 0
@@ -191,7 +176,7 @@ def report_metrics(
     metadata: dict[str, Any] | None = None,
     force: bool = False,
 ) -> dict[str, int]:
-    """Convert DeepEval-like metrics to Langfuse scores and report them."""
+    """上报指标相关后端逻辑。"""
 
     scores = [
         build_score_from_metric(

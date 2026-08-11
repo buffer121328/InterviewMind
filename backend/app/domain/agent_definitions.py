@@ -102,7 +102,7 @@ _DEFINITIONS = (
         checkpoint_policy="durable",
         graph_name="interview",
         prompt_name="interview.planner",
-        prompt_version="2",
+        prompt_version="3",
     ),
     AgentDefinition(
         name="interview_turn",

@@ -203,7 +203,7 @@ class JobApplicationRepo:
         user_id: str,
         resume_id: Optional[int],
     ) -> Optional[ApplicationDetail]:
-        """Replace or clear resume references on one owner-scoped application."""
+        """处理设置关联简历相关后端逻辑。"""
         async with async_session() as db:
             row = await db.scalar(
                 select(JobApplicationModel)

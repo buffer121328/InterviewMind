@@ -1,4 +1,4 @@
-"""Generated resume routes."""
+"""提供简历生成相关后端功能。"""
 
 import logging
 
@@ -28,7 +28,7 @@ async def init_resume_generation(
     request: ResumeGenerateInitRequest,
     user_id: str = Depends(get_current_user_id),
 ):
-    """Initialize a generated-resume session."""
+    """初始化简历生成相关后端逻辑。"""
     try:
         return await resume_generation_use_cases.init_resume_generation(request=request, user_id=user_id)
     except ResumeGenerationBadRequest as exc:
@@ -47,7 +47,7 @@ async def submit_generation_answers(
     request: ResumeGenerateSubmitRequest,
     user_id: str = Depends(get_current_user_id),
 ):
-    """Submit user answers and complete resume generation."""
+    """提交生成相关后端逻辑。"""
     try:
         return await resume_generation_use_cases.submit_generation_answers(request=request, user_id=user_id)
     except ResumeGenerationBadRequest as exc:
@@ -64,7 +64,7 @@ async def get_generation_session_status(
     session_id: str,
     user_id: str = Depends(get_current_user_id),
 ):
-    """Get generated-resume session status after a page refresh."""
+    """获取生成会话状态相关后端逻辑。"""
     try:
         return await resume_generation_use_cases.get_generation_session_status(session_id=session_id, user_id=user_id)
     except ResumeGenerationNotFound as exc:
@@ -76,7 +76,7 @@ async def list_generated_resumes(
     limit: int = 20,
     user_id: str = Depends(get_current_user_id),
 ):
-    """List generated resumes for the current user."""
+    """列出生成简历相关后端逻辑。"""
     return await resume_generation_use_cases.list_generated_resumes(user_id=user_id, limit=limit)
 
 
@@ -85,7 +85,7 @@ async def get_generated_resume(
     resume_id: int,
     user_id: str = Depends(get_current_user_id),
 ):
-    """Get one generated resume."""
+    """获取生成简历相关后端逻辑。"""
     try:
         return await resume_generation_use_cases.get_generated_resume(resume_id=resume_id, user_id=user_id)
     except ResumeGenerationNotFound as exc:
@@ -101,7 +101,7 @@ async def update_generated_resume(
     request: dict,
     user_id: str = Depends(get_current_user_id),
 ):
-    """Update generated resume content."""
+    """更新生成简历相关后端逻辑。"""
     try:
         return await resume_generation_use_cases.update_generated_resume(
             resume_id=resume_id,
@@ -122,7 +122,7 @@ async def delete_generated_resume(
     resume_id: int,
     user_id: str = Depends(get_current_user_id),
 ):
-    """Delete one generated resume."""
+    """删除生成简历相关后端逻辑。"""
     try:
         return await resume_generation_use_cases.delete_generated_resume(resume_id=resume_id, user_id=user_id)
     except ResumeGenerationNotFound as exc:

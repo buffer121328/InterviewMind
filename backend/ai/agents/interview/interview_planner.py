@@ -183,7 +183,7 @@ def _build_planner_prompt_bundle(
     owner_id: str,
     cache_scope: str,
 ) -> tuple[str, PlannerContextBundle]:
-    """Build the Phase 2 compact planner prompt and its safe context audit bundle."""
+    """构建规划器提示词打包相关后端逻辑。"""
     from ai.prompts.interview import (
         build_planner_prompt as build_central_planner_prompt,
     )
@@ -236,7 +236,7 @@ def build_planner_prompt(
     owner_id: str = "",
     cache_scope: str = "",
 ) -> str:
-    """Build a budgeted planner prompt while preserving the existing public string API."""
+    """构建规划器提示词相关后端逻辑。"""
     prompt, _bundle = _build_planner_prompt_bundle(
         resume=resume,
         job_description=job_description,
@@ -458,13 +458,13 @@ async def generate_interview_plan(
 
 
 def _normalize_question_key(content: str) -> str:
-    """Normalize question text for stable within-round and cross-round deduplication."""
+    """规范化题目键相关后端逻辑。"""
     normalized = " ".join(str(content or "").casefold().split())
     return "".join(char for char in normalized if char not in "，。！？；：,.!?;:、")
 
 
 def _is_near_duplicate(content: str, existing: List[str], *, threshold: float = 0.86) -> bool:
-    """Use local normalized similarity to avoid blocking the Planner on an extra model call."""
+    """处理面试规划器相关后端逻辑。"""
     key = _normalize_question_key(content)
     if not key:
         return True
@@ -487,14 +487,7 @@ def _get_default_questions(
     previous_questions: Optional[List[str]] = None,
     include_provenance: bool = False,
 ) -> List[Dict[str, Any]]:
-    """Return an exact, round-aware fallback plan within the supported question limit.
-
-    Previous-round questions are excluded by normalized text. When a future catalog change
-    leaves too few unique entries, deterministic round-specific supplements preserve the
-    requested count without reusing a previous question verbatim. Persisted planner paths
-    request provenance explicitly; the default preserves the compact helper output used by
-    evaluation and compatibility callers.
-    """
+    """获取默认题目相关后端逻辑。"""
     requested_count = min(max(int(max_questions or 0), 0), MAX_QUESTIONS)
     if requested_count == 0:
         return []
@@ -564,7 +557,7 @@ def _ensure_plan_question_count(
     round_type: str,
     previous_questions: Optional[List[str]],
 ) -> List[Dict[str, Any]]:
-    """Deduplicate a model plan and fill any shortage with round-aware local questions."""
+    """确保计划题目相关后端逻辑。"""
     requested_count = min(max(int(max_questions or 0), 0), MAX_QUESTIONS)
     existing_questions = [str(item) for item in (previous_questions or []) if str(item).strip()]
     normalized: List[Dict[str, Any]] = []

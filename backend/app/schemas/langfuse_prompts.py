@@ -1,4 +1,4 @@
-"""Schemas for the bounded, server-side Langfuse Prompt Management API."""
+"""提供Langfuse提示词相关后端功能。"""
 
 import re
 from typing import Annotated, Literal
@@ -12,18 +12,14 @@ _VARIABLE_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
 
 
 class PromptChatMessage(BaseModel):
-    """A bounded chat message accepted by and returned from prompt management."""
+    """定义提示词聊天消息相关后端数据结构或服务组件。"""
 
     role: Literal["system", "developer", "user", "assistant", "tool"]
     content: Annotated[str, Field(min_length=1, max_length=20_000)]
 
 
 class PromptCreateRequest(BaseModel):
-    """Request to create one immutable Langfuse prompt version.
-
-    The request intentionally excludes arbitrary Langfuse configuration, tags, and
-    transport parameters so this endpoint cannot become a generic Langfuse proxy.
-    """
+    """定义提示词请求相关后端数据结构或服务组件。"""
 
     name: Annotated[str, Field(min_length=1, max_length=128)]
     type: PromptType
@@ -37,7 +33,7 @@ class PromptCreateRequest(BaseModel):
     @field_validator("name")
     @classmethod
     def validate_name(cls, value: str) -> str:
-        """Reject path-like and otherwise unsafe prompt names before SDK calls."""
+        """校验名称相关后端逻辑。"""
         if not _PROMPT_NAME_PATTERN.fullmatch(value):
             raise ValueError("prompt name may contain only letters, digits, '.', '_', and '-'")
         return value
@@ -45,7 +41,7 @@ class PromptCreateRequest(BaseModel):
     @field_validator("labels")
     @classmethod
     def validate_labels(cls, values: list[str]) -> list[str]:
-        """Validate bounded, unique labels while reserving production promotion."""
+        """校验标签相关后端逻辑。"""
         if len(set(values)) != len(values):
             raise ValueError("labels must be unique")
         for value in values:
@@ -55,7 +51,7 @@ class PromptCreateRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_prompt_for_type(self) -> "PromptCreateRequest":
-        """Ensure text and chat prompt bodies use their matching content shape."""
+        """校验提示词类型相关后端逻辑。"""
         if self.type == "text":
             if not isinstance(self.prompt, str) or not self.prompt.strip() or len(self.prompt) > 40_000:
                 raise ValueError("text prompts must be non-empty strings of at most 40000 characters")
@@ -65,14 +61,14 @@ class PromptCreateRequest(BaseModel):
 
 
 class PromptLabelUpdateRequest(BaseModel):
-    """Request to atomically replace labels assigned to one immutable version."""
+    """定义提示词标签请求相关后端数据结构或服务组件。"""
 
     labels: list[Annotated[str, Field(min_length=1, max_length=64)]] = Field(max_length=8)
 
     @field_validator("labels")
     @classmethod
     def validate_labels(cls, values: list[str]) -> list[str]:
-        """Keep non-production labels bounded, unique, and SDK-compatible."""
+        """校验标签相关后端逻辑。"""
         if len(set(values)) != len(values):
             raise ValueError("labels must be unique")
         for value in values:
@@ -82,7 +78,7 @@ class PromptLabelUpdateRequest(BaseModel):
 
 
 class PromptProductionPromotionRequest(BaseModel):
-    """Explicit request to assign the runtime ``production`` label to one version."""
+    """定义提示词生产提升请求相关后端数据结构或服务组件。"""
 
     name: Annotated[str, Field(min_length=1, max_length=128)]
     version: Annotated[int, Field(ge=1)]
@@ -91,14 +87,14 @@ class PromptProductionPromotionRequest(BaseModel):
     @field_validator("name")
     @classmethod
     def validate_name(cls, value: str) -> str:
-        """Apply the same prompt-name boundary as all other prompt operations."""
+        """校验名称相关后端逻辑。"""
         if not _PROMPT_NAME_PATTERN.fullmatch(value):
             raise ValueError("prompt name may contain only letters, digits, '.', '_', and '-'")
         return value
 
 
 class PromptPreviewRequest(BaseModel):
-    """Request to compile a fetched prompt locally without executing a model."""
+    """定义提示词预览请求相关后端数据结构或服务组件。"""
 
     name: Annotated[str, Field(min_length=1, max_length=128)]
     version: Annotated[int | None, Field(ge=0)] = None
@@ -111,7 +107,7 @@ class PromptPreviewRequest(BaseModel):
     @field_validator("name")
     @classmethod
     def validate_name(cls, value: str) -> str:
-        """Apply the same no-path-separator prompt-name boundary as mutations."""
+        """校验名称相关后端逻辑。"""
         if not _PROMPT_NAME_PATTERN.fullmatch(value):
             raise ValueError("prompt name may contain only letters, digits, '.', '_', and '-'")
         return value
@@ -119,7 +115,7 @@ class PromptPreviewRequest(BaseModel):
     @field_validator("label")
     @classmethod
     def validate_label(cls, value: str | None) -> str | None:
-        """Validate an optional bounded label selector."""
+        """校验标签相关后端逻辑。"""
         if value is not None and (value == "latest" or not _LABEL_PATTERN.fullmatch(value)):
             raise ValueError("label must be a valid identifier and cannot be 'latest'")
         return value
@@ -127,21 +123,21 @@ class PromptPreviewRequest(BaseModel):
     @field_validator("values")
     @classmethod
     def validate_values(cls, values: dict[str, str]) -> dict[str, str]:
-        """Restrict substitutions to simple strings and non-path-like variable names."""
+        """校验值相关后端逻辑。"""
         if any(not _VARIABLE_PATTERN.fullmatch(key) for key in values):
             raise ValueError("preview variable names must be valid identifiers")
         return values
 
     @model_validator(mode="after")
     def require_one_selector(self) -> "PromptPreviewRequest":
-        """Require exactly one explicit prompt version or label for a preview."""
+        """要求选择器相关后端逻辑。"""
         if (self.version is None) == (self.label is None):
             raise ValueError("provide exactly one of version or label")
         return self
 
 
 class PromptVersionResponse(BaseModel):
-    """Safe prompt-version representation returned by bounded operations."""
+    """定义提示词版本响应相关后端数据结构或服务组件。"""
 
     name: str
     display_name: str
@@ -154,7 +150,7 @@ class PromptVersionResponse(BaseModel):
 
 
 class PromptMetadataResponse(BaseModel):
-    """Prompt metadata without template content for list responses."""
+    """定义提示词元数据响应相关后端数据结构或服务组件。"""
 
     name: str
     display_name: str
@@ -167,7 +163,7 @@ class PromptMetadataResponse(BaseModel):
 
 
 class PromptListResponse(BaseModel):
-    """Paginated list of safe prompt metadata."""
+    """定义提示词列表响应相关后端数据结构或服务组件。"""
 
     items: list[PromptMetadataResponse]
     total: int = Field(ge=0)
@@ -176,14 +172,14 @@ class PromptListResponse(BaseModel):
 
 
 class PromptPreviewResponse(PromptVersionResponse):
-    """Locally compiled output and unresolved variables, without model execution."""
+    """定义提示词预览响应相关后端数据结构或服务组件。"""
 
     compiled_prompt: str | list[PromptChatMessage]
     unresolved_variables: list[str] = Field(default_factory=list)
 
 
 class PromptBuiltinSyncResponse(BaseModel):
-    """Result of idempotently publishing missing built-in production prompts."""
+    """定义提示词内置同步响应相关后端数据结构或服务组件。"""
 
     discovered: int = Field(ge=0)
     created: int = Field(ge=0)

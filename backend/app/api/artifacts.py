@@ -1,4 +1,4 @@
-"""Owner-scoped export and download routes for private generated report files."""
+"""提供产物相关后端功能。"""
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
@@ -12,13 +12,13 @@ _service = ArtifactService()
 
 
 def _response(artifact) -> ArtifactResponse:
-    """Map internal metadata to a response that never leaks private storage paths."""
+    """处理响应相关后端逻辑。"""
     return ArtifactResponse(id=artifact.id, source_type=artifact.source_type, source_id=artifact.source_id, title=artifact.title, format=artifact.format, mime_type=artifact.mime_type, size_bytes=artifact.size_bytes, created_at=artifact.created_at.isoformat(), download_url=f"/api/artifacts/{artifact.id}/download")
 
 
 @router.post("/export", response_model=ArtifactResponse, status_code=201)
 async def export_artifact(request: ArtifactExportRequest, user_id: str = Depends(get_current_user_id)) -> ArtifactResponse:
-    """Export an existing report after resolving its source with the current owner constraint."""
+    """处理产物相关后端逻辑。"""
     try:
         return _response(await _service.export(request, user_id))
     except (ArtifactNotFound, ValueError) as exc:
@@ -32,7 +32,7 @@ async def export_artifact(request: ArtifactExportRequest, user_id: str = Depends
 
 @router.get("/{artifact_id}/download")
 async def download_artifact(artifact_id: int, user_id: str = Depends(get_current_user_id)) -> FileResponse:
-    """Download a private export only after owner-scoped metadata and volume-path validation."""
+    """下载产物相关后端逻辑。"""
     try:
         artifact, path = await _service.get_download(artifact_id, user_id)
     except ArtifactNotFound as exc:

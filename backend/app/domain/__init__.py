@@ -1,1 +1,1 @@
-"""Domain rules shared across application layers."""
+"""提供后端逻辑相关后端功能。"""

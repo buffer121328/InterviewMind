@@ -1,10 +1,4 @@
-"""Resume/JD deterministic fact compaction and owner-scoped reuse.
-
-The module creates the shared intermediate representation used by Resume Workspace
-and Job Assets. It never calls a model or persists plaintext. Cache keys contain the
-owner and source fingerprints so entries cannot cross users and stale inputs naturally
-miss the cache.
-"""
+"""提供简历上下文相关后端功能。"""
 
 from __future__ import annotations
 
@@ -30,7 +24,7 @@ _MAX_CACHE_ENTRIES = 128
 
 
 class ResumeFactSheet(BaseModel):
-    """Store only facts directly present in the candidate resume."""
+    """定义简历事实表格相关后端数据结构或服务组件。"""
 
     source_fingerprint: str
     identity: list[str] = Field(default_factory=list)
@@ -43,7 +37,7 @@ class ResumeFactSheet(BaseModel):
 
 
 class JDRequirementMap(BaseModel):
-    """Store requirements explicitly stated by the job description."""
+    """定义映射相关后端数据结构或服务组件。"""
 
     source_fingerprint: str
     required: list[str] = Field(default_factory=list)
@@ -55,7 +49,7 @@ class JDRequirementMap(BaseModel):
 
 
 class ResumeJDMatchMap(BaseModel):
-    """Represent deterministic evidence matches and prohibit unsupported inferences."""
+    """定义简历映射相关后端数据结构或服务组件。"""
 
     matched_evidence: list[dict[str, str]] = Field(default_factory=list)
     missing_requirements: list[str] = Field(default_factory=list)
@@ -65,7 +59,7 @@ class ResumeJDMatchMap(BaseModel):
 
 @dataclass(frozen=True, slots=True)
 class ResumeContextBundle:
-    """Carry the shared resume/JD IR, bounded model context, and recovery identity."""
+    """定义简历上下文打包相关后端数据结构或服务组件。"""
 
     fact_sheet: ResumeFactSheet
     requirement_map: JDRequirementMap
@@ -115,7 +109,7 @@ _SKILL_TERMS = (
 
 
 def _fingerprint(value: Any) -> str:
-    """Return a stable one-way fingerprint without retaining source plaintext in keys."""
+    """处理指纹相关后端逻辑。"""
     if isinstance(value, str):
         payload = value
     else:
@@ -124,7 +118,7 @@ def _fingerprint(value: Any) -> str:
 
 
 def _clean_rows(text: str, *, limit: int = 180) -> list[tuple[str, str]]:
-    """Parse bounded heading/content rows while preserving evidence wording."""
+    """处理清理相关后端逻辑。"""
     rows: list[tuple[str, str]] = []
     heading = ""
     for raw in str(text or "").splitlines():
@@ -144,7 +138,7 @@ def _clean_rows(text: str, *, limit: int = 180) -> list[tuple[str, str]]:
 
 
 def _unique_bounded(values: Iterable[str], *, count: int, max_chars: int) -> list[str]:
-    """Deduplicate evidence while enforcing item and aggregate character limits."""
+    """处理简历上下文相关后端逻辑。"""
     selected: list[str] = []
     seen: set[str] = set()
     used = 0
@@ -166,18 +160,18 @@ def _unique_bounded(values: Iterable[str], *, count: int, max_chars: int) -> lis
 
 
 def _row_text(heading: str, line: str) -> str:
-    """Prefix a source line with its short section heading for traceability."""
+    """处理文本相关后端逻辑。"""
     return f"{heading}: {line}" if heading else line
 
 
 def _contains_any(value: str, terms: Sequence[str]) -> bool:
-    """Return whether a value contains one of the case-insensitive terms."""
+    """处理包含相关后端逻辑。"""
     lowered = value.casefold()
     return any(term.casefold() in lowered for term in terms)
 
 
 def build_resume_fact_sheet(resume_content: str) -> ResumeFactSheet:
-    """Extract direct resume evidence without inventing missing candidate capabilities."""
+    """构建简历事实表格相关后端逻辑。"""
     rows = _clean_rows(resume_content)
     identity_terms = ("姓名", "求职", "岗位", "年经验", "开发工程师", "产品经理", "设计师")
     skill_headings = ("技能", "技术栈", "专业能力", "skill", "stack")
@@ -221,13 +215,13 @@ def build_resume_fact_sheet(resume_content: str) -> ResumeFactSheet:
         project_facts=_unique_bounded(projects, count=14, max_chars=3200),
         quantified_results=_unique_bounded(metrics, count=12, max_chars=2200),
         education=_unique_bounded(education, count=6, max_chars=1000),
-        # Absence is not proof of a gap; only downstream matching may mark a JD requirement missing.
+        # 说明：保留这里的兼容性、安全性或流程约束。
         unsupported_gaps=[],
     )
 
 
 def build_jd_requirement_map(job_description: str) -> JDRequirementMap:
-    """Extract explicit JD requirements, preferences, responsibilities, and constraints."""
+    """构建JD映射相关后端逻辑。"""
     rows = _clean_rows(job_description)
     required_terms = ("必须", "要求", "需要", "熟悉", "掌握", "精通", "具备", "年以上")
     preferred_terms = ("优先", "加分", "最好", "preferred", "bonus")
@@ -272,7 +266,7 @@ def build_jd_requirement_map(job_description: str) -> JDRequirementMap:
 
 
 def _evidence_tokens(values: Iterable[str]) -> set[str]:
-    """Build conservative match tokens from explicit skill terms and words."""
+    """处理证据令牌相关后端逻辑。"""
     joined = "\n".join(values)
     tokens = {
         term.casefold()
@@ -291,7 +285,7 @@ def build_resume_jd_match_map(
     fact_sheet: ResumeFactSheet,
     requirement_map: JDRequirementMap,
 ) -> ResumeJDMatchMap:
-    """Match requirements to direct resume evidence without treating absence as a candidate fact."""
+    """构建简历JD映射相关后端逻辑。"""
     evidence_rows = [
         *fact_sheet.skills,
         *fact_sheet.employment_facts,
@@ -345,7 +339,7 @@ def _cache_identity(
     selected_session_versions: tuple[str, ...],
     mode: str,
 ) -> str:
-    """Create the non-plaintext identity used by cache and AgentRun checkpoint validation."""
+    """处理缓存身份相关后端逻辑。"""
     return _fingerprint({
         "owner_id": owner_id or "anonymous",
         "resume_hash": resume_hash,
@@ -365,7 +359,7 @@ def get_resume_context(
     selected_session_versions: Iterable[str] = (),
     mode: str = "balanced",
 ) -> tuple[ResumeFactSheet, JDRequirementMap, ResumeJDMatchMap, str]:
-    """Return owner-isolated shared IR; source changes always produce a cache miss."""
+    """获取简历上下文相关后端逻辑。"""
     resume_hash = _fingerprint(resume_content)
     jd_hash = _fingerprint(job_description)
     session_versions = tuple(str(item) for item in selected_session_versions)
@@ -419,7 +413,7 @@ def assemble_resume_context(
     selected_session_versions: Iterable[str] = (),
     mode: str = "balanced",
 ) -> ResumeContextBundle:
-    """Assemble the shared Resume Workspace context with fixed source budgets and safe audit."""
+    """组装简历上下文相关后端逻辑。"""
     facts, requirements, match_map, identity = get_resume_context(
         owner_id=owner_id,
         resume_content=resume_content,
@@ -478,7 +472,7 @@ def select_candidate_highlights(
     *,
     limit: int = 5,
 ) -> list[str]:
-    """Select 3–5 direct candidate evidence snippets for greetings and job assets."""
+    """选择候选人相关后端逻辑。"""
     matched = [item.get("evidence", "") for item in match_map.matched_evidence]
     candidates = [
         *matched,
@@ -491,5 +485,5 @@ def select_candidate_highlights(
 
 
 def clear_resume_context_cache() -> None:
-    """Clear the in-process IR cache for tests and explicit operational refreshes."""
+    """清理简历上下文缓存相关后端逻辑。"""
     _CONTEXT_CACHE.clear()

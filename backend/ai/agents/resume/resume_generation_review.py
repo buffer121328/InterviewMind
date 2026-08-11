@@ -1,9 +1,4 @@
-"""Adversarial resume verification and final-review nodes.
-
-Drafting and verification deliberately use different prompts and model channels. The
-reflector runs at temperature zero, reports source-grounded risks, and verifies the
-editor's final output before the graph may pass the review gate.
-"""
+"""提供简历生成复核相关后端功能。"""
 
 from __future__ import annotations
 
@@ -25,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 
 def _verification_failure(error_type: str) -> dict[str, Any]:
-    """Return a fail-closed verifier result without exposing exception text."""
+    """处理失败相关后端逻辑。"""
     return {
         "is_excessive": True,
         "risk_details": [{
@@ -40,7 +35,7 @@ def _verification_failure(error_type: str) -> dict[str, Any]:
 
 
 async def node_fact_check(state: Mapping[str, Any]) -> dict[str, Any]:
-    """Adversarially compare the optimized draft with trusted facts using the reflector channel."""
+    """处理节点事实检查相关后端逻辑。"""
     resume_content = str(state.get("resume_content") or "")
     draft_content = str(state.get("optimized_draft") or state.get("draft_content") or "")
     user_answers = state.get("user_answers") or {}
@@ -82,7 +77,7 @@ async def node_fact_check(state: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _warning_text(fact_check_result: Mapping[str, Any]) -> str:
-    """Convert verifier findings into bounded editor instructions without weakening facts."""
+    """处理文本相关后端逻辑。"""
     if not fact_check_result.get("is_excessive"):
         return ""
     instructions = []
@@ -103,7 +98,7 @@ def _warning_text(fact_check_result: Mapping[str, Any]) -> str:
 
 
 async def node_finalize_and_review(state: Mapping[str, Any]) -> dict[str, Any]:
-    """Let an editor fix verifier findings without deciding the final factual pass result."""
+    """处理节点收尾复核相关后端逻辑。"""
     draft_content = str(state.get("optimized_draft") or state.get("draft_content") or "")
     fact_check_result = state.get("fact_check_result") or {}
     optimization_result = state.get("optimization_result") or {}
@@ -154,7 +149,7 @@ async def node_finalize_and_review(state: Mapping[str, Any]) -> dict[str, Any]:
 
 
 async def node_verify_final(state: Mapping[str, Any]) -> dict[str, Any]:
-    """Re-run the independent zero-temperature verifier on the editor's final output."""
+    """处理节点最终相关后端逻辑。"""
     resume_content = str(state.get("resume_content") or "")
     final_markdown = str(state.get("final_markdown") or "")
     user_answers = state.get("user_answers") or {}

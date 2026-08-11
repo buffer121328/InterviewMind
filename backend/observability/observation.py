@@ -79,8 +79,8 @@ async def _persist_agent_observation(observation: "AgentObservation") -> None:
     Args:
         observation: 当前观测对象；更新前会应用脱敏和失败不阻断业务的约束。
     """
-    # A locally generated UUID is only an execution correlation fallback.  It is
-    # not a Langfuse trace and must never make Run Center render a broken link.
+    # 本地生成的 UUID 只作为执行相关性的兜底标识，
+    # 不是 Langfuse 追踪 ID，不能让运行中心渲染错误链接。
     if not observation.run_id or (not observation.enabled and not observation.model_events):
         return
     try:

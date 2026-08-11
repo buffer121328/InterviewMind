@@ -1,4 +1,4 @@
-"""Pure aggregation helpers for safe observability events and governance windows."""
+"""提供后端逻辑相关后端功能。"""
 
 from collections.abc import Mapping, Sequence
 from math import ceil
@@ -182,7 +182,7 @@ def summarize_model_events(events: Sequence[Mapping[str, Any]]) -> dict[str, dic
 
 
 def summarize_governance_window(events: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
-    """Summarize one sanitized event window for Phase 6 performance acceptance."""
+    """汇总治理窗口相关后端逻辑。"""
     started = [event for event in events if event.get("event_type") == "llm.request.started"]
     terminal = [
         event
@@ -246,12 +246,12 @@ def compare_governance_windows(
     resume_baseline_chars: int,
     resume_current_chars: int,
 ) -> dict[str, Any]:
-    """Compare sanitized before/after windows against the Phase 6 reduction targets."""
+    """比较治理窗口相关后端逻辑。"""
     baseline = summarize_governance_window(baseline_events)
     current = summarize_governance_window(current_events)
 
     def reduction(before: int | float | None, after: int | float | None) -> float:
-        """Return a stable reduction ratio; a zero baseline passes only without regression."""
+        """处理归约相关后端逻辑。"""
         before_value = float(before or 0)
         after_value = float(after or 0)
         if before_value <= 0:

@@ -297,7 +297,7 @@ class SessionRepo:
         return await self.profile.get_series_final_profiles(limit, user_id)
 
     async def get_series_final_profile_records(self, limit: int, user_id: str) -> List[Dict[str, Any]]:
-        """Return owner-scoped company-profile records for the growth timeline."""
+        """获取序列最终画像记录相关后端逻辑。"""
         return await self.profile.get_series_final_profile_records(limit, user_id)
 
     async def get_series_round_profiles(self, series_id: str, user_id: str) -> List[Dict[str, Any]]:

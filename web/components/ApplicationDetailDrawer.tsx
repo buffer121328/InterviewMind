@@ -170,6 +170,9 @@ export function ApplicationDetailDrawer({ applicationId, onClose }: Props) {
     }, [currentApplication, applicationId]);
 
     const hasApplication = !!currentApplication && currentApplication.id === applicationId;
+    const linkedResume = currentApplication?.id === applicationId
+        ? currentApplication.linked_resume
+        : undefined;
     const sortedEvents = useMemo(
         () => (hasApplication ? [...currentApplication.events].sort((a, b) => +new Date(a.event_time) - +new Date(b.event_time)) : []),
         [hasApplication, currentApplication]
@@ -366,16 +369,16 @@ export function ApplicationDetailDrawer({ applicationId, onClose }: Props) {
                                                 <div className="grid gap-2 rounded-xl border border-slate-200 bg-white p-4">
                                                     <div className="flex items-center justify-between gap-2">
                                                         <Label>关联简历资产</Label>
-                                                        {currentApplication?.linked_resume && <span className="text-xs text-slate-500">版本 #{currentApplication?.linked_resume.id}</span>}
+                                                        {linkedResume && <span className="text-xs text-slate-500">版本 #{linkedResume.id}</span>}
                                                     </div>
-                                                    {currentApplication?.linked_resume ? (
+                                                    {linkedResume ? (
                                                         <div className="rounded-lg bg-slate-50 p-3">
-                                                            <p className="text-sm font-medium text-slate-900">{currentApplication?.linked_resume.title}</p>
-                                                            <p className="mt-1 line-clamp-2 text-xs text-slate-500">{currentApplication?.linked_resume.job_description || '未记录目标岗位'}</p>
-                                                            <p className="mt-1 text-xs text-slate-400">{formatTime(currentApplication?.linked_resume.created_at)}</p>
+                                                            <p className="text-sm font-medium text-slate-900">{linkedResume.title}</p>
+                                                            <p className="mt-1 line-clamp-2 text-xs text-slate-500">{linkedResume.job_description || '未记录目标岗位'}</p>
+                                                            <p className="mt-1 text-xs text-slate-400">{formatTime(linkedResume.created_at)}</p>
                                                             <div className="mt-3 flex flex-wrap gap-2">
-                                                                <Button type="button" size="sm" variant="outline" onClick={() => void handlePreviewResume(currentApplication?.linked_resume!.id)}><Eye className="mr-1 h-3.5 w-3.5" />预览</Button>
-                                                                <Button type="button" size="sm" variant="outline" onClick={() => downloadResumeMarkdown(currentApplication?.linked_resume!)}><FileDown className="mr-1 h-3.5 w-3.5" />下载 Markdown</Button>
+                                                                <Button type="button" size="sm" variant="outline" onClick={() => void handlePreviewResume(linkedResume.id)}><Eye className="mr-1 h-3.5 w-3.5" />预览</Button>
+                                                                <Button type="button" size="sm" variant="outline" onClick={() => downloadResumeMarkdown(linkedResume)}><FileDown className="mr-1 h-3.5 w-3.5" />下载 Markdown</Button>
                                                                 <Button type="button" size="sm" variant="ghost" disabled={linkingResume} onClick={() => void handleSetResume(null)}>解除关联</Button>
                                                             </div>
                                                         </div>

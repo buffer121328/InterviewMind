@@ -1,4 +1,4 @@
-"""Candidate material library routes."""
+"""提供简历材料相关后端功能。"""
 
 import logging
 from typing import Optional
@@ -22,7 +22,7 @@ async def create_material(
     request: dict,
     user_id: str = Depends(get_current_user_id),
 ):
-    """Create a candidate material entry."""
+    """创建材料相关后端逻辑。"""
     try:
         return await resume_material_use_cases.create_material(request=request, user_id=user_id)
     except ResumeMaterialBadRequest as exc:
@@ -37,7 +37,7 @@ async def import_materials_from_resume(
     request: dict,
     user_id: str = Depends(get_current_user_id),
 ):
-    """Import candidate materials from resume content."""
+    """处理导入材料来源简历相关后端逻辑。"""
     try:
         return await resume_material_use_cases.import_materials_from_resume(request=request, user_id=user_id)
     except ResumeMaterialBadRequest as exc:
@@ -58,7 +58,7 @@ async def list_materials(
     offset: int = 0,
     user_id: str = Depends(get_current_user_id),
 ):
-    """List candidate materials."""
+    """列出材料相关后端逻辑。"""
     return await resume_material_use_cases.list_materials(
         user_id=user_id,
         material_type=material_type,
@@ -73,7 +73,7 @@ async def get_material(
     material_id: int,
     user_id: str = Depends(get_current_user_id),
 ):
-    """Get one candidate material."""
+    """获取材料相关后端逻辑。"""
     try:
         return await resume_material_use_cases.get_material(material_id=material_id, user_id=user_id)
     except ResumeMaterialNotFound as exc:
@@ -89,7 +89,7 @@ async def update_material(
     request: dict,
     user_id: str = Depends(get_current_user_id),
 ):
-    """Update one candidate material."""
+    """更新材料相关后端逻辑。"""
     try:
         return await resume_material_use_cases.update_material(
             material_id=material_id,
@@ -108,7 +108,7 @@ async def delete_material(
     material_id: int,
     user_id: str = Depends(get_current_user_id),
 ):
-    """Delete one candidate material."""
+    """删除材料相关后端逻辑。"""
     try:
         return await resume_material_use_cases.delete_material(material_id=material_id, user_id=user_id)
     except ResumeMaterialNotFound as exc:

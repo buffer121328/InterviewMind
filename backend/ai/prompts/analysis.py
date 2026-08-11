@@ -140,7 +140,7 @@ MULTI_REVIEWER_CONSENSUS_PROMPT = prompt_template(
 def build_session_report_prompt(
     report_context: str,
 ) -> str:
-    """Build the bounded single-call report prompt from ContextAssembler output."""
+    """构建会话报告提示词相关后端逻辑。"""
     return render_prompt(
         SESSION_REPORT_PROMPT,
         prompt_name="analysis.session_report",
@@ -150,7 +150,7 @@ def build_session_report_prompt(
 
 
 def build_evidence_chunk_prompt(qa_text: str) -> str:
-    """Build one recoverable evidence-chunk prompt from 4-5 bounded question pairs."""
+    """构建证据片段提示词相关后端逻辑。"""
     return render_prompt(
         EVIDENCE_CHUNK_PROMPT,
         prompt_name="analysis.question_evidence",
@@ -170,7 +170,7 @@ def build_evidence_report_prompt(
     evidence_text: str,
     evidence_count: int,
 ) -> str:
-    """Build the final report prompt from cached evidence rather than raw long QA history."""
+    """构建证据报告提示词相关后端逻辑。"""
     return render_prompt(
         EVIDENCE_REPORT_PROMPT,
         prompt_name="analysis.evidence_report",
@@ -182,7 +182,7 @@ def build_evidence_report_prompt(
 
 
 def build_multi_reviewer_prompt(*, mode: str, perspective: str, review_context: str) -> str:
-    """Build one isolated perspective prompt for the parallel map stage."""
+    """构建多评审提示词相关后端逻辑。"""
     perspective_instructions = {
         "technical_depth": "评估技术原理深度、方案取舍、问题拆解和实现可信度；重点关注专业能力与逻辑问题解决。",
         "communication": "评估回答结构、清晰度、信息密度、倾听与协作表达；不要把技术正确性替代为表达分。",
@@ -208,7 +208,7 @@ def build_multi_reviewer_prompt(*, mode: str, perspective: str, review_context: 
 
 
 def build_multi_reviewer_consensus_prompt(*, mode: str, review_context: str, reviewer_outputs: str) -> str:
-    """Build the reduce-stage prompt that reconciles independent reviewer outputs."""
+    """构建多评审共识提示词相关后端逻辑。"""
     if mode == "session_report":
         instruction = (
             "输出完整 SessionInterviewReportOutput：保留逐题证据，六维画像分数为 0-10，"
@@ -233,30 +233,30 @@ def build_multi_reviewer_consensus_prompt(*, mode: str, review_context: str, rev
 
 
 def build_technical_depth_reviewer_prompt(review_context: str) -> str:
-    """Build the technical-depth map reviewer prompt for management and previews."""
+    """构建评审提示词相关后端逻辑。"""
     return build_multi_reviewer_prompt(mode="session_report", perspective="technical_depth", review_context=review_context)
 
 
 def build_communication_reviewer_prompt(review_context: str) -> str:
-    """Build the communication map reviewer prompt for management and previews."""
+    """构建评审提示词相关后端逻辑。"""
     return build_multi_reviewer_prompt(mode="session_report", perspective="communication", review_context=review_context)
 
 
 def build_job_fit_reviewer_prompt(review_context: str) -> str:
-    """Build the job-fit map reviewer prompt for management and previews."""
+    """构建岗位评审提示词相关后端逻辑。"""
     return build_multi_reviewer_prompt(mode="session_report", perspective="job_fit", review_context=review_context)
 
 
 def build_factual_risk_reviewer_prompt(review_context: str) -> str:
-    """Build the factual-risk map reviewer prompt for management and previews."""
+    """构建评审提示词相关后端逻辑。"""
     return build_multi_reviewer_prompt(mode="session_report", perspective="factual_risk", review_context=review_context)
 
 
 def build_session_review_consensus_prompt(review_context: str, reviewer_outputs: str) -> str:
-    """Build the single-session reducer prompt for management and previews."""
+    """构建会话复核共识提示词相关后端逻辑。"""
     return build_multi_reviewer_consensus_prompt(mode="session_report", review_context=review_context, reviewer_outputs=reviewer_outputs)
 
 
 def build_ability_review_consensus_prompt(review_context: str, reviewer_outputs: str) -> str:
-    """Build the cross-session reducer prompt for management and previews."""
+    """构建能力复核共识提示词相关后端逻辑。"""
     return build_multi_reviewer_consensus_prompt(mode="ability_profile", review_context=review_context, reviewer_outputs=reviewer_outputs)

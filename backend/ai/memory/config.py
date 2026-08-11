@@ -30,7 +30,7 @@ def _request_channel(api_config: Optional[dict[str, Any]], name: str) -> Optiona
 
 
 def _pgvector_connection_config() -> dict[str, Any]:
-    """Resolve pgvector from one authoritative DSN without mixing credential sources."""
+    """处理pgvector连接配置相关后端逻辑。"""
     explicit_url = _env("MEM0_PGVECTOR_URL")
     database_url = _env("DATABASE_URL")
     fallback_url = "postgresql://{user}:{password}@{host}:{port}/{database}".format(
@@ -69,7 +69,7 @@ def _pgvector_connection_config() -> dict[str, Any]:
 
 
 def get_mem0_database_mode() -> str:
-    """Return whether pgvector shares DATABASE_URL or uses a valid dedicated DSN."""
+    """获取mem0数据库模式相关后端逻辑。"""
     explicit_url = _env("MEM0_PGVECTOR_URL")
     if not explicit_url:
         return "shared"

@@ -13,8 +13,8 @@ def pipeline_to_optimize_result(pipeline_output: dict) -> ResumeOptimizeResult:
     workspace = pipeline_output.get("workspace") or {}
     workspace_jd = workspace.get("jd_matching") or {}
     change_items_raw = pipeline_output.get("change_items") or []
-    # Unified workspace results already contain the richer JD Agent score. Prefer it
-    # so old persisted keyword-only pipeline scores cannot reappear as 0 downstream.
+    # 说明：Unified workspace results already contain the richer JD Agent score. Prefer it
+    # 说明：so old persisted keyword-only pipeline scores cannot reappear as 0 downstream.
     match_score = float(workspace_jd.get("overall_match_score", jd.get("match_score", 0)))
     raw_hr_pass_rate = jd.get("hr_pass_rate")
     hr_pass_rate = (

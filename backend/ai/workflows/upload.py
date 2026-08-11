@@ -1,4 +1,4 @@
-"""Upload processing use cases."""
+"""提供后端逻辑相关后端功能。"""
 
 from __future__ import annotations
 
@@ -16,21 +16,21 @@ from app.schemas.schemas import FileUploadResponse
 
 @dataclass(slots=True)
 class UploadUseCaseError(Exception):
-    """Upload processing failure with HTTP-neutral error details."""
+    """定义用例案例错误相关后端数据结构或服务组件。"""
 
     status_code: int
     detail: dict[str, Any]
 
 
 class UploadUseCases:
-    """Process uploaded files outside API route handlers."""
+    """定义用例案例相关后端数据结构或服务组件。"""
 
     def __init__(self) -> None:
         """初始化上传用例使用的文件服务；文件类型、大小和解析边界由 FileService 统一执行。"""
         self._file_service = FileService()
 
     async def upload_resume(self, file: Any) -> FileUploadResponse:
-        """Extract text from an uploaded resume file."""
+        """上传简历相关后端逻辑。"""
         try:
             text_content = await self._file_service.process_fastapi_file(file)
         except UnsupportedFileTypeError as exc:

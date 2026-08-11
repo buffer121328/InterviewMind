@@ -1,4 +1,4 @@
-"""LangChain prompt-template helpers used by prompt modules."""
+"""提供LangChain相关后端功能。"""
 
 from __future__ import annotations
 
@@ -8,12 +8,12 @@ from langchain_core.prompts import BasePromptTemplate, ChatPromptTemplate, Promp
 
 
 def prompt_template(template: str) -> PromptTemplate:
-    """Create a LangChain string prompt template."""
+    """处理提示词模板相关后端逻辑。"""
     return PromptTemplate.from_template(template)
 
 
 def chat_prompt_template(messages: list[tuple[str, str]]) -> ChatPromptTemplate:
-    """Create a LangChain chat prompt template."""
+    """处理聊天提示词模板相关后端逻辑。"""
     return ChatPromptTemplate.from_messages(messages)
 
 
@@ -24,11 +24,7 @@ def render_prompt(
     prompt_version: str | int | None = None,
     **values: Any,
 ) -> str:
-    """Render a LangChain prompt template to the plain string expected by callers.
-
-    When prompt_name is provided, the rendered local prompt is used as a safe
-    fallback for optional Langfuse Prompt Management.
-    """
+    """渲染提示词相关后端逻辑。"""
     if isinstance(template, ChatPromptTemplate):
         rendered = "\n".join(str(message.content) for message in template.format_messages(**values))
         prompt_type = "chat"

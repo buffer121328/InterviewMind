@@ -20,6 +20,7 @@ interface ResumeInputPanelProps {
     submittingLabel: string;
     optimizeProgress?: string;
     sessionPicker?: ReactNode;
+    jobLibraryAction?: ReactNode;
     includeProfile?: boolean;
     optimizeMode?: ResumeOptimizeMode;
     fileInputRef: RefObject<HTMLInputElement | null>;
@@ -42,6 +43,7 @@ export function ResumeInputPanel({
     submittingLabel,
     optimizeProgress,
     sessionPicker,
+    jobLibraryAction,
     includeProfile = false,
     optimizeMode = 'balanced',
     fileInputRef,
@@ -113,9 +115,12 @@ export function ResumeInputPanel({
                         </div>
 
                         <div className="space-y-2">
-                            <Label className="text-xs font-normal text-gray-500">
-                                目标职位描述 {requiresJD && <span className="text-red-500">*</span>}
-                            </Label>
+                            <div className="flex items-center justify-between gap-2">
+                                <Label className="text-xs font-normal text-gray-500">
+                                    目标职位描述 {requiresJD && <span className="text-red-500">*</span>}
+                                </Label>
+                                {jobLibraryAction}
+                            </div>
                             <Textarea
                                 placeholder={requiresJD ? '输入目标职位的 JD/岗位名...' : '输入目标职位的 JD/岗位名，分析匹配度更准确...'}
                                 value={jobDescription}

@@ -102,7 +102,7 @@ class ResumeMaterialUseCases:
                 trusted=True,
                 required=True,
                 max_chars=10_000,
-                # PDF/DOCX extraction is plain text rather than Markdown; keep both ends when clipping.
+                # 说明：保留这里的兼容性、安全性或流程约束。
                 truncation_strategy="head_tail",
             )
         ])

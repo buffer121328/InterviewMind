@@ -43,6 +43,7 @@ import {
 } from "@/lib/bossCenter";
 import { buildJobContextSnapshot, type JobContextSnapshot } from "@/lib/jobContextHandoff";
 import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
+import { extractProfessionalSkills } from "@/lib/bossResume";
 import { useInterviewStore } from "@/store/useInterviewStore";
 
 interface BossCenterProps {
@@ -92,7 +93,10 @@ export function BossCenter({ initialJobId, onInitialJobConsumed, onUseInIntervie
 
     useEffect(() => {
         if (!defaultResumeText) return;
-        const timer = window.setTimeout(() => setResumeContent(current => current || defaultResumeText), 0);
+        const timer = window.setTimeout(() => setResumeContent(current => {
+            if (current) return current;
+            return extractProfessionalSkills(defaultResumeText).content;
+        }), 0);
         return () => window.clearTimeout(timer);
     }, [defaultResumeText]);
 
@@ -297,8 +301,9 @@ export function BossCenter({ initialJobId, onInitialJobConsumed, onUseInIntervie
             await uploadResume(file);
             const parsedResume = useInterviewStore.getState().resume;
             if (!parsedResume?.content.trim()) throw new Error("简历未解析出有效文本");
-            setResumeContent(parsedResume.content);
-            toast.success(`已从 ${file.name} 解析基础简历`);
+            const extracted = extractProfessionalSkills(parsedResume.content);
+            setResumeContent(extracted.content);
+            toast.success(extracted.matched ? `已从 ${file.name} 提取专业技能` : `已从 ${file.name} 解析简历；未识别到专业技能段落，暂保留原文`);
         } catch (error) {
             toast.error(error instanceof Error ? error.message : "上传并解析简历失败");
         } finally {
@@ -316,6 +321,14 @@ export function BossCenter({ initialJobId, onInitialJobConsumed, onUseInIntervie
         if (!resumeContent.trim()) {
             toast.error("请提供基础简历内容");
             return;
+        }
+        const resumeExtraction = extractProfessionalSkills(resumeContent);
+        const effectiveResumeContent = resumeExtraction.content;
+        if (resumeExtraction.matched && effectiveResumeContent !== resumeContent.trim()) {
+            setResumeContent(effectiveResumeContent);
+            toast.info("已按专业技能收敛基础简历，岗位采集不会使用其他简历段落。");
+        } else if (!resumeExtraction.matched) {
+            toast.info("未识别到专业技能段落，将保留当前原文继续匹配。");
         }
         if (city && !/^\d{1,20}$/.test(city)) {
             toast.error("BOSS 城市必须是下拉框产生的数字代码");
@@ -351,7 +364,7 @@ export function BossCenter({ initialJobId, onInitialJobConsumed, onUseInIntervie
             toast.info(`已读取 ${domCapture.cards.length} 张非实习岗位卡片，正在创建可恢复导入任务。`);
             const run = await captureRecommendations({
                 query: query.trim(),
-                resume_content: resumeContent.trim(),
+                resume_content: effectiveResumeContent.trim(),
                 source_page_url: domCapture.source_page_url,
                 cards: domCapture.cards,
                 top_n: Math.min(domCapture.cards.length, 20, Math.max(1, topN)),
@@ -452,7 +465,9 @@ export function BossCenter({ initialJobId, onInitialJobConsumed, onUseInIntervie
 
     useEffect(() => {
         if (!initialJobId) return;
-        void handleOpenJobDetail(initialJobId).finally(() => onInitialJobConsumed?.());
+        queueMicrotask(() => {
+            void handleOpenJobDetail(initialJobId).finally(() => onInitialJobConsumed?.());
+        });
     }, [initialJobId, onInitialJobConsumed]);
 
     /** Persists one edited greeting while keeping result cards and the open detail dialog synchronized. */

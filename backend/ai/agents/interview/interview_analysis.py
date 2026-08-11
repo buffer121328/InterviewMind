@@ -110,12 +110,7 @@ async def trigger_session_report_analysis(
     report_checkpoint: Mapping[str, Any] | None = None,
     checkpoint_callback: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
 ) -> None:
-    """Generate and persist both report artifacts from one validated model response.
-
-    The session, profile, and weakness report all remain owner-scoped. Failures are
-    re-raised only for recoverable AgentRun execution; background completion keeps
-    its existing non-blocking boundary.
-    """
+    """处理会话报告分析相关后端逻辑。"""
     try:
         from ai.workflows.analysis.analysis_service import (
             get_session_report_analysis_service,

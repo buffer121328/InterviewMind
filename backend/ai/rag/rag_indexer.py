@@ -363,7 +363,7 @@ class RagIndexer:
         user_id: str,
         with_embedding: bool,
     ) -> int:
-        """Write one source snapshot using persistent reuse before bounded batch generation."""
+        """处理索引片段相关后端逻辑。"""
         if not chunks:
             return 0
 

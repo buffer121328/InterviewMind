@@ -533,98 +533,98 @@ MATERIAL_EXTRACTION_PROMPT = prompt_template(
 
 
 def _json(value: Any) -> str:
-    """Encode dynamic prompt data as readable JSON without changing its meaning."""
+    """处理JSON相关后端逻辑。"""
     return json.dumps(value, ensure_ascii=False, indent=2)
 
 
 def build_match_analyst_prompt(resume_content: str, job_description: str) -> str:
-    """Build the evidence-calibrated resume-to-JD analysis prompt."""
+    """构建提示词相关后端逻辑。"""
     return render_prompt(MATCH_ANALYST_PROMPT, prompt_name="resume.match_analyst", prompt_version="1", resume_content=resume_content, job_description=job_description, output_schema='{"jd_keywords":[],"matched_keywords":[],"missing_keywords":[],"bonus_items":[],"match_score":75,"analysis_summary":""}')
 
 
 def build_content_writer_prompt(resume_content: str, job_description: str, interview_section: str = "") -> str:
-    """Build a structured rewrite-suggestion prompt with confirmation controls."""
+    """构建内容提示词相关后端逻辑。"""
     return render_prompt(CONTENT_WRITER_PROMPT, prompt_name="resume.content_writer", prompt_version="1", resume_content=resume_content, job_description=job_description, interview_section=interview_section, output_schema='{"sections":[],"quantification_tips":[],"highlight_recommendations":[],"interview_insights":null,"change_items":[{"section_name":"","original_text":null,"optimized_text":"","change_type":"polish","reason":"","evidence_source":"简历原文","requires_user_confirmation":false,"confidence":0.8}]}')
 
 
 def build_hr_reviewer_prompt(resume_content: str, job_description: str) -> str:
-    """Build a calibrated first-screen HR review prompt."""
+    """构建评审提示词相关后端逻辑。"""
     return render_prompt(HR_REVIEWER_PROMPT, prompt_name="resume.hr_reviewer", prompt_version="1", resume_content=resume_content, job_description=job_description, output_schema='{"first_impression":{"score":7,"comment":""},"hard_requirements_met":true,"hard_requirements_issues":[],"highlights":[],"concerns":[],"pass_rate_estimate":60,"content_conciseness":{"score":7,"is_concise":true,"issues":[],"redundant_sections":[],"suggestion":null},"improvement_priority":[],"overall_recommendation":""}')
 
 
 def build_moderator_prompt(match_analysis: dict, content_suggestions: dict, hr_review: dict, profile_section: str = "") -> str:
-    """Build the prompt that reconciles three expert outputs without losing scores."""
+    """构建提示词相关后端逻辑。"""
     return render_prompt(MODERATOR_PROMPT, prompt_name="resume.moderator", prompt_version="1", match_analysis_json=_json(match_analysis), content_suggestions_json=_json(content_suggestions), hr_review_json=_json(hr_review), profile_section=profile_section, output_schema='{"match_score":60,"hr_pass_rate":60,"key_improvements":[{"priority":1,"area":"","issue":"","action":"","example":null}],"optimized_sections":[],"keyword_recommendations":[],"overall_strategy":""}')
 
 
 def build_reflect_prompt(moderator_summary: dict, resume_content: str, job_description: str, interview_section: str = "") -> str:
-    """Build a quality-gate prompt for a proposed optimization plan."""
+    """构建提示词相关后端逻辑。"""
     return render_prompt(REFLECT_PROMPT, prompt_name="resume.reflect", prompt_version="1", moderator_summary_json=_json(moderator_summary), resume_preview=resume_content[:3000], job_description_preview=job_description[:2000], interview_section=interview_section, output_schema='{"issues_found":[],"quality_score":80,"approval":true}')
 
 
 def build_refine_prompt(moderator_summary: dict, reflection: dict, resume_content: str, job_description: str) -> str:
-    """Build a refinement prompt that preserves verified values and fixes gate findings."""
+    """构建提示词相关后端逻辑。"""
     return render_prompt(REFINE_PROMPT, prompt_name="resume.refine", prompt_version="1", moderator_summary_json=_json(moderator_summary), reflection_json=_json(reflection), resume_preview=resume_content[:3000], job_description_preview=job_description[:2000], output_schema='{"match_score":60,"hr_pass_rate":60,"key_improvements":[],"optimized_sections":[],"keyword_recommendations":[],"overall_strategy":"","refinement_notes":null,"change_items":[]}')
 
 
 def build_needs_analysis_prompt(resume_content: str, job_description: str, optimization_result: dict) -> str:
-    """Build a prompt that asks only high-value fact-confirmation questions."""
+    """构建分析提示词相关后端逻辑。"""
     return render_prompt(NEEDS_ANALYSIS_PROMPT, prompt_name="resume.needs_analysis", prompt_version="1", resume_content=resume_content, job_description=job_description, key_improvements_json=_json(optimization_result.get("key_improvements", [])[:5]), output_schema='{"has_gaps":true,"questions":["具体问题"]}')
 
 
 def build_draft_generation_prompt(resume_content: str, job_description: str, optimization_result: dict, user_info_section: str = "", keyword_section: str = "", review_guidance: str = "", template_style: str = "professional") -> str:
-    """Build a complete-resume drafting prompt that cannot invent missing facts."""
+    """构建生成提示词相关后端逻辑。"""
     return render_prompt(DRAFT_GENERATION_PROMPT, prompt_name="resume.draft_generation", prompt_version="1", resume_content=resume_content, job_description=job_description, key_improvements_json=_json(optimization_result.get("key_improvements", [])[:5]), user_info_section=user_info_section, keyword_section=keyword_section, review_guidance=review_guidance, template_style=template_style)
 
 
 def build_draft_optimization_prompt(resume_content: str, draft_content: str, job_description: str, user_inputs: str = "无", key_improvements: list | None = None, jd_keywords: list | None = None, missing_keywords: list | None = None) -> str:
-    """Build a structured optimization prompt that preserves a complete draft."""
+    """构建优化提示词相关后端逻辑。"""
     return render_prompt(DRAFT_OPTIMIZATION_PROMPT, prompt_name="resume.draft_optimization", prompt_version="1", resume_content=resume_content, draft_content=draft_content, job_description=job_description, user_inputs=user_inputs, key_improvements_json=_json((key_improvements or [])[:5]), jd_keywords_json=_json((jd_keywords or [])[:10]), missing_keywords_json=_json((missing_keywords or [])[:8]), output_schema='{"optimized_content":"完整 Markdown 简历","optimization_summary":{"missing_info_fixed":[],"content_refined":[],"skills_focused":[],"keywords_added":[],"improvements_applied":[]},"quality_scores":{"completeness":80,"conciseness":80,"focus":80,"keyword_coverage":80,"jd_match":80}}')
 
 
 def build_fact_check_prompt(resume_content: str, draft_content: str, user_inputs: str = "") -> str:
-    """Build a strict source-to-draft factual comparison prompt."""
+    """构建事实检查提示词相关后端逻辑。"""
     return render_prompt(FACT_CHECK_PROMPT, prompt_name="resume.fact_check", prompt_version="2", resume_content=resume_content, draft_content=draft_content, user_inputs=user_inputs or "无", output_schema='{"is_excessive":false,"risk_details":[{"type":"unsupported_fact","location":"","original":"","fabricated":"","reason":""}]}')
 
 
 def build_finalize_review_prompt(draft_content: str, jd_keywords_json: str = "[]", warning_text: str = "") -> str:
-    """Build the final safety and formatting review prompt."""
+    """构建收尾复核提示词相关后端逻辑。"""
     return render_prompt(FINALIZE_REVIEW_PROMPT, prompt_name="resume.finalize_review", prompt_version="1", draft_content=draft_content, jd_keywords_json=jd_keywords_json, warning_text=warning_text, output_schema='{"final_content":"完整 Markdown 简历","review_passed":true,"modification_notes":[],"title":"岗位定制简历"}')
 
 
 def build_resume_analysis_prompt(resume_content: str, job_description: str = "", interview_section: str = "", profile_section: str = "") -> str:
-    """Build a six-dimension resume competitiveness analysis prompt."""
+    """构建简历分析提示词相关后端逻辑。"""
     jd_section = f"\n【目标岗位 JD】\n{job_description}" if job_description else "\n【目标岗位 JD】未提供"
     return render_prompt(RESUME_ANALYSIS_PROMPT, prompt_name="resume.analysis", prompt_version="1", resume_content=resume_content, job_description=jd_section, interview_section=interview_section, profile_section=profile_section, output_schema='{"dimension_scores":{"structure":{"score":0,"comment":""},"completeness":{"score":0,"comment":""},"quantification":{"score":0,"comment":""},"clarity":{"score":0,"comment":""},"highlights":{"score":0,"comment":""},"job_match":{"score":0,"comment":""}},"strengths":[],"weaknesses":[],"priority_improvements":[],"interview_insights":null}')
 
 
 def build_jd_match_system_prompt() -> str:
-    """Build the system half of the detailed JD match prompt."""
+    """构建JD系统提示词相关后端逻辑。"""
     return render_prompt(JD_MATCH_SYSTEM_PROMPT, prompt_name="resume.jd_match.system", prompt_version="1", output_schema='{"skill_match_score":0,"skill_match_comment":"","project_match_score":0,"project_match_comment":"","experience_match_score":0,"experience_match_comment":"","education_match_score":0,"education_match_comment":"","matched_keywords":[],"missing_keywords":[],"strengths":[],"risks":[],"priority_actions":[],"selection_hints":{}}')
 
 
 def build_jd_match_user_prompt(resume_content: str, job_description: str) -> str:
-    """Build the complete managed chat prompt for detailed JD matching."""
+    """构建JD用户提示词相关后端逻辑。"""
     return render_prompt(JD_MATCH_CHAT_PROMPT, prompt_name="resume.jd_match.user", prompt_version="1", resume_content=resume_content, job_description=job_description)
 
 
 def build_assembler_system_prompt() -> str:
-    """Build the material-selection system prompt."""
+    """构建系统提示词相关后端逻辑。"""
     return render_prompt(ASSEMBLER_SYSTEM_PROMPT, prompt_name="resume.assembler.system", prompt_version="1", output_schema='{"selected_material_ids":[],"selection_reason":"","assembled_outline":{}}')
 
 
 def build_assembler_user_prompt(job_description: str, materials_str: str) -> str:
-    """Build the untrusted-data payload for material selection."""
+    """构建用户提示词相关后端逻辑。"""
     return render_prompt(ASSEMBLER_USER_PROMPT, prompt_name="resume.assembler.user", prompt_version="1", job_description=job_description, materials_str=materials_str)
 
 
 def build_assembler_assemble_prompt(job_description: str, materials_str: str) -> str:
-    """Build the prompt that assembles only selected, evidenced materials."""
+    """构建提示词相关后端逻辑。"""
     return render_prompt(ASSEMBLER_ASSEMBLE_PROMPT, prompt_name="resume.assembler.assemble", prompt_version="1", job_description=job_description, materials_str=materials_str)
 
 
 def build_project_rewriter_prompt(project_content: str, project_title: str, rewrite_mode: str, job_description: str | None = None) -> str:
-    """Build a project rewrite prompt whose inferred content remains reviewable."""
+    """构建项目提示词相关后端逻辑。"""
     modes = {"star_rewrite": "使用 STAR 结构重组已有事实；原文缺失的环节保持缺失。", "quantify_results": "提炼已有量化结果；没有数字时只建议应补充的数据类型。", "jd_customize": "突出与 JD 有双边证据的能力，不把 JD 要求写成项目事实。", "followup_prediction": "保持原文不变，只预测面试追问。"}
     if rewrite_mode == "jd_customize" and not job_description:
         raise ValueError("jd_customize 模式必须提供 job_description")
@@ -632,20 +632,20 @@ def build_project_rewriter_prompt(project_content: str, project_title: str, rewr
 
 
 def build_orchestrator_assemble_prompt(resume_content: str, change_summary: str, num_change_items: int) -> str:
-    """Build the final assembly prompt for reviewed change items."""
+    """构建编排器提示词相关后端逻辑。"""
     return render_prompt(ORCHESTRATOR_ASSEMBLE_PROMPT, prompt_name="resume.orchestrator_assemble", prompt_version="1", resume_content=resume_content, change_summary=change_summary, num_change_items=num_change_items)
 
 
 def build_rewrite_planner_prompt(resume_content: str, job_description: str, jd_analysis: dict, material_pool: dict, retry_guidance: str = "") -> str:
-    """Build the bounded planning prompt used by the resume rewrite agent."""
+    """构建改写规划器提示词相关后端逻辑。"""
     return render_prompt(REWRITE_PLANNER_PROMPT, prompt_name="resume.rewrite_planner", prompt_version="1", resume_content=resume_content, job_description=job_description, jd_analysis_json=_json(jd_analysis), material_pool_json=_json(material_pool), retry_guidance=retry_guidance or "无", output_schema='{"focus_sections":[],"evidence_to_use":[],"avoid_risks":[],"rewrite_strategy":""}')
 
 
 def build_rewrite_executor_prompt(resume_content: str, job_description: str, jd_analysis: dict, material_pool: dict, plan: dict | None = None, retry_guidance: str = "", mode: str = "balanced", max_items: int = 8) -> str:
-    """Build the bounded structured rewrite prompt used after optional planning."""
+    """构建改写提示词相关后端逻辑。"""
     return render_prompt(REWRITE_EXECUTOR_PROMPT, prompt_name="resume.rewrite_executor", prompt_version="1", mode=mode, max_items=max_items, plan_json=_json(plan or {}), resume_content=resume_content, job_description=job_description, jd_analysis_json=_json(jd_analysis), material_pool_json=_json(material_pool), retry_guidance=retry_guidance or "无", output_schema='{"sections":[],"quantification_tips":[],"highlight_recommendations":[],"interview_insights":null,"change_items":[{"section_name":"","original_text":null,"optimized_text":"","change_type":"polish","reason":"","evidence_source":"","requires_user_confirmation":false,"confidence":0.8}]}')
 
 
 def build_material_extraction_prompt(resume_content: str) -> str:
-    """Build a prompt that extracts only reusable facts from a resume."""
+    """构建材料抽取提示词相关后端逻辑。"""
     return render_prompt(MATERIAL_EXTRACTION_PROMPT, prompt_name="resume.material_extraction", prompt_version="1", resume_content=resume_content, output_schema='{"materials":[{"material_type":"project","title":"","content":"","tags":[]}]}')

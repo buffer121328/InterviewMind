@@ -1,4 +1,4 @@
-"""Pydantic/data schemas shared by APIs, workflows, agents, and tools."""
+"""提供后端逻辑相关后端功能。"""
 
 from .interview import *  # noqa: F401,F403
 from .interview_experience import *  # noqa: F401,F403

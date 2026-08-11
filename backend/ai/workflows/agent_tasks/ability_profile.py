@@ -1,11 +1,11 @@
-"""Recoverable Ability Profile AgentRun task."""
+"""提供能力画像相关后端功能。"""
 
 from ai.workflows.agent_tasks.types import ProgressCallback
 from observability import agent_observation
 
 
 async def execute_ability_profile(payload: dict, user_id: str, progress: ProgressCallback) -> dict:
-    """Aggregate and persist an owner-scoped ability profile with explicit progress stages."""
+    """执行能力画像相关后端逻辑。"""
     from ai.workflows.analysis.ability_service import get_ability_service
 
     run_id = str(payload.get("_agent_run_id") or "") or None

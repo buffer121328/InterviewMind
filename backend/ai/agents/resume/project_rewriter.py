@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 def _extract_json_text(response_text: str) -> str:
-    """Extract JSON from raw text or markdown code blocks."""
+    """提取JSON文本相关后端逻辑。"""
     cleaned_text = response_text.strip()
 
     if cleaned_text.startswith("```json"):

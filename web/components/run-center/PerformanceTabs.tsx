@@ -37,7 +37,7 @@ export function PerformanceOverviewTab({ days }: PerformanceViewProps) {
         catch (error) { toast.error(error instanceof Error ? error.message : '性能指标加载失败'); }
         finally { setLoading(false); }
     }, [days]);
-    useEffect(() => { void load(); }, [load]);
+    useEffect(() => { queueMicrotask(() => void load()); }, [load]);
     const cards = useMemo(() => value ? performanceCards(value) : [], [value]);
     if (loading && !value) return <EmptyState text="正在汇总本地模型指标…" />;
     if (!value || value.sample_event_count === 0) return <EmptyState text="当前窗口暂无本地模型指标；历史运行不会被填充为虚构数据。" onRefresh={load} />;
@@ -71,7 +71,7 @@ function MetricEventList({ days, degradationsOnly, empty }: PerformanceViewProps
         catch (error) { toast.error(error instanceof Error ? error.message : '模型事件加载失败'); }
         finally { setLoading(false); }
     }, [days, degradationsOnly]);
-    useEffect(() => { void load(); }, [load]);
+    useEffect(() => { queueMicrotask(() => void load()); }, [load]);
     if (loading && events.length === 0) return <EmptyState text="正在加载安全模型指标…" />;
     if (events.length === 0) return <EmptyState text={empty} onRefresh={load} />;
     return <div className="space-y-3">{events.map(event => <article key={event.event_id} className="rounded-2xl border bg-white p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><div className="font-medium text-slate-900">{event.event_type} · {event.stage || '未标记阶段'}</div><p className="mt-1 text-sm text-slate-500">{describeModelMetricEvent(event)}</p><p className="mt-2 text-xs text-slate-400">Run {event.run_id} · {new Date(event.timestamp).toLocaleString('zh-CN')}</p></div><Button variant="outline" size="sm" onClick={() => void openTrace(event.run_id)}><ExternalLink className="mr-1 h-3.5 w-3.5" />Trace</Button></div>{event.is_degradation && <div className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">timeout scope: {String(event.payload.timeout_scope || '未分类')} · overflow: {String(event.payload.overflow_strategy || '无')}</div>}</article>)}</div>;

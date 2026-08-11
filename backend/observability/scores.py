@@ -24,13 +24,7 @@ def record_score(
     metadata: dict[str, Any] | None = None,
     environment: str | None = None,
 ) -> bool:
-    """Attach an evaluation score to Langfuse.
-
-    Supports the Langfuse score targets used by traces, observations, sessions
-    and dataset runs. When no explicit target is supplied, the current trace
-    context is scored. SDK failures are swallowed so evaluations never break
-    business logic or CI.
-    """
+    """记录分数相关后端逻辑。"""
     import observability
 
     if not observability._configured:
@@ -81,7 +75,7 @@ def record_trace_score(
     data_type: str | None = None,
     metadata: dict[str, Any] | None = None,
 ) -> bool:
-    """Record a trace-level score."""
+    """记录追踪分数相关后端逻辑。"""
     return record_score(
         name=name,
         value=value,

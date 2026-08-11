@@ -78,7 +78,7 @@ class QuestionBankRepo:
         source_id: str,
         origin_session_id: str,
     ) -> tuple[int, bool]:
-        """Create one report-derived question once per owner, source session, and normalized source id."""
+        """创建报告题目相关后端逻辑。"""
         async with async_session() as db:
             stmt = select(QuestionBankItemModel.id).where(
                 QuestionBankItemModel.user_id == user_id,

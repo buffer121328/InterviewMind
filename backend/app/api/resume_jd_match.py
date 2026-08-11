@@ -1,4 +1,4 @@
-"""JD match analysis routes."""
+"""提供简历JD相关后端功能。"""
 
 import logging
 
@@ -22,7 +22,7 @@ async def jd_match_endpoint(
     request: JDMatchRequest,
     user_id: str = Depends(get_current_user_id),
 ):
-    """Analyze how well a resume matches a target job description."""
+    """处理JD端点相关后端逻辑。"""
     try:
         return await jd_match_use_cases.analyze(request=request, user_id=user_id)
     except JDMatchBadRequest as exc:
@@ -37,7 +37,7 @@ async def list_jd_match_results(
     limit: int = 20,
     user_id: str = Depends(get_current_user_id),
 ):
-    """List JD match analysis results."""
+    """列出JD结果相关后端逻辑。"""
     return await jd_match_use_cases.list_results(user_id=user_id, limit=limit)
 
 
@@ -46,7 +46,7 @@ async def get_jd_match_result(
     analysis_id: int,
     user_id: str = Depends(get_current_user_id),
 ):
-    """Get one JD match analysis result."""
+    """获取JD结果相关后端逻辑。"""
     try:
         return await jd_match_use_cases.get_result(analysis_id=analysis_id, user_id=user_id)
     except JDMatchNotFound as exc:
@@ -61,7 +61,7 @@ async def delete_jd_match_result(
     analysis_id: int,
     user_id: str = Depends(get_current_user_id),
 ):
-    """Delete one JD match analysis result."""
+    """删除JD结果相关后端逻辑。"""
     try:
         return await jd_match_use_cases.delete_result(analysis_id=analysis_id, user_id=user_id)
     except JDMatchNotFound as exc:

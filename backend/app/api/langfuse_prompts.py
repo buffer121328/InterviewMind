@@ -1,4 +1,4 @@
-"""HTTP endpoints for bounded Langfuse Cloud Prompt Management."""
+"""提供Langfuse提示词相关后端功能。"""
 
 import asyncio
 from collections.abc import Callable
@@ -30,12 +30,12 @@ T = TypeVar("T")
 
 
 def _service() -> LangfusePromptManagementService:
-    """Create the stateless, bounded Langfuse Cloud prompt service."""
+    """处理服务相关后端逻辑。"""
     return LangfusePromptManagementService()
 
 
 async def _remote(action: Callable[[], T]) -> T:
-    """Run the synchronous SDK off the event loop and map safe feature errors."""
+    """处理Langfuse提示词相关后端逻辑。"""
     try:
         return await asyncio.to_thread(action)
     except PromptManagementUnavailable as exc:
@@ -57,7 +57,7 @@ async def list_prompts(
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     label: Annotated[str | None, Query(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")] = None,
 ) -> PromptListResponse:
-    """List prompt metadata; user identity uses the existing API dependency boundary."""
+    """列出提示词相关后端逻辑。"""
     if label == "latest":
         raise HTTPException(status_code=422, detail="label cannot be 'latest'")
     result = await _remote(lambda: _service().list_prompts(page=page, limit=limit, label=label))
@@ -76,7 +76,7 @@ async def fetch_prompt(
     version: Annotated[int | None, Query(ge=0)] = None,
     label: Annotated[str | None, Query(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")] = None,
 ) -> PromptVersionResponse:
-    """Fetch a name selected by a query value, never by an unsafe catch-all path."""
+    """获取提示词相关后端逻辑。"""
     if (version is None) == (label is None):
         raise HTTPException(status_code=422, detail="provide exactly one of version or label")
     if label == "latest":
@@ -91,7 +91,7 @@ async def create_prompt_version(
     request: PromptCreateRequest,
     _user_id: str = Depends(get_current_user_id),
 ) -> PromptVersionResponse:
-    """Create a validated immutable prompt version for the single-user workspace."""
+    """创建提示词版本相关后端逻辑。"""
     return await _remote(lambda: _service().create_version(request))
 
 
@@ -102,7 +102,7 @@ async def update_prompt_labels(
     version: Annotated[int, Query(ge=1)],
     _user_id: str = Depends(get_current_user_id),
 ) -> PromptVersionResponse:
-    """Replace non-production labels for one selected immutable prompt version."""
+    """更新提示词标签相关后端逻辑。"""
     return await _remote(
         lambda: _service().update_labels(
             name=name,
@@ -117,7 +117,7 @@ async def promote_prompt_to_production(
     request: PromptProductionPromotionRequest,
     user_id: str = Depends(get_current_user_id),
 ) -> PromptVersionResponse:
-    """Assign the runtime production label through an explicit single-user action."""
+    """提升提示词生产相关后端逻辑。"""
     try:
         await evaluation_use_cases.validate_prompt_promotion(
             user_id=user_id,
@@ -140,7 +140,7 @@ async def promote_prompt_to_production(
 async def sync_builtin_prompts(
     _user_id: str = Depends(get_current_user_id),
 ) -> PromptBuiltinSyncResponse:
-    """Publish every missing built-in prompt as a Langfuse production version."""
+    """同步内置提示词相关后端逻辑。"""
     return await _remote(lambda: _service().sync_builtin_production_prompts())
 
 
@@ -149,7 +149,7 @@ async def preview_prompt(
     request: PromptPreviewRequest,
     _user_id: str = Depends(get_current_user_id),
 ) -> PromptPreviewResponse:
-    """Locally preview substitutions for one selected prompt without model execution."""
+    """预览提示词相关后端逻辑。"""
     return await _remote(
         lambda: _service().preview(
             name=request.name,

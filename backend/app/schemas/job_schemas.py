@@ -214,20 +214,20 @@ class BossTabCaptureResponse(BaseModel):
 
 
 class GreetingUpdateRequest(BaseModel):
-    """Edit one persisted greeting option in a generated asset package."""
+    """定义招呼语请求相关后端数据结构或服务组件。"""
 
-    message_text: str = Field(min_length=20, max_length=500)
+    message_text: str = Field(min_length=20, max_length=800)
 
 
 class JobExportApplicationRequest(BaseModel):
-    """Export a captured job and one editable greeting into application tracking."""
+    """定义岗位投递请求相关后端数据结构或服务组件。"""
 
     greeting_index: int = Field(default=0, ge=0, le=2)
-    greeting_text: str = Field(min_length=20, max_length=500)
+    greeting_text: str = Field(min_length=20, max_length=800)
 
 
 class BossOpenJobRequest(BaseModel):
-    """Open one persisted official job URL in the existing logged-in browser tab."""
+    """定义BOSS打开岗位请求相关后端数据结构或服务组件。"""
 
     browser_channel: Optional[Literal["msedge", "chrome"]] = None
 

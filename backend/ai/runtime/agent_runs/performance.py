@@ -1,4 +1,4 @@
-"""Owner-scoped local model metrics queries and deterministic aggregations."""
+"""提供性能相关后端功能。"""
 
 from __future__ import annotations
 
@@ -14,12 +14,12 @@ from app.clock import utc_now
 
 
 def _number(value: Any) -> float:
-    """Return a finite numeric metric value, using zero for missing audit fields."""
+    """处理性能相关后端逻辑。"""
     return float(value) if isinstance(value, (int, float)) else 0.0
 
 
 def _percentile(values: list[float], percentile: float) -> float | None:
-    """Compute a nearest-rank percentile for a bounded local metric sample."""
+    """处理性能相关后端逻辑。"""
     if not values:
         return None
     ordered = sorted(values)
@@ -29,7 +29,7 @@ def _percentile(values: list[float], percentile: float) -> float | None:
 def summarize_model_metric_events(
     events: Iterable[dict[str, Any]], *, run_statuses: Iterable[str] = ()
 ) -> dict[str, Any]:
-    """Aggregate safe model events into the stable Performance Overview contract."""
+    """汇总模型指标事件相关后端逻辑。"""
     rows = list(events)
     started = [row for row in rows if row.get("event_type") == "llm.request.started"]
     completed = [row for row in rows if row.get("event_type") == "llm.request.completed"]
@@ -70,7 +70,7 @@ def summarize_model_metric_events(
 
 
 def serialize_model_metric_event(row: ModelMetricEventModel) -> dict[str, Any]:
-    """Serialize one safe metric event without exposing observation internals."""
+    """序列化模型指标事件相关后端逻辑。"""
     return {
         "event_id": str(row.id), "run_id": row.run_id, "trace_id": row.trace_id,
         "agent_name": row.agent_name, "task_type": row.task_type, "stage": row.stage,
@@ -84,7 +84,7 @@ async def query_performance(
     agent_name: str | None = None, degradations_only: bool = False,
     limit: int = 100, offset: int = 0,
 ) -> tuple[list[ModelMetricEventModel], int, list[str]]:
-    """Read a bounded owner-scoped metric window and matching AgentRun statuses."""
+    """处理性能相关后端逻辑。"""
     since = utc_now() - timedelta(days=max(1, min(days, 90)))
     filters = [ModelMetricEventModel.user_id == user_id, ModelMetricEventModel.created_at >= since]
     run_filters = [AgentRunModel.user_id == user_id, AgentRunModel.created_at >= since]
@@ -108,7 +108,7 @@ async def query_performance(
 
 
 async def performance_overview(**kwargs: Any) -> dict[str, Any]:
-    """Return the complete aggregate for the requested owner-scoped window."""
+    """处理性能相关后端逻辑。"""
     rows, total, statuses = await query_performance(limit=5000, offset=0, **kwargs)
     summary = summarize_model_metric_events((row.payload or {} for row in rows), run_statuses=statuses)
     summary["total_matching_events"] = total

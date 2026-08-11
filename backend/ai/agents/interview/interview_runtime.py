@@ -28,20 +28,20 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
+from ai.runtime.context import AgentContext
 from ai.runtime.context_assembler import (
     AssembledContext,
     ContextAssembler,
     ContextSource,
 )
-from ai.runtime.context import AgentContext
 from ai.runtime.deadlines import TaskDeadline
+from ai.tools.executor import ToolExecutionGuard
 from app.config import get_settings
 from app.schemas.interview import (
     EvaluatingOutput,
     InterviewerAction,
     InterviewPhase,
 )
-from ai.tools.executor import ToolExecutionGuard
 from observability import agent_observation
 
 logger = logging.getLogger(__name__)
@@ -65,12 +65,7 @@ class InterviewRuntime:
         llm_invoker: Callable[..., Awaitable[Any]],
         tool_executor: Optional[Callable[..., Awaitable[Dict]]] = None
     ):
-        """
-        Args:
-            state: InterviewState dict
-            llm_invoker: async function(prompt, output_model, ...) -> structured output
-            tool_executor: async function(tool_name, **kwargs) -> tool result dict
-        """
+        """初始化面试运行时相关状态。"""
         self.state = state
         self.llm_invoker = llm_invoker
         self.tool_executor = tool_executor
@@ -355,7 +350,7 @@ class InterviewRuntime:
         })
 
     def _handle_end_round_action(self, output) -> Dict[str, Any]:
-        """Finish the round with the single product-approved closing sentence."""
+        """处理轮次相关后端逻辑。"""
         from app.domain.interview_rounds import INTERVIEW_CLOSING_MESSAGE
 
         self.phase = InterviewPhase.END_ROUND
@@ -462,7 +457,7 @@ class InterviewRuntime:
         tool_context: str,
         allow_tool_request: bool = False,
     ) -> tuple[str, AssembledContext]:
-        """Build a bounded runtime prompt while preserving current turn state as required input."""
+        """构建评估提示词打包相关后端逻辑。"""
         from ai.prompts.interview import build_evaluating_prompt
 
         from .interview_planner import ROUND_STRATEGIES
@@ -544,7 +539,7 @@ class InterviewRuntime:
         prompt: str,
         assembled_context: AssembledContext,
     ) -> EvaluatingOutput:
-        """Invoke one evaluation attempt with the turn-wide deadline and safe context metadata."""
+        """处理评估模型相关后端逻辑。"""
         if self._invoker_accepts_context:
             return await self.llm_invoker(
                 prompt,
@@ -577,11 +572,9 @@ class InterviewRuntime:
             if isinstance(request, str):
                 name = request
                 tool_args = {}
-                tool_reason = None
             else:
                 name = str(request.get("tool_name", "")).strip()
                 tool_args = request.get("tool_args", {}) or {}
-                tool_reason = request.get("tool_reason")
             try:
                 async def invoke_tool() -> Any:
                     """调用 runtime 注入的业务工具；治理事件由外层 Guard 统一生成。"""
@@ -637,7 +630,7 @@ class InterviewRuntime:
 
     @staticmethod
     def _summarize_tool_result(result: Any, *, max_chars: int = 600) -> str:
-        """Prefer explicit success summaries and bounded fields over raw tool payload dumps."""
+        """汇总工具结果相关后端逻辑。"""
         if isinstance(result, dict):
             if result.get("error"):
                 return "工具执行失败，未提供可用参考信息"
@@ -670,7 +663,7 @@ class InterviewRuntime:
         return json.dumps(payload, ensure_ascii=False, default=str)[:max_chars]
 
     def _format_tool_results(self) -> str:
-        """Format bounded successful tool summaries; ContextAssembler enforces the total limit."""
+        """格式化工具结果相关后端逻辑。"""
         if not self.tool_results:
             return ""
 

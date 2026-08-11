@@ -1,4 +1,4 @@
-"""Dry-run-by-default cleanup for interview sessions, runs, and Langfuse traces."""
+"""提供清理面试数据相关后端功能。"""
 
 from __future__ import annotations
 

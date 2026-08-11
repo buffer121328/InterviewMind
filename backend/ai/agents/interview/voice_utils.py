@@ -1,4 +1,4 @@
-"""Small utility functions for voice interview audio and transcripts."""
+"""提供语音相关后端功能。"""
 
 import struct
 from typing import Dict, Optional

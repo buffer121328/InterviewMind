@@ -110,10 +110,10 @@ async def _invoke_with_fallback(
         temperature=temperature,
     )
     for candidate_index, current_llm in enumerate(candidates):
-        # DeepSeek-compatible endpoints support JSON Output (`json_object`),
-        # while LangChain's default `json_schema` mode is not available on
-        # every OpenAI-compatible provider.  Keep schema validation local in
-        # LangChain but steer generation through the portable JSON mode.
+        # DeepSeek 兼容端点支持 JSON 输出（`json_object`），
+        # 但 LangChain 默认的 `json_schema` 模式并非所有
+        # OpenAI 兼容提供方都可用；保留本地模式校验，
+        # 同时通过更通用的 JSON 模式引导生成。
         structured_llm = current_llm.with_structured_output(
             output_model,
             method="json_mode",

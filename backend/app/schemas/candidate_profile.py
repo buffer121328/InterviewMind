@@ -61,5 +61,5 @@ class AnalysisContext(BaseModel):
     resume: str
     job_description: str
     company_info: str
-    qa_history: List[Dict[str, str]]  # [{"question": "...", "answer": "..."}]
+    qa_history: List[Dict[str, str]]  # 说明：[{"question": "...", "answer": "..."}]
     previous_profile: Optional[CandidateProfile] = None

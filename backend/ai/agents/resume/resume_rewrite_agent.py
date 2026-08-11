@@ -261,7 +261,7 @@ def _compact_jd_analysis(
     jd_analysis: dict[str, Any],
     deterministic_match: dict[str, Any],
 ) -> dict[str, Any]:
-    """Keep bounded upstream scores while making deterministic evidence the source of truth."""
+    """处理紧凑JD分析相关后端逻辑。"""
     return {
         "match_score": jd_analysis.get("match_score"),
         "matched_keywords": list(jd_analysis.get("matched_keywords") or [])[:12],

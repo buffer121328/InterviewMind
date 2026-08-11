@@ -1,4 +1,4 @@
-"""Private generated-file metadata; file bytes remain in the mounted artifact volume."""
+"""提供产物相关后端功能。"""
 
 from datetime import datetime
 
@@ -9,7 +9,7 @@ from .base import Base
 
 
 class ArtifactModel(Base):
-    """Index an owner-scoped exported report without exposing its storage path publicly."""
+    """定义产物模型相关后端数据结构或服务组件。"""
 
     __tablename__ = "artifacts"
 

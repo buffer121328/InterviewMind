@@ -30,7 +30,7 @@ _INJECTION_PATTERNS = _COMMAND_INJECTION_PATTERNS + _SECURITY_TERM_PATTERNS
 
 
 def contains_prompt_injection(value: Any, *, allow_security_terms: bool = False) -> bool:
-    """Recursively detect executable injection; trusted documents may name security concepts."""
+    """处理包含提示词相关后端逻辑。"""
     patterns = _COMMAND_INJECTION_PATTERNS if allow_security_terms else _INJECTION_PATTERNS
     if isinstance(value, str):
         return any(pattern.search(value) for pattern in patterns)

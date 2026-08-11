@@ -155,7 +155,7 @@ class RagIndexRepo:
         embedding_model: str,
         dimensions: int | None = None,
     ) -> dict[str, List[float]]:
-        """Return owner-scoped completed vectors whose content/model/dimension fingerprint matches."""
+        """获取嵌入相关后端逻辑。"""
         if not content_hashes:
             return {}
         async with async_session() as db:
@@ -317,9 +317,9 @@ class RagIndexRepo:
         使用 pgvector 做余弦相似度检索
         """
         async with async_session() as db:
-            # 1 - cosine_distance = cosine_similarity
-            # Keep the pgvector bind type explicit. Passing a bare Python list
-            # to `func.cosine_distance` leaves asyncpg treating it as text.
+            # 说明：1 - cosine_distance = cosine_similarity
+            # 说明：Keep the pgvector bind type explicit. Passing a bare Python list
+            # 说明：保留这里的兼容性、安全性或流程约束。
             typed_query_embedding = cast(query_embedding, RagChunkModel.embedding.type)
             cosine_sim = func.cosine_distance(RagChunkModel.embedding, typed_query_embedding)
             stmt = (
@@ -382,7 +382,7 @@ class RagIndexRepo:
             if source_types:
                 stmt = stmt.where(RagChunkModel.source_type.in_(source_types))
             if tags:
-                # JSONB array contains
+                # JSONB 数组包含判断
                 for tag in tags:
                     stmt = stmt.where(
                         RagChunkModel.chunk_metadata["tags"].contains(

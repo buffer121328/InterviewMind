@@ -14,7 +14,7 @@ from app.config import get_settings
 
 
 def _text_content(message: Mapping[str, Any]) -> str:
-    """Return only human-readable text and discard audio URLs, data URLs, and internal IDs."""
+    """处理文本内容相关后端逻辑。"""
     content = message.get("content")
     if isinstance(content, str):
         text = " ".join(content.split())
@@ -25,7 +25,7 @@ def _text_content(message: Mapping[str, Any]) -> str:
 
 
 def build_voice_history_context(history: list[dict[str, Any]]) -> AssembledContext:
-    """Keep recent text verbatim and collapse older turns into a deterministic rolling summary."""
+    """构建语音历史上下文相关后端逻辑。"""
     settings = get_settings()
     sanitized: list[dict[str, str]] = []
     for raw in history:

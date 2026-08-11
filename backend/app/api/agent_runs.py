@@ -59,7 +59,7 @@ async def create_resume_optimize_run(
     user_id: str = Depends(get_current_user_id),
     idempotency_key: Optional[str] = Header(default=None, alias="Idempotency-Key"),
 ):
-    """Create a recoverable resume-optimization task with stable retry semantics."""
+    """创建简历运行相关后端逻辑。"""
     request_payload = request.model_dump(mode="json")
     fallback_key = "resume-optimize:" + hashlib.sha256(
         json.dumps(request_payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
@@ -81,12 +81,7 @@ async def create_resume_workspace_run(
     user_id: str = Depends(get_current_user_id),
     idempotency_key: Optional[str] = Header(default=None, alias="Idempotency-Key"),
 ):
-    """Create one recoverable workspace task for a single resume and JD.
-
-    When clients do not supply an idempotency header, a stable digest of the
-    validated request is used. The digest is never logged or returned, and the
-    actual resume/JD payload remains encrypted in the AgentRun record.
-    """
+    """创建简历工作区运行相关后端逻辑。"""
     request_payload = request.model_dump(mode="json")
     fallback_key = "resume-workspace:" + hashlib.sha256(
         json.dumps(request_payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
@@ -108,7 +103,7 @@ async def create_ability_profile_run(
     user_id: str = Depends(get_current_user_id),
     idempotency_key: Optional[str] = Header(default=None, alias="Idempotency-Key"),
 ):
-    """Create an explicit recoverable Ability Profile AgentRun."""
+    """创建能力画像运行相关后端逻辑。"""
     payload = request.model_dump(mode="json") if request else {}
     try:
         result = await agent_run_use_cases.create_ability_profile(
@@ -202,7 +197,7 @@ async def list_agent_runs(
 async def summarize_agent_runs(
     user_id: str = Depends(get_current_user_id),
 ):
-    """Return exact unfiltered lifecycle totals for the current user's task history."""
+    """汇总Agent运行相关后端逻辑。"""
     try:
         return await agent_run_use_cases.summarize_runs(user_id=user_id)
     except AgentRunUseCaseError as exc:
@@ -237,7 +232,7 @@ async def get_agent_performance_overview(
     agent_name: Optional[str] = Query(default=None),
     user_id: str = Depends(get_current_user_id),
 ):
-    """Return owner-scoped P50/P95, amplification, fallback, timeout and integrity metrics."""
+    """获取Agent性能相关后端逻辑。"""
     return await performance_overview(
         user_id=user_id, days=days, task_type=task_type, agent_name=agent_name
     )
@@ -252,7 +247,7 @@ async def list_model_metric_events(
     offset: int = Query(default=0, ge=0),
     user_id: str = Depends(get_current_user_id),
 ):
-    """List paginated credential-free model events for the current owner."""
+    """列出模型指标事件相关后端逻辑。"""
     rows, total, _statuses = await query_performance(
         user_id=user_id, days=days, task_type=task_type, agent_name=agent_name,
         limit=limit, offset=offset,
@@ -269,7 +264,7 @@ async def list_agent_degradations(
     offset: int = Query(default=0, ge=0),
     user_id: str = Depends(get_current_user_id),
 ):
-    """List failed, skipped, fallback, timeout and context-overflow model events."""
+    """列出Agent降级相关后端逻辑。"""
     rows, total, _statuses = await query_performance(
         user_id=user_id, days=days, task_type=task_type, agent_name=agent_name,
         degradations_only=True, limit=limit, offset=offset,

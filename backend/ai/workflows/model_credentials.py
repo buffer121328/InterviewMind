@@ -1,4 +1,4 @@
-"""Use cases for the minimal local model-name API-key store."""
+"""提供模型凭据相关后端功能。"""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from app.security.model_credentials import ModelCredentialStore, StoredCredentia
 
 
 def _serialize_status(status: StoredCredentialStatus) -> dict[str, object]:
-    """Serialize status metadata without returning API keys."""
+    """序列化状态相关后端逻辑。"""
 
     return {
         "model_name": status.model_name,
@@ -19,7 +19,7 @@ def _serialize_status(status: StoredCredentialStatus) -> dict[str, object]:
 
 
 class ModelCredentialUseCases:
-    """Coordinate model-name persistence and request-time API-key hydration."""
+    """定义模型凭据用例案例相关后端数据结构或服务组件。"""
 
     def __init__(self, store: ModelCredentialStore) -> None:
         self._store = store
@@ -33,7 +33,7 @@ class ModelCredentialUseCases:
         source_model: str | None,
         legacy_id: str | None,
     ) -> dict[str, object]:
-        """Save a new API key or move an existing model-name key."""
+        """写入模型凭据相关后端逻辑。"""
 
         if api_key and api_key.strip():
             status = await self._store.put(
@@ -60,7 +60,7 @@ class ModelCredentialUseCases:
         *,
         legacy_id: str | None = None,
     ) -> dict[str, object]:
-        """Delete one model-name API-key String."""
+        """删除模型凭据相关后端逻辑。"""
 
         deleted = await self._store.delete(user_id, model_name, legacy_id=legacy_id)
         return {"model_name": model_name, "deleted": deleted}
@@ -70,7 +70,7 @@ class ModelCredentialUseCases:
         user_id: str,
         models: list[tuple[str, str | None]],
     ) -> dict[str, object]:
-        """Return secret-free status metadata for technical model names."""
+        """处理状态相关后端逻辑。"""
 
         statuses = await self._store.statuses(user_id, models)
         return {"credentials": [_serialize_status(status) for status in statuses]}
@@ -82,7 +82,7 @@ class ModelCredentialUseCases:
         *,
         allowed_channels: frozenset[str] | None = None,
     ) -> Any:
-        """Hydrate only request-relevant model-name references."""
+        """处理请求相关后端逻辑。"""
 
         await self._walk(
             payload,
@@ -100,7 +100,7 @@ class ModelCredentialUseCases:
         inside_api_config: bool,
         allowed_channels: frozenset[str] | None,
     ) -> None:
-        """Hydrate model-name references, optionally restricting top-level channels."""
+        """处理模型凭据相关后端逻辑。"""
 
         if isinstance(value, list):
             for item in value:
@@ -144,7 +144,7 @@ class ModelCredentialUseCases:
 
 
 class ModelCredentialErrorForRequest(RuntimeError):
-    """A request references a missing local model-name API key."""
+    """定义模型凭据错误请求相关后端数据结构或服务组件。"""
 
     def __init__(self, model_name: str) -> None:
         super().__init__(f"模型 {model_name} 的 API Key 未保存，请在模型设置中填写")

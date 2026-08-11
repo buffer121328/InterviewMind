@@ -27,7 +27,7 @@ class AuditEntry:
     """审计日志条目"""
     entry_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     user_id: str = ""
-    action: str = ""  # confirmed / rejected / modified / saved
+    action: str = ""  # 说明：confirmed / rejected / modified / saved
     section_name: str = ""
     original_text: str = ""
     optimized_text: str = ""

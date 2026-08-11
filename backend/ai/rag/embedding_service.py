@@ -27,7 +27,7 @@ _embedding_cache: "OrderedDict[str, List[float]]" = OrderedDict()
 
 
 def _embedding_cache_key(text: str, *, model: str, dimensions: int, api_config: Optional[dict]) -> str:
-    """Build a credential-free cache key scoped to provider, model, dimensions, and normalized text."""
+    """处理嵌入缓存键相关后端逻辑。"""
     channel = (api_config or {}).get("rag_embedding") or {}
     provider = str(channel.get("base_url") or "environment")
     normalized = " ".join(text.split())
@@ -36,12 +36,12 @@ def _embedding_cache_key(text: str, *, model: str, dimensions: int, api_config: 
 
 
 def clear_embedding_cache() -> None:
-    """Clear the process-local bounded embedding cache for tests and lifecycle resets."""
+    """清理嵌入缓存相关后端逻辑。"""
     _embedding_cache.clear()
 
 
 def _cache_get(key: str) -> List[float] | None:
-    """Return a defensive copy and refresh LRU order when a vector is cached."""
+    """处理缓存相关后端逻辑。"""
     value = _embedding_cache.get(key)
     if value is None:
         return None
@@ -50,7 +50,7 @@ def _cache_get(key: str) -> List[float] | None:
 
 
 def _cache_put(key: str, value: List[float]) -> None:
-    """Store a defensive vector copy and evict the oldest bounded-cache entry."""
+    """处理缓存写入相关后端逻辑。"""
     _embedding_cache[key] = list(value)
     _embedding_cache.move_to_end(key)
     while len(_embedding_cache) > _EMBEDDING_CACHE_MAX_ITEMS:
@@ -99,7 +99,7 @@ async def _embedding_call(
     api_config: Optional[dict],
     deadline: TaskDeadline,
 ):
-    """Execute one embedding request within the external-I/O deadline."""
+    """处理嵌入相关后端逻辑。"""
     timeout = deadline.timeout_for_next_attempt(deadline.total_timeout)
     if timeout <= 0:
         raise TaskDeadlineExceeded("embedding deadline exhausted")
@@ -213,7 +213,7 @@ async def generate_embeddings_batch(
     batch_size: int = 20,
     api_config: Optional[dict] = None,
 ) -> List[List[float]]:
-    """Generate ordered embeddings with bounded batching, de-duplication, and LRU reuse."""
+    """生成嵌入批量相关后端逻辑。"""
     if not texts:
         return []
     if any(not text or not text.strip() for text in texts):

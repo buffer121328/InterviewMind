@@ -1,4 +1,4 @@
-"""Fernet JSON payload encryption shared by persistence and AgentRun layers."""
+"""提供载荷相关后端功能。"""
 
 from __future__ import annotations
 
@@ -9,11 +9,11 @@ from cryptography.fernet import Fernet, InvalidToken
 
 
 class TaskPayloadConfigurationError(RuntimeError):
-    """Payload encryption configuration is missing or invalid."""
+    """定义任务载荷配置错误相关后端数据结构或服务组件。"""
 
 
 def _cipher() -> Fernet:
-    """Build the Fernet cipher from the declared task payload key."""
+    """处理加密器相关后端逻辑。"""
 
     key = os.getenv("TASK_PAYLOAD_ENCRYPTION_KEY")
     if not key:
@@ -25,14 +25,14 @@ def _cipher() -> Fernet:
 
 
 def encrypt_payload(payload: dict) -> str:
-    """Encrypt a JSON payload that may contain sensitive business data."""
+    """加密载荷相关后端逻辑。"""
 
     encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode()
     return _cipher().encrypt(encoded).decode()
 
 
 def decrypt_payload(payload_encrypted: str) -> dict:
-    """Decrypt and validate one encrypted JSON payload."""
+    """解密载荷相关后端逻辑。"""
 
     try:
         decoded = _cipher().decrypt(payload_encrypted.encode())

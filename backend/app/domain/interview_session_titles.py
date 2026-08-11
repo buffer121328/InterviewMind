@@ -1,4 +1,4 @@
-"""Interview-session title formatting rules shared by creation workflows."""
+"""提供面试会话相关后端功能。"""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ def build_interview_session_title(
     max_questions: int | None,
     round_index: int = 1,
 ) -> str:
-    """Build a concise local-time title containing time, interview type, round, and question count."""
+    """构建面试会话标题相关后端逻辑。"""
     resolved_round_type = resolve_round_type(round_type, round_index=round_index)
     resolved_questions = resolve_max_questions(
         resolved_round_type,

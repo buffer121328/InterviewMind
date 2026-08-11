@@ -1,4 +1,4 @@
-"""Deployment commands for database migrations and service readiness."""
+"""提供后端逻辑相关后端功能。"""
 
 import os
 import subprocess
@@ -21,9 +21,9 @@ from app.db.rag_schema import (
 ROOT = Path(__file__).resolve().parents[1]
 REQUIRED_TABLES = ("agent_runs", "agent_run_events", "task_outbox")
 LEGACY_SCHEMA_REVISION = "20260716_07"
-# Schemas created by the former AUTO_CREATE_TABLES path did not have an
-# alembic_version table. Require every table present at that revision before
-# stamping it, so a partial or unrelated database is never silently accepted.
+# 旧 AUTO_CREATE_TABLES 路径创建的模式没有
+# alembic_version 表；在标记版本前要求该版本所有表都存在，
+# 避免静默接受不完整或无关的数据库。
 LEGACY_SCHEMA_TABLES = (
     "sessions",
     "messages",
@@ -83,7 +83,7 @@ def existing_public_tables() -> set[str]:
 
 
 def migrate() -> None:
-    """Create or upgrade the schema exclusively through Alembic."""
+    """处理迁移相关后端逻辑。"""
     tables = existing_public_tables()
     if tables and "alembic_version" not in tables:
         missing = sorted(set(LEGACY_SCHEMA_TABLES) - tables)

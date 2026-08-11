@@ -27,13 +27,13 @@ async def validate_api_config(request: ApiConfigValidateRequest):
 
 
 def _credential_use_cases() -> ModelCredentialUseCases:
-    """Resolve credential use cases while keeping Redis construction out of route handlers."""
+    """处理凭据用例案例相关后端逻辑。"""
 
     return ModelCredentialUseCases(get_model_credential_store())
 
 
 def _credential_error(exc: ModelCredentialError) -> HTTPException:
-    """Map credential storage errors to non-sensitive HTTP responses."""
+    """处理凭据错误相关后端逻辑。"""
 
     status_code = 503 if isinstance(exc, ModelCredentialStoreUnavailable) else 400
     return HTTPException(status_code=status_code, detail=str(exc))
@@ -44,7 +44,7 @@ async def put_model_credential(
     request: ModelCredentialPutRequest,
     user_id: str = Depends(get_current_user_id),
 ):
-    """Save one model-name to API-key Redis String."""
+    """写入模型凭据相关后端逻辑。"""
 
     try:
         return await _credential_use_cases().put(
@@ -63,7 +63,7 @@ async def get_model_credential_statuses(
     request: ModelCredentialStatusRequest,
     user_id: str = Depends(get_current_user_id),
 ):
-    """Return local Redis availability without returning API keys."""
+    """获取模型凭据状态相关后端逻辑。"""
 
     try:
         return await _credential_use_cases().statuses(
@@ -80,7 +80,7 @@ async def delete_model_credential(
     legacy_id: str | None = None,
     user_id: str = Depends(get_current_user_id),
 ):
-    """Delete one model-name API-key String from Redis."""
+    """删除模型凭据相关后端逻辑。"""
 
     try:
         return await _credential_use_cases().delete(

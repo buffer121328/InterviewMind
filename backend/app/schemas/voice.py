@@ -15,7 +15,7 @@ from app.schemas.schemas import InterviewCandidateQuestion
 
 
 def _wav_duration_seconds(data: bytes) -> float | None:
-    """Read PCM/WAV duration from headers without decoding or persisting audio content."""
+    """处理WAV时长秒数相关后端逻辑。"""
     if len(data) < 44 or data[:4] != b"RIFF" or data[8:12] != b"WAVE":
         return None
     byte_rate = int.from_bytes(data[28:32], "little", signed=False)
@@ -48,7 +48,7 @@ class VoiceStartRequest(BaseModel):
 
     @model_validator(mode="after")
     def resolve_question_defaults(self) -> "VoiceStartRequest":
-        """Resolve round-specific defaults before the use case creates or resumes a session."""
+        """解析题目默认值相关后端逻辑。"""
         self.round_type = resolve_round_type(self.round_type)
         self.max_questions = resolve_max_questions(self.round_type, self.max_questions)
         return self
@@ -68,7 +68,7 @@ class VoiceChatRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_audio_boundary(self) -> "VoiceChatRequest":
-        """Reject empty, malformed, oversized, or over-duration audio before AgentRun creation."""
+        """校验音频相关后端逻辑。"""
         if self.audio is None:
             return self
         encoded = self.audio.strip()

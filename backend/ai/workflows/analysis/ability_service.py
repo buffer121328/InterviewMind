@@ -35,7 +35,7 @@ class AbilityAnalysisService:
         """初始化 `AbilityAnalysisService` 的依赖和运行配置；构造阶段不执行业务写入，外部客户端只在后续方法调用时承担访问边界。"""
         self.session_repo = SessionRepo()
         self._generate_lock = asyncio.Lock()
-        self._last_generate_time = {}  # user_id -> timestamp
+        self._last_generate_time = {}  # 说明：user_id -> timestamp
         self._cooldown_seconds = 60    # 60秒冷却时间
 
     async def get_overall_profile(self, user_id: str) -> Optional[Dict[str, Any]]:
@@ -119,11 +119,7 @@ class AbilityAnalysisService:
         round_profiles: List[Dict[str, Any]],
         api_config: Optional[Dict] = None,
     ) -> CandidateProfile:
-        """Aggregate exactly three ordered round profiles into one company profile.
-
-        The latest HR round receives the highest weight while the earlier rounds
-        remain visible in scores, skills, strengths, weaknesses, and evidence.
-        """
+        """处理汇总公司画像相关后端逻辑。"""
         if len(round_profiles) != 3:
             raise ValueError("公司总画像需要完整的三轮单轮画像")
         if any(profile.get("generation_mode") == "degraded_evidence_only" for profile in round_profiles):
@@ -135,7 +131,7 @@ class AbilityAnalysisService:
         profiles: List[Dict[str, Any]],
         api_config: Optional[Dict] = None,
     ) -> CandidateProfile:
-        """Compute scores/trends locally and let the model write narrative fields only."""
+        """处理汇总画像相关后端逻辑。"""
         selected = [dict(profile) for profile in profiles[:5]]
         weights = [max(0.4, 1.0 - index * 0.15) for index in range(len(selected))]
         dimensions: dict[str, DimensionScore] = {}

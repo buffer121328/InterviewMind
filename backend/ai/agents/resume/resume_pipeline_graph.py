@@ -1,4 +1,4 @@
-"""LangGraph DAG assembly for the resume optimization pipeline."""
+"""提供简历流水线图相关后端功能。"""
 
 from typing import Awaitable, Callable
 

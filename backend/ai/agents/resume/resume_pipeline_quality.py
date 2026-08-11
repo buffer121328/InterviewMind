@@ -1,4 +1,4 @@
-"""Quality and retry helpers for the resume optimization pipeline."""
+"""提供简历流水线相关后端功能。"""
 
 from typing import List, Optional
 

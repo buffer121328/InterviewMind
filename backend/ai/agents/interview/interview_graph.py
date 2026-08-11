@@ -498,10 +498,10 @@ async def build_interview_graph(mode: str = "mock"):
         }
     )
 
-    # Planner -> Responder
+    # 规划器 -> 回答器
     workflow.add_edge("planner", "responder")
 
-    # Responder -> Human (or Summary)
+    # 回答器 -> 人工交互（或摘要）
     workflow.add_conditional_edges(
         "responder",
         route_after_responder,
@@ -512,7 +512,7 @@ async def build_interview_graph(mode: str = "mock"):
     )
 
 
-    # Summary -> END
+    # 摘要 -> 结束
     workflow.add_edge("summary", END)
 
     # 注册图实例

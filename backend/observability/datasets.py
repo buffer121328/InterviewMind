@@ -1,4 +1,4 @@
-"""Langfuse Dataset/Experiment helpers for local golden evaluation assets."""
+"""提供数据集相关后端功能。"""
 
 from __future__ import annotations
 
@@ -67,10 +67,10 @@ class DatasetSyncSummary:
 
 
 class DatasetPrivacyError(ValueError):
-    """Reject a dataset containing credential fields or likely secret/PII content before upload."""
+    """定义数据集隐私错误相关后端数据结构或服务组件。"""
 
     def __init__(self, findings: list[str]) -> None:
-        """Store only JSON paths and finding categories; never include the matched values."""
+        """初始化数据集相关状态。"""
 
         self.findings = tuple(findings[:MAX_PRIVACY_FINDINGS])
         super().__init__(
@@ -79,13 +79,13 @@ class DatasetPrivacyError(ValueError):
 
 
 def _normalized_field_name(value: str) -> str:
-    """Normalize a JSON field name for exact sensitive-key matching."""
+    """处理字段名称相关后端逻辑。"""
 
     return re.sub(r"[^a-z0-9]+", "", value.lower())
 
 
 def _safe_path_segment(key: str, index: int) -> str:
-    """Return a useful JSON-path segment without echoing secret-like or attacker-controlled keys."""
+    """处理安全相关后端逻辑。"""
 
     normalized = _normalized_field_name(key)
     if normalized in SENSITIVE_FIELD_NAMES:
@@ -98,7 +98,7 @@ def _safe_path_segment(key: str, index: int) -> str:
 
 
 def _scan_sensitive_value(value: Any, *, path: str, findings: list[str]) -> None:
-    """Recursively scan one JSON-compatible value and append only safe path/category findings."""
+    """处理值相关后端逻辑。"""
 
     if len(findings) >= MAX_PRIVACY_FINDINGS:
         return
@@ -128,7 +128,7 @@ def _scan_sensitive_value(value: Any, *, path: str, findings: list[str]) -> None
 
 
 def validate_dataset_privacy(items: Iterable[LangfuseDatasetItemSpec]) -> None:
-    """Fail closed when a Langfuse dataset item contains credential fields, secrets, or common PII."""
+    """校验数据集隐私相关后端逻辑。"""
 
     findings: list[str] = []
     for index, item in enumerate(items):
@@ -149,7 +149,7 @@ def validate_dataset_privacy(items: Iterable[LangfuseDatasetItemSpec]) -> None:
 
 
 def _resolve_allowed_dataset_file(path: str | Path, *, allowed_root: str | Path) -> Path:
-    """Resolve one JSON file and reject traversal or symlink escape outside the approved dataset root."""
+    """解析数据集文件相关后端逻辑。"""
 
     root = Path(allowed_root).resolve(strict=True)
     source_file = Path(path).resolve(strict=True)
@@ -169,7 +169,7 @@ def _resolve_allowed_dataset_directory(
     *,
     allowed_root: str | Path,
 ) -> Path:
-    """Resolve a dataset directory and reject traversal or symlink escape from the approved root."""
+    """解析数据集目录相关后端逻辑。"""
 
     root = Path(allowed_root).resolve(strict=True)
     directory = Path(path).resolve(strict=True)
@@ -240,7 +240,7 @@ def _records_from_rag_dataset(data: dict[str, Any], *, source_file: Path) -> lis
 
 
 def load_dataset_items(path: str | Path) -> list[LangfuseDatasetItemSpec]:
-    """Load one local golden JSON file into Langfuse dataset item specs."""
+    """加载数据集条目相关后端逻辑。"""
 
     source_file = Path(path)
     data = json.loads(source_file.read_text(encoding="utf-8"))
@@ -262,7 +262,7 @@ def load_dataset_items(path: str | Path) -> list[LangfuseDatasetItemSpec]:
 
 
 def default_dataset_name(path: str | Path, *, prefix: str = "agent-interview") -> str:
-    """Build a stable Langfuse dataset name from a local file path."""
+    """处理默认数据集名称相关后端逻辑。"""
 
     stem = Path(path).stem.replace("_", "-")
     return f"{prefix}-{stem}"
@@ -278,12 +278,7 @@ def sync_dataset(
     confirm_upload: bool = False,
     allowed_root: str | Path = DATASET_DIR,
 ) -> DatasetSyncSummary:
-    """Validate and optionally upload one approved local golden JSON file to Langfuse.
-
-    Non-dry-run calls require ``confirm_upload=True``.  The source must resolve
-    under ``allowed_root`` and pass the credential/PII scanner before any client
-    is created or external write is attempted.
-    """
+    """同步数据集相关后端逻辑。"""
 
     source_file = _resolve_allowed_dataset_file(path, allowed_root=allowed_root)
     name = dataset_name or default_dataset_name(source_file)
@@ -340,7 +335,7 @@ def sync_all_datasets(
     confirm_upload: bool = False,
     allowed_root: str | Path = DATASET_DIR,
 ) -> list[DatasetSyncSummary]:
-    """Validate and sync JSON files from an approved local golden dataset directory."""
+    """同步数据集相关后端逻辑。"""
 
     root = _resolve_allowed_dataset_directory(dataset_dir, allowed_root=allowed_root)
     return [
@@ -367,7 +362,7 @@ def run_langfuse_experiment(
     max_concurrency: int = 5,
     client: Any | None = None,
 ) -> Any:
-    """Run a Langfuse experiment with injected business task/evaluator callables."""
+    """运行Langfuse实验相关后端逻辑。"""
 
     langfuse_client = client or get_langfuse_client()
     if langfuse_client is None:

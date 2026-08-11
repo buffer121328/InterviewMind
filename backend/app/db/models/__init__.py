@@ -41,32 +41,32 @@ from .evaluation import (
 )
 
 __all__ = [
-    # base
+    # 基础模型
     "Base", "engine", "async_session", "get_session", "init_db",
-    # session
+    # 会话
     "SessionModel", "MessageModel", "UserProfileModel",
-    # resume
+    # 简历
     "ResumeResultModel", "GeneratedResumeModel", "CandidateMaterialModel",
     "ResumeAssemblyResultModel", "ProjectRewriteRecordModel",
     "ResumeGenerationSessionModel",
-    # interview
+    # 面试
     "WeaknessReportModel", "QuestionBankItemModel", "QuestionBankImportModel",
     "QuestionBankFollowupModel", "InterviewQuestionAttemptModel",
     # rag
     "RagChunkModel",
-    # application
+    # 投递
     "JobApplicationModel", "ApplicationEventModel",
     # jd
     "JdAnalysisResultModel",
-    # job capture
+    # 岗位捕获
     "CapturedJobModel",
-    # agent runs
+    # AgentRun 任务
     "AgentRunModel", "AgentRunEventModel", "ModelMetricEventModel", "TaskOutboxModel",
-    # private generated exports
+    # 私有生成导出
     "ArtifactModel",
-    # user satisfaction feedback
+    # 用户满意度反馈
     "UserFeedbackModel",
-    # evaluation
+    # 评测
     "EvaluationAnnotationModel", "EvaluationCalibrationModel", "EvaluationCaseModel",
     "EvaluationCaseRunModel", "EvaluationDatasetVersionModel", "EvaluationGatePolicyModel",
     "EvaluationGateResultModel", "EvaluationRunModel", "EvaluationScoreModel",

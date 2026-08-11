@@ -252,8 +252,8 @@ class JobsUseCases:
             raise JobBadRequest("unsupported_platform", "该投递记录不是 BOSS 岗位")
         if not is_allowed_boss_job_url(source_url):
             raise JobBadRequest("invalid_job_url", "投递记录缺少有效的 BOSS 官方岗位链接")
-        if not 20 <= len(message_text) <= 500:
-            raise JobBadRequest("invalid_greeting", "投递记录中的沟通文案长度必须为 20-500 字")
+        if not 20 <= len(message_text) <= 800:
+            raise JobBadRequest("invalid_greeting", "投递记录中的沟通文案长度必须为 20-800 字")
 
         claimed = await job_application_repo.claim_application_for_send(application_id, user_id)
         if not claimed:

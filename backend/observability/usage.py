@@ -1,4 +1,4 @@
-"""Provider-neutral model input and token-usage normalization helpers."""
+"""提供后端逻辑相关后端功能。"""
 
 from collections.abc import Mapping, Sequence
 from hashlib import sha256

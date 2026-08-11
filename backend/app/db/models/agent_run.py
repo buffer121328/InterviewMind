@@ -52,7 +52,7 @@ class AgentRunModel(Base):
     first_token_duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 任务内最早真实首 Token 延迟；无采集时为空
 
     # 详细模型调用、token、成本、fallback 路径和模型错误由 Langfuse/本地指标事件负责；
-    # AgentRun 只保留 trace 关联和用户可见的任务级首 Token 延迟。
+    # 这里只保留 trace_id 用于从业务任务跳转/关联到外部观测系统。
 
     # ── 重试计数 ────────────────────────────────────────────────────
     attempts: Mapped[int] = mapped_column(Integer, default=0)  # 当前已尝试执行次数（业务任务级重试）
@@ -112,12 +112,7 @@ class AgentRunEventModel(Base):
 
 
 class ModelMetricEventModel(Base):
-    """Persist one credential-free model metric event for owner-scoped aggregation.
-
-    The payload is restricted by ``observability.record_model_event`` to numeric,
-    short scalar, and low-cardinality audit fields. Model input/output text and
-    authentication material are never accepted by this table.
-    """
+    """定义模型指标事件模型相关后端数据结构或服务组件。"""
 
     __tablename__ = "model_metric_events"
 
@@ -172,7 +167,7 @@ class TaskOutboxModel(Base):
     payload: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)  # 消息体（JSON），包含投递所需的所有信息
 
     # ── 投递状态 ────────────────────────────────────────────────────
-    status: Mapped[str] = mapped_column(String, nullable=False, default="pending")  # pending / dispatched / failed
+    status: Mapped[str] = mapped_column(String, nullable=False, default="pending")  # 说明：pending / dispatched / failed
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)       # 已尝试投递次数
 
     # ── 重试调度 ────────────────────────────────────────────────────

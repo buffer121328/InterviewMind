@@ -1,4 +1,4 @@
-"""Owner-scoped access tracking and gradual long-term memory cleanup policy."""
+"""提供保留相关后端功能。"""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ SECONDS_PER_HOUR = 60 * 60
 
 
 class CleanupAction(StrEnum):
-    """Non-destructive first stage followed by confirmed deletion after grace."""
+    """定义保留相关后端数据结构或服务组件。"""
 
     KEEP = "KEEP"
     MARK = "MARK"
@@ -29,7 +29,7 @@ class CleanupAction(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class RetentionState:
-    """Non-content usage state stored outside mem0 payloads."""
+    """定义保留状态相关后端数据结构或服务组件。"""
 
     access_count: int = 0
     last_accessed_at: datetime | None = None
@@ -38,7 +38,7 @@ class RetentionState:
 
 @dataclass(frozen=True, slots=True)
 class CleanupDecision:
-    """One owner-validated gradual cleanup decision."""
+    """定义决策相关后端数据结构或服务组件。"""
 
     memory_id: str
     action: CleanupAction
@@ -48,7 +48,7 @@ class CleanupDecision:
 
 
 class MemoryRetentionStore:
-    """Track memory use and cleanup grace markers in Redis without content."""
+    """定义记忆保留存储相关后端数据结构或服务组件。"""
 
     def __init__(self, redis_client: Redis) -> None:
         self._redis = redis_client
@@ -70,7 +70,7 @@ class MemoryRetentionStore:
         return build_redis_key("memory_retention", "sweep", cls._owner_hash(user_id))
 
     async def record_access(self, user_id: str, memory_ids: list[str]) -> bool:
-        """Record owner-scoped hits and cancel pending cleanup markers."""
+        """记录保留相关后端逻辑。"""
 
         unique_ids = list(dict.fromkeys(memory_id for memory_id in memory_ids if memory_id))
         if not unique_ids:
@@ -95,7 +95,7 @@ class MemoryRetentionStore:
         user_id: str,
         memory_ids: list[str],
     ) -> dict[str, RetentionState] | None:
-        """Load bounded non-content retention state for owned IDs."""
+        """加载状态相关后端逻辑。"""
 
         if not memory_ids:
             return {}
@@ -106,8 +106,8 @@ class MemoryRetentionStore:
                 pipeline.get(self._candidate_key(user_id, memory_id))
             values = await pipeline.execute()
         except RedisError:
-            # Cleanup must fail closed when Redis cannot prove recent access or
-            # the beginning of a grace period.
+            # 说明：Cleanup must fail closed when Redis cannot prove recent access or
+            # 说明：the beginning of a grace period.
             return None
 
         states: dict[str, RetentionState] = {}
@@ -130,7 +130,7 @@ class MemoryRetentionStore:
         return states
 
     async def mark_candidates(self, user_id: str, memory_ids: list[str]) -> int:
-        """Start grace periods without replacing an existing first-mark time."""
+        """标记候选项相关后端逻辑。"""
 
         if not memory_ids:
             return 0
@@ -150,7 +150,7 @@ class MemoryRetentionStore:
             return 0
 
     async def clear(self, user_id: str, memory_ids: list[str]) -> None:
-        """Remove usage and pending-cleanup state after deletion."""
+        """清理保留相关后端逻辑。"""
 
         keys = [
             key
@@ -168,7 +168,7 @@ class MemoryRetentionStore:
             return
 
     async def cancel_candidates(self, user_id: str, memory_ids: list[str]) -> None:
-        """Cancel stale cleanup marks while preserving access counters."""
+        """取消候选项相关后端逻辑。"""
 
         keys = [
             self._candidate_key(user_id, memory_id)
@@ -183,7 +183,7 @@ class MemoryRetentionStore:
             return
 
     async def acquire_daily_sweep(self, user_id: str) -> bool:
-        """Allow one automatic cleanup evaluation per configured owner interval."""
+        """处理保留相关后端逻辑。"""
 
         cleanup_interval_seconds = (
             get_settings().memory_retention_cleanup_interval_hours * SECONDS_PER_HOUR
@@ -205,7 +205,7 @@ def plan_cleanup(
     *,
     now: datetime | None = None,
 ) -> list[CleanupDecision]:
-    """Build a deterministic plan; unknown and core memories fail closed to KEEP."""
+    """处理计划清理相关后端逻辑。"""
 
     current = now or datetime.now(UTC)
     settings = get_settings()
@@ -288,7 +288,7 @@ def fail_closed_cleanup_plan(
     *,
     reason: str,
 ) -> list[CleanupDecision]:
-    """Protect every owned record when usage/grace state cannot be trusted."""
+    """处理失败清理计划相关后端逻辑。"""
 
     decisions: list[CleanupDecision] = []
     for record in records:
@@ -309,7 +309,7 @@ def fail_closed_cleanup_plan(
 
 
 def public_cleanup_decision(decision: CleanupDecision) -> dict[str, Any]:
-    """Return a content-free cleanup audit record."""
+    """处理公开清理决策相关后端逻辑。"""
 
     return {
         "memory_id": decision.memory_id,
@@ -348,7 +348,7 @@ def _safe_int(value: object) -> int:
 
 @lru_cache(maxsize=1)
 def get_memory_retention_store() -> MemoryRetentionStore | None:
-    """Build the process-wide non-content retention store when Redis is available."""
+    """获取记忆保留存储相关后端逻辑。"""
 
     redis_url = get_settings().redis_url
     if not redis_url:

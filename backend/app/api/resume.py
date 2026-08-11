@@ -1,4 +1,4 @@
-"""Resume API route aggregator."""
+"""提供简历相关后端功能。"""
 
 from fastapi import APIRouter
 

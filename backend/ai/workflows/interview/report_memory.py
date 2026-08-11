@@ -1,4 +1,4 @@
-"""Persist durable memories derived from a completed interview report."""
+"""提供报告记忆相关后端功能。"""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ _BACKGROUND_MEMORY_TASKS: set[asyncio.Task[int]] = set()
 
 
 def _clean_texts(values: Any, *, limit: int = 5) -> list[str]:
-    """Return a short, de-duplicated list of non-empty strings."""
+    """处理清理相关后端逻辑。"""
     if not isinstance(values, list):
         return []
     cleaned: list[str] = []
@@ -28,7 +28,7 @@ def build_report_memory_entries(
     profile: Any,
     weakness_report: dict[str, Any],
 ) -> list[tuple[str, str]]:
-    """Build bounded, de-duplicated mem0 entries from persisted report artifacts."""
+    """构建报告记忆相关后端逻辑。"""
     profile_data = profile.model_dump() if hasattr(profile, "model_dump") else dict(profile or {})
     if (
         profile_data.get("generation_mode") == "degraded_evidence_only"
@@ -73,13 +73,7 @@ async def persist_interview_report_memories(
     weakness_report: dict[str, Any],
     api_config: dict[str, Any] | None,
 ) -> int:
-    """Persist owner-scoped report insights with request-scoped mem0 configuration.
-
-    The caller has already validated ownership and saved both report artifacts.
-    This optional side effect returns the number of successful writes; unavailable
-    vector/model services are logged without exposing credentials or invalidating
-    the completed report.
-    """
+    """持久化面试报告记忆相关后端逻辑。"""
     try:
         from ai.memory import get_agent_memory_service
 
@@ -131,15 +125,7 @@ def schedule_interview_report_memories(
     weakness_report: dict[str, Any],
     api_config: dict[str, Any] | None,
 ) -> asyncio.Task[int]:
-    """Schedule optional mem0 persistence without extending report response latency.
-
-    Args:
-        user_id: Owner already validated by the completed report workflow.
-        session_id: Persisted interview session identifier.
-        profile: Persisted ability-profile artifact.
-        weakness_report: Persisted weakness-report artifact.
-        api_config: Request-scoped mem0 configuration.
-    """
+    """处理面试报告记忆相关后端逻辑。"""
     from ai.runtime.background_tasks import create_background_task
 
     task = create_background_task(
@@ -155,7 +141,7 @@ def schedule_interview_report_memories(
     _BACKGROUND_MEMORY_TASKS.add(task)
 
     def discard(completed: asyncio.Task[int]) -> None:
-        """Release a finished task and consume unexpected errors without report impact."""
+        """处理报告记忆相关后端逻辑。"""
         _BACKGROUND_MEMORY_TASKS.discard(completed)
         try:
             completed.result()

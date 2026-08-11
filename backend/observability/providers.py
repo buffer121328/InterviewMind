@@ -1,4 +1,4 @@
-"""Safe model-provider metadata and local cost estimation."""
+"""提供提供方相关后端功能。"""
 
 import logging
 import os

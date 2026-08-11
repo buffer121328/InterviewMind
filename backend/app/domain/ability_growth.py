@@ -1,4 +1,4 @@
-"""Deterministic mapping for the owner-scoped ability growth record."""
+"""提供能力相关后端功能。"""
 
 from __future__ import annotations
 
@@ -15,12 +15,12 @@ DIMENSION_KEYS = (
 
 
 def _record(value: object) -> dict[str, Any]:
-    """Return a shallow dictionary for mapping-like persisted JSON values."""
+    """记录能力相关后端逻辑。"""
     return dict(value) if isinstance(value, Mapping) else {}
 
 
 def _score(profile: Mapping[str, Any], key: str) -> float | None:
-    """Read one finite numeric dimension score without inventing missing values."""
+    """处理分数相关后端逻辑。"""
     value = _record(profile.get(key)).get("score")
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
@@ -32,11 +32,7 @@ def build_ability_growth_record(
     overall: Mapping[str, Any],
     source_rows: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
-    """Build source history and latest dimension deltas from persisted profiles only.
-
-    Source rows must already be owner-scoped by the repository. The function performs
-    no model calls and omits deltas when either of the two newest profiles lacks a score.
-    """
+    """构建能力记录相关后端逻辑。"""
     sources: list[dict[str, Any]] = []
     for row in source_rows:
         payload = _record(row.get("company_profile"))

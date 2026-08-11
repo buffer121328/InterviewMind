@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 def _current_config() -> LangfuseConfig:
-    """Return the cached Langfuse config, loading it lazily when needed."""
+    """处理当前配置相关后端逻辑。"""
     import observability
 
     if observability._config is None:
@@ -64,7 +64,7 @@ def shutdown_langfuse() -> None:
 
 
 def get_langfuse_client() -> Any | None:
-    """Return the configured Langfuse client, initializing it from env if needed."""
+    """获取Langfuse客户端相关后端逻辑。"""
     import observability
 
     if not observability._configured:

@@ -1,9 +1,8 @@
-"""Pure Markdown assembly for persisted interview reports."""
+"""提供面试相关后端功能。"""
 
 from __future__ import annotations
 
 from typing import Any
-
 
 _PROFILE_DIMENSIONS = (
     ("professional_competence", "专业能力"),
@@ -17,17 +16,17 @@ _SEVERITY_LABELS = {"high": "高", "medium": "中", "low": "低"}
 
 
 def _record(value: Any) -> dict[str, Any]:
-    """Narrow untrusted persisted JSON to a dictionary before reading report fields."""
+    """记录面试相关后端逻辑。"""
     return value if isinstance(value, dict) else {}
 
 
 def _items(value: Any) -> list[Any]:
-    """Narrow untrusted persisted JSON to a list before rendering bounded collections."""
+    """处理条目相关后端逻辑。"""
     return value if isinstance(value, list) else []
 
 
 def _inline(value: Any, fallback: str = "暂无") -> str:
-    """Collapse one persisted scalar to safe Markdown inline text without allowing new blocks."""
+    """处理行内相关后端逻辑。"""
     if value is None:
         return fallback
     text = " ".join(str(value).split()).strip()
@@ -39,7 +38,7 @@ def _inline(value: Any, fallback: str = "暂无") -> str:
 
 
 def _append_list(lines: list[str], values: Any, fallback: str = "暂无") -> None:
-    """Append a Markdown bullet list while preserving an explicit empty-state sentence."""
+    """处理列表相关后端逻辑。"""
     rendered = [_inline(value) for value in _items(values)]
     rendered = [value for value in rendered if value != "暂无"]
     if not rendered:
@@ -49,7 +48,7 @@ def _append_list(lines: list[str], values: Any, fallback: str = "暂无") -> Non
 
 
 def _priority(value: dict[str, Any]) -> int:
-    """Return a bounded sortable priority even for legacy malformed report JSON."""
+    """处理优先级相关后端逻辑。"""
     try:
         return max(1, min(99, int(value.get("priority") or 99)))
     except (TypeError, ValueError):
@@ -66,21 +65,7 @@ def build_interview_report_markdown(
     weakness_report: dict[str, Any],
     generated_at: str | None = None,
 ) -> str:
-    """Build the single Markdown report used by preview, HTML export, and PDF export.
-
-    Args:
-        title: Owner-scoped session title.
-        mode: Persisted interview mode.
-        round_index: Persisted round number.
-        max_questions: Persisted planned main-question count.
-        profile: Validated candidate-profile JSON stored on the session.
-        weakness_report: Persisted weakness record or its ``report_data`` payload.
-        generated_at: Stable report update time shown in the exported document.
-
-    Returns:
-        A Markdown document containing the ability profile, evidence, weaknesses,
-        representative failures, and an ordered improvement plan.
-    """
+    """构建面试报告Markdown相关后端逻辑。"""
     profile_data = _record(profile)
     weakness_container = _record(weakness_report)
     weakness_data = _record(weakness_container.get("report_data") or weakness_container)
@@ -191,14 +176,41 @@ def build_interview_report_markdown(
     return "\n".join(lines).strip() + "\n"
 
 
+_PUBLIC_DIMENSION_FIELDS = (
+    "score", "evidence", "reason", "better_answer_example", "improvement_tip",
+)
+_PUBLIC_WEAKNESS_FIELDS = {
+    "question_evidence": (
+        "question_id", "topic", "question_summary", "candidate_claims",
+        "demonstrated_skills", "missing_evidence", "communication_observations", "score_or_signal",
+    ),
+    "weakness_categories": ("category", "description", "severity"),
+    "question_failures": ("question", "user_answer", "issue", "better_example"),
+    "improvement_actions": ("action", "priority", "estimated_effort"),
+}
+
+def _project_public_records(values: Any, fields: tuple[str, ...]) -> list[dict[str, Any]]:
+    """只保留公开报告声明字段，隔离模型内部上下文。"""
+    return [
+        {key: item[key] for key in fields if key in item}
+        for item in (_record(value) for value in _items(values))
+        if item
+    ]
+
+
 def build_structured_interview_report(profile: object, weakness_report: object) -> tuple[dict, dict]:
-    """Map persisted report containers to the bounded public structured contract."""
+    """构建结构化面试报告相关后端逻辑。"""
     profile_data = _record(_record(profile).get("profile") or profile)
     weakness_data = _record(_record(weakness_report).get("report_data") or weakness_report)
     dimensions = {
-        key: _record(profile_data.get(key))
+        key: {
+            field: dimension[field]
+            for field in _PUBLIC_DIMENSION_FIELDS
+            if field in dimension
+        }
         for key, _label in _PROFILE_DIMENSIONS
-        if _record(profile_data.get(key))
+        for dimension in [_record(profile_data.get(key))]
+        if dimension
     }
     public_profile = {
         "overall_assessment": str(profile_data.get("overall_assessment") or ""),
@@ -212,9 +224,9 @@ def build_structured_interview_report(profile: object, weakness_report: object) 
             value for value in _items(profile_data.get("missing_dimensions")) if isinstance(value, str)
         ],
     }
-    public_weakness = {
-        key: [item for item in (_record(value) for value in _items(weakness_data.get(key))) if item]
-        for key in ("question_evidence", "weakness_categories", "question_failures", "improvement_actions")
+    public_weakness: dict[str, Any] = {
+        key: _project_public_records(weakness_data.get(key), fields)
+        for key, fields in _PUBLIC_WEAKNESS_FIELDS.items()
     }
     public_weakness["recommended_questions"] = [
         value for value in _items(weakness_data.get("recommended_questions")) if isinstance(value, str)

@@ -1,4 +1,4 @@
-"""Minimal local model-name to API-key storage backed by Redis Strings."""
+"""提供模型凭据相关后端功能。"""
 
 from __future__ import annotations
 
@@ -18,20 +18,20 @@ _LEGACY_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 
 
 class ModelCredentialError(RuntimeError):
-    """Base error for local model API-key persistence and lookup."""
+    """定义模型凭据错误相关后端数据结构或服务组件。"""
 
 
 class InvalidModelCredentialId(ModelCredentialError):
-    """The supplied model name or legacy identifier is unsafe or malformed."""
+    """定义模型凭据ID相关后端数据结构或服务组件。"""
 
 
 class ModelCredentialStoreUnavailable(ModelCredentialError):
-    """Redis model API-key storage is not configured or available."""
+    """定义模型凭据存储不可用相关后端数据结构或服务组件。"""
 
 
 @dataclass(frozen=True)
 class StoredCredentialStatus:
-    """Non-sensitive API-key status returned to callers."""
+    """定义已存储凭据状态相关后端数据结构或服务组件。"""
 
     model_name: str
     stored: bool
@@ -39,7 +39,7 @@ class StoredCredentialStatus:
 
 
 def _text(value: Any) -> str | None:
-    """Decode one Redis scalar into text."""
+    """处理文本相关后端逻辑。"""
 
     if value is None:
         return None
@@ -47,7 +47,7 @@ def _text(value: Any) -> str | None:
 
 
 class ModelCredentialStore:
-    """Store one sliding-TTL Redis String per technical model name."""
+    """定义模型凭据存储相关后端数据结构或服务组件。"""
 
     def __init__(self, redis_client: Redis, ttl_seconds: int = 30 * 24 * 60 * 60) -> None:
         self._redis = redis_client
@@ -55,7 +55,7 @@ class ModelCredentialStore:
 
     @staticmethod
     def _validate_model_name(model_name: str) -> str:
-        """Keep model names readable while rejecting empty/control-character keys."""
+        """校验模型名称相关后端逻辑。"""
 
         if not isinstance(model_name, str):
             raise InvalidModelCredentialId("模型名称格式无效")
@@ -66,7 +66,7 @@ class ModelCredentialStore:
 
     @staticmethod
     def _validate_legacy_id(legacy_id: str) -> str:
-        """Validate the previous UI UUID used only during one-time migration."""
+        """校验旧版ID相关后端逻辑。"""
 
         if not _LEGACY_ID_PATTERN.fullmatch(legacy_id):
             raise InvalidModelCredentialId("旧模型连接 ID 格式无效")
@@ -74,24 +74,24 @@ class ModelCredentialStore:
 
     @classmethod
     def _credential_key(cls, model_name: str) -> str:
-        """Return `agent_interview:model_credentials:v1:<model_name>`."""
+        """处理凭据键相关后端逻辑。"""
 
         return build_redis_key("model_credentials", cls._validate_model_name(model_name))
 
     @classmethod
     def _legacy_hash_key(cls, legacy_id: str) -> str:
-        """Return the previous UUID Hash key used only for migration cleanup."""
+        """处理旧版哈希键相关后端逻辑。"""
 
         return build_redis_key("model_credentials", "model", cls._validate_legacy_id(legacy_id))
 
     @staticmethod
     def _legacy_channels_key() -> str:
-        """Return the previous channels Hash key used only for cleanup."""
+        """处理旧版渠道键相关后端逻辑。"""
 
         return build_redis_key("model_credentials", "channels")
 
     async def _migrate_legacy(self, model_name: str, legacy_id: str | None) -> str | None:
-        """Move one previous UUID Hash API key into the model-name String key."""
+        """处理迁移旧版相关后端逻辑。"""
 
         key = self._credential_key(model_name)
         try:
@@ -132,7 +132,7 @@ class ModelCredentialStore:
         *,
         legacy_id: str | None = None,
     ) -> StoredCredentialStatus:
-        """Set one plaintext API-key String and remove its previous UUID Hash."""
+        """写入模型凭据相关后端逻辑。"""
 
         del user_id
         secret = api_key.strip()
@@ -162,7 +162,7 @@ class ModelCredentialStore:
         *,
         legacy_id: str | None = None,
     ) -> StoredCredentialStatus:
-        """Rename a model key without returning its API key to the frontend."""
+        """移动模型凭据相关后端逻辑。"""
 
         api_key = await self.get(user_id, source_model, legacy_id=legacy_id)
         if api_key is None:
@@ -182,7 +182,7 @@ class ModelCredentialStore:
         *,
         legacy_id: str | None = None,
     ) -> str | None:
-        """Read one API key by technical model name, migrating an old UUID Hash if supplied."""
+        """获取模型凭据相关后端逻辑。"""
 
         del user_id
         return await self._migrate_legacy(model_name, legacy_id)
@@ -194,7 +194,7 @@ class ModelCredentialStore:
         *,
         legacy_id: str | None = None,
     ) -> bool:
-        """Delete the model-name String and any supplied previous UUID Hash."""
+        """删除模型凭据相关后端逻辑。"""
 
         del user_id
         keys = [self._credential_key(model_name), self._legacy_channels_key()]
@@ -210,7 +210,7 @@ class ModelCredentialStore:
         user_id: str,
         models: list[tuple[str, str | None]],
     ) -> list[StoredCredentialStatus]:
-        """Return status per model name and opportunistically migrate old UUID Hashes."""
+        """处理状态相关后端逻辑。"""
 
         statuses: list[StoredCredentialStatus] = []
         seen: set[str] = set()
@@ -236,7 +236,7 @@ class ModelCredentialStore:
 
 @lru_cache(maxsize=1)
 def get_model_credential_store() -> ModelCredentialStore:
-    """Build the process-wide local Redis model-name API-key store."""
+    """获取模型凭据存储相关后端逻辑。"""
 
     settings = get_settings()
     if not settings.redis_url:
