@@ -238,9 +238,11 @@ class AgentRunUseCases:
     ) -> AgentRunResponse:
         """创建运行相关后端逻辑。"""
         if not task_queue_enabled():
-            lease = await get_run_gate().acquire()
-            if lease is None:
-                raise AgentRunConflict("当前仍有任务在执行，请稍后重试", status_code=409)
+            lease = None
+            if get_agent_definition(task_type).run_gate_policy == "global":
+                lease = await get_run_gate().acquire()
+                if lease is None:
+                    raise AgentRunConflict("当前仍有任务在执行，请稍后重试", status_code=409)
             try:
                 try:
                     run, created = await self._service.create_inline_or_get(
@@ -277,7 +279,8 @@ class AgentRunUseCases:
                 completed = await self._service.get(run.id, user_id)
                 return AgentRunResponse(payload=serialize_run(completed or run))
             finally:
-                await lease.release()
+                if lease is not None:
+                    await lease.release()
 
         if enqueue_fn is None:
             enqueue_fn = enqueue_agent_run

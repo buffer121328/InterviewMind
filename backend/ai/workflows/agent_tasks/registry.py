@@ -11,9 +11,15 @@ from ai.runtime.harness.catalog import AgentCatalog
 from ai.runtime.harness.drivers import EvaluationDriver, InlineDriver, QueuedDriver
 from ai.runtime.harness.registry import ExecutionAdapterRegistry
 from ai.workflows.agent_tasks.adapters import (
+    AbilityProfileExecutionAdapter,
+    EvaluationSuiteExecutionAdapter,
     InterviewStartExecutionAdapter,
-    LegacyTaskExecutionAdapter,
+    InterviewReportExecutionAdapter,
+    JobAssetsExecutionAdapter,
+    JobRecommendationCaptureExecutionAdapter,
     ObservedExecutionAdapter,
+    ResumeOptimizeExecutionAdapter,
+    ResumeWorkspaceExecutionAdapter,
 )
 from ai.workflows.agent_tasks.types import ExecutionResult, ProgressCallback, TaskExecutor
 from app.domain.agent_runs import (
@@ -126,12 +132,19 @@ def get_production_adapter_registry() -> ExecutionAdapterRegistry:
     """构建 queued/inline production adapters；具体业务模块保持延迟导入。"""
 
     registry = ExecutionAdapterRegistry()
-    for task_type, executor in EXECUTORS.items():
-        adapter = (
-            InterviewStartExecutionAdapter()
-            if task_type == TASK_TYPE_INTERVIEW_START
-            else LegacyTaskExecutionAdapter(key=task_type, executor=executor)
-        )
+    explicit_adapters = (
+        InterviewStartExecutionAdapter(),
+        ResumeOptimizeExecutionAdapter(executor=_execute_resume_optimize),
+        ResumeWorkspaceExecutionAdapter(executor=_execute_resume_workspace),
+        InterviewReportExecutionAdapter(executor=_execute_interview_report),
+        AbilityProfileExecutionAdapter(executor=_execute_ability_profile),
+        JobRecommendationCaptureExecutionAdapter(
+            executor=_execute_job_recommendation_capture,
+        ),
+        JobAssetsExecutionAdapter(executor=_execute_job_assets),
+        EvaluationSuiteExecutionAdapter(executor=_execute_evaluation_suite),
+    )
+    for adapter in explicit_adapters:
         registry.register(ObservedExecutionAdapter(adapter))
     return registry
 

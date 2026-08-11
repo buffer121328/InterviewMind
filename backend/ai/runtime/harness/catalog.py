@@ -51,12 +51,28 @@ class AgentCatalog:
 
         errors: list[str] = []
         declared_adapter_keys: set[str] = set()
+        allowed_modes = {"queued", "inline", "stream", "session"}
+        allowed_gate_policies = {"global", "worker_limit", "none"}
+        allowed_side_effect_policies = {"read_only", "local_write", "external_effect"}
         for definition in self._definitions.values():
             task_type = definition.task_type
             if definition.deprecated:
                 continue
             if not definition.execution_modes:
                 errors.append(f"{task_type}: execution modes are required")
+            unknown_modes = set(definition.execution_modes) - allowed_modes
+            if unknown_modes:
+                errors.append(f"{task_type}: unknown execution modes {sorted(unknown_modes)}")
+            if definition.run_gate_policy not in allowed_gate_policies:
+                errors.append(f"{task_type}: unknown run gate policy {definition.run_gate_policy!r}")
+            if definition.side_effect_policy not in allowed_side_effect_policies:
+                errors.append(
+                    f"{task_type}: unknown side effect policy {definition.side_effect_policy!r}"
+                )
+            if definition.run_gate_policy == "worker_limit" and "queued" not in definition.execution_modes:
+                errors.append(f"{task_type}: worker_limit policy requires queued execution mode")
+            if definition.evaluation_enabled and definition.side_effect_policy == "external_effect":
+                errors.append(f"{task_type}: external_effect policy is not allowed for evaluation")
             if definition.migration_state == "harness":
                 if not definition.adapter_key:
                     errors.append(f"{task_type}: adapter key is required")
