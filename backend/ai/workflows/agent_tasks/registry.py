@@ -58,21 +58,6 @@ async def _session_driver_only_adapter(_payload: dict, _context) -> ExecutionRes
 
 
 
-async def execute_registered_task(task_type: str, payload: dict, user_id: str, progress: ProgressCallback) -> ExecutionResult:
-    """兼容入口：通过 InlineDriver 调用权威 Catalog adapter。"""
-    raw_session_id = payload.get("session_id") or payload.get("thread_id")
-    session_id = str(raw_session_id)[:200] if raw_session_id else None
-    run_id = str(payload.get("_agent_run_id") or "") or None
-    return await get_inline_driver().run(
-        task_type=task_type,
-        payload=payload,
-        user_id=user_id,
-        session_id=session_id,
-        run_id=run_id,
-        progress=progress,
-    )
-
-
 @lru_cache(maxsize=1)
 def get_production_adapter_registry() -> ExecutionAdapterRegistry:
     """构建 queued/inline production adapters；具体业务模块保持延迟导入。"""

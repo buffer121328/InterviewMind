@@ -346,7 +346,7 @@ async def test_inline_mode_persists_agent_run_and_deferred_result(monkeypatch):
             assert (run_id, user_id) == ("inline-run-1", "owner-1")
             return run
 
-    async def execute(task_type, payload, user_id, progress):
+    async def execute(_self, task_type, payload, user_id, progress):
         assert task_type == "resume_workspace"
         assert payload["_agent_run_id"] == "inline-run-1"
         assert user_id == "owner-1"
@@ -359,7 +359,7 @@ async def test_inline_mode_persists_agent_run_and_deferred_result(monkeypatch):
 
     monkeypatch.setenv("TASK_QUEUE_ENABLED", "false")
     monkeypatch.setattr(workflow, "get_run_gate", lambda: FakeGate())
-    monkeypatch.setattr(workflow, "execute_registered_task", execute)
+    monkeypatch.setattr(workflow.AgentRunUseCases, "_run_inline_task", execute)
     monkeypatch.setattr(workflow, "serialize_run", lambda value: {
         "run_id": value.id,
         "status": value.status,

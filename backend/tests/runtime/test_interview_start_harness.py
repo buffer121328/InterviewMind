@@ -134,7 +134,7 @@ async def test_queue_disabled_interview_start_uses_inline_harness_and_keeps_resp
     async def get_session(*_args, **_kwargs):
         return None
 
-    async def execute(task_type, payload, user_id, progress):
+    async def execute(_self, task_type, payload, user_id, progress):
         calls.append((task_type, payload, user_id, progress))
         return {"success": True, "first_question": "首题"}
 
@@ -142,7 +142,7 @@ async def test_queue_disabled_interview_start_uses_inline_harness_and_keeps_resp
     use_cases._session_repo = SimpleNamespace(get_session=get_session)
     monkeypatch.setattr(workflow, "task_queue_enabled", lambda: False)
     monkeypatch.setattr(workflow, "get_run_gate", lambda: FakeGate())
-    monkeypatch.setattr(workflow, "execute_registered_task", execute)
+    monkeypatch.setattr(workflow.AgentRunUseCases, "_run_inline_task", execute)
 
     response = await use_cases.create_interview_start(
         payload={"thread_id": "session-1", "mode": "mock"},

@@ -264,7 +264,7 @@ async def test_inline_agent_run_owner_persists_sanitized_failure(monkeypatch) ->
 
     monkeypatch.setattr(workflow, "task_queue_enabled", lambda: False)
     monkeypatch.setattr(workflow, "get_run_gate", lambda: FakeGate())
-    monkeypatch.setattr(workflow, "execute_registered_task", execute)
+    monkeypatch.setattr(workflow.AgentRunUseCases, "_run_inline_task", execute)
     use_cases = workflow.AgentRunUseCases()
     use_cases._service = FakeService()
 
@@ -279,3 +279,37 @@ async def test_inline_agent_run_owner_persists_sanitized_failure(monkeypatch) ->
     assert failed[0][0] == "inline-run-1"
     assert "sk-" not in failed[0][1]
     assert "REDACTED" in failed[0][1]
+
+@pytest.mark.asyncio
+async def test_agent_run_inline_dispatch_preserves_harness_context(monkeypatch) -> None:
+    from ai.workflows import agent_runs as workflow
+
+    captured = {}
+
+    class FakeDriver:
+        async def run(self, **kwargs):
+            captured.update(kwargs)
+            return {"ok": True}
+
+    async def progress(_stage: str) -> None:
+        return None
+
+    monkeypatch.setattr(workflow, "get_inline_driver", lambda: FakeDriver())
+
+    result = await workflow.AgentRunUseCases()._run_inline_task(
+        "resume_workspace",
+        {
+            "session_id": "s" * 201,
+            "thread_id": "fallback-thread-id",
+            "_agent_run_id": 42,
+        },
+        "user-1",
+        progress,
+    )
+
+    assert result == {"ok": True}
+    assert captured["task_type"] == "resume_workspace"
+    assert captured["user_id"] == "user-1"
+    assert captured["session_id"] == "s" * 200
+    assert captured["run_id"] == "42"
+    assert captured["progress"] is progress

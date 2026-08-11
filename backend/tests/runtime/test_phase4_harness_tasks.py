@@ -201,7 +201,7 @@ async def test_job_assets_inline_run_does_not_acquire_global_gate(monkeypatch) -
 
     monkeypatch.setattr(workflow, "task_queue_enabled", lambda: False)
     monkeypatch.setattr(workflow, "get_run_gate", lambda: FailingGate())
-    monkeypatch.setattr(workflow, "execute_registered_task", execute)
+    monkeypatch.setattr(workflow.AgentRunUseCases, "_run_inline_task", execute)
     monkeypatch.setattr(workflow, "serialize_run", lambda _run: {"status": "succeeded"})
     use_cases = workflow.AgentRunUseCases()
     use_cases._service = Service()

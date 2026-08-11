@@ -22,8 +22,12 @@ from app.domain.agent_runs import (
 from app.domain.agent_definitions import get_agent_definition
 from ai.runtime.agent_runs.dispatcher import enqueue_agent_run
 from ai.runtime.agent_runs.event_stream import replay_cursor
-from ai.workflows.agent_tasks.registry import execute_registered_task
-from ai.workflows.agent_tasks.types import DeferredExecutionResult
+from ai.workflows.agent_tasks.registry import get_inline_driver
+from ai.workflows.agent_tasks.types import (
+    DeferredExecutionResult,
+    ExecutionResult,
+    ProgressCallback,
+)
 from ai.runtime.agent_runs.outbox import dispatch_pending_outbox
 from app.db.repositories.session.session_repo import SessionRepo
 from app.security.payload_crypto import TaskPayloadConfigurationError
@@ -80,6 +84,26 @@ class AgentRunUseCases:
         """确保用户所属会话相关后端逻辑。"""
         return await self._session_repo.get_session(session_id, user_id=user_id) is not None
 
+    async def _run_inline_task(
+        self,
+        task_type: str,
+        payload: dict[str, Any],
+        user_id: str,
+        progress: ProgressCallback,
+    ) -> ExecutionResult:
+        """通过权威 Harness InlineDriver 执行请求内任务。"""
+        raw_session_id = payload.get("session_id") or payload.get("thread_id")
+        session_id = str(raw_session_id)[:200] if raw_session_id else None
+        run_id = str(payload.get("_agent_run_id") or "") or None
+        return await get_inline_driver().run(
+            task_type=task_type,
+            payload=payload,
+            user_id=user_id,
+            session_id=session_id,
+            run_id=run_id,
+            progress=progress,
+        )
+
     async def create_interview_start(
         self,
         *,
@@ -99,7 +123,7 @@ class AgentRunUseCases:
                 async def progress(_stage: str) -> None:
                     """同步兼容响应不创建 AgentRun，因此仅保留 adapter 进度契约。"""
 
-                result = await execute_registered_task(
+                result = await self._run_inline_task(
                     TASK_TYPE_INTERVIEW_START,
                     payload,
                     user_id,
@@ -267,7 +291,9 @@ class AgentRunUseCases:
 
                 execution_payload = {**payload, "_agent_run_id": run.id}
                 try:
-                    result = await execute_registered_task(task_type, execution_payload, user_id, progress)
+                    result = await self._run_inline_task(
+                        task_type, execution_payload, user_id, progress
+                    )
                     if isinstance(result, DeferredExecutionResult):
                         await self._service.succeed_with_result_writer(run.id, result.persist)
                     else:
