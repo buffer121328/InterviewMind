@@ -14,7 +14,7 @@ from app.schemas.job_schemas import AssetGenerateRequest, CaptureRecommendations
 from app.schemas.resume_schemas import ResumeOptimizeRequest, ResumeWorkspaceRequest, ResumeWorkspaceRunResponse
 from app.schemas.schemas import InterviewReportRunRequest, InterviewStartRequest, ProfileGenerateRequest
 from ai.runtime.agent_runs.performance import performance_overview, query_performance, serialize_model_metric_event
-from ai.workflows.agent_runs import (
+from ai.workflows.agent_runs.use_cases import (
     AgentRunUseCaseError,
     agent_run_use_cases,
 )

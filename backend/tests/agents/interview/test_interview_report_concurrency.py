@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from ai.workflows.interview import completion
+from ai.workflows.interview.lifecycle import completion
 
 
 @pytest.mark.asyncio

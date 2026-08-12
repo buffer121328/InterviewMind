@@ -10,7 +10,7 @@ from app.db.unit_of_work import UnitOfWork
 from app.schemas.evaluations import EvaluationSuiteCreateRequest
 
 from ai.workflows.evaluation.serializers import _suite
-from ai.workflows.evaluation.service import EvaluationUseCaseError
+from ai.workflows.evaluation.contracts import EvaluationUseCaseError
 
 
 class SuiteUseCasesMixin:

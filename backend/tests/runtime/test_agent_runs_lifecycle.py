@@ -160,7 +160,7 @@ def test_legacy_agent_run_backfill_interface_is_removed():
     backend_root = Path(__file__).resolve().parents[2]
     sources = [
         (backend_root / "app" / "api" / "agent_runs.py").read_text(),
-        (backend_root / "ai" / "workflows" / "agent_runs.py").read_text(),
+        (backend_root / "ai" / "workflows" / "agent_runs" / "use_cases.py").read_text(),
         (backend_root / "ai" / "runtime" / "agent_runs" / "service.py").read_text(),
     ]
     combined = "\n".join(sources)
@@ -197,7 +197,7 @@ def test_session_id_migration_uses_the_model_owner_scoped_index(monkeypatch):
 @pytest.mark.asyncio
 async def test_cancel_api_returns_cancel_requested_for_running_run(monkeypatch):
     from app.api import agent_runs
-    from ai.workflows import agent_runs as agent_run_workflow
+    from ai.workflows.agent_runs import use_cases as agent_run_workflow
 
     now = datetime.now()
     run = AgentRunModel(
@@ -469,7 +469,7 @@ async def test_create_or_get_emits_prompt_version_in_created_event(monkeypatch):
 @pytest.mark.asyncio
 async def test_event_stream_replays_from_last_event_id_when_larger(monkeypatch):
     from app.api import agent_runs
-    from ai.workflows import agent_runs as agent_run_workflow
+    from ai.workflows.agent_runs import use_cases as agent_run_workflow
 
     now = datetime.now()
     run = SimpleNamespace(status="succeeded")
@@ -624,3 +624,21 @@ async def test_record_governance_event_persists_sanitized_tool_audit(monkeypatch
     assert appended[0][0] == "tool.execution"
     assert appended[0][1]["api_key"] == "***REDACTED***"
     assert len(appended[0][1]["output_summary"]) == 300
+
+
+@pytest.mark.asyncio
+async def test_agent_run_creation_rejects_retired_task_type_as_unknown() -> None:
+    from ai.runtime.agent_runs import service as service_module
+
+    service = service_module.AgentRunService()
+    common = {
+        "user_id": "user-1",
+        "payload": {},
+        "idempotency_key": "retired-task",
+        "task_type": "interview_experience_collect",
+    }
+
+    with pytest.raises(ValueError, match="unknown task type"):
+        await service.create_or_get(**common)
+    with pytest.raises(ValueError, match="unknown task type"):
+        await service.create_inline_or_get(**common, initial_stage="collecting_notes")

@@ -31,7 +31,6 @@ def _definition(**overrides) -> AgentDefinition:
         "steps": (("queued", "等待"), ("running", "执行")),
         "execution_modes": ("queued", "inline"),
         "adapter_key": "demo_adapter",
-        "migration_state": "harness",
         "evaluation_enabled": False,
         "side_effect_policy": "local_write",
         "graph_name": "demo_graph",
@@ -93,43 +92,19 @@ def test_catalog_allows_missing_diagnostic_graph_but_rejects_prompt_drift() -> N
         ).validate()
 
 
-def test_catalog_reports_legacy_and_deprecated_tasks_without_dispatching() -> None:
-    definitions = (
-        _definition(
-            task_type="legacy_stream",
-            execution_modes=("stream",),
-            adapter_key=None,
-            migration_state="legacy",
-            graph_reference_mode="diagnostic",
-        ),
-        _definition(
-            task_type="retired_task",
-            execution_modes=(),
-            adapter_key=None,
-            migration_state="legacy",
-            deprecated=True,
-            graph_name=None,
-            graph_reference_mode="diagnostic",
-            prompt_name=None,
-            prompt_version=None,
-            run_gate_policy="none",
-        ),
-    )
+def test_catalog_requires_an_explicit_adapter_for_every_definition() -> None:
     catalog = AgentCatalog(
-        definitions=definitions,
+        definitions=(_definition(adapter_key=None),),
         adapters=ExecutionAdapterRegistry(),
         prompt_refs=frozenset({("demo.prompt", "1")}),
-        graph_names=frozenset(),
+        graph_names=frozenset({"demo_graph"}),
     )
-    catalog.validate()
 
-    with pytest.raises(ValueError, match="legacy"):
-        catalog.resolve("legacy_stream", execution_mode="stream")
-    with pytest.raises(ValueError, match="deprecated"):
-        catalog.resolve("retired_task", execution_mode="queued")
+    with pytest.raises(CatalogValidationError, match="demo_task.*adapter key"):
+        catalog.validate()
 
 
-def test_production_definitions_expose_explicit_migration_and_execution_policy() -> None:
+def test_production_definitions_expose_explicit_harness_and_execution_policy() -> None:
     definitions = {item.task_type: item for item in get_agent_definitions()}
 
     assert definitions["interview_start"].execution_modes == ("queued", "inline")
@@ -137,21 +112,18 @@ def test_production_definitions_expose_explicit_migration_and_execution_policy()
     assert definitions["interview_start"].evaluation_enabled is True
     assert definitions["interview_start"].graph_reference_mode == "required"
     assert definitions["job_assets"].run_gate_policy == "worker_limit"
-    assert definitions["interview_turn"].migration_state == "harness"
     assert definitions["interview_turn"].adapter_key == "interview_turn"
     assert definitions["interview_turn"].run_gate_policy == "global"
-    assert definitions["voice_interview_turn"].migration_state == "harness"
     assert definitions["voice_interview_turn"].adapter_key == "voice_interview_turn"
     assert definitions["resume_generation"].execution_modes == ("session",)
-    assert definitions["resume_generation"].migration_state == "harness"
     assert definitions["resume_generation"].adapter_key == "resume_generation"
-    assert definitions["interview_experience_collect"].deprecated is True
+    assert all(definition.adapter_key for definition in definitions.values())
 
 
 def test_agent_tasks_package_exposes_no_parallel_executor_registry() -> None:
-    import ai.workflows.agent_tasks as package
-    import ai.workflows.agent_tasks.registry as production_registry
-    from ai.workflows.agent_tasks import adapters
+    import ai.workflows.agent_runs as package
+    import ai.workflows.agent_runs.catalog as production_registry
+    from ai.workflows.agent_runs import adapters
 
     assert not hasattr(package, "EXECUTORS")
     assert not hasattr(package, "_EXECUTOR_MODULES")
@@ -159,14 +131,14 @@ def test_agent_tasks_package_exposes_no_parallel_executor_registry() -> None:
     assert not hasattr(adapters, "LegacyTaskExecutionAdapter")
 
 
-def test_production_catalog_rejects_deprecated_history_task() -> None:
-    from ai.workflows.agent_tasks.registry import (
+def test_production_catalog_rejects_retired_task_as_unknown() -> None:
+    from ai.workflows.agent_runs.catalog import (
         get_production_adapter_registry,
         get_production_catalog,
     )
 
     assert "interview_experience_collect" not in set(get_production_adapter_registry().keys())
-    with pytest.raises(ValueError, match="deprecated"):
+    with pytest.raises(ValueError, match="unknown agent task"):
         get_production_catalog().resolve(
             "interview_experience_collect",
             execution_mode="queued",

@@ -209,7 +209,7 @@ async def trigger_session_report_analysis(
                 if not await session_repo.save_company_profile(session_id, company_payload, user_id):
                     raise ValueError("公司总画像保存失败")
 
-        from ai.workflows.interview.report_memory import (
+        from ai.workflows.interview.reports.memory import (
             schedule_interview_report_memories,
         )
 

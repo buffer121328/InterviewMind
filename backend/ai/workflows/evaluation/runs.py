@@ -6,7 +6,7 @@ import hashlib
 import json
 from typing import Any
 
-from ai.workflows.agent_runs import AgentRunUseCaseError, agent_run_use_cases
+from ai.workflows.agent_runs.use_cases import AgentRunUseCaseError, agent_run_use_cases
 from ai.workflows.evaluation.serializers import (
     _annotation,
     _case_run,
@@ -15,7 +15,7 @@ from ai.workflows.evaluation.serializers import (
     _run,
     _score,
 )
-from ai.workflows.evaluation.service import EvaluationUseCaseError
+from ai.workflows.evaluation.contracts import EvaluationUseCaseError
 from app.config import get_settings
 from app.db.models import async_session
 from app.db.unit_of_work import UnitOfWork

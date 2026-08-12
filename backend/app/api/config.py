@@ -14,8 +14,8 @@ from app.security.model_credentials import (
     ModelCredentialStoreUnavailable,
     get_model_credential_store,
 )
-from ai.workflows.config import api_config_use_cases
-from ai.workflows.model_credentials import ModelCredentialUseCases
+from ai.workflows.configuration.api_validation import api_config_use_cases
+from ai.workflows.configuration.model_credentials import ModelCredentialUseCases
 
 router = APIRouter(prefix="/api/config", tags=["配置"])
 

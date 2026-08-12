@@ -13,7 +13,7 @@ from app.schemas.evaluations import (
 )
 
 from ai.workflows.evaluation.serializers import _annotation, _case_run
-from ai.workflows.evaluation.service import EvaluationUseCaseError
+from ai.workflows.evaluation.contracts import EvaluationUseCaseError
 
 
 class AnnotationUseCasesMixin:

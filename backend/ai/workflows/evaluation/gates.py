@@ -9,12 +9,12 @@ from app.db.models import async_session
 from app.db.unit_of_work import UnitOfWork
 from app.schemas.evaluations import EvaluationGatePolicyCreateRequest
 
-from ai.workflows.evaluation.reporting import (
+from ai.workflows.evaluation.analytics import (
     _is_unacceptable_regression,
     _passes_threshold,
 )
 from ai.workflows.evaluation.serializers import _gate
-from ai.workflows.evaluation.service import EvaluationUseCaseError
+from ai.workflows.evaluation.contracts import EvaluationUseCaseError
 
 
 class GateUseCasesMixin:

@@ -6,9 +6,19 @@ import uuid
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 
+from ai.agents.resume.optimization.flow import run_pipeline
+from ai.agents.resume.result_mapper import pipeline_to_optimize_result
+from ai.agents.resume.resume_analyzer_graph import analyze_resume
+from ai.agents.resume.resume_review import (
+    ReviewConflictError,
+    apply_review_decisions,
+    initialize_review,
+    public_review_state,
+)
+from ai.runtime.agent_runs.event_stream import build_run_event_envelope
 from app.db.models import async_session
-from app.db.unit_of_work import UnitOfWork
 from app.db.repositories.resume.resume_repo import get_resume_repo
+from app.db.unit_of_work import UnitOfWork
 from app.schemas.resume_schemas import (
     ResumeAnalyzeRequest,
     ResumeAnalyzeResponse,
@@ -17,17 +27,7 @@ from app.schemas.resume_schemas import (
     ResumeReviewRequest,
     ResumeReviewResponse,
 )
-from ai.runtime.agent_runs.event_stream import build_run_event_envelope
-from ai.agents.resume.result_mapper import pipeline_to_optimize_result
 from app.security.security import safe_error_message
-from ai.agents.resume.resume_analyzer_graph import analyze_resume
-from ai.agents.resume.resume_orchestrator import run_pipeline
-from ai.agents.resume.resume_review import (
-    ReviewConflictError,
-    apply_review_decisions,
-    initialize_review,
-    public_review_state,
-)
 
 logger = logging.getLogger(__name__)
 

@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from ai.workflows.interview.report_memory import (
+from ai.workflows.interview.reports.memory import (
     build_report_memory_entries,
     persist_interview_report_memories,
 )

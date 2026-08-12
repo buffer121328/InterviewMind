@@ -15,7 +15,7 @@ from app.schemas.evaluations import (
 from evaluation.domain import calculate_calibration
 
 from ai.workflows.evaluation.serializers import _calibration
-from ai.workflows.evaluation.service import EvaluationUseCaseError
+from ai.workflows.evaluation.contracts import EvaluationUseCaseError
 
 
 class CalibrationUseCasesMixin:

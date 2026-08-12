@@ -6,7 +6,7 @@ import time
 import pytest
 
 from ai.agents.interview.planning import planner as interview_planner
-from ai.workflows.interview.response_content import extract_latest_assistant_content
+from ai.workflows.interview.chat.response_content import extract_latest_assistant_content
 from app.domain.interview_rounds import SYSTEM_FALLBACK_QUESTION_SOURCE_TYPE
 from app.schemas.llm_outputs import InterviewQuestionItem, PlanOutput
 

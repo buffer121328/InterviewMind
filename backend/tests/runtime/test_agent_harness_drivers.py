@@ -24,7 +24,6 @@ def _catalog(runner, *, evaluation_enabled: bool = True) -> AgentCatalog:
         steps=(("queued", "等待"), ("running", "执行")),
         execution_modes=("queued", "inline"),
         adapter_key="demo_adapter",
-        migration_state="harness",
         evaluation_enabled=evaluation_enabled,
         side_effect_policy="local_write",
         graph_reference_mode="diagnostic",
@@ -239,7 +238,7 @@ async def test_queued_driver_cooperatively_cancels_running_adapter() -> None:
 
 @pytest.mark.asyncio
 async def test_inline_agent_run_owner_persists_sanitized_failure(monkeypatch) -> None:
-    from ai.workflows import agent_runs as workflow
+    from ai.workflows.agent_runs import use_cases as workflow
 
     failed = []
     run = SimpleNamespace(id="inline-run-1", status="running")
@@ -282,7 +281,7 @@ async def test_inline_agent_run_owner_persists_sanitized_failure(monkeypatch) ->
 
 @pytest.mark.asyncio
 async def test_agent_run_inline_dispatch_preserves_harness_context(monkeypatch) -> None:
-    from ai.workflows import agent_runs as workflow
+    from ai.workflows.agent_runs import use_cases as workflow
 
     captured = {}
 

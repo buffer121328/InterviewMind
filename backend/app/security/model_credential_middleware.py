@@ -8,7 +8,7 @@ from typing import Any
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from ai.workflows.model_credentials import ModelCredentialErrorForRequest, ModelCredentialUseCases
+from ai.workflows.configuration.model_credentials import ModelCredentialErrorForRequest, ModelCredentialUseCases
 from app.security.model_credentials import (
     InvalidModelCredentialId,
     ModelCredentialError,

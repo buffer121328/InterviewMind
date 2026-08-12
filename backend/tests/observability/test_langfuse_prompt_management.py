@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from ai.workflows.langfuse_prompt_management import (
+from ai.workflows.prompts.management import (
     LangfusePromptManagementService,
     PromptListPage,
     PromptManagementUnavailable,
@@ -92,7 +92,7 @@ def configured_client(monkeypatch, text_prompt):
     monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk-test")
     monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-test")
     monkeypatch.setattr(
-        "ai.workflows.langfuse_prompt_management.get_langfuse_client", lambda: client
+        "ai.workflows.prompts.management.get_langfuse_client", lambda: client
     )
     return client
 

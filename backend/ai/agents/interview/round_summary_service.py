@@ -185,7 +185,7 @@ async def process_round_completion(
     Returns:
         包含 summary 和触发的后台任务信息
     """
-    from ai.workflows.interview.completion import process_interview_summary
+    from ai.workflows.interview.lifecycle.completion import process_interview_summary
 
     result = await process_interview_summary(
         session_id=session_id,

@@ -182,7 +182,7 @@ def _enter_test_client(app) -> TestClient:
               new_callable=lambda: AsyncMock(return_value=_FakeMemoryService())),
         patch("ai.memory.close_agent_memory_service", new_callable=AsyncMock),
         patch("ai.memory.memory.close_checkpointer", new_callable=AsyncMock),
-        patch("ai.runtime.background_tasks.drain_background_tasks", new_callable=AsyncMock),
+        patch("ai.runtime.execution.background.drain_background_tasks", new_callable=AsyncMock),
         patch("ai.agents.interview.interview_graph.clear_graph_instances", MagicMock),
     ]
 
@@ -536,7 +536,7 @@ class TestErrorResponseFormat:
     @pytest.fixture(autouse=True)
     def _mock_session(self):
         """Mock 当前会话管理用例，确保 get_session 走 404 分支。"""
-        from ai.workflows.interview.sessions import SessionManagementNotFound
+        from ai.workflows.interview.sessions.management import SessionManagementNotFound
 
         mock_use_cases = MagicMock()
         mock_use_cases.get_session = AsyncMock(

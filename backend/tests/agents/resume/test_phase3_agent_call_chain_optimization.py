@@ -10,7 +10,7 @@ import pytest
 
 def test_resume_section_checkpoint_reuses_only_matching_sources():
     """Completed sections are reusable only while authoritative source fingerprints match."""
-    from ai.agents.resume.resume_sections import (
+    from ai.agents.resume.generation.sections import (
         build_section_checkpoint,
         reusable_sections,
     )
@@ -26,7 +26,7 @@ def test_resume_section_checkpoint_reuses_only_matching_sources():
 
 def test_resume_section_retry_merges_only_targeted_patch():
     """A verifier issue targets one section without replacing unaffected content."""
-    from ai.agents.resume.resume_sections import (
+    from ai.agents.resume.generation.sections import (
         merge_section_patch,
         select_retry_sections,
     )
@@ -41,7 +41,7 @@ def test_resume_section_retry_merges_only_targeted_patch():
 
 def test_authoritative_context_never_uses_silent_head_tail_truncation():
     """JD/resume/Q&A authoritative sources remain complete and expose integrity metadata."""
-    from ai.runtime.authoritative_context import assemble_authoritative_context
+    from ai.runtime.context.authoritative import assemble_authoritative_context
 
     text = "事实" * 5000
     assembled = assemble_authoritative_context(
@@ -55,7 +55,7 @@ def test_authoritative_context_never_uses_silent_head_tail_truncation():
 
 def test_reviewer_contexts_are_perspective_specific_and_evidence_bound():
     """Each reviewer receives a distinct minimal view while retaining question references."""
-    from ai.workflows.analysis.reviewer_contexts import build_reviewer_contexts
+    from ai.workflows.analysis.reviewers.contexts import build_reviewer_contexts
 
     contexts = build_reviewer_contexts(
         resume="FastAPI 工程师",
@@ -75,7 +75,7 @@ def test_reviewer_contexts_are_perspective_specific_and_evidence_bound():
 
 def test_dynamic_ability_reviewers_skip_unneeded_perspectives():
     """Reviewer selection uses evidence coverage and short-circuits empty samples."""
-    from ai.workflows.analysis.reviewer_contexts import select_ability_reviewers
+    from ai.workflows.analysis.reviewers.contexts import select_ability_reviewers
 
     assert select_ability_reviewers([]) == ()
     selected = select_ability_reviewers([
@@ -87,7 +87,7 @@ def test_dynamic_ability_reviewers_skip_unneeded_perspectives():
 
 def test_ability_profile_is_registered_as_agent_run_task():
     """Ability profile uses the same recoverable registry and plan as other AgentRuns."""
-    from ai.workflows.agent_tasks.registry import get_production_adapter_registry
+    from ai.workflows.agent_runs.catalog import get_production_adapter_registry
     from app.domain.agent_definitions import get_agent_definition
     from app.domain.agent_runs import TASK_TYPE_ABILITY_PROFILE
 
@@ -126,7 +126,7 @@ async def test_embedding_batch_deduplicates_and_reuses_cache(monkeypatch):
 @pytest.mark.asyncio
 async def test_report_memory_schedule_is_non_blocking(monkeypatch):
     """Optional mem0 report writes run through the governed background task helper."""
-    from ai.workflows.interview import report_memory
+    from ai.workflows.interview.reports import memory as report_memory
 
     started = asyncio.Event()
     release = asyncio.Event()
@@ -143,7 +143,7 @@ async def test_report_memory_schedule_is_non_blocking(monkeypatch):
         return asyncio.create_task(coro, name=name)
 
     monkeypatch.setattr(report_memory, "persist_interview_report_memories", fake_persist)
-    monkeypatch.setattr("ai.runtime.background_tasks.create_background_task", fake_background)
+    monkeypatch.setattr("ai.runtime.execution.background.create_background_task", fake_background)
     task = report_memory.schedule_interview_report_memories(
         user_id="u1", session_id="s1", profile={}, weakness_report={}, api_config=None
     )
@@ -152,12 +152,3 @@ async def test_report_memory_schedule_is_non_blocking(monkeypatch):
     assert created == ["report-memory:s1"]
     release.set()
     assert await task == 1
-
-
-def test_phase3_budget_configuration_has_safe_attempt_relationship():
-    """Interactive and voice deadlines reserve enough time before starting another attempt."""
-    from ai.runtime.call_budgets import CallBudget, validate_call_budget
-
-    validate_call_budget(CallBudget(node_timeout=12, task_deadline=30, max_attempts=1, min_remaining=3))
-    with pytest.raises(ValueError):
-        validate_call_budget(CallBudget(node_timeout=20, task_deadline=20, max_attempts=1, min_remaining=3))

@@ -9,7 +9,7 @@ from ai.runtime.harness.registry import (
     CallableExecutionAdapter,
     ExecutionAdapterRegistry,
 )
-from ai.workflows.agent_tasks.adapters import (
+from ai.workflows.agent_runs.adapters import (
     AbilityProfileExecutionAdapter,
     EvaluationSuiteExecutionAdapter,
     InterviewReportExecutionAdapter,
@@ -19,7 +19,7 @@ from ai.workflows.agent_tasks.adapters import (
     ResumeOptimizeExecutionAdapter,
     ResumeWorkspaceExecutionAdapter,
 )
-from ai.workflows.agent_tasks.registry import get_production_adapter_registry
+from ai.workflows.agent_runs.catalog import get_production_adapter_registry
 from app.domain.agent_definitions import AgentDefinition, get_agent_definitions
 
 
@@ -32,7 +32,6 @@ def _definition(**overrides) -> AgentDefinition:
         "steps": (("queued", "等待"), ("running", "执行")),
         "execution_modes": ("queued", "inline"),
         "adapter_key": "demo_task",
-        "migration_state": "harness",
         "evaluation_enabled": False,
         "side_effect_policy": "local_write",
         "graph_name": None,
@@ -127,14 +126,13 @@ def test_catalog_rejects_external_effect_evaluation_policy() -> None:
         ).validate()
 
 
-def test_stream_and_resume_session_tasks_are_harness_managed() -> None:
+def test_stream_and_resume_session_tasks_have_explicit_harness_adapters() -> None:
     definitions = {item.task_type: item for item in get_agent_definitions()}
 
-    assert definitions["interview_turn"].migration_state == "harness"
-    assert definitions["voice_interview_turn"].migration_state == "harness"
-    assert definitions["resume_generation"].migration_state == "harness"
+    assert definitions["interview_turn"].adapter_key == "interview_turn"
+    assert definitions["voice_interview_turn"].adapter_key == "voice_interview_turn"
     assert definitions["resume_generation"].adapter_key == "resume_generation"
-    assert definitions["interview_start"].migration_state == "harness"
+    assert definitions["interview_start"].adapter_key == "interview_start"
 
 
 @pytest.mark.asyncio
@@ -173,7 +171,7 @@ async def test_resume_adapters_preserve_owner_progress_and_deferred_result(adapt
 
 @pytest.mark.asyncio
 async def test_job_assets_inline_run_does_not_acquire_global_gate(monkeypatch) -> None:
-    from ai.workflows import agent_runs as workflow
+    from ai.workflows.agent_runs import use_cases as workflow
 
     calls: list[str] = []
     run = type("Run", (), {"id": "run-1", "status": "running"})()

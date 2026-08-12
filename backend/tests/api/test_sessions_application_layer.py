@@ -25,7 +25,7 @@ def test_sessions_routes_delegate_to_application_layer():
         if isinstance(node, ast.ImportFrom) and node.module
     ]
     assert not any(module.startswith("app.db.repositories") for module in modules)
-    assert any(module == "ai.workflows.interview.sessions" for module in modules)
+    assert any(module == "ai.workflows.interview.sessions.management" for module in modules)
 
     checked = set()
     for node in ast.walk(tree):

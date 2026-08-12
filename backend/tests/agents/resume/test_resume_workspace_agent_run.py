@@ -101,7 +101,7 @@ def test_resume_workspace_schema_accepts_one_resume_and_jd_contract():
 
 def test_workspace_maps_richer_jd_result_into_pipeline_contract():
     """The optimizer must reuse the same non-zero JD score shown by the workspace."""
-    from ai.workflows.agent_tasks.resume_workspace import _pipeline_jd_analysis
+    from ai.workflows.agent_runs.tasks.resume.workspace import _pipeline_jd_analysis
 
     mapped = _pipeline_jd_analysis(_jd_match())
 
@@ -112,7 +112,7 @@ def test_workspace_maps_richer_jd_result_into_pipeline_contract():
 
 def test_public_workspace_result_repairs_legacy_zero_score():
     """Old persisted workspace records should expose the richer JD score to clients."""
-    from ai.workflows.agent_tasks.resume_workspace import _public_workspace_result
+    from ai.workflows.agent_runs.tasks.resume.workspace import _public_workspace_result
 
     result_data = _pipeline_result()
     result_data["jd_analysis"] = {"match_score": 0, "hr_pass_rate": 0}
@@ -143,8 +143,8 @@ def test_resume_workspace_task_definition_exposes_recoverable_stages():
 @pytest.mark.asyncio
 async def test_resume_workspace_api_forwards_owner_payload_and_header_key(monkeypatch):
     """The route delegates only authenticated ownership and request data to the use case."""
+    from ai.workflows.agent_runs.use_cases import AgentRunResponse
     from app.api import agent_runs
-    from ai.workflows.agent_runs import AgentRunResponse
     from app.schemas.resume_schemas import ResumeWorkspaceRequest
 
     received = {}
@@ -169,7 +169,7 @@ async def test_resume_workspace_api_forwards_owner_payload_and_header_key(monkey
 @pytest.mark.asyncio
 async def test_resume_workspace_use_case_rejects_unowned_session(monkeypatch):
     """Referenced interview sessions must be owner-scoped before payload encryption."""
-    from ai.workflows.agent_runs import AgentRunNotFound, AgentRunUseCases
+    from ai.workflows.agent_runs.use_cases import AgentRunNotFound, AgentRunUseCases
 
     use_cases = AgentRunUseCases()
 
@@ -190,8 +190,8 @@ async def test_resume_workspace_use_case_rejects_unowned_session(monkeypatch):
 @pytest.mark.asyncio
 async def test_resume_workspace_executor_persists_parent_and_reuses_after_crash(monkeypatch):
     """The executor stores all outputs once and retains pending human review on retry."""
-    from ai.workflows.agent_tasks import resume_workspace
-    from ai.workflows.agent_tasks.types import DeferredExecutionResult
+    from ai.workflows.agent_runs.tasks.resume import workspace
+    from ai.workflows.agent_runs.contracts import DeferredExecutionResult
 
     progress_stages: list[str] = []
     save_calls: list[dict] = []
@@ -222,7 +222,7 @@ async def test_resume_workspace_executor_persists_parent_and_reuses_after_crash(
     setattr(analyzer_module, "analyze_resume", lambda **_kwargs: _async_result(_competition_analysis()))
     matcher_module = ModuleType("ai.agents.resume.jd_matcher")
     setattr(matcher_module, "match_jd", lambda **_kwargs: _async_result(_jd_match()))
-    orchestrator_module = ModuleType("ai.agents.resume.resume_orchestrator")
+    orchestrator_module = ModuleType("ai.agents.resume.optimization.flow")
     setattr(orchestrator_module, "run_pipeline", lambda **_kwargs: _async_result(_pipeline_result()))
     monkeypatch.setitem(sys.modules, analyzer_module.__name__, analyzer_module)
     monkeypatch.setitem(sys.modules, matcher_module.__name__, matcher_module)
@@ -244,9 +244,9 @@ async def test_resume_workspace_executor_persists_parent_and_reuses_after_crash(
         "city": "上海",
         "imported_at": "2026-08-04T09:00:00",
     }
-    monkeypatch.setattr(resume_workspace, "normalize_owned_job_context_snapshot", normalize_job_context)
+    monkeypatch.setattr(workspace, "normalize_owned_job_context_snapshot", normalize_job_context)
 
-    result = await resume_workspace.execute_resume_workspace(
+    result = await workspace.execute_resume_workspace(
         {
             "_agent_run_id": "workspace-run",
             "resume_content": "resume",
@@ -266,14 +266,14 @@ async def test_resume_workspace_executor_persists_parent_and_reuses_after_crash(
     assert public_result["review"]["status"] == "pending"
     assert save_calls[0]["result_type"] == "optimize"
     assert save_calls[0]["agent_run_id"] == "workspace-run"
-    workspace = save_calls[0]["result_data"]["workspace"]
-    assert workspace["source_job_id"] == 42
-    assert workspace["job_context_snapshot"]["job_description"] == "编辑后的 JD"
+    saved_workspace = save_calls[0]["result_data"]["workspace"]
+    assert saved_workspace["source_job_id"] == 42
+    assert saved_workspace["job_context_snapshot"]["job_description"] == "编辑后的 JD"
     assert public_result["source_job_id"] == 42
     assert public_result["job_context_snapshot"]["job_title"] == "编辑后的岗位"
 
     setattr(orchestrator_module, "run_pipeline", unexpected_pipeline)
-    retried = await resume_workspace.execute_resume_workspace(
+    retried = await workspace.execute_resume_workspace(
         {
             "_agent_run_id": "workspace-run",
             "resume_content": "resume",

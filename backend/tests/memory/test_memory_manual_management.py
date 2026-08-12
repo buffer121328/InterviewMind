@@ -197,7 +197,7 @@ def test_canonical_memory_projection_removes_assistant_noise_and_duplicates():
 @pytest.mark.asyncio
 async def test_memory_reads_normalize_legacy_null_metadata(monkeypatch: pytest.MonkeyPatch):
     """List and search keep legacy mem0 rows readable when metadata is null."""
-    from ai.workflows.memory import MemoryUseCases
+    from ai.workflows.memory.use_cases import MemoryUseCases
 
     class LegacyMemoryService:
         is_enabled = True
@@ -233,7 +233,7 @@ async def test_memory_reads_normalize_legacy_null_metadata(monkeypatch: pytest.M
         return LegacyMemoryService()
 
     monkeypatch.setattr(
-        "ai.workflows.memory.get_owner_memory_service",
+        "ai.workflows.memory.use_cases.get_owner_memory_service",
         fake_get_owner_memory_service,
     )
 

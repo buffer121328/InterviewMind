@@ -10,9 +10,15 @@ import signal
 import sys
 from contextlib import asynccontextmanager
 
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
+
 from app.api import (
     agent_runs,
     applications,
+    artifacts,
     chat,
     config,
     evaluations,
@@ -26,13 +32,11 @@ from app.api.jobs import router as jobs_router
 from app.api.memory import router as memory_router
 from app.api.question_bank import router as question_bank_router
 from app.api.resume import router as resume_router
+from app.api.satisfaction import router as satisfaction_router
 from app.config import get_settings
 from app.runtime_paths import ensure_runtime_directories
 from app.security.model_credential_middleware import ModelCredentialHydrationMiddleware
 from app.security.security import redact_secrets, safe_error_message
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 
 # 配置日志
 logging.basicConfig(
@@ -50,7 +54,7 @@ async def lifespan(app: FastAPI):
     # 启动时执行
     logger.info("AI 面试助手后端服务启动中...")
 
-    from ai.workflows.agent_tasks.registry import validate_production_catalog
+    from ai.workflows.agent_runs.catalog import validate_production_catalog
 
     validate_production_catalog()
     logger.info("✓ Agent Harness Catalog 一致性校验通过")
@@ -77,8 +81,8 @@ async def lifespan(app: FastAPI):
 
     # 主动恢复 Worker 中断或长期未领取的持久化 Agent 任务
     try:
-        from ai.runtime.agent_runs.recovery import run_agent_run_recovery_loop
-        from ai.runtime.background_tasks import create_background_task
+        from ai.runtime.execution.background import create_background_task
+        from ai.workflows.agent_runs.queue.recovery import run_agent_run_recovery_loop
         create_background_task(run_agent_run_recovery_loop(), name="agent-run-recovery")
     except Exception as e:
         logger.warning("Agent 任务主动恢复循环启动失败: %s", e)
@@ -123,7 +127,7 @@ async def cleanup_resources():
 
     # 等待/取消应用级后台任务
     try:
-        from ai.runtime.background_tasks import drain_background_tasks
+        from ai.runtime.execution.background import drain_background_tasks
         await drain_background_tasks(timeout=5.0)
         logger.info("✓ 后台任务已清理")
     except Exception as e:
@@ -174,6 +178,7 @@ def handle_signal(signum, frame):
 
     def run_cleanup():
         """在新线程中运行清理函数"""
+        loop: asyncio.AbstractEventLoop | None = None
         try:
             # 创建新的事件循环
             loop = asyncio.new_event_loop()
@@ -186,10 +191,11 @@ def handle_signal(signum, frame):
         except Exception as e:
             logger.error(f"清理资源时出错: {e}")
         finally:
-            try:
-                loop.close()
-            except:
-                pass
+            if loop is not None:
+                try:
+                    loop.close()
+                except Exception:
+                    logger.debug("关闭清理事件循环时出错", exc_info=True)
 
     # 启动清理线程
     cleanup_thread = threading.Thread(target=run_cleanup)
@@ -289,11 +295,6 @@ async def health_check():
         },
     }
 
-
-# 注册路由
-from app.api import artifacts
-from app.api.satisfaction import router as satisfaction_router
-from fastapi.staticfiles import StaticFiles
 
 # 注册路由
 app.include_router(chat.router)

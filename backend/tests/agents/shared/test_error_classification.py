@@ -3,12 +3,12 @@
 import pytest
 from unittest.mock import AsyncMock
 
-from ai.runtime.error_classification import (
+from ai.runtime.safety.errors import (
     ErrorCategory,
     classify_error_message,
     classify_exception,
 )
-from ai.workflows.interview.start import InterviewStartUseCases
+from ai.workflows.interview.lifecycle.start import InterviewStartUseCases
 
 
 @pytest.mark.parametrize(
@@ -42,7 +42,7 @@ def test_failure_type_distinguishes_timeout_json_and_business_validation():
 
     from pydantic import BaseModel, ValidationError
 
-    from ai.runtime.error_classification import FailureType, classify_exception
+    from ai.runtime.safety.errors import FailureType, classify_exception
 
     class Payload(BaseModel):
         count: int

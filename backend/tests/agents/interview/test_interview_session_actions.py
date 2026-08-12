@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from ai.workflows.interview.session_actions import InterviewSessionUseCases
+from ai.workflows.interview.sessions.actions import InterviewSessionUseCases
 
 
 class _SessionRepo:

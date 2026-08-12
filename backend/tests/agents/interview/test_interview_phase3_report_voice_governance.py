@@ -77,7 +77,7 @@ async def test_long_report_checkpoints_each_evidence_chunk_and_reuses_it_on_retr
     calls: list[type] = []
 
     async def fake_invoke_structured(*, output_model, prompt, call_metadata=None, **_kwargs):
-        from ai.workflows.analysis.multi_reviewer import ReviewerAssessment
+        from ai.workflows.analysis.reviewers.multi_reviewer import ReviewerAssessment
 
         calls.append(output_model)
         if output_model is ReviewerAssessment:
@@ -119,7 +119,7 @@ async def test_long_report_checkpoints_each_evidence_chunk_and_reuses_it_on_retr
     )
 
     assert calls.count(EvidenceChunkOutput) == 3
-    from ai.workflows.analysis.multi_reviewer import ReviewerAssessment
+    from ai.workflows.analysis.reviewers.multi_reviewer import ReviewerAssessment
 
     assert calls.count(ReviewerAssessment) == 4
     assert calls.count(SessionInterviewReportOutput) == 1
@@ -149,7 +149,7 @@ async def test_long_report_checkpoints_each_evidence_chunk_and_reuses_it_on_retr
 @pytest.mark.asyncio
 async def test_short_report_uses_parallel_reviewers_and_adds_local_trace(monkeypatch):
     """Short QA uses four reviewers plus one reducer and keeps per-question trace."""
-    from ai.workflows.analysis.multi_reviewer import ReviewerAssessment
+    from ai.workflows.analysis.reviewers.multi_reviewer import ReviewerAssessment
 
     calls: list[type] = []
 

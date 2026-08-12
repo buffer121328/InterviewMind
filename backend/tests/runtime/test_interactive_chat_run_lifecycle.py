@@ -6,9 +6,9 @@ from types import SimpleNamespace
 
 import pytest
 from ai.runtime.agent_runs.service import get_task_definition
-from ai.workflows.interview import stream as chat_stream
-from ai.workflows.interview.checkpoints import interview_turn_checkpoint_thread_id
-from ai.workflows.interview.stream import ChatStreamUseCases
+from ai.workflows.interview.chat import stream as chat_stream
+from ai.workflows.interview.sessions.checkpoints import interview_turn_checkpoint_thread_id
+from ai.workflows.interview.chat.stream import ChatStreamUseCases
 from app.domain.agent_runs import TASK_TYPE_INTERVIEW_TURN
 from app.schemas.schemas import ChatRequest
 

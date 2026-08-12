@@ -3,7 +3,7 @@ set -eu
 
 case "${TASK_QUEUE_ENABLED:-true}" in
     [Tt][Rr][Uu][Ee])
-        exec dramatiq ai.runtime.agent_runs.worker --processes 1 --threads "${AGENT_RUN_WORKER_THREADS:-5}"
+        exec dramatiq ai.workflows.agent_runs.queue.worker --processes 1 --threads "${AGENT_RUN_WORKER_THREADS:-5}"
         ;;
     *)
         echo "TASK_QUEUE_ENABLED is false; Dramatiq worker is disabled."

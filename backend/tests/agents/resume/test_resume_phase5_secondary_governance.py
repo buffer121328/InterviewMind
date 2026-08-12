@@ -245,7 +245,7 @@ async def test_vector_search_timeout_degrades_without_blocking_other_retrieval(m
 @pytest.mark.asyncio
 async def test_report_memory_entries_are_written_in_parallel(monkeypatch):
     """Optional report-memory writes share latency and cannot serialize the report tail."""
-    from ai.workflows.interview.report_memory import persist_interview_report_memories
+    from ai.workflows.interview.reports.memory import persist_interview_report_memories
 
     active = 0
     max_active = 0

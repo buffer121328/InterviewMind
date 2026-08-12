@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from ai.runtime.agent_runs.worker import requires_global_run_gate
+from ai.workflows.agent_runs.queue.worker import requires_global_run_gate
 from app.domain.agent_runs import TASK_TYPE_JOB_ASSETS
 
 

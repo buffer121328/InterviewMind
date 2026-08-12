@@ -7,40 +7,21 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any, NoReturn
 
+from ai.workflows.evaluation.annotations import AnnotationUseCasesMixin
+from ai.workflows.evaluation.calibration import CalibrationUseCasesMixin
+from ai.workflows.evaluation.contracts import EvaluationUseCaseError
+from ai.workflows.evaluation.datasets import DatasetUseCasesMixin
+from ai.workflows.evaluation.gates import GateUseCasesMixin
+from ai.workflows.evaluation.reporting import ReportingUseCasesMixin
+from ai.workflows.evaluation.runs import RunUseCasesMixin
+from ai.workflows.evaluation.suites import SuiteUseCasesMixin
 from app.config import get_settings
 from app.db.models import async_session
 from app.db.repositories.evaluation import EvaluationRepository
 from app.db.unit_of_work import UnitOfWork
 from evaluation.builtins import public_evaluation_catalog
-
-
-@dataclass(slots=True)
-class EvaluationUseCaseError(Exception):
-    """Evaluation 应用层稳定错误。"""
-
-    message: str
-    status_code: int = 400
-
-
-from ai.workflows.evaluation.annotations import AnnotationUseCasesMixin
-from ai.workflows.evaluation.calibration import CalibrationUseCasesMixin
-from ai.workflows.evaluation.datasets import DatasetUseCasesMixin
-from ai.workflows.evaluation.gates import GateUseCasesMixin
-from ai.workflows.evaluation.reporting import (
-    ReportingUseCasesMixin,
-    _is_unacceptable_regression,
-    _latest_agreement,
-    _metric_average,
-    _passes_threshold,
-    _trend_point,
-    _weighted_ratio,
-    _weighted_success_rate,
-)
-from ai.workflows.evaluation.runs import RunUseCasesMixin
-from ai.workflows.evaluation.suites import SuiteUseCasesMixin
 
 
 class EvaluationUseCases(

@@ -1,6 +1,7 @@
 """Agent 公共运行层的确定性测试。"""
 
 import pytest
+
 from ai.prompts import prompt_registry
 from ai.runtime.context import AgentContext
 from ai.runtime.graphs import graph_registry
@@ -52,6 +53,9 @@ def test_tool_registry_checks_permissions_before_building():
 
 
 def test_default_registries_expose_business_capabilities():
+    from ai.workflows.agent_runs.graph_bindings import register_production_graphs
+
+    register_production_graphs()
     assert {"interview", "resume", "memory", "verification", "jobs"}.issubset(
         tool_registry.names()
     )
@@ -105,14 +109,19 @@ def test_prompt_registry_renders_registered_production_builder():
 
 
 def test_graph_registry_uses_agent_package_builders():
-    registry_source = (
+    bindings_source = (
+        __import__("pathlib").Path(__file__).resolve().parents[2]
+        / "ai" / "workflows" / "agent_runs" / "graph_bindings.py"
+    ).read_text()
+    runtime_registry_source = (
         __import__("pathlib").Path(__file__).resolve().parents[2]
         / "ai" / "runtime" / "graphs" / "registry.py"
     ).read_text()
 
-    assert "from ai.agents.interview.graph" in registry_source
-    assert "from ai.agents.interview.interview_graph" not in registry_source
-    assert "from ai.agents.resume.resume_optimizer_graph" not in registry_source
+    assert "from ai.agents.interview.graph" in bindings_source
+    assert "from ai.agents.interview.interview_graph" not in bindings_source
+    assert "from ai.agents.resume.resume_optimizer_graph" not in bindings_source
+    assert "ai.agents" not in runtime_registry_source
 
 
 def test_default_middleware_has_limits_without_unsafe_global_tool_retry():
@@ -294,7 +303,10 @@ async def test_tool_guard_redacts_nested_secrets():
 
 
 def test_production_agent_definitions_are_registered():
-    from ai.workflows.agent_tasks.registry import get_production_adapter_registry
+    from ai.workflows.agent_runs.graph_bindings import register_production_graphs
+    from ai.workflows.agent_runs.catalog import get_production_adapter_registry
+
+    register_production_graphs()
     from app.domain.agent_definitions import get_agent_definitions
 
     definitions = {item.task_type: item for item in get_agent_definitions()}
@@ -307,7 +319,6 @@ def test_production_agent_definitions_are_registered():
         "resume_workspace",
         "resume_generation",
         "interview_report",
-        "interview_experience_collect",
         "job_assets",
         "job_recommendation_capture",
         "evaluation_suite",
@@ -316,13 +327,11 @@ def test_production_agent_definitions_are_registered():
     assert definitions["interview_start"].checkpoint_policy == "durable"
     assert definitions["interview_turn"].checkpoint_policy == "durable"
     assert definitions["voice_interview_turn"].checkpoint_policy == "durable"
-    assert definitions["interview_experience_collect"].deprecated is True
     adapter_keys = set(get_production_adapter_registry().keys())
-    assert "interview_experience_collect" not in adapter_keys
     assert all(item.cancellation_policy == "cooperative" for item in definitions.values())
+    assert all(definition.adapter_key for definition in definitions.values())
+    assert {definition.adapter_key for definition in definitions.values()} == adapter_keys
     for definition in definitions.values():
-        if definition.deprecated:
-            continue
         if definition.graph_reference_mode == "required":
             assert definition.graph_name in graph_registry.names()
         else:

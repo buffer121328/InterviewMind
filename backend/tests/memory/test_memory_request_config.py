@@ -2,7 +2,7 @@
 
 import pytest
 from ai.memory import service as memory_service_module
-from ai.workflows.memory import MemoryUseCases
+from ai.workflows.memory.use_cases import MemoryUseCases
 
 
 @pytest.mark.asyncio
@@ -22,7 +22,7 @@ async def test_memory_list_passes_frontend_api_config_to_mem0_service(monkeypatc
         captured.append(api_config)
         return FakeMemoryService()
 
-    monkeypatch.setattr("ai.workflows.memory.get_agent_memory_service", fake_get_service)
+    monkeypatch.setattr("ai.workflows.memory.use_cases.get_agent_memory_service", fake_get_service)
     api_config = {
         "mem0_llm": {"api_key": "secret", "base_url": "https://llm.example/v1", "model": "memory"},
         "mem0_embedder": {"api_key": "secret", "base_url": "https://embed.example/v1", "model": "embed"},
@@ -101,7 +101,7 @@ async def test_memory_list_applies_canonical_user_projection(monkeypatch):
     async def fake_get_service(_api_config=None):
         return FakeMemoryService()
 
-    monkeypatch.setattr("ai.workflows.memory.get_agent_memory_service", fake_get_service)
+    monkeypatch.setattr("ai.workflows.memory.use_cases.get_agent_memory_service", fake_get_service)
 
     response = await MemoryUseCases().list_memories(
         user_id="user-1",
@@ -140,7 +140,7 @@ async def test_memory_search_applies_canonical_user_projection(monkeypatch):
     async def fake_get_service(_api_config=None):
         return FakeMemoryService()
 
-    monkeypatch.setattr("ai.workflows.memory.get_agent_memory_service", fake_get_service)
+    monkeypatch.setattr("ai.workflows.memory.use_cases.get_agent_memory_service", fake_get_service)
 
     response = await MemoryUseCases().search_memories(
         user_id="user-1",
@@ -156,7 +156,7 @@ async def test_memory_search_applies_canonical_user_projection(monkeypatch):
 @pytest.mark.asyncio
 async def test_memory_consolidation_requires_confirmation_and_passes_request_config(monkeypatch):
     """Historical mutation must be explicit and reuse request-scoped mem0 channels."""
-    from ai.workflows.memory import MemoryUseCaseError
+    from ai.workflows.memory.use_cases import MemoryUseCaseError
     from app.schemas.memory import MemoryConsolidateRequest
 
     captured = []
@@ -179,7 +179,7 @@ async def test_memory_consolidation_requires_confirmation_and_passes_request_con
         captured.append(api_config)
         return FakeMemoryService()
 
-    monkeypatch.setattr("ai.workflows.memory.get_agent_memory_service", fake_get_service)
+    monkeypatch.setattr("ai.workflows.memory.use_cases.get_agent_memory_service", fake_get_service)
     api_config = {
         "mem0_llm": {"api_key": "secret", "base_url": "https://llm.example/v1", "model": "memory"},
         "mem0_embedder": {"api_key": "secret", "base_url": "https://embed.example/v1", "model": "embed"},

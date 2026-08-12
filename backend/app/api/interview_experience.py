@@ -4,7 +4,7 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from ai.workflows.interview.experience_imports import (
+from ai.workflows.interview_experience.use_cases import (
     InterviewExperienceUseCaseError,
     interview_experience_import_use_cases,
 )

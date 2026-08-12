@@ -6,10 +6,11 @@
 import asyncio
 import logging
 from collections import Counter
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from ai.runtime.context_assembler import ContextAssembler, ContextSource
-from ai.runtime.deadlines import TaskDeadline
+from ai.runtime.context.assembler import ContextAssembler, ContextSource
+from ai.runtime.execution.deadlines import TaskDeadline
 from app.clock import utc_now
 from app.config import get_settings
 from app.db.repositories.session.session_repo import SessionRepo
@@ -208,7 +209,7 @@ class AbilityAnalysisService:
             *(name for name, score in sorted_dimensions[-2:] if score.score < 6),
         ]))[:5]
         average_score = sum(item.score for item in dimensions.values()) / len(_DIMENSIONS)
-        from ai.workflows.analysis.multi_reviewer import AbilityConsensusOutput
+        from ai.workflows.analysis.reviewers.multi_reviewer import AbilityConsensusOutput
 
         narrative = AbilityConsensusOutput(
             overall_assessment=f"综合能力时间加权均分 {average_score:.1f}/10。",
@@ -241,9 +242,8 @@ class AbilityAnalysisService:
             )
         ])
         try:
-            from ai.workflows.analysis.multi_reviewer import run_multi_reviewer_map_reduce
-
-            from ai.workflows.analysis.reviewer_contexts import select_ability_reviewers
+            from ai.workflows.analysis.reviewers.contexts import select_ability_reviewers
+            from ai.workflows.analysis.reviewers.multi_reviewer import run_multi_reviewer_map_reduce
 
             reviewer_perspectives = select_ability_reviewers(selected)
             if not reviewer_perspectives:

@@ -44,7 +44,7 @@ def _combined_output() -> SessionInterviewReportOutput:
 @pytest.mark.asyncio
 async def test_session_analysis_runs_four_parallel_reviewers_then_reduces(monkeypatch):
     """All four Send branches start independently before the consensus reducer runs."""
-    from ai.workflows.analysis.multi_reviewer import ReviewerAssessment
+    from ai.workflows.analysis.reviewers.multi_reviewer import ReviewerAssessment
 
     reviewer_started: list[str] = []
     all_started = asyncio.Event()
@@ -158,7 +158,7 @@ def test_weakness_output_accepts_missing_optional_model_fields():
 async def test_ability_profile_uses_same_parallel_reviewer_consensus(monkeypatch):
     """Cross-session ability narrative uses four perspective scores while local dimensions stay deterministic."""
     from ai.workflows.analysis.ability_service import AbilityAnalysisService
-    from ai.workflows.analysis.multi_reviewer import AbilityConsensusOutput, ReviewerAssessment
+    from ai.workflows.analysis.reviewers.multi_reviewer import AbilityConsensusOutput, ReviewerAssessment
 
     reviewer_calls: list[str] = []
 

@@ -9,12 +9,12 @@ from hashlib import sha256
 from typing import Any, Dict, List, Optional
 
 from ai.llm import llm_utils
-from ai.runtime.context_assembler import (
+from ai.runtime.context.assembler import (
     AssembledContext,
     ContextAssembler,
     ContextSource,
 )
-from ai.runtime.deadlines import TaskDeadline
+from ai.runtime.execution.deadlines import TaskDeadline
 from app.clock import utc_now
 from app.config import get_settings
 from app.schemas.candidate_profile import CandidateProfile, DimensionScore
@@ -157,7 +157,7 @@ class SessionReportAnalysisService:
         deadline: TaskDeadline,
     ) -> tuple[SessionInterviewReportOutput, list[QuestionEvidence], list[dict[str, Any]]]:
         """生成分析服务相关后端逻辑。"""
-        from ai.workflows.analysis.multi_reviewer import run_multi_reviewer_map_reduce
+        from ai.workflows.analysis.reviewers.multi_reviewer import run_multi_reviewer_map_reduce
 
         qa_text = self._format_qa(qa_history)
         assembled = self._assemble_report_context(
@@ -167,7 +167,7 @@ class SessionReportAnalysisService:
             qa_text=qa_text,
             include_qa=True,
         )
-        from ai.workflows.analysis.reviewer_contexts import build_reviewer_contexts
+        from ai.workflows.analysis.reviewers.contexts import build_reviewer_contexts
 
         reviewer_contexts = build_reviewer_contexts(
             resume=resume,
@@ -289,7 +289,7 @@ class SessionReportAnalysisService:
         deadline: TaskDeadline,
     ) -> tuple[SessionInterviewReportOutput, list[dict[str, Any]]]:
         """生成来源证据相关后端逻辑。"""
-        from ai.workflows.analysis.multi_reviewer import run_multi_reviewer_map_reduce
+        from ai.workflows.analysis.reviewers.multi_reviewer import run_multi_reviewer_map_reduce
 
         base_context = self._assemble_report_context(
             resume=resume,
@@ -339,7 +339,7 @@ class SessionReportAnalysisService:
                 truncation_strategy="head_tail",
             ),
         ])
-        from ai.workflows.analysis.reviewer_contexts import build_reviewer_contexts
+        from ai.workflows.analysis.reviewers.contexts import build_reviewer_contexts
 
         reviewer_contexts = build_reviewer_contexts(
             resume=resume,

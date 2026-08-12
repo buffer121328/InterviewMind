@@ -4,17 +4,19 @@ import hashlib
 import json
 from dataclasses import dataclass
 
-from ai.agents.resume.result_mapper import pipeline_to_optimize_result
-from ai.agents.resume.resume_generation_sessions import (
+from sqlalchemy.exc import SQLAlchemyError
+
+from ai.agents.resume.generation.sessions import (
     get_session_status,
     init_generation_session,
     submit_user_answers,
 )
+from ai.agents.resume.result_mapper import pipeline_to_optimize_result
 from ai.agents.resume.resume_review import public_review_state
 from ai.runtime.agent_runs.service import AgentRunService
 from ai.runtime.harness.contracts import SessionExecution
 from ai.runtime.harness.drivers import SessionDriver, SessionDriverConflict
-from ai.runtime.runtime_gate import get_run_gate
+from ai.runtime.execution.gate import get_run_gate
 from app.db.repositories.resume.resume_generation_repo import (
     get_generation_repo,
     session_store,
@@ -31,7 +33,6 @@ from app.schemas.resume_schemas import (
     ResumeGenerateSubmitResponse,
 )
 from observability import agent_observation
-from sqlalchemy.exc import SQLAlchemyError
 
 
 @dataclass(slots=True)

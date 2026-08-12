@@ -62,8 +62,8 @@ def test_growth_record_does_not_invent_trends_for_one_source() -> None:
 import pytest
 from unittest.mock import AsyncMock
 
-from ai.workflows import applications as application_module
-from ai.workflows.applications import ApplicationNotFound, ApplicationUseCases
+import ai.workflows.applications.use_cases as application_module
+from ai.workflows.applications.use_cases import ApplicationNotFound, ApplicationUseCases
 from app.schemas.job_application import ApplicationDetail, ApplicationResumeLinkRequest
 
 

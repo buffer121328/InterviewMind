@@ -54,7 +54,7 @@ async def test_company_profile_combines_three_rounds(monkeypatch):
         raise RuntimeError("model unavailable")
 
     monkeypatch.setattr(
-        "ai.workflows.analysis.multi_reviewer.run_multi_reviewer_map_reduce",
+        "ai.workflows.analysis.reviewers.multi_reviewer.run_multi_reviewer_map_reduce",
         no_model,
     )
     result = await AbilityAnalysisService().aggregate_company_profile(

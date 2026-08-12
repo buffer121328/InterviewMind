@@ -21,7 +21,7 @@ async def _run_interview_planner(
     """通过 EvaluationDriver 调用 `interview_start` production adapter。"""
 
     from ai.runtime.harness.contracts import DeferredExecutionResult
-    from ai.workflows.agent_tasks.registry import get_evaluation_driver
+    from ai.workflows.agent_runs.catalog import get_evaluation_driver
     from app.domain.agent_runs import TASK_TYPE_INTERVIEW_START
 
     trace.start_step("planning")
@@ -82,7 +82,7 @@ async def _run_resume_optimizer(
 ) -> Any:
     """调用真实六阶段简历优化流水线，不保存到正式简历结果表。"""
 
-    from ai.agents.resume.resume_orchestrator import run_pipeline
+    from ai.agents.resume.optimization.flow import run_pipeline
 
     trace.start_step("resume_optimize")
     try:
@@ -175,7 +175,7 @@ class CatalogEvaluationView:
 
     def __init__(self, *, catalog: Any = None, case_adapters: dict[str, EvaluationCaseAdapterSpec] | None = None) -> None:
         if catalog is None:
-            from ai.workflows.agent_tasks.registry import get_production_catalog
+            from ai.workflows.agent_runs.catalog import get_production_catalog
 
             catalog = get_production_catalog()
         self._catalog = catalog

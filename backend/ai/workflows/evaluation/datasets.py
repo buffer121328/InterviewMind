@@ -18,7 +18,7 @@ from app.security.payload_crypto import TaskPayloadConfigurationError
 from evaluation.builtins import BuiltinEvaluationAgent
 
 from ai.workflows.evaluation.serializers import _dataset, _dataset_case
-from ai.workflows.evaluation.service import EvaluationUseCaseError
+from ai.workflows.evaluation.contracts import EvaluationUseCaseError
 
 
 class DatasetUseCasesMixin:

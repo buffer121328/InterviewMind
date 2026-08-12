@@ -11,8 +11,8 @@ from ai.agents.interview.interview_analysis import (
 )
 from ai.agents.interview.questions.answer_points import ensure_plan_answer_points
 from ai.workflows.analysis.analysis_service import SessionReportAnalysisService
-from ai.workflows.analysis.reviewer_contexts import build_reviewer_contexts
-from ai.workflows.interview.session_actions import InterviewSessionUseCases
+from ai.workflows.analysis.reviewers.contexts import build_reviewer_contexts
+from ai.workflows.interview.sessions.actions import InterviewSessionUseCases
 from app.domain.interview_reports import build_structured_interview_report
 
 

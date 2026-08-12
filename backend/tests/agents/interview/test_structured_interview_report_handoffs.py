@@ -42,7 +42,7 @@ class FakeWeaknessRepo:
 
 @pytest.mark.asyncio
 async def test_session_report_returns_structured_fields_and_markdown(monkeypatch):
-    from ai.workflows.interview import reports
+    from ai.workflows.interview.reports import use_cases as reports
 
     use_cases = reports.InterviewReportUseCases()
     use_cases._session_repo = FakeSessionRepo()
@@ -59,7 +59,7 @@ async def test_session_report_returns_structured_fields_and_markdown(monkeypatch
 
 @pytest.mark.asyncio
 async def test_save_recommended_questions_uses_persisted_indices_and_is_idempotent(monkeypatch):
-    from ai.workflows.interview import reports
+    from ai.workflows.interview.reports import use_cases as reports
     from app.schemas.interview_report import SaveReportQuestionsRequest
 
     calls = []
@@ -88,7 +88,7 @@ async def test_save_recommended_questions_uses_persisted_indices_and_is_idempote
 
 @pytest.mark.asyncio
 async def test_save_recommended_questions_rejects_forged_index(monkeypatch):
-    from ai.workflows.interview import reports
+    from ai.workflows.interview.reports import use_cases as reports
     from app.schemas.interview_report import SaveReportQuestionsRequest
 
     use_cases = reports.InterviewReportUseCases()

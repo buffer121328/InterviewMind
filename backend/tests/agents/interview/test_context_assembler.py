@@ -1,6 +1,6 @@
 """ContextAssembler 的上下文隔离、预算和召回审计测试。"""
 
-from ai.runtime.context_assembler import (
+from ai.runtime.context.assembler import (
     DEFAULT_AGENT_CONTEXT_BUDGETS,
     ContextAssembler,
     ContextSource,

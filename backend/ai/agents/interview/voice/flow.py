@@ -16,7 +16,7 @@ from ai.prompts.voice import (
 from ai.prompts.voice import (
     get_opening_message as _get_opening_message,
 )
-from ai.runtime.deadlines import TaskDeadline, TaskDeadlineExceeded
+from ai.runtime.execution.deadlines import TaskDeadline, TaskDeadlineExceeded
 from app.config import get_settings
 from app.db.repositories.session.session_repo import SessionRepo
 from observability import agent_observation
@@ -280,7 +280,7 @@ async def node_greeting(state: VoiceInterviewState) -> AsyncGenerator[str, None]
         yield f"data: {json.dumps({'type': 'done', 'text': text_response}, ensure_ascii=False)}\n\n"
 
         # 异步保存开场白消息
-        from ai.runtime.background_tasks import create_background_task
+        from ai.runtime.execution.background import create_background_task
         create_background_task(
             save_message_async(session_id, "assistant", text_response, user_id=user_id),
             name=f"voice-save-opening:{session_id}"
@@ -423,10 +423,10 @@ async def node_responder(state: VoiceInterviewState) -> AsyncGenerator[str, None
 
         # 如果面试已完成，发送对应标志并更新状态（画像分析在总结节点或手动调用时统一触发）
         if is_complete:
-            from ai.workflows.interview.completion import handle_interview_complete
+            from ai.workflows.interview.lifecycle.completion import handle_interview_complete
             yield f"data: {json.dumps({'type': 'complete'}, ensure_ascii=False)}\n\n"
             # 完成后直接触发统一结构化报告，不再依赖额外的文字总结入口。
-            from ai.runtime.background_tasks import create_background_task
+            from ai.runtime.execution.background import create_background_task
             create_background_task(handle_interview_complete(
                 session_id=session_id,
                 api_config=api_config,

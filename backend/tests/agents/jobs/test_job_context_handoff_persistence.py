@@ -82,7 +82,7 @@ async def test_owned_snapshot_keeps_edits_but_locks_source_identity(monkeypatch)
 @pytest.mark.asyncio
 async def test_interview_start_persists_actual_job_snapshot(monkeypatch):
     """文字面试创建会话时保存来源岗位与编辑后的实际快照。"""
-    from ai.workflows.agent_tasks import interview_start
+    from ai.workflows.agent_runs.tasks.interview import start as interview_start
 
     created: dict = {}
     title_args: dict = {}
@@ -164,7 +164,7 @@ async def test_interview_start_persists_actual_job_snapshot(monkeypatch):
 @pytest.mark.asyncio
 async def test_voice_start_persists_actual_job_snapshot(monkeypatch):
     """语音面试的新会话与文字入口保持相同的来源快照契约。"""
-    from ai.workflows.interview import voice
+    from ai.workflows.interview.voice import use_cases as voice
     from app.schemas.voice import VoiceStartRequest
 
     created: dict = {}

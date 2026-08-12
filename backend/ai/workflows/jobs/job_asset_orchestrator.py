@@ -15,7 +15,7 @@
 import logging
 from typing import Any, Dict, List, Optional
 
-from ai.runtime.deadlines import TaskDeadline
+from ai.runtime.execution.deadlines import TaskDeadline
 from app.config import get_settings
 from app.schemas.job_schemas import AssetPackage, GreetingItem
 
@@ -62,7 +62,7 @@ async def generate_assets(
     risk_flags: List[str] = []
     messages: List[str] = []
 
-    from ai.runtime.guardrails import persist_guardrail_decision, screen_untrusted_text
+    from ai.runtime.safety.guardrails import persist_guardrail_decision, screen_untrusted_text
 
     jd_decision = screen_untrusted_text(
         job_description,
@@ -130,7 +130,7 @@ async def generate_assets(
     custom_resume_id = None
     custom_resume_preview = None
     try:
-        from ai.agents.resume.resume_generation_sessions import init_generation_session
+        from ai.agents.resume.generation.sessions import init_generation_session
 
         # 构建优化提示
         optimization_hints: Dict[str, Any] = {}

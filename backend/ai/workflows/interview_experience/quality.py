@@ -6,7 +6,7 @@ from typing import Any
 from ai.agents.interview.questions.answer_points import normalize_answer_points
 from ai.llm.llm_utils import invoke_structured
 from ai.prompts.interview_experience import build_experience_governance_prompt
-from ai.runtime.deadlines import TaskDeadline
+from ai.runtime.execution.deadlines import TaskDeadline
 from app.config import get_settings
 from app.schemas.interview_experience import (
     ExperienceGovernanceOutput,

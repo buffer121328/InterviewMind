@@ -7,8 +7,8 @@ from langchain_core.messages import HumanMessage
 
 from ai.llm import llms
 from ai.prompts.resume import build_material_extraction_prompt
-from ai.runtime.context_assembler import ContextAssembler, ContextSource
-from ai.runtime.deadlines import TaskDeadline
+from ai.runtime.context.assembler import ContextAssembler, ContextSource
+from ai.runtime.execution.deadlines import TaskDeadline
 from app.config import get_settings
 from app.db.repositories.resume.candidate_material_repo import (
     get_candidate_material_repo,

@@ -10,7 +10,7 @@ from ai.agents.resume.resume_assembler import (
     save_assembly_result,
     select_materials_for_jd,
 )
-from ai.runtime.deadlines import TaskDeadline
+from ai.runtime.execution.deadlines import TaskDeadline
 from app.config import get_settings
 
 

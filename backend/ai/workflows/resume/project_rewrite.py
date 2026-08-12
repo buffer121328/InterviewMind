@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 
 from ai.agents.resume.project_rewriter import rewrite_project
-from ai.runtime.deadlines import TaskDeadline
+from ai.runtime.execution.deadlines import TaskDeadline
 from app.config import get_settings
 from app.db.repositories.resume.project_rewrite_repo import get_project_rewrite_repo
 from app.schemas.project_rewrite_schemas import (

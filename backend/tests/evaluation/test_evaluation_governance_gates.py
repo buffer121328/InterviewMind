@@ -8,15 +8,15 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from ai.workflows.evaluation.service import (
-    EvaluationUseCaseError,
+from ai.workflows.evaluation.analytics import (
+    _is_unacceptable_regression,
     _latest_agreement,
     _metric_average,
-    _is_unacceptable_regression,
     _passes_threshold,
     _trend_point,
     _weighted_success_rate,
 )
+from ai.workflows.evaluation.contracts import EvaluationUseCaseError
 from app.schemas.evaluations import EvaluationGatePolicyCreateRequest
 
 

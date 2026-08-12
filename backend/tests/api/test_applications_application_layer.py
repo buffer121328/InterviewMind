@@ -31,7 +31,7 @@ def test_applications_api_uses_workflow_layer_instead_of_repositories():
 async def test_add_event_to_application_uses_unit_of_work_session(monkeypatch):
     from types import SimpleNamespace
 
-    from ai.workflows import applications
+    from ai.workflows.applications import use_cases as applications
 
     fake_session = object()
     calls = []

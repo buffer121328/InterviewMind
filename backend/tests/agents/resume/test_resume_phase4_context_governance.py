@@ -108,7 +108,7 @@ def test_absent_capability_is_not_promoted_to_resume_fact():
 @pytest.mark.asyncio
 async def test_generation_fact_check_uses_compact_facts_not_raw_resume_tail(monkeypatch):
     """Fact check consumes bounded facts and change output rather than the complete raw resume."""
-    from ai.agents.resume import resume_generation_graph as graph
+    from ai.agents.resume.generation import graph
     from app.schemas.llm_outputs import FactCheckOutput
 
     captured: dict[str, Any] = {}
@@ -121,7 +121,7 @@ async def test_generation_fact_check_uses_compact_facts_not_raw_resume_tail(monk
         assert output_model is FactCheckOutput
         return FactCheckOutput(is_excessive=False, risk_details=[])
 
-    monkeypatch.setattr("ai.agents.resume.resume_generation_review.invoke_structured", fake_invoke)
+    monkeypatch.setattr("ai.agents.resume.generation.review.invoke_structured", fake_invoke)
     raw_resume = "Python 后端经验\n" + "A" * 12_000 + "RAW_RESUME_TAIL_MARKER"
     result = await graph.node_fact_check({
         "resume_content": raw_resume,
@@ -141,8 +141,9 @@ async def test_generation_fact_check_uses_compact_facts_not_raw_resume_tail(monk
 @pytest.mark.asyncio
 async def test_workspace_parallel_branches_share_deadline_and_preserve_success(monkeypatch):
     """Both analyses start concurrently and one failure cannot overwrite the successful branch."""
-    from ai.agents.resume import jd_matcher, resume_analyzer_graph, resume_orchestrator
-    from ai.workflows.agent_tasks import resume_workspace
+    from ai.agents.resume import jd_matcher, resume_analyzer_graph
+    from ai.agents.resume.optimization import flow as resume_orchestrator
+    from ai.workflows.agent_runs.tasks.resume import workspace as resume_workspace
 
     started: set[str] = set()
     both_started = asyncio.Event()

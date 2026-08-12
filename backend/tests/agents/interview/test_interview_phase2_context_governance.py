@@ -12,7 +12,7 @@ from ai.agents.interview.planning.context import (
     build_previous_round_digest,
     clear_interview_fact_cache,
 )
-from ai.runtime.deadlines import TaskDeadline
+from ai.runtime.execution.deadlines import TaskDeadline
 from app.schemas.interview import EvaluatingOutput
 from app.schemas.llm_outputs import PlanOutput
 

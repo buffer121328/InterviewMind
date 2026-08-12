@@ -93,7 +93,7 @@ def test_evaluation_blocks_authoritative_context_truncation() -> None:
 
 def test_fixed_dataset_baseline_comparison_rejects_incomparable_runs() -> None:
     """Dataset or Agent mismatches are explicit and never reported as improvements."""
-    from ai.workflows.agent_tasks.evaluation_suite import build_baseline_comparison
+    from ai.workflows.agent_runs.tasks.evaluation.evaluation_suite import build_baseline_comparison
 
     comparison = build_baseline_comparison(
         current_summary={"metrics": {"quality": 1.0}, "complete_success_rate": 1.0, "p95_latency_ms": 10, "token_total": 10},
@@ -109,7 +109,7 @@ def test_fixed_dataset_baseline_comparison_rejects_incomparable_runs() -> None:
 
 def test_fixed_dataset_baseline_comparison_reports_real_deltas() -> None:
     """Comparable fixed-dataset runs expose measured deltas and both config hashes."""
-    from ai.workflows.agent_tasks.evaluation_suite import build_baseline_comparison
+    from ai.workflows.agent_runs.tasks.evaluation.evaluation_suite import build_baseline_comparison
 
     comparison = build_baseline_comparison(
         current_summary={"metrics": {"model.timeout_rate": 0.0}, "complete_success_rate": 1.0, "p95_latency_ms": 80, "token_total": 80},

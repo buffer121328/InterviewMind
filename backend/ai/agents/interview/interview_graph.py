@@ -415,7 +415,7 @@ async def node_summary(state: InterviewState):
     候选人可见结束语已经由 responder 以固定文案输出；此节点不再追加
     一段文字总结，避免面试问答末尾出现两份互相重复的反馈。
     """
-    from ai.workflows.interview.completion import handle_interview_complete
+    from ai.workflows.interview.lifecycle.completion import handle_interview_complete
 
     session_id = state.get("session_id")
     api_config = state.get("api_config")

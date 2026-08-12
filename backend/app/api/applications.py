@@ -9,7 +9,7 @@ from typing import Optional, TypeVar
 
 from fastapi import APIRouter, Header, HTTPException, Query
 
-from ai.workflows.applications import (
+from ai.workflows.applications.use_cases import (
     ApplicationDeleteFailed,
     ApplicationNotFound,
     ApplicationUseCaseError,

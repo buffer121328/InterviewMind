@@ -13,12 +13,12 @@ from collections.abc import Awaitable, Callable
 from hashlib import sha256
 from typing import Any, Dict, Optional
 
-from ai.runtime.context_assembler import (
+from ai.runtime.context.assembler import (
     AssembledContext,
     ContextAssembler,
     ContextSource,
 )
-from ai.runtime.deadlines import TaskDeadline
+from ai.runtime.execution.deadlines import TaskDeadline
 from app.config import get_settings
 from integrations.boss.existing_tab_bridge import normalize_company_size_text
 from integrations.boss.security import (
@@ -27,8 +27,8 @@ from integrations.boss.security import (
     is_valid_boss_search_card,
 )
 
-from .job_capture_log import JobCaptureTextLog
-from .job_capture_persistence import normalize_and_save_job as _normalize_and_save
+from .capture.job_capture_log import JobCaptureTextLog
+from .capture.job_capture_persistence import normalize_and_save_job as _normalize_and_save
 
 logger = logging.getLogger(__name__)
 
@@ -255,7 +255,7 @@ async def capture_from_imported_cards(
     上游桥接不启动浏览器或复制 profile；本函数不接收 Cookie、HTML 或认证信息，
     只接收最多 20 张经过 URL 白名单约束的有限字段岗位卡片。
     """
-    from ai.agents.jobs.resume_skills import extract_professional_skills
+    from ai.agents.resume.resume_extract import extract_professional_skills
 
     resume_content = extract_professional_skills(resume_content).content
     capture_log = JobCaptureTextLog(run_id or "untracked")

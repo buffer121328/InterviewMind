@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from ai.runtime.harness.contracts import ExecutionContext
-from ai.workflows.agent_tasks.adapters import InterviewStartExecutionAdapter
+from ai.workflows.agent_runs.adapters import InterviewStartExecutionAdapter
 from app.domain.agent_definitions import get_agent_definition
 
 
@@ -119,7 +119,7 @@ def test_eval_interview_planner_view_uses_authoritative_versions() -> None:
 
 @pytest.mark.asyncio
 async def test_queue_disabled_interview_start_uses_inline_harness_and_keeps_response(monkeypatch) -> None:
-    from ai.workflows import agent_runs as workflow
+    from ai.workflows.agent_runs import use_cases as workflow
 
     calls = []
 

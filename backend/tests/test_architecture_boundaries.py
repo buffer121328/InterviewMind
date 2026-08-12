@@ -3,7 +3,6 @@
 import ast
 from pathlib import Path
 
-
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 BACKEND_APP = BACKEND_ROOT / "app"
 BACKEND_AI = BACKEND_ROOT / "ai"
@@ -92,6 +91,16 @@ def test_code_does_not_import_removed_migration_modules():
         "ai.agents.resume_generator",
         "ai.agents.resume_optimizer",
         "ai.runtime.memory",
+        "ai.runtime.models.policies",
+        "ai.runtime.authoritative_context",
+        "ai.runtime.background_tasks",
+        "ai.runtime.call_budgets",
+        "ai.runtime.context_assembler",
+        "ai.runtime.deadlines",
+        "ai.runtime.error_classification",
+        "ai.runtime.evidence",
+        "ai.runtime.guardrails",
+        "ai.runtime.runtime_gate",
         "ai.prompts.runtime",
         "ai.tools.runtime",
     )
@@ -148,8 +157,31 @@ def test_agents_do_not_depend_on_agent_run_runtime():
     assert violations == []
 
 
+def test_runtime_graph_registry_does_not_import_business_agents():
+    """通用图注册表不应反向导入具体业务 Agent。"""
+
+    violations: list[str] = []
+    for path in (BACKEND_AI / "runtime" / "graphs").rglob("*.py"):
+        for module in _imports(path):
+            if module.startswith("ai.agents"):
+                violations.append(f"{path.relative_to(BACKEND_ROOT)} -> {module}")
+    assert violations == []
+
+
+def test_agent_run_runtime_does_not_depend_on_workflow_composition():
+    """持久化 AgentRun runtime 不得反向依赖 production queue/workflow 组合。"""
+
+    violations: list[str] = []
+    forbidden = ("ai.workflows",)
+    for path in (BACKEND_AI / "runtime" / "agent_runs").rglob("*.py"):
+        for module in _imports(path):
+            if module.startswith(forbidden):
+                violations.append(f"{path.relative_to(BACKEND_ROOT)} -> {module}")
+    assert violations == []
+
+
 def test_agent_run_runtime_does_not_host_business_agent_tasks():
-    """AgentRun runtime 只负责状态/队列；具体业务任务应放在 workflows.agent_tasks。"""
+    """AgentRun runtime 只负责状态/队列；具体业务任务应放在 workflows.agent_runs.tasks。"""
     violations: list[str] = []
     allowed: set[str] = set()
     for path in (BACKEND_AI / "runtime" / "agent_runs").rglob("*.py"):
@@ -163,10 +195,18 @@ def test_agent_run_runtime_does_not_host_business_agent_tasks():
 
 def test_agent_task_registry_uses_domain_task_constants_not_runtime_service():
     """任务注册表不应为拿常量而依赖 AgentRunService，避免 worker 启动期耦合。"""
-    registry = BACKEND_AI / "workflows" / "agent_tasks" / "registry.py"
+    registry = BACKEND_AI / "workflows" / "agent_runs" / "catalog.py"
     forbidden = ("ai.runtime.agent_runs.service",)
     violations = [module for module in _imports(registry) if module.startswith(forbidden)]
     assert violations == []
+
+
+def test_interview_completion_uses_agent_run_submission_seam():
+    """业务完成流程只依赖窄提交接口，不直接耦合队列 worker。"""
+    path = BACKEND_AI / "workflows" / "interview" / "lifecycle" / "completion.py"
+    modules = _imports(path)
+    assert "ai.workflows.agent_runs.queue.submission" in modules
+    assert not any(module.endswith(".queue.worker") for module in modules)
 
 
 def test_agent_runs_api_uses_workflow_and_domain_not_runtime_service():
@@ -252,3 +292,44 @@ def test_evaluation_repository_is_split_by_persistence_concern():
     }
     assert method_names == {"_case_model", "create_candidate_dataset_from_case_run"}
     assert len(repository_path.read_text().splitlines()) < 160
+
+
+def test_workflows_root_contains_only_package_metadata():
+    """具体 workflow 实现必须归属于显式业务域或组合子包。"""
+    root_modules = {
+        path.name
+        for path in (BACKEND_AI / "workflows").iterdir()
+        if path.is_file() and path.suffix == ".py" and path.name != "__init__.py"
+    }
+    assert root_modules == set()
+
+
+def test_agents_and_tools_do_not_import_http_memory_workflow():
+    """Agent/Tool 的 owner-scoped memory 能力不应依赖 HTTP 管理用例。"""
+    violations: list[str] = []
+    for root in (BACKEND_AI / "agents", BACKEND_AI / "tools"):
+        for path in root.rglob("*.py"):
+            for module in _imports(path):
+                if module in {
+                    "ai.workflows.memory",
+                    "ai.workflows.memory.use_cases",
+                }:
+                    violations.append(f"{path.relative_to(BACKEND_ROOT)} -> {module}")
+    assert violations == []
+
+
+def test_workflow_domain_packages_have_explicit_init_modules():
+    """Moved root-level workflow domains expose explicit package boundaries."""
+    expected = {
+        "applications",
+        "configuration",
+        "memory",
+        "prompts",
+        "agent_runs",
+    }
+    actual = {
+        path.name
+        for path in (BACKEND_AI / "workflows").iterdir()
+        if path.is_dir() and (path / "__init__.py").exists()
+    }
+    assert expected <= actual

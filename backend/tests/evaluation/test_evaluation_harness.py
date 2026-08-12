@@ -342,7 +342,7 @@ def test_worker_governance_counts_cover_tool_dependency_approval_and_retrieval()
 def test_langfuse_failure_marks_observability_degraded_without_changing_case_status() -> None:
     """Langfuse Score 失败只修改观测降级字段，业务成功和本地分数保持不变。"""
 
-    from ai.workflows.agent_tasks.evaluation_suite import _apply_langfuse_report_status
+    from ai.workflows.agent_runs.tasks.evaluation.evaluation_suite import _apply_langfuse_report_status
 
     record = AgentEvalRunner.minimal_record_for_test(
         case=EvaluationCaseSpec(

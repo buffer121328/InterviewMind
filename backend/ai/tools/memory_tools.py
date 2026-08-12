@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 async def search_memory(user_id: str, query: str, limit: int = 5, api_config: dict | None = None) -> List[Dict[str, Any]]:
     """搜索候选人的长期记忆。"""
     try:
-        from ai.workflows.memory import get_owner_memory_service
+        from ai.memory.access import get_owner_memory_service
 
         service = await get_owner_memory_service(user_id, api_config)
         if not service.is_enabled:

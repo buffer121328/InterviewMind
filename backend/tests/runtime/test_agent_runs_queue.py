@@ -14,7 +14,7 @@ from app.schemas.schemas import InterviewStartRequest
 @pytest.mark.asyncio
 async def test_recommendation_capture_is_rate_limited_before_run_creation():
     """过密的 BOSS 推荐采集请求不应进入队列等待执行。"""
-    from ai.workflows import agent_runs as workflow
+    from ai.workflows.agent_runs import use_cases as workflow
 
     use_cases = workflow.AgentRunUseCases()
     create_queued_run = AsyncMock()
@@ -36,7 +36,7 @@ async def test_recommendation_capture_is_rate_limited_before_run_creation():
 
 @pytest.mark.asyncio
 async def test_automatic_interview_report_run_uses_session_id_for_grouping(monkeypatch):
-    from ai.workflows.interview import completion
+    from ai.workflows.interview.lifecycle import completion
 
     created_kwargs = {}
 
@@ -61,8 +61,8 @@ async def test_automatic_interview_report_run_uses_session_id_for_grouping(monke
 
 @pytest.mark.asyncio
 async def test_queued_start_dispatches_only_run_id(monkeypatch):
+    from ai.workflows.agent_runs import use_cases as agent_run_workflow
     from app.api import agent_runs
-    from ai.workflows import agent_runs as agent_run_workflow
 
     now = datetime.now()
     run = AgentRunModel(
@@ -112,8 +112,8 @@ async def test_queued_start_dispatches_only_run_id(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_queued_start_keeps_run_retryable_when_outbox_dispatch_fails(monkeypatch):
+    from ai.workflows.agent_runs import use_cases as agent_run_workflow
     from app.api import agent_runs
-    from ai.workflows import agent_runs as agent_run_workflow
 
     now = datetime.now()
     run = AgentRunModel(
@@ -154,8 +154,8 @@ async def test_queued_start_keeps_run_retryable_when_outbox_dispatch_fails(monke
 
 @pytest.mark.asyncio
 async def test_existing_queued_run_is_not_dispatched_twice(monkeypatch):
+    from ai.workflows.agent_runs import use_cases as agent_run_workflow
     from app.api import agent_runs
-    from ai.workflows import agent_runs as agent_run_workflow
 
     now = datetime.now()
     run = AgentRunModel(
@@ -196,7 +196,7 @@ async def test_existing_queued_run_is_not_dispatched_twice(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_interview_report_run_uses_owned_session_id(monkeypatch):
-    from ai.workflows import agent_runs as agent_run_workflow
+    from ai.workflows.agent_runs import use_cases as agent_run_workflow
 
     use_cases = agent_run_workflow.AgentRunUseCases()
     created_kwargs = {}
@@ -224,7 +224,7 @@ async def test_interview_report_run_uses_owned_session_id(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_interview_report_rejects_unowned_session_before_creating_run(monkeypatch):
-    from ai.workflows import agent_runs as agent_run_workflow
+    from ai.workflows.agent_runs import use_cases as agent_run_workflow
 
     use_cases = agent_run_workflow.AgentRunUseCases()
 
@@ -247,7 +247,7 @@ async def test_interview_report_rejects_unowned_session_before_creating_run(monk
 
 @pytest.mark.asyncio
 async def test_recovery_loop_dispatches_recovered_runs(monkeypatch):
-    from ai.runtime.agent_runs import recovery
+    from ai.workflows.agent_runs.queue import recovery
 
     dispatch_calls = []
 
@@ -255,7 +255,7 @@ async def test_recovery_loop_dispatches_recovered_runs(monkeypatch):
         async def recover_all_stale_runs(self, limit=200):
             return [SimpleNamespace(id="run-recovered")]
 
-    async def dispatch_pending_outbox(*, limit):
+    async def dispatch_pending_outbox(*, limit, enqueue_fn):
         dispatch_calls.append(limit)
         return 1, 0
 
@@ -275,7 +275,7 @@ async def test_recovery_loop_dispatches_recovered_runs(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_recovery_loop_marks_failed_dispatch_and_continues(monkeypatch):
-    from ai.runtime.agent_runs import recovery
+    from ai.workflows.agent_runs.queue import recovery
 
     dispatch_calls: list[int] = []
 
@@ -286,7 +286,7 @@ async def test_recovery_loop_marks_failed_dispatch_and_continues(monkeypatch):
         async def fail(self, *_args):
             raise AssertionError("Outbox 投递失败不应直接 fail run")
 
-    async def dispatch_pending_outbox(*, limit):
+    async def dispatch_pending_outbox(*, limit, enqueue_fn):
         dispatch_calls.append(limit)
         return 1, 1
 
@@ -307,8 +307,8 @@ async def test_recovery_loop_marks_failed_dispatch_and_continues(monkeypatch):
 @pytest.mark.asyncio
 async def test_inline_mode_persists_agent_run_and_deferred_result(monkeypatch):
     """Queue-disabled development mode still writes the AgentRun shown by Run Center."""
-    from ai.workflows import agent_runs as workflow
-    from ai.workflows.agent_tasks.types import DeferredExecutionResult
+    from ai.workflows.agent_runs import use_cases as workflow
+    from ai.workflows.agent_runs.contracts import DeferredExecutionResult
 
     run = SimpleNamespace(id="inline-run-1", status="running", stage="preparing", result=None)
     calls: list[tuple[str, object]] = []

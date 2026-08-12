@@ -128,7 +128,7 @@ class TestJobDeduper:
 
     @pytest.mark.asyncio
     async def test_is_duplicate_true(self):
-        from ai.workflows.jobs.job_deduper import is_duplicate
+        from ai.workflows.jobs.capture.job_deduper import is_duplicate
 
         with patch(
             "app.db.repositories.jobs.job_capture_repo.get_job_capture_repo"
@@ -142,7 +142,7 @@ class TestJobDeduper:
 
     @pytest.mark.asyncio
     async def test_is_duplicate_false(self):
-        from ai.workflows.jobs.job_deduper import is_duplicate
+        from ai.workflows.jobs.capture.job_deduper import is_duplicate
 
         with patch(
             "app.db.repositories.jobs.job_capture_repo.get_job_capture_repo"
@@ -155,12 +155,12 @@ class TestJobDeduper:
             assert result is False
 
     def test_similarity_exact_match(self):
-        from ai.workflows.jobs.job_deduper import _calculate_similarity
+        from ai.workflows.jobs.capture.job_deduper import _calculate_similarity
         sim = _calculate_similarity("字节跳动", "Java开发", "字节跳动", "Java开发")
         assert sim == 1.0
 
     def test_similarity_different(self):
-        from ai.workflows.jobs.job_deduper import _calculate_similarity
+        from ai.workflows.jobs.capture.job_deduper import _calculate_similarity
         sim = _calculate_similarity("字节跳动", "Java开发", "阿里巴巴", "Python开发")
         assert sim < 0.5
 
@@ -345,7 +345,7 @@ class TestJobCaptureService:
     @pytest.mark.asyncio
     async def test_persistence_rejects_empty_or_navigation_job(self):
         """The shared persistence boundary rejects malformed jobs from any collector."""
-        from ai.workflows.jobs.job_capture_persistence import (
+        from ai.workflows.jobs.capture.job_capture_persistence import (
             normalize_and_save_job,
         )
 
@@ -514,7 +514,7 @@ async def test_dom_import_filters_internships_before_persistence():
 @pytest.mark.asyncio
 async def test_normalize_persistence_preserves_salary_company_size_and_match_score():
     """DOM 已校验强字段应直接持久化，不得再被二次 LLM 抽取覆盖。"""
-    from ai.workflows.jobs.job_capture_persistence import normalize_and_save_job
+    from ai.workflows.jobs.capture.job_capture_persistence import normalize_and_save_job
 
     fake_repo = MagicMock()
     fake_repo.find_by_hash = AsyncMock(return_value=None)

@@ -22,7 +22,7 @@ from app.schemas.memory import (
     MemoryUpdateRequest,
     MemoryWriteResponse,
 )
-from ai.workflows.memory import MemoryUseCaseError, memory_use_cases
+from ai.workflows.memory.use_cases import MemoryUseCaseError, memory_use_cases
 
 logger = logging.getLogger(__name__)
 

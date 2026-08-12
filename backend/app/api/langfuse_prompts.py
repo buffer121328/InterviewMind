@@ -6,7 +6,7 @@ from typing import Annotated
 from typing import TypeVar
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from ai.workflows.langfuse_prompt_management import (
+from ai.workflows.prompts.management import (
     LangfusePromptManagementService,
     PromptManagementRemoteError,
     PromptManagementUnavailable,

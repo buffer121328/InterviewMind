@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from ai.workflows.interview.stream import ChatStreamUseCases
+from ai.workflows.interview.chat.stream import ChatStreamUseCases
 
 
 class _Chunk:
