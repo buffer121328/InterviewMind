@@ -183,11 +183,11 @@ class TestJobCaptureService:
         score_cards = AsyncMock(side_effect=lambda **kwargs: kwargs["cards"])
         with (
             patch(
-                "ai.workflows.jobs.job_capture_service._normalize_and_save",
+                "ai.workflows.jobs.capture.imports.normalize_and_save_job",
                 new=normalize_job,
             ),
             patch(
-                "ai.workflows.jobs.job_capture_service._score_job_cards_by_match",
+                "ai.workflows.jobs.capture.scoring.score_job_cards_by_match",
                 new=score_cards,
             ),
             patch(
@@ -244,7 +244,7 @@ class TestJobCaptureService:
         }
         normalize_job = AsyncMock()
         with patch(
-            "ai.workflows.jobs.job_capture_service._normalize_and_save",
+            "ai.workflows.jobs.capture.imports.normalize_and_save_job",
             new=normalize_job,
         ):
             result = await job_capture_service.capture_from_imported_cards(
@@ -269,11 +269,11 @@ class TestJobCaptureService:
         score_cards = AsyncMock(side_effect=lambda **kwargs: kwargs["cards"])
         with (
             patch(
-                "ai.workflows.jobs.job_capture_service._normalize_and_save",
+                "ai.workflows.jobs.capture.imports.normalize_and_save_job",
                 new=normalize_job,
             ),
             patch(
-                "ai.workflows.jobs.job_capture_service._score_job_cards_by_match",
+                "ai.workflows.jobs.capture.scoring.score_job_cards_by_match",
                 new=score_cards,
             ),
             patch(
@@ -310,11 +310,11 @@ class TestJobCaptureService:
         normalize_job = AsyncMock(return_value={"success": True, "job_id": 7})
         with (
             patch(
-                "ai.workflows.jobs.job_capture_service._score_job_cards_by_match",
+                "ai.workflows.jobs.capture.scoring.score_job_cards_by_match",
                 new=score_cards,
             ),
             patch(
-                "ai.workflows.jobs.job_capture_service._normalize_and_save",
+                "ai.workflows.jobs.capture.imports.normalize_and_save_job",
                 new=normalize_job,
             ),
             patch(
@@ -452,7 +452,7 @@ def test_existing_tab_capture_request_requires_query_and_numeric_city_code():
 async def test_resume_keyword_fallback_ranks_relevant_job_when_model_scoring_fails(monkeypatch):
     """Fast 模型不可用时仍按基础简历与岗位的透明关键词重合度排序。"""
     from ai.llm import llms
-    from ai.workflows.jobs.job_capture_service import _score_job_cards_by_match
+    from ai.workflows.jobs.capture.scoring import score_job_cards_by_match
 
     cards = [
         {
@@ -476,7 +476,7 @@ async def test_resume_keyword_fallback_ranks_relevant_job_when_model_scoring_fai
         lambda **_kwargs: "bounded scoring prompt",
     )
 
-    ranked = await _score_job_cards_by_match(
+    ranked = await score_job_cards_by_match(
         cards,
         resume_content="熟悉 Python、Django、FastAPI、Agent、Redis、Docker",
         query="Agent 后端工程师",
@@ -494,7 +494,7 @@ async def test_dom_import_filters_internships_before_persistence():
 
     normalize_job = AsyncMock(return_value={"success": True, "job_id": 7})
     with patch(
-        "ai.workflows.jobs.job_capture_service._normalize_and_save",
+        "ai.workflows.jobs.capture.imports.normalize_and_save_job",
         new=normalize_job,
     ):
         result = await capture_from_imported_cards(

@@ -417,11 +417,9 @@ class JobsUseCases:
         保存仅执行 owner 绑定、标准化和来源哈希去重；模型分析、Greeting 与
         Resume Generation 必须由用户在对应工作台显式启动。
         """
-        from ai.workflows.jobs.job_capture_service import (
-            import_cards_to_library as _import_cards_to_library,
-        )
+        from ai.workflows.jobs.capture import imports as capture_imports
 
-        return await _import_cards_to_library(
+        return await capture_imports.import_cards_to_library(
             user_id=user_id,
             cards=[card.model_dump() for card in request.cards],
             city=request.city,

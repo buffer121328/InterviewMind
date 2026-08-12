@@ -36,7 +36,7 @@ class TestDeterministicImport:
         from ai.runtime.agent_runs import outbox
         from ai.runtime.agent_runs import service as run_service_module
         from ai.workflows.jobs import job_asset_orchestrator
-        from ai.workflows.jobs.job_capture_service import import_cards_to_library
+        from ai.workflows.jobs.capture.imports import import_cards_to_library
 
         create_or_get = AsyncMock()
         dispatch_pending = AsyncMock()
@@ -47,7 +47,7 @@ class TestDeterministicImport:
         monkeypatch.setattr(run_service_module, "task_queue_enabled", lambda: True)
 
         with patch(
-            "ai.workflows.jobs.job_capture_service._normalize_and_save",
+            "ai.workflows.jobs.capture.imports.normalize_and_save_job",
             new=AsyncMock(return_value={"success": True, "job_id": 7}),
         ):
             result = await import_cards_to_library(
@@ -83,7 +83,7 @@ class TestDeterministicImport:
         """批量入库上限场景保存 20 个岗位且不放大为 20 个资产任务。"""
         from ai.runtime.agent_runs import service as run_service_module
         from ai.workflows.jobs import job_asset_orchestrator
-        from ai.workflows.jobs.job_capture_service import import_cards_to_library
+        from ai.workflows.jobs.capture.imports import import_cards_to_library
 
         create_or_get = AsyncMock()
         generate_assets = AsyncMock()
@@ -94,7 +94,7 @@ class TestDeterministicImport:
             side_effect=[{"success": True, "job_id": index} for index in range(1, 21)]
         )
         with patch(
-            "ai.workflows.jobs.job_capture_service._normalize_and_save",
+            "ai.workflows.jobs.capture.imports.normalize_and_save_job",
             new=normalize,
         ):
             result = await import_cards_to_library(
@@ -112,10 +112,10 @@ class TestDeterministicImport:
     @pytest.mark.asyncio
     async def test_import_reuses_existing_job_and_counts_duplicate(self):
         """按来源哈希去重时复用岗位库记录且不派生任务。"""
-        from ai.workflows.jobs.job_capture_service import import_cards_to_library
+        from ai.workflows.jobs.capture.imports import import_cards_to_library
 
         with patch(
-            "ai.workflows.jobs.job_capture_service._normalize_and_save",
+            "ai.workflows.jobs.capture.imports.normalize_and_save_job",
             new=AsyncMock(return_value={
                 "success": True,
                 "job_id": 3,
@@ -137,7 +137,7 @@ class TestDeterministicImport:
     @pytest.mark.asyncio
     async def test_import_returns_partial_failure_details(self):
         """单张卡片保存失败时返回失败明细，且失败卡片不进入 jobs。"""
-        from ai.workflows.jobs.job_capture_service import import_cards_to_library
+        from ai.workflows.jobs.capture.imports import import_cards_to_library
 
         async def fake_save(card, _user_id, _platform, source_url="", source_text=""):
             if str(card["job_title"]).endswith("2"):
@@ -145,7 +145,7 @@ class TestDeterministicImport:
             return {"success": True, "job_id": 7}
 
         with patch(
-            "ai.workflows.jobs.job_capture_service._normalize_and_save",
+            "ai.workflows.jobs.capture.imports.normalize_and_save_job",
             new=AsyncMock(side_effect=fake_save),
         ):
             result = await import_cards_to_library(
@@ -162,11 +162,11 @@ class TestDeterministicImport:
     @pytest.mark.asyncio
     async def test_import_rejects_invalid_cards_without_saving(self):
         """外部域名或无效卡片在入库边界被拒绝，不触发任何保存。"""
-        from ai.workflows.jobs.job_capture_service import import_cards_to_library
+        from ai.workflows.jobs.capture.imports import import_cards_to_library
 
         normalize_job = AsyncMock()
         with patch(
-            "ai.workflows.jobs.job_capture_service._normalize_and_save",
+            "ai.workflows.jobs.capture.imports.normalize_and_save_job",
             new=normalize_job,
         ):
             result = await import_cards_to_library(
@@ -184,11 +184,11 @@ class TestDeterministicImport:
     @pytest.mark.asyncio
     async def test_import_filters_internship_cards(self):
         """实习标记卡片不得入库。"""
-        from ai.workflows.jobs.job_capture_service import import_cards_to_library
+        from ai.workflows.jobs.capture.imports import import_cards_to_library
 
         normalize_job = AsyncMock()
         with patch(
-            "ai.workflows.jobs.job_capture_service._normalize_and_save",
+            "ai.workflows.jobs.capture.imports.normalize_and_save_job",
             new=normalize_job,
         ):
             result = await import_cards_to_library(
@@ -261,7 +261,7 @@ class TestImportBoundaries:
             "message": "ok",
         })
         with patch(
-            "ai.workflows.jobs.job_capture_service.import_cards_to_library",
+            "ai.workflows.jobs.capture.imports.import_cards_to_library",
             new=service_mock,
         ):
             result = await jobs_use_cases.import_cards_to_library(

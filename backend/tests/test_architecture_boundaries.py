@@ -333,3 +333,66 @@ def test_workflow_domain_packages_have_explicit_init_modules():
         if path.is_dir() and (path / "__init__.py").exists()
     }
     assert expected <= actual
+
+def test_workflow_internal_responsibility_modules_exist():
+    """大型 workflow facade 的内部职责必须落在可独立测试的模块。"""
+    expected_files = {
+        BACKEND_AI / "workflows" / "agent_runs" / "events.py",
+        BACKEND_AI / "workflows" / "agent_runs" / "queries.py",
+        BACKEND_AI / "workflows" / "agent_runs" / "mutations.py",
+        BACKEND_AI / "workflows" / "evaluation" / "run_filters.py",
+        BACKEND_AI / "workflows" / "analysis" / "report_records.py",
+        BACKEND_AI / "workflows" / "jobs" / "capture" / "context.py",
+        BACKEND_AI / "workflows" / "jobs" / "capture" / "normalization.py",
+        BACKEND_AI / "workflows" / "jobs" / "capture" / "scoring.py",
+        BACKEND_AI / "workflows" / "interview" / "chat" / "events.py",
+        BACKEND_AI / "workflows" / "interview" / "chat" / "memory.py",
+    }
+    assert all(path.is_file() for path in expected_files)
+
+
+def test_workflow_facades_stay_below_large_module_threshold():
+    """Facade 不得重新承载整个领域的实现细节。"""
+    limits = {
+        BACKEND_AI / "workflows" / "agent_runs" / "use_cases.py": 500,
+        BACKEND_AI / "workflows" / "evaluation" / "runs.py": 550,
+        BACKEND_AI / "workflows" / "analysis" / "analysis_service.py": 500,
+        BACKEND_AI / "workflows" / "jobs" / "job_capture_service.py": 350,
+        BACKEND_AI / "workflows" / "interview" / "chat" / "stream.py": 500,
+    }
+    violations = [
+        f"{path.relative_to(BACKEND_ROOT)} has {len(path.read_text().splitlines())} lines"
+        for path, limit in limits.items()
+        if len(path.read_text().splitlines()) >= limit
+    ]
+    assert violations == []
+
+
+def test_workflow_internal_helpers_do_not_import_their_facades():
+    """纯辅助和内部协作者不能反向依赖同域 facade。"""
+    forbidden_by_root = {
+        BACKEND_AI / "workflows" / "agent_runs": (
+            "ai.workflows.agent_runs.use_cases",
+        ),
+        BACKEND_AI / "workflows" / "analysis": (
+            "ai.workflows.analysis.analysis_service",
+        ),
+        BACKEND_AI / "workflows" / "evaluation": (
+            "ai.workflows.evaluation.service",
+        ),
+        BACKEND_AI / "workflows" / "jobs" / "capture": (
+            "ai.workflows.jobs.job_capture_service",
+            "ai.workflows.jobs.use_cases",
+        ),
+        BACKEND_AI / "workflows" / "interview" / "chat": (
+            "ai.workflows.interview.chat.stream",
+        ),
+    }
+    violations: list[str] = []
+    for root, forbidden_modules in forbidden_by_root.items():
+        for path in root.rglob("*.py"):
+            for module in _imports(path):
+                for forbidden in forbidden_modules:
+                    if module == forbidden or module.startswith(f"{forbidden}."):
+                        violations.append(f"{path.relative_to(BACKEND_ROOT)} -> {module}")
+    assert violations == []

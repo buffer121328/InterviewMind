@@ -10,7 +10,7 @@ from ai.agents.interview.interview_analysis import (
     build_scoring_qa_history,
 )
 from ai.agents.interview.questions.answer_points import ensure_plan_answer_points
-from ai.workflows.analysis.analysis_service import SessionReportAnalysisService
+from ai.workflows.analysis.report_records import format_qa
 from ai.workflows.analysis.reviewers.contexts import build_reviewer_contexts
 from ai.workflows.interview.sessions.actions import InterviewSessionUseCases
 from app.domain.interview_reports import build_structured_interview_report
@@ -63,7 +63,7 @@ def test_scoring_qa_history_contains_answer_points_but_public_history_does_not()
     ]
     assert "answer_points" not in public_history[0]
     assert scoring_history[0]["answer_points"] == ["说明内存访问", "说明高效数据结构"]
-    assert "内部评分参考" in SessionReportAnalysisService._format_qa(scoring_history)
+    assert "内部评分参考" in format_qa(scoring_history)
     reviewer_contexts = build_reviewer_contexts(
         resume="候选人简历",
         job_description="Agent 开发",

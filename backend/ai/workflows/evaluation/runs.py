@@ -16,6 +16,15 @@ from ai.workflows.evaluation.serializers import (
     _score,
 )
 from ai.workflows.evaluation.contracts import EvaluationUseCaseError
+from ai.workflows.evaluation.run_filters import (
+    record_has_approval_status,
+    record_has_empty_retrieval,
+    record_has_external_side_effect,
+    record_has_tool,
+    record_has_tool_effect,
+    record_has_tool_status,
+    record_trace_incomplete,
+)
 from app.config import get_settings
 from app.db.models import async_session
 from app.db.unit_of_work import UnitOfWork
@@ -336,34 +345,34 @@ class RunUseCasesMixin:
                     hard_gate_passed is None
                     or row.hard_gate_passed is hard_gate_passed
                 )
-                and (tool_name is None or _record_has_tool(row.record_sanitized, tool_name))
+                and (tool_name is None or record_has_tool(row.record_sanitized, tool_name))
                 and (
                     tool_effect is None
-                    or _record_has_tool_effect(row.record_sanitized, tool_effect)
+                    or record_has_tool_effect(row.record_sanitized, tool_effect)
                 )
                 and (
                     tool_status is None
-                    or _record_has_tool_status(row.record_sanitized, tool_status)
+                    or record_has_tool_status(row.record_sanitized, tool_status)
                 )
                 and (
                     approval_status is None
-                    or _record_has_approval_status(
+                    or record_has_approval_status(
                         row.record_sanitized, approval_status
                     )
                 )
                 and (
                     has_external_side_effect is None
-                    or _record_has_external_side_effect(row.record_sanitized)
+                    or record_has_external_side_effect(row.record_sanitized)
                     is has_external_side_effect
                 )
                 and (
                     trace_incomplete is None
-                    or _record_trace_incomplete(row.record_sanitized)
+                    or record_trace_incomplete(row.record_sanitized)
                     is trace_incomplete
                 )
                 and (
                     retrieval_empty is None
-                    or _record_has_empty_retrieval(row.record_sanitized)
+                    or record_has_empty_retrieval(row.record_sanitized)
                     is retrieval_empty
                 )
             ]
@@ -523,90 +532,3 @@ class RunUseCasesMixin:
             )
         except AgentRunUseCaseError as exc:
             raise EvaluationUseCaseError(exc.message, exc.status_code) from exc
-
-
-def _record_has_tool(record: Any, tool_name: str) -> bool:
-    """只从 owner 已授权返回的脱敏 record 中匹配工具名，不读取原始参数。"""
-
-    if not isinstance(record, dict):
-        return False
-    for item in record.get("tool_calls") or ():
-        if isinstance(item, dict) and item.get("tool_name") == tool_name:
-            return True
-    return False
-
-
-def _record_has_tool_effect(record: Any, tool_effect: str) -> bool:
-    """只从脱敏 ToolCall 列表匹配副作用等级。"""
-
-    return _record_has_item_value(record, collection="tool_calls", key="effect", value=tool_effect)
-
-
-def _record_has_tool_status(record: Any, tool_status: str) -> bool:
-    """只从脱敏 ToolCall 列表匹配工具终态。"""
-
-    return _record_has_item_value(record, collection="tool_calls", key="status", value=tool_status)
-
-
-def _record_has_approval_status(record: Any, approval_status: str) -> bool:
-    """从 ToolCall 或 Approval 安全字段匹配审批状态。"""
-
-    return _record_has_item_value(
-        record,
-        collection="tool_calls",
-        key="approval_status",
-        value=approval_status,
-    ) or _record_has_item_value(
-        record,
-        collection="approvals",
-        key="status",
-        value=approval_status,
-    )
-
-
-def _record_has_external_side_effect(record: Any) -> bool:
-    """判断脱敏轨迹中是否存在 external effect Tool。"""
-
-    return _record_has_tool_effect(record, "external")
-
-
-def _record_trace_incomplete(record: Any) -> bool:
-    """历史记录缺少完整性字段时不伪造 incomplete，仅匹配显式 false。"""
-
-    if not isinstance(record, dict):
-        return False
-    observability = record.get("observability")
-    if not isinstance(observability, dict):
-        return False
-    completeness = observability.get("trace_completeness")
-    return isinstance(completeness, dict) and completeness.get("complete") is False
-
-
-def _record_has_empty_retrieval(record: Any) -> bool:
-    """从脱敏 Retrieval 列表识别显式空召回案例。"""
-
-    if not isinstance(record, dict):
-        return False
-    for item in record.get("retrievals") or ():
-        if not isinstance(item, dict):
-            continue
-        if item.get("empty_result") is True or item.get("result_count") == 0:
-            return True
-    return False
-
-
-def _record_has_item_value(
-    record: Any,
-    *,
-    collection: str,
-    key: str,
-    value: str,
-) -> bool:
-    """在已脱敏结构化列表中执行精确短标量匹配。"""
-
-    if not isinstance(record, dict):
-        return False
-    return any(
-        isinstance(item, dict) and item.get(key) == value
-        for item in record.get(collection) or ()
-    )
