@@ -1,17 +1,15 @@
 """
 简历竞争力分析 Graph
-直接多维度分析，无反思机制
+直接多维度分析，无需反思机制
 """
 
 import logging
 from typing import Any, List, Optional, TypedDict
-
 from langgraph.graph import END, StateGraph
-
 from ai.llm.llm_utils import invoke_structured
 from ai.prompts.resume import build_resume_analysis_prompt
-from ai.runtime.context_assembler import ContextAssembler, ContextSource
-from ai.runtime.deadlines import TaskDeadline
+from ai.runtime.context.assembler import ContextAssembler, ContextSource
+from ai.runtime.execution.deadlines import TaskDeadline
 from app.db.repositories.session.session_repo import SessionRepo
 from app.schemas.llm_outputs import ResumeAnalysisOutput
 from observability import langgraph_langfuse_scope, with_langgraph_langfuse_config

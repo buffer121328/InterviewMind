@@ -6,7 +6,6 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from threading import RLock
 from typing import Any
-
 from .contracts import ExecutionAdapter, ExecutionContext, ExecutionResult
 
 AdapterRunner = Callable[[dict[str, Any], ExecutionContext], Awaitable[ExecutionResult]]
@@ -24,7 +23,12 @@ class CallableExecutionAdapter:
         payload: dict[str, Any],
         context: ExecutionContext,
     ) -> ExecutionResult:
-        """执行注入的真实业务 callable。"""
+        """把 payload 和 context 转交给包装的真实业务 callable 执行。
+
+        Args:
+            payload: 任务入参。
+            context: 执行上下文（身份与隔离约束）。
+        """
 
         return await self.runner(payload, context)
 
@@ -37,7 +41,12 @@ class ExecutionAdapterRegistry:
         self._lock = RLock()
 
     def register(self, adapter: ExecutionAdapter, *, replace: bool = False) -> None:
-        """注册 adapter；空 key 和重复 key fail closed。"""
+        """按规范化 key 注册 adapter；空 key 或重复 key 拒绝（fail-closed）。
+
+        Args:
+            adapter: 待注册的执行适配器，需含 key 和 run。
+            replace: 为 True 时允许覆盖已存在的同名 adapter。
+        """
 
         key = adapter.key.strip().lower()
         if not key:
@@ -48,7 +57,11 @@ class ExecutionAdapterRegistry:
             self._items[key] = adapter
 
     def get(self, key: str) -> ExecutionAdapter:
-        """读取显式注册 adapter，未知 key 不做名称回退。"""
+        """按 key 读取 adapter；未知 key 抛 KeyError，不做名称回退。
+
+        Args:
+            key: adapter 的注册名。
+        """
 
         normalized = key.strip().lower()
         try:

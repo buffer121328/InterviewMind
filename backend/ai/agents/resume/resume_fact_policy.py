@@ -8,7 +8,7 @@
 import re
 from typing import Any, Dict, List
 
-from ai.runtime.evidence import claim_has_evidence
+from ai.runtime.safety.evidence import claim_has_evidence
 
 # ============================================================================
 # 高风险关键词（需要用户确认）

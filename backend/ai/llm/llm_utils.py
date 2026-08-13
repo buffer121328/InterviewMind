@@ -13,12 +13,12 @@ from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
 
 from ai.llm import llms
-from ai.runtime.deadlines import (
+from ai.runtime.execution.deadlines import (
     TaskDeadline,
     TaskDeadlineExceeded,
     get_current_task_deadline,
 )
-from ai.runtime.error_classification import classify_exception
+from ai.runtime.safety.errors import classify_exception
 from app.config import get_settings
 from observability import (
     filter_model_call_metadata,

@@ -10,7 +10,6 @@ from typing import Protocol
 
 from app.redis_keys import build_redis_key
 
-
 LOCK_KEY = build_redis_key("runtime_gate", "active_lease")
 logger = logging.getLogger(__name__)
 

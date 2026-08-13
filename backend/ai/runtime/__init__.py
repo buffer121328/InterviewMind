@@ -9,7 +9,7 @@ from collections.abc import Collection, Sequence
 from typing import Any
 
 from .context import AgentContext
-from .deadlines import TaskDeadline, TaskDeadlineExceeded, task_deadline_scope
+from .execution.deadlines import TaskDeadline, TaskDeadlineExceeded, task_deadline_scope
 
 __all__ = [
     "AgentContext",

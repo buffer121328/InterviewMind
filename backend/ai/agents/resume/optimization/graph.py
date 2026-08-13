@@ -6,8 +6,8 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.runtime import Runtime
 from langgraph.types import CachePolicy
 
-from ai.agents.resume.resume_pipeline_quality import _should_retry_pipeline
-from ai.agents.resume.resume_pipeline_state import (
+from .quality import _should_retry_pipeline
+from .state import (
     PipelineState,
     ResumeGraphState,
     ResumeRuntimeContext,

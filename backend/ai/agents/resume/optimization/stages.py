@@ -8,7 +8,7 @@
   阶段3: 定制改写       → 每条改写输出标准 ChangeItem
   阶段4: 简历组装       → 完整 Markdown 简历
 
-阶段5-6（事实核验、质量评审、定向返工、用户确认）位于 stages_review.py。
+阶段5-6（事实核验、质量评审、定向返工、用户确认）位于 review.py。
 
 设计原则：
 - 每阶段是独立的结构化 LLM 调用，不涉及 Agent 自主决策
@@ -20,14 +20,15 @@ import json
 import logging
 from typing import List, Optional
 
-from ai.agents.resume.resume_pipeline_state import PipelineState, _append_trace
-from ai.agents.resume.resume_rewrite_agent import (
-    normalize_rewrite_mode,
-    run_resume_rewrite_agent,
-)
 from ai.llm.llm_utils import invoke_structured
 from ai.prompts.resume import build_content_writer_prompt
 from app.schemas.llm_outputs import ContentSuggestionsOutput
+
+from .rewrite import (
+    normalize_rewrite_mode,
+    run_resume_rewrite_agent,
+)
+from .state import PipelineState, _append_trace
 
 logger = logging.getLogger(__name__)
 
@@ -332,7 +333,7 @@ async def stage3_rewrite_agent(state: PipelineState, mode: str = "balanced") -> 
             status="skipped",
             output_summary="fallback_to_legacy_without_api_config",
         )
-        from ai.agents.resume.resume_orchestrator import stage3_custom_rewrite
+        from .flow import stage3_custom_rewrite
         return await stage3_custom_rewrite(state)
 
     result = await run_resume_rewrite_agent(
@@ -413,7 +414,7 @@ async def stage4_assemble(state: PipelineState) -> PipelineState:
         )
         applied += len(values[:8])
 
-    from ai.runtime.guardrails import validate_final_resume_output
+    from ai.runtime.safety.guardrails import validate_final_resume_output
 
     decision = validate_final_resume_output(assembled)
     state.guardrail_results.append(decision.to_audit_payload())

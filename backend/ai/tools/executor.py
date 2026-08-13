@@ -31,11 +31,11 @@ logger = logging.getLogger(__name__)
 class ToolExecutionPolicy:
     """定义一次 Agent 运行内工具调用的超时、次数、重试和脱敏策略。"""
 
-    timeout_seconds: float = 30.0
-    max_calls: int = 20
-    max_retries: int = 0
-    retry_effects: frozenset[ToolEffect] = frozenset({"none", "read"})
-    redact_results: bool = True
+    timeout_seconds: float = 30.0  # 单次工具调用超时
+    max_calls: int = 20  # 单次运行内工具调用上限
+    max_retries: int = 0  # 可重试次数
+    retry_effects: frozenset[ToolEffect] = frozenset({"none", "read"})  # 仅这些副作用可重试
+    redact_results: bool = True  # 是否脱敏工具结果
 
 
 class ToolApprovalRequired(PermissionError):
@@ -127,6 +127,7 @@ class ToolExecutionGuard:
         resolved_call_id = call_id or new_runtime_event_id("tool")
         required = tuple(sorted(set(required_permissions)))
         granted = tuple(sorted(set(required).intersection(context.permissions)))
+        # external 副作用默认需要人工确认；显式传入则覆盖默认。
         needs_confirmation = (
             effect == "external" if requires_confirmation is None else requires_confirmation
         )
@@ -150,7 +151,18 @@ class ToolExecutionGuard:
             error_category: str | None = None,
             error_message: str | None = None,
         ) -> ToolObservationEvent:
-            """构造共享调用 ID 的不可变工具事件，不写入外部系统。"""
+            """构造共享调用 ID 的不可变工具事件，不写入外部系统。
+
+            Args:
+                event_type: 事件类型（tool.requested/started/completed/failed/blocked 等）。
+                status: 工具状态。
+                attempt: 第几次尝试，默认 1。
+                duration_ms: 执行耗时（毫秒）。
+                output_summary: 脱敏后的输出摘要。
+                error_type: 异常类型名。
+                error_category: 归一化错误类别。
+                error_message: 安全错误消息。
+            """
 
             return ToolObservationEvent(
                 event_type=event_type,
@@ -181,6 +193,7 @@ class ToolExecutionGuard:
             audit_callback,
         )
 
+        # ① 权限校验：缺少任一所需权限则拒绝执行。
         missing = set(required).difference(context.permissions)
         if missing:
             await _publish_tool_event(
@@ -199,6 +212,7 @@ class ToolExecutionGuard:
                 f"tool requires permissions: {', '.join(sorted(missing))}"
             )
 
+        # ② 人工审批：需要确认时先发审批事件；未确认则中断，不执行任何副作用。
         if needs_confirmation:
             approval_id = f"approval:{resolved_call_id}"
             await _publish_approval_event(
@@ -242,6 +256,7 @@ class ToolExecutionGuard:
                 audit_callback,
             )
 
+        # ③ 出站校验：仅 external 副作用需校验参数中的 URL，防 SSRF。
         if effect == "external":
             try:
                 _validate_outbound_values((args, kwargs))
@@ -258,6 +273,7 @@ class ToolExecutionGuard:
                 )
                 raise
 
+        # ④ 调用预算：超过单次运行的工具调用上限则拒绝。
         if self.calls >= self.policy.max_calls:
             message = f"tool call limit exceeded: {self.policy.max_calls}"
             await _publish_tool_event(
@@ -273,6 +289,7 @@ class ToolExecutionGuard:
             raise RuntimeError(message)
 
         self.calls += 1
+        # ⑤ 执行：仅 read/none 副作用可重试；每次执行带超时，成功结果按策略脱敏。
         attempts = 1 + (
             self.policy.max_retries if effect in self.policy.retry_effects else 0
         )
@@ -322,7 +339,12 @@ async def _publish_tool_event(
     event: ToolObservationEvent,
     callback: Callable[[dict[str, Any]], Awaitable[None] | None] | None,
 ) -> ToolObservationEvent:
-    """一次生成工具事实，再 best-effort 投影到观测和本地审计。"""
+    """一次生成工具事实，再 best-effort 投影到观测和本地审计。
+
+    Args:
+        event: 要投影的工具观测事件。
+        callback: 可选本地审计 Sink，接收脱敏 payload。
+    """
 
     bound_event = record_tool_event(event)
     await _publish_audit_projection(callback, bound_event.to_local_payload())
@@ -333,7 +355,12 @@ async def _publish_approval_event(
     event: ApprovalObservationEvent,
     callback: Callable[[dict[str, Any]], Awaitable[None] | None] | None,
 ) -> ApprovalObservationEvent:
-    """把审批事实投影到统一 Sink；审计失败不得改变审批/工具业务终态。"""
+    """把审批事实投影到统一 Sink；审计失败不得改变审批/工具业务终态。
+
+    Args:
+        event: 要投影的审批观测事件。
+        callback: 可选本地审计 Sink，接收脱敏 payload。
+    """
 
     bound_event = record_approval_event(event)
     await _publish_audit_projection(callback, bound_event.to_local_payload())
@@ -344,7 +371,12 @@ async def _publish_audit_projection(
     callback: Callable[[dict[str, Any]], Awaitable[None] | None] | None,
     event: dict[str, Any],
 ) -> None:
-    """best-effort 调用本地审计 Sink，避免观测故障掩盖工具结果。"""
+    """best-effort 调用本地审计 Sink，避免观测故障掩盖工具结果。
+
+    Args:
+        callback: 本地审计 Sink，可为 None。
+        event: 已脱敏的审计 payload。
+    """
 
     if callback is None:
         return
@@ -358,7 +390,12 @@ async def _emit_audit(
     callback: Callable[[dict[str, Any]], Awaitable[None] | None],
     event: dict[str, Any],
 ) -> None:
-    """投递审计事件；兼容同步和异步 Sink。"""
+    """投递审计事件；兼容同步和异步 Sink。
+
+    Args:
+        callback: 本地审计 Sink。
+        event: 已脱敏的审计 payload。
+    """
 
     result = callback(event)
     if inspect.isawaitable(result):
@@ -366,13 +403,21 @@ async def _emit_audit(
 
 
 def _elapsed_ms(started: float) -> int:
-    """返回非负整数毫秒耗时。"""
+    """返回非负整数毫秒耗时。
+
+    Args:
+        started: 开始时的时间戳（time.perf_counter()）。
+    """
 
     return max(0, int((time.perf_counter() - started) * 1000))
 
 
 def _tool_error_category(exc: Exception) -> str:
-    """把工具异常归一成可聚合的稳定错误类别。"""
+    """把工具异常归一成可聚合的稳定错误类别。
+
+    Args:
+        exc: 捕获的工具异常。
+    """
 
     if isinstance(exc, TimeoutError):
         return "tool_timeout"
@@ -380,7 +425,12 @@ def _tool_error_category(exc: Exception) -> str:
 
 
 def _summarize_for_audit(value: Any, *, limit: int) -> str:
-    """生成脱敏且有长度上限的本地审计摘要。"""
+    """生成脱敏且有长度上限的本地审计摘要。
+
+    Args:
+        value: 待摘要的值。
+        limit: 摘要最大字符数。
+    """
 
     return str(redact_secrets(_redact(value)))[:limit]
 
@@ -389,7 +439,11 @@ _SECRET_KEYS = {"api_key", "apikey", "authorization", "token", "secret", "passwo
 
 
 def _validate_outbound_values(value: Any) -> None:
-    """递归校验 external Tool 参数中的 URL，拒绝凭据和非公网目标。"""
+    """递归校验 external Tool 参数中的 URL，拒绝凭据和非公网目标。
+
+    Args:
+        value: 待校验的参数值（可嵌套 dict/list/tuple/set）。
+    """
 
     if isinstance(value, str):
         if value.lower().startswith(("http://", "https://")):
@@ -404,7 +458,11 @@ def _validate_outbound_values(value: Any) -> None:
 
 
 def _validate_public_url(value: str) -> None:
-    """拒绝带凭据、localhost、私网或保留地址的 external Tool URL。"""
+    """拒绝带凭据、localhost、私网或保留地址的 external Tool URL。
+
+    Args:
+        value: 待校验的 URL 字符串。
+    """
 
     parsed = urlparse(value)
     hostname = (parsed.hostname or "").rstrip(".").lower()
@@ -425,7 +483,11 @@ def _validate_public_url(value: str) -> None:
 
 
 def _redact(value: Any) -> Any:
-    """递归脱敏工具结果中的凭据字段。"""
+    """递归脱敏工具结果中的凭据字段。
+
+    Args:
+        value: 待脱敏的工具结果。
+    """
 
     if isinstance(value, dict):
         return {

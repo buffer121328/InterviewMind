@@ -18,8 +18,8 @@ from ai.prompts.resume import (
     build_assembler_system_prompt,
     build_assembler_user_prompt,
 )
-from ai.runtime.context_assembler import ContextAssembler, ContextSource
-from ai.runtime.deadlines import TaskDeadline, get_current_task_deadline
+from ai.runtime.context.assembler import ContextAssembler, ContextSource
+from ai.runtime.execution.deadlines import TaskDeadline, get_current_task_deadline
 from app.config import get_settings
 from app.db.models import async_session
 from app.db.models.resume import ResumeAssemblyResultModel

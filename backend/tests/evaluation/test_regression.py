@@ -12,17 +12,17 @@ L2 回归测试套件（~5k tokens, <2min）
 """
 
 import json
+
 import pytest
 
 from ai.agents.interview.planning.planner import (
-    parse_plan_response,
-    _get_default_questions,
     DEFAULT_QUESTIONS,
+    _get_default_questions,
+    parse_plan_response,
 )
-from ai.llm.llm_utils import clean_json_response
-from ai.agents.resume.resume_orchestrator import build_resume_optimizer_graph
+from ai.agents.resume.optimization.flow import build_resume_optimizer_graph
 from ai.agents.resume.result_mapper import pipeline_to_optimize_result
-
+from ai.llm.llm_utils import clean_json_response
 
 # ====================================================================
 # 1. parse_plan_response — JSON 解析健壮性

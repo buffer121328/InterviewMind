@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
 import time
+from datetime import datetime, timedelta
 from typing import Callable, Iterable
 
 from sqlalchemy import select
 
-from app.db.models import TaskOutboxModel, async_session
 from app.clock import utc_now
+from app.db.models import TaskOutboxModel, async_session
 
 AGENT_RUN_EXECUTE_TOPIC = "agent_run.execute"
 PENDING_STATUSES = {"pending", "failed"}
@@ -160,9 +160,7 @@ async def dispatch_pending_outbox(
     dispatched，失败时保留 failed 并设置 next_attempt_at 供后续重试。
     """
     if enqueue_fn is None:
-        from ai.runtime.agent_runs.dispatcher import enqueue_agent_run
-
-        enqueue_fn = enqueue_agent_run
+        raise ValueError("enqueue_fn is required by the queue composition layer")
 
     current = _now()
     async with async_session() as session:

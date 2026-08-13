@@ -12,19 +12,19 @@ from contextlib import asynccontextmanager
 
 import pytest
 
-import ai.agents.resume.resume_orchestrator as orchestrator
-from ai.agents.resume.resume_fact_policy import (
-    REQUIRES_CONFIRMATION_KEYWORDS,
-    detect_keyword_stuffing,
-    validate_change_items,
-)
-from ai.agents.resume.resume_orchestrator import (
+import ai.agents.resume.optimization.flow as orchestrator
+from ai.agents.resume.optimization.flow import (
     PipelineState,
     _calc_confidence,
     run_pipeline,
     stage1_jd_analysis,
     stage2_material_selection,
     stage5_quality_judge,
+)
+from ai.agents.resume.resume_fact_policy import (
+    REQUIRES_CONFIRMATION_KEYWORDS,
+    detect_keyword_stuffing,
+    validate_change_items,
 )
 from app.schemas.llm_outputs import ChangeItem
 

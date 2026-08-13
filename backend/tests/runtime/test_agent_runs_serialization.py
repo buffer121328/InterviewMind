@@ -6,6 +6,11 @@ from types import SimpleNamespace
 import pytest
 from cryptography.fernet import Fernet
 
+from ai.runtime.agent_runs.service import (
+    build_task_plan,
+    serialize_run,
+)
+from ai.runtime.execution.gate import LocalRunGate
 from app.db.models.agent_run import AgentRunModel
 from app.domain.agent_runs import TASK_TYPE_INTERVIEW_REPORT, TASK_TYPE_RESUME_OPTIMIZE
 from app.security.payload_crypto import (
@@ -13,11 +18,6 @@ from app.security.payload_crypto import (
     decrypt_payload,
     encrypt_payload,
 )
-from ai.runtime.agent_runs.service import (
-    build_task_plan,
-    serialize_run,
-)
-from ai.runtime.runtime_gate import LocalRunGate
 
 
 def test_task_payload_is_encrypted_and_round_trips(monkeypatch):
@@ -52,7 +52,7 @@ async def test_local_run_gate_allows_only_one_active_task():
 
 
 def test_sync_mode_uses_local_gate_even_with_redis_url(monkeypatch):
-    from ai.runtime import runtime_gate
+    from ai.runtime.execution import gate as runtime_gate
 
     monkeypatch.setenv("TASK_QUEUE_ENABLED", "false")
     monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
@@ -222,7 +222,7 @@ async def test_agent_run_trace_link_is_graceful_without_trace(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_redis_run_gate_renews_owned_lock(monkeypatch):
-    from ai.runtime import runtime_gate
+    from ai.runtime.execution import gate as runtime_gate
 
     class FakeRedis:
         def __init__(self):
@@ -262,8 +262,8 @@ def test_serialized_running_run_can_be_cancelled():
 
 
 def test_serialized_run_event_has_replay_envelope():
-    from app.db.models.agent_run import AgentRunEventModel
     from ai.runtime.agent_runs.service import serialize_event
+    from app.db.models.agent_run import AgentRunEventModel
 
     now = datetime.now()
     event = AgentRunEventModel(

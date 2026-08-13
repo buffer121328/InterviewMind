@@ -7,8 +7,8 @@ from pydantic import BaseModel
 
 from ai.llm import llms
 from ai.llm.llm_utils import invoke_structured
-from ai.runtime import deadlines
-from ai.runtime.deadlines import (
+from ai.runtime.execution import deadlines
+from ai.runtime.execution.deadlines import (
     TaskDeadline,
     TaskDeadlineExceeded,
     get_current_task_deadline,

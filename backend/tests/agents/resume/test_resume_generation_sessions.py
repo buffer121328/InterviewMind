@@ -9,8 +9,8 @@ import pytest
 @pytest.mark.asyncio
 async def test_no_gap_initialization_returns_before_draft_generation(monkeypatch):
     """The init request finishes after requirement analysis so the browser can poll real later stages."""
-    from ai.agents.resume import resume_generation_graph
-    from ai.agents.resume import resume_generation_sessions as sessions
+    from ai.agents.resume.generation import graph as resume_generation_graph
+    from ai.agents.resume.generation import sessions
 
     created: list[dict] = []
     updated: list[dict] = []
@@ -48,7 +48,7 @@ async def test_no_gap_initialization_returns_before_draft_generation(monkeypatch
 @pytest.mark.asyncio
 async def test_submit_uses_workflow_injected_resume_generation_run(monkeypatch):
     """Agent session code consumes a run reference without importing AgentRun runtime."""
-    from ai.agents.resume import resume_generation_sessions as sessions
+    from ai.agents.resume.generation import sessions
 
     session = SimpleNamespace(
         status="ready_to_generate",

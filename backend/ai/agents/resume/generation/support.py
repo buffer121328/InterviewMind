@@ -7,9 +7,9 @@ from dataclasses import dataclass
 from hashlib import sha256
 from typing import Any
 
-from ai.runtime.authoritative_context import assemble_authoritative_context
-from ai.runtime.context_assembler import ContextAssembler, ContextSource
-from ai.runtime.deadlines import TaskDeadline, get_current_task_deadline
+from ai.runtime.context.authoritative import assemble_authoritative_context
+from ai.runtime.context.assembler import ContextAssembler, ContextSource
+from ai.runtime.execution.deadlines import TaskDeadline, get_current_task_deadline
 
 
 @dataclass(frozen=True, slots=True)

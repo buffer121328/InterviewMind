@@ -15,20 +15,39 @@ from ..contracts import DeferredExecutionResult, EventSink, ExecutionContext
 
 logger = logging.getLogger(__name__)
 
-
+# 接口类，每个dirvers就近定义和实现
 class AgentRunServiceProtocol(Protocol):
     """QueuedDriver 所需的最小 AgentRunService 能力。"""
 
-    async def get_task_type_for_worker(self, run_id: str) -> str | None: ...
-    async def claim(self, run_id: str) -> tuple[Any, dict[str, Any]] | None: ...
-    async def mark_stage(self, run_id: str, stage: str) -> None: ...
-    async def touch(self, run_id: str) -> None: ...
-    async def is_cancel_requested(self, run_id: str) -> bool: ...
-    async def succeed(self, run_id: str, result: dict[str, Any]) -> None: ...
-    async def succeed_with_result_writer(self, run_id: str, writer: Any) -> None: ...
-    async def mark_cancelled(self, run_id: str) -> None: ...
-    async def requeue(self, run_id: str) -> None: ...
-    async def fail(self, run_id: str, message: str) -> None: ...
+    async def get_task_type_for_worker(self, run_id: str) -> str | None:
+        """查询 run_id 对应的任务类型；未知返回 None。"""
+
+    async def claim(self, run_id: str) -> tuple[Any, dict[str, Any]] | None:
+        """领取任务，返回 (run, payload)；已被领取/不存在返回 None。"""
+
+    async def mark_stage(self, run_id: str, stage: str) -> None:
+        """记录当前执行阶段。"""
+
+    async def touch(self, run_id: str) -> None:
+        """刷新心跳，防止任务被误判为超时。"""
+
+    async def is_cancel_requested(self, run_id: str) -> bool:
+        """查询该任务是否已被请求取消。"""
+
+    async def succeed(self, run_id: str, result: dict[str, Any]) -> None:
+        """写入成功终态。"""
+
+    async def succeed_with_result_writer(self, run_id: str, writer: Any) -> None:
+        """用延迟写入器在成功事务内写结果。"""
+
+    async def mark_cancelled(self, run_id: str) -> None:
+        """写入取消终态。"""
+
+    async def requeue(self, run_id: str) -> None:
+        """把任务重新放回队列等待下次执行。"""
+
+    async def fail(self, run_id: str, message: str) -> None:
+        """写入失败终态（安全摘要）。"""
 
 
 class LeaseProtocol(Protocol):
@@ -37,7 +56,7 @@ class LeaseProtocol(Protocol):
     async def release(self) -> None: ...
 
 
-GateAcquire = Callable[[], Awaitable[LeaseProtocol | None]]
+GateAcquire = Callable[[], Awaitable[LeaseProtocol | None]]  # 获取全局运行门租约的工厂：成功返回租约，被占用返回 None
 
 
 class QueuedDriver:
@@ -53,6 +72,17 @@ class QueuedDriver:
         cancel_poll_seconds: float = 2,
         event_sink: EventSink | None = None,
     ) -> None:
+        """初始化 QueuedDriver 的依赖与运行参数，不创建连接或执行业务写入。
+
+        Args:
+            catalog: 任务目录，用于把 task_type 解析为 adapter。
+            service: 提供 AgentRun 生命周期能力的服务（claim/touch/succeed/fail 等）。
+            gate_acquire: 获取全局运行门租约的工厂；不传则禁用全局门禁。
+            heartbeat_seconds: 心跳间隔秒数，运行中周期性刷新防止误判超时。
+            cancel_poll_seconds: 取消轮询间隔秒数。
+            event_sink: 事件投影 sink，可选。
+        """
+
         self._catalog = catalog
         self._service = service
         self._gate_acquire = gate_acquire
@@ -61,12 +91,18 @@ class QueuedDriver:
         self._event_sink = event_sink
 
     async def run(self, run_id: str) -> None:
-        """领取并执行一个 queued AgentRun，保持既有终态与恢复语义。"""
+        """领取并执行一个 queued AgentRun，保持既有终态与恢复语义。
 
+        Args:
+            run_id: 要执行的 AgentRun 运行 ID。
+        """
+
+        # ① 解析任务：先查 task_type，未知任务直接跳过。
         task_type = await self._service.get_task_type_for_worker(run_id)
         if task_type is None:
             return
         entry = self._catalog.resolve(task_type, execution_mode="queued")
+        # ② 全局门禁：任务声明 global 策略时需先拿到单用户运行租约。
         lease: LeaseProtocol | None = None
         if entry.definition.run_gate_policy == "global":
             if self._gate_acquire is None:
@@ -77,12 +113,14 @@ class QueuedDriver:
 
         claimed = False
         try:
+            # ③ 领取任务：claim 失败（已被他人领取/不存在）则静默返回。
             claimed_run = await self._service.claim(run_id)
             if not claimed_run:
                 return
             claimed = True
             run, stored_payload = claimed_run
             payload = {**stored_payload, "_agent_run_id": run.id}
+            # ④ 组装执行上下文：进度回调映射到 mark_stage，副作用策略来自定义。
             context = ExecutionContext(
                 run_id=run.id,
                 task_type=run.task_type,
@@ -100,6 +138,7 @@ class QueuedDriver:
             )
 
             async def heartbeat() -> None:
+                # 周期 touch 刷新运行状态，失败仅告警不中断执行（best-effort）。
                 while True:
                     await asyncio.sleep(self._heartbeat_seconds)
                     try:
@@ -117,6 +156,7 @@ class QueuedDriver:
             )
 
             async def watch_cancellation() -> None:
+                # 轮询是否被取消；是则取消执行任务。
                 while not execution_task.done():
                     await asyncio.sleep(self._cancel_poll_seconds)
                     if await self._service.is_cancel_requested(run_id):
@@ -130,6 +170,7 @@ class QueuedDriver:
                 watch_cancellation(), name=f"agent-run-cancel-watch:{run_id}"
             )
             try:
+                # ⑤ 收敛成功终态：Deferred 用结果写入器，普通 dict 直接 succeed。
                 result = await execution_task
                 if isinstance(result, DeferredExecutionResult):
                     await self._service.succeed_with_result_writer(run_id, result.persist)
@@ -138,24 +179,29 @@ class QueuedDriver:
                 else:
                     raise TypeError("production queued adapter must return an object result")
             except asyncio.CancelledError:
+                # 执行被取消：若确认是用户取消则标记取消，否则上抛。
                 if await self._service.is_cancel_requested(run_id):
                     await self._service.mark_cancelled(run_id)
                     return
                 raise
             finally:
+                # 无论结果如何，停掉心跳和取消监听协程。
                 for task in (heartbeat_task, cancel_task):
                     task.cancel()
                 for task in (heartbeat_task, cancel_task):
                     with contextlib.suppress(asyncio.CancelledError):
                         await task
         except asyncio.CancelledError:
+            # 外部中断：若已 claim 则重新入队，等待下次执行（可恢复）。
             if claimed:
                 await self._service.requeue(run_id)
             raise
         except Exception as exc:  # noqa: BLE001 - failure is persisted as safe AgentRun state
+            # ⑥ 收敛失败终态：安全摘要写入 fail。
             message = safe_error_message(exc)
             logger.error("Agent 任务失败: run_id=%s error=%s", run_id, message)
             await self._service.fail(run_id, message)
         finally:
+            # ⑦ 释放全局门租约。
             if lease is not None:
                 await lease.release()

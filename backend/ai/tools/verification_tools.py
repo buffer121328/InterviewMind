@@ -6,7 +6,7 @@ from typing import Any
 
 from langchain_core.tools import tool
 
-from ai.runtime.evidence import claim_has_evidence, verify_claim_against_source
+from ai.runtime.safety.evidence import claim_has_evidence, verify_claim_against_source
 from app.schemas.tools import attach_tool_contract
 
 

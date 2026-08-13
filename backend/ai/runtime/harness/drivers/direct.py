@@ -31,7 +31,17 @@ class InlineDriver:
         progress: ProgressCallback | None = None,
         event_sink: EventSink | None = None,
     ) -> ExecutionResult:
-        """用 production/inline policy 执行一个 adapter。"""
+        """在当前请求内以 inline/production 策略解析并执行一个 adapter。
+
+        Args:
+            task_type: 任务类型名。
+            payload: 任务入参。
+            user_id: 发起用户。
+            session_id: 会话 ID，可选。
+            run_id: 运行 ID，可选。
+            progress: 阶段进度回调，可选。
+            event_sink: 事件投影 sink，可选。
+        """
 
         entry = self._catalog.resolve(task_type, execution_mode="inline")
         context = ExecutionContext(
@@ -74,7 +84,19 @@ class EvaluationDriver:
         progress: ProgressCallback | None = None,
         event_sink: EventSink | None = None,
     ) -> ExecutionResult:
-        """构造 fail-closed evaluation context 并执行同一 adapter。"""
+        """构造 fail-closed 的 evaluation 上下文并执行同一 adapter。
+
+        Args:
+            task_type: 任务类型名。
+            payload: 任务入参。
+            run_id: 运行 ID。
+            user_id: 发起用户。
+            session_id: 会话 ID。
+            memory_namespace: 评测隔离的长期记忆命名空间（需 eval: 前缀）。
+            artifact_namespace: 评测隔离的制品命名空间（需 eval: 前缀）。
+            progress: 阶段进度回调，可选。
+            event_sink: 事件投影 sink，可选。
+        """
 
         entry = self._catalog.resolve(
             task_type,

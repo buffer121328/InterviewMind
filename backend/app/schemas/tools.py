@@ -54,6 +54,6 @@ def get_tool_contract(tool: Any) -> dict[str, Any] | None:
     Args:
         tool: 经过类型边界校验的 `tool`；其格式和可选值由参数类型及调用流程约束。
     """
-    metadata = getattr(tool, "metadata", None) or {}
+    metadata = getattr(tool, "metadata", None) or {}        # 安全地取对象属性
     contract = metadata.get("contract")
     return contract if isinstance(contract, dict) else None

@@ -16,7 +16,7 @@
 - 每阶段输出固定 Schema，产物可独立审查、可回溯
 - Token 成本固定 N 次 LLM 调用，不可控循环
 
-节点实现与状态定义位于 stages.py / resume_pipeline_state.py。
+节点实现与状态定义位于 stages.py / state.py；阶段 5-6 的复核逻辑位于 review.py。
 """
 
 import logging
@@ -27,34 +27,35 @@ from typing import Any, Dict, List, Optional
 from langgraph.cache.memory import InMemoryCache
 from langgraph.graph import StateGraph
 
-from ai.agents.resume.resume_pipeline_graph import build_resume_graph
-from ai.agents.resume.resume_pipeline_quality import _calc_confidence
-from ai.agents.resume.resume_pipeline_state import (
-    PipelineState,
-    ResumeRuntimeContext,
-    _append_trace,
-    _graph_values,
-    _pipeline_state,
+from ai.runtime.execution.deadlines import TaskDeadline, task_deadline_scope
+from observability import (
+    agent_observation,
+    langgraph_langfuse_scope,
+    with_langgraph_langfuse_config,
 )
-from ai.agents.resume.resume_rewrite_agent import normalize_rewrite_mode
-from ai.agents.resume.stages import (
+
+from .graph import build_resume_graph
+from .quality import _calc_confidence
+from .review import (
+    stage5_fact_check,
+    stage5_quality_judge,
+    stage5_targeted_retry,
+    stage6_confirmation_prep,
+)
+from .rewrite import normalize_rewrite_mode
+from .stages import (
     stage1_jd_analysis,
     stage2_material_selection,
     stage3_custom_rewrite,
     stage3_rewrite_agent,
     stage4_assemble,
 )
-from ai.agents.resume.stages_review import (
-    stage5_fact_check,
-    stage5_quality_judge,
-    stage5_targeted_retry,
-    stage6_confirmation_prep,
-)
-from ai.runtime.deadlines import TaskDeadline, task_deadline_scope
-from observability import (
-    agent_observation,
-    langgraph_langfuse_scope,
-    with_langgraph_langfuse_config,
+from .state import (
+    PipelineState,
+    ResumeRuntimeContext,
+    _append_trace,
+    _graph_values,
+    _pipeline_state,
 )
 
 logger = logging.getLogger(__name__)
@@ -147,7 +148,7 @@ async def _run_pipeline(
 ) -> Dict[str, Any]:
     """执行不含观测上下文的流水线主体，并复用可信的上游 JD 分析。"""
     from ai.memory.memory import get_checkpointer
-    from ai.runtime.guardrails import (
+    from ai.runtime.safety.guardrails import (
         GuardrailViolation,
         persist_guardrail_decision,
         screen_untrusted_text,
@@ -205,7 +206,7 @@ async def _run_pipeline(
         )
     state = _pipeline_state(result)
 
-    from ai.runtime.guardrails import (
+    from ai.runtime.safety.guardrails import (
         GuardrailDecision,
         GuardrailViolation,
         persist_guardrail_decision,

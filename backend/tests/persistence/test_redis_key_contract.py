@@ -6,7 +6,7 @@ import hashlib
 
 from ai.llm.model_pool import ModelPoolScheduler, _identity
 from ai.memory.retention import MemoryRetentionStore
-from ai.runtime.runtime_gate import LOCK_KEY
+from ai.runtime.execution.gate import LOCK_KEY
 from app.security.model_credentials import ModelCredentialStore
 from integrations.browser_automation.rate_limiter import RateLimitType, RedisRateLimitStore
 

@@ -1,6 +1,6 @@
 """AgentRun 父子关系 payload 契约。"""
 
-from typing import Literal, Mapping, Any
+from typing import Any, Literal, Mapping
 
 RunRelationship = Literal[
     "interview_turn",

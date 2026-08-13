@@ -12,7 +12,7 @@ from typing import Any
 
 from langchain_core.callbacks.base import BaseCallbackHandler
 
-from ai.runtime.error_classification import classify_exception
+from ai.runtime.safety.errors import classify_exception
 from app.config import get_settings
 from app.redis_keys import build_redis_key
 from observability import (

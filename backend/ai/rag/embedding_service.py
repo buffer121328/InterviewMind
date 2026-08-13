@@ -12,7 +12,7 @@ from time import perf_counter
 from typing import List, Optional
 
 from ai.llm import llms
-from ai.runtime.deadlines import TaskDeadline, TaskDeadlineExceeded
+from ai.runtime.execution.deadlines import TaskDeadline, TaskDeadlineExceeded
 from app.config import get_settings
 from observability import record_external_io_event
 from observability.runtime_events import ExternalIOObservationEvent, new_runtime_event_id

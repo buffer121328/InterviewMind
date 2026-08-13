@@ -1,11 +1,15 @@
-"""统一创建带生产护轨的 LangChain Agent。"""
+"""创建带生产护轨的 LangChain Agent。
+
+只在真正构建 LangChain Agent 时导入；
+`ai.runtime` 保留其稳定的惰性门面，从而不让轻量 runtime/harness 导入引入 LangChain 或 LangGraph。
+"""
 
 from collections.abc import Collection, Sequence
 from typing import Any
 
 from langchain.agents import create_agent
 
-from ai.runtime.context import AgentContext
+from ai.runtime.context.agent import AgentContext
 from ai.runtime.middleware import build_default_middleware
 from ai.tools.contracts import derive_tool_governance
 

@@ -2,7 +2,7 @@
 
 from typing import List, Optional
 
-from ai.agents.resume.resume_pipeline_state import PipelineState
+from .state import PipelineState
 
 
 def _calc_confidence(change_items: List[dict]) -> float:

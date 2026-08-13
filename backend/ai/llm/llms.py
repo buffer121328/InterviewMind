@@ -19,12 +19,12 @@ from langchain_openai import ChatOpenAI
 from langchain_qwq import ChatQwen
 
 from ai.llm.model_pool import ModelPoolScheduler, _identity, _ModelPoolCallback
-from ai.runtime.deadlines import (
+from ai.runtime.execution.deadlines import (
     TaskDeadline,
     TaskDeadlineExceeded,
     get_current_task_deadline,
 )
-from ai.runtime.error_classification import classify_exception
+from ai.runtime.safety.errors import classify_exception
 from app.config import get_settings
 from app.security.url_security import validate_outbound_url
 from observability import (

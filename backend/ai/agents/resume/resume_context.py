@@ -12,7 +12,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from ai.runtime.context_assembler import (
+from ai.runtime.context.assembler import (
     AssembledContext,
     ContextAssembler,
     ContextSource,

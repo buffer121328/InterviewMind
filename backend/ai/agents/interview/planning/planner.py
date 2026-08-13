@@ -11,8 +11,8 @@ from difflib import SequenceMatcher
 from typing import Any, Dict, List, Optional
 
 from ai.llm.llm_utils import clean_json_response, invoke_structured
-from ai.runtime.context_assembler import ContextAssembler, ContextSource
-from ai.runtime.deadlines import TaskDeadline
+from ai.runtime.context.assembler import ContextAssembler, ContextSource
+from ai.runtime.execution.deadlines import TaskDeadline
 from app.config import get_settings
 from app.domain.interview_rounds import (
     MAX_QUESTIONS,
@@ -430,7 +430,7 @@ async def generate_interview_plan(
 
                 # 异步生成回答提示（如果需要）
                 if generate_hints:
-                    from ai.runtime.background_tasks import create_background_task
+                    from ai.runtime.execution.background import create_background_task
                     create_background_task(_generate_hints_async(
                         session_id=session_id,
                         interview_plan=interview_plan,

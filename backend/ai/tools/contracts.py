@@ -8,7 +8,7 @@ from typing import Any
 
 from app.schemas.tools import get_tool_contract
 
-
+# ToolGovernance 是个 frozen=True 的 dataclass，里面的集合也用不可变的 frozenset ——保证这份治理配置一旦生成就 不可被后续修改
 @dataclass(frozen=True, slots=True)
 class ToolGovernance:
     """由已声明的工具契约推导出的运行时治理配置。"""
@@ -21,7 +21,7 @@ def derive_tool_governance(
     tools: Sequence[Any],
     *,
     tool_permissions: dict[str, Collection[str]] | None = None,
-    approval_tools: Collection[str] = (),
+    approval_tools: Collection[str] = (),       # Collection是所有容器（list/set/tuple/dict/str）的"最大父类"
 ) -> ToolGovernance:
     """合并工具元数据与调用方的收紧策略。
 
@@ -38,14 +38,16 @@ def derive_tool_governance(
         name = str(getattr(tool, "name", "")).strip()
         if not name:
             continue
-        contract = get_tool_contract(tool)
+        contract = get_tool_contract(tool)  # 读工具契约
         if not contract:
             continue
 
         permissions = contract.get("permissions") or ()
+        # 合并权限
         resolved_permissions.setdefault(name, set()).update(
             str(permission) for permission in permissions if str(permission).strip()
         )
+        # 追加审批
         if bool(contract.get("requires_confirmation", False)):
             resolved_approval_tools.add(name)
 

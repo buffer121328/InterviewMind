@@ -5,7 +5,7 @@
 
 流程：
 1. JD 分析 → 调用统一 match_jd(mode="smart")
-2. 定制简历 → 调用 resume_generation_sessions.init_generation_session()
+2. 定制简历 → 调用 ai.agents.resume.generation.sessions.init_generation_session()
 3. 打招呼文案 → 调用 greeting_generator.generate_greetings()
 4. 资产打包 → 返回 JD 分析、定制简历和可编辑打招呼方案
 

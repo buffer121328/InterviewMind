@@ -24,7 +24,7 @@ from ai.agents.interview.planning.planner import (
 )
 
 # 被测模块 ─ 简历优化图
-from ai.agents.resume.resume_orchestrator import build_resume_optimizer_graph
+from ai.agents.resume.optimization.flow import build_resume_optimizer_graph
 
 # 被测模块 ─ LLM 工具
 from ai.llm.llm_utils import clean_json_response

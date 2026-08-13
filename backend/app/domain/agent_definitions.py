@@ -13,7 +13,6 @@ from typing import Literal
 from app.domain.agent_runs import (
     TASK_TYPE_ABILITY_PROFILE,
     TASK_TYPE_EVALUATION_SUITE,
-    TASK_TYPE_INTERVIEW_EXPERIENCE_COLLECT,
     TASK_TYPE_INTERVIEW_REPORT,
     TASK_TYPE_INTERVIEW_START,
     TASK_TYPE_INTERVIEW_TURN,
@@ -28,7 +27,6 @@ from app.domain.agent_runs import (
 CheckpointPolicy = Literal["none", "memory", "durable"]
 CancellationPolicy = Literal["none", "cooperative"]
 ExecutionMode = Literal["queued", "inline", "stream", "session"]
-MigrationState = Literal["harness", "legacy"]
 SideEffectPolicy = Literal["read_only", "local_write", "external_effect"]
 GraphReferenceMode = Literal["diagnostic", "required"]
 RunGatePolicy = Literal["global", "worker_limit", "none"]
@@ -50,12 +48,10 @@ class AgentDefinition:
     prompt_version: str | None = None
     execution_modes: tuple[ExecutionMode, ...] = ("queued", "inline")
     adapter_key: str | None = None
-    migration_state: MigrationState = "legacy"
     evaluation_enabled: bool = False
     side_effect_policy: SideEffectPolicy = "local_write"
     graph_reference_mode: GraphReferenceMode = "diagnostic"
     run_gate_policy: RunGatePolicy = "global"
-    deprecated: bool = False
 
 
 class AgentDefinitionRegistry:
@@ -105,7 +101,6 @@ _DEFINITIONS = (
         prompt_name=None,
         prompt_version=None,
         adapter_key=TASK_TYPE_EVALUATION_SUITE,
-        migration_state="harness",
     ),
     AgentDefinition(
         name="interview_starter",
@@ -118,7 +113,6 @@ _DEFINITIONS = (
         prompt_name="interview.planner",
         prompt_version="3",
         adapter_key=TASK_TYPE_INTERVIEW_START,
-        migration_state="harness",
         evaluation_enabled=True,
         graph_reference_mode="required",
     ),
@@ -140,7 +134,6 @@ _DEFINITIONS = (
         prompt_version="2",
         execution_modes=("stream",),
         adapter_key=TASK_TYPE_INTERVIEW_TURN,
-        migration_state="harness",
         graph_reference_mode="required",
         run_gate_policy="global",
     ),
@@ -161,7 +154,6 @@ _DEFINITIONS = (
         prompt_version="2",
         execution_modes=("stream",),
         adapter_key=TASK_TYPE_VOICE_INTERVIEW_TURN,
-        migration_state="harness",
         graph_reference_mode="required",
         run_gate_policy="none",
     ),
@@ -175,7 +167,6 @@ _DEFINITIONS = (
         prompt_name="resume.match_analyst",
         prompt_version="1",
         adapter_key=TASK_TYPE_RESUME_OPTIMIZE,
-        migration_state="harness",
         graph_reference_mode="required",
     ),
     AgentDefinition(
@@ -195,7 +186,6 @@ _DEFINITIONS = (
         prompt_name="resume.match_analyst",
         prompt_version="1",
         adapter_key=TASK_TYPE_RESUME_WORKSPACE,
-        migration_state="harness",
     ),
     AgentDefinition(
         name="resume_generator",
@@ -217,7 +207,6 @@ _DEFINITIONS = (
         prompt_version="1",
         execution_modes=("session",),
         adapter_key=TASK_TYPE_RESUME_GENERATION,
-        migration_state="harness",
         graph_reference_mode="required",
         run_gate_policy="none",
     ),
@@ -238,7 +227,6 @@ _DEFINITIONS = (
         prompt_name="analysis.multi_reviewer_consensus.ability_profile",
         prompt_version="1",
         adapter_key=TASK_TYPE_ABILITY_PROFILE,
-        migration_state="harness",
     ),
     AgentDefinition(
         name="interview_reporter",
@@ -256,29 +244,7 @@ _DEFINITIONS = (
         prompt_name="analysis.session_report",
         prompt_version="2",
         adapter_key=TASK_TYPE_INTERVIEW_REPORT,
-        migration_state="harness",
         graph_reference_mode="required",
-    ),
-    AgentDefinition(
-        # 只为历史 AgentRun 的详情/事件展示保留；没有 API 或 EXECUTOR。
-        # 历史记录过保留期后与 task type 常量在 AgentRun schema 清理阶段一并删除。
-        name="interview_experience_collector",
-        version="1",
-        task_type=TASK_TYPE_INTERVIEW_EXPERIENCE_COLLECT,
-        title="小红书面经采集（已废弃）",
-        steps=(
-            ("queued", "等待执行资源"),
-            ("opening_browser", "历史浏览器采集步骤"),
-            ("waiting_for_user", "历史人工验证步骤"),
-            ("collecting_notes", "历史内容采集步骤"),
-            ("extracting_questions", "历史候选题抽取步骤"),
-            ("saving_result", "历史结果保存步骤"),
-        ),
-        checkpoint_policy="durable",
-        execution_modes=(),
-        migration_state="legacy",
-        run_gate_policy="none",
-        deprecated=True,
     ),
     AgentDefinition(
         name="job_recommendation_collector",
@@ -297,7 +263,6 @@ _DEFINITIONS = (
         prompt_name="jobs.extraction",
         prompt_version="1",
         adapter_key=TASK_TYPE_JOB_RECOMMENDATION_CAPTURE,
-        migration_state="harness",
     ),
     AgentDefinition(
         name="job_asset_builder",
@@ -309,7 +274,6 @@ _DEFINITIONS = (
         prompt_name="resume.jd_match.user",
         prompt_version="1",
         adapter_key=TASK_TYPE_JOB_ASSETS,
-        migration_state="harness",
         graph_reference_mode="required",
         run_gate_policy="worker_limit",
     ),

@@ -29,12 +29,12 @@ from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from ai.runtime.context import AgentContext
-from ai.runtime.context_assembler import (
+from ai.runtime.context.assembler import (
     AssembledContext,
     ContextAssembler,
     ContextSource,
 )
-from ai.runtime.deadlines import TaskDeadline
+from ai.runtime.execution.deadlines import TaskDeadline
 from ai.tools.executor import ToolExecutionGuard
 from app.config import get_settings
 from app.schemas.interview import (
@@ -83,17 +83,19 @@ class InterviewRuntime:
         self.trace: List[Dict[str, Any]] = list(state.get("trace", []))
         self.max_tool_rounds: int = 1
         self.tool_round_count: int = 0
+        # 任务截止时间：优先使用调用方注入的显式 deadline，否则按配置的默认交互超时构造。
         explicit_deadline = state.get("task_deadline")
         self.task_deadline = (
             explicit_deadline
-            if isinstance(explicit_deadline, TaskDeadline)
-            else TaskDeadline(get_settings().interactive_interview_task_timeout_seconds)
+            if isinstance(explicit_deadline, TaskDeadline)  # 调用方已注入合法 deadline → 直接复用
+            else TaskDeadline(get_settings().interactive_interview_task_timeout_seconds)  # 无注入 → 用默认超时
         )
+        # 探测模型调用器是否接受扩展上下文：签名含 **kwargs，或显式声明了 deadline/call_metadata 参数。
         signature = inspect.signature(llm_invoker)
         self._invoker_accepts_context = any(
-            parameter.kind == inspect.Parameter.VAR_KEYWORD
+            parameter.kind == inspect.Parameter.VAR_KEYWORD  # 该参数是 **kwargs（可接收任意关键字参数）
             for parameter in signature.parameters.values()
-        ) or {"deadline", "call_metadata"}.issubset(signature.parameters)
+        ) or {"deadline", "call_metadata"}.issubset(signature.parameters)  # 或显式声明了这两个参数名
 
         # 当前阶段
         self.phase: InterviewPhase = (
@@ -350,13 +352,17 @@ class InterviewRuntime:
         })
 
     def _handle_end_round_action(self, output) -> Dict[str, Any]:
-        """处理轮次相关后端逻辑。"""
+        """收敛 end_round 动作：写入固定结束语并标记全部题目完成。
+
+        Args:
+            output: 模型评估输出（本动作忽略其内容，仅用于统一签名）。
+        """
         from app.domain.interview_rounds import INTERVIEW_CLOSING_MESSAGE
 
         self.phase = InterviewPhase.END_ROUND
         logger.info(f"[Runtime] 本轮面试结束, round={self.round_index}")
 
-        _ = output
+        _ = output  # 忽略模型输出，结束语使用固定文案
         content = INTERVIEW_CLOSING_MESSAGE
         self._add_trace(
             step="decision",
@@ -379,7 +385,13 @@ class InterviewRuntime:
     # ------------------------------------------------------------------
 
     def _handle_fallback(self, user_answer: str, current_q: str, next_q: str) -> Dict[str, Any]:
-        """LLM 调用失败时的兜底处理"""
+        """LLM 调用失败时的兜底：未达追问上限则默认追问，否则默认进入下一题。
+
+        Args:
+            user_answer: 候选人本轮回答。
+            current_q: 当前题目文本。
+            next_q: 下一题文本（用于默认推进）。
+        """
         if self.follow_up_count < self.max_follow_ups:
             return self._handle_follow_up_action(EvaluatingOutput(
                 evaluation_notes="[自动] LLM 调用失败，默认追问",
@@ -396,7 +408,11 @@ class InterviewRuntime:
             ))
 
     def _default_response(self, content: str) -> Dict[str, Any]:
-        """生成默认响应"""
+        """生成不依赖模型的安全兜底回复，并附带 trace。
+
+        Args:
+            content: 兜底回复文本。
+        """
         self._add_trace(
             step="default_response",
             phase=self.phase.value,
@@ -457,7 +473,15 @@ class InterviewRuntime:
         tool_context: str,
         allow_tool_request: bool = False,
     ) -> tuple[str, AssembledContext]:
-        """构建评估提示词打包相关后端逻辑。"""
+        """构建评估阶段提示词，并按 token 预算组装多来源上下文。
+
+        Args:
+            user_answer: 候选人本轮回答。
+            current_q: 当前题目文本。
+            next_q: 下一题文本（最后一题为空）。
+            tool_context: 已执行工具结果的格式化文本。
+            allow_tool_request: 是否允许模型在本轮请求工具。
+        """
         from ai.prompts.interview import build_evaluating_prompt
 
         from .planning.planner import ROUND_STRATEGIES
@@ -539,7 +563,12 @@ class InterviewRuntime:
         prompt: str,
         assembled_context: AssembledContext,
     ) -> EvaluatingOutput:
-        """处理评估模型相关后端逻辑。"""
+        """用结构化输出调用评估模型，返回 EvaluatingOutput。
+
+        Args:
+            prompt: 组装后的评估提示词。
+            assembled_context: 组装上下文，用于生成模型调用元数据。
+        """
         if self._invoker_accepts_context:
             return await self.llm_invoker(
                 prompt,
@@ -630,7 +659,12 @@ class InterviewRuntime:
 
     @staticmethod
     def _summarize_tool_result(result: Any, *, max_chars: int = 600) -> str:
-        """汇总工具结果相关后端逻辑。"""
+        """把工具结果压成紧凑 JSON 摘要，控制注入提示词的 token 用量。
+
+        Args:
+            result: 工具返回的原始结果。
+            max_chars: 摘要最大字符数。
+        """
         if isinstance(result, dict):
             if result.get("error"):
                 return "工具执行失败，未提供可用参考信息"
@@ -663,7 +697,7 @@ class InterviewRuntime:
         return json.dumps(payload, ensure_ascii=False, default=str)[:max_chars]
 
     def _format_tool_results(self) -> str:
-        """格式化工具结果相关后端逻辑。"""
+        """把本次运行的工具结果格式化为【可用参考信息】文本段。"""
         if not self.tool_results:
             return ""
 
@@ -710,7 +744,11 @@ class InterviewRuntime:
         return ""
 
     def _should_execute_tool(self, output: EvaluatingOutput) -> bool:
-        """判断是否需要执行工具。"""
+        """判断是否允许请求工具：有执行器、未超轮次、尚未取到结果且模型请求了工具。
+
+        Args:
+            output: 模型评估输出。
+        """
         return bool(
             self.tool_executor
             and self.tool_round_count < self.max_tool_rounds
@@ -720,7 +758,11 @@ class InterviewRuntime:
         )
 
     def _build_tool_instruction(self, allow_tool_request: bool) -> str:
-        """构建工具使用规则提示。"""
+        """构建工具使用规则提示段，按是否允许请求工具生成不同文案。
+
+        Args:
+            allow_tool_request: 是否允许模型本轮请求工具。
+        """
         if not allow_tool_request:
             return """【工具规则】：
 - 已有参考信息或本轮不允许继续查工具
@@ -755,7 +797,19 @@ class InterviewRuntime:
         event_type: Optional[str] = None,
         duration_ms: Optional[int] = None,
     ) -> None:
-        """记录统一 trace 事件。"""
+        """记录一条统一 trace 事件。
+
+        Args:
+            step: trace 步骤名。
+            phase: 所属执行阶段。
+            status: 状态（started/completed/failed 等）。
+            tool_name: 关联工具名，可选。
+            input_summary: 输入摘要，可选。
+            output_summary: 输出摘要，可选。
+            error: 错误摘要，可选。
+            event_type: 事件类型，可选。
+            duration_ms: 耗时毫秒，可选。
+        """
         now = datetime.now(timezone.utc).isoformat()
         self.trace.append({
             "step": step,
@@ -773,7 +827,11 @@ class InterviewRuntime:
 
 
 def memo_hint(memory_context: str) -> str:
-    """构建记忆提示（如果有）"""
+    """构建记忆提示段；无记忆时返回空串。
+
+    Args:
+        memory_context: 候选人长期记忆文本。
+    """
     if not memory_context:
         return ""
     return f"""

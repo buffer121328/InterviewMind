@@ -6,7 +6,7 @@ import pytest
 from langgraph.cache.memory import InMemoryCache
 from langgraph.checkpoint.memory import MemorySaver
 
-import ai.agents.resume.resume_orchestrator as orchestrator
+import ai.agents.resume.optimization.flow as orchestrator
 
 
 def _initial_state() -> dict:

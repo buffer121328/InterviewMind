@@ -107,10 +107,15 @@ class EvaluatingOutput(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def normalize_compatible_model_output(cls, value):
-        """把常见兼容字段收敛为唯一动作协议，避免重试候选被当作多条回复。"""
+        """把不同版本/不同模型的输出归一化为标准字段，再交给 Pydantic 校验。
+
+        模型可能用旧字段名（evaluation/assessment）、旧布尔格式（end_round: true）或漏填字段；
+        先进这里统一改写，避免校验失败或字段丢失。mode="before" 表示在字段校验前执行。
+        """
         if not isinstance(value, dict):
-            return value
+            return value  # 非 dict 输入（如已构造对象）直接放行
         normalized = dict(value)
+        # ① 评价字段名归一：evaluation/assessment 别名 → 标准字段 evaluation_notes，兜底填默认
         if not normalized.get("evaluation_notes"):
             normalized["evaluation_notes"] = (
                 normalized.get("evaluation")
@@ -118,6 +123,7 @@ class EvaluatingOutput(BaseModel):
                 or "已完成当前回答评估"
             )
 
+        # ② 动作格式归一：旧布尔勾选（如 end_round:true）→ 标准 action 枚举值
         action = normalized.get("action")
         if not action:
             for legacy_action in ("end_round", "follow_up", "advance"):
@@ -126,8 +132,10 @@ class EvaluatingOutput(BaseModel):
                     normalized["action"] = legacy_action
                     break
 
+        # ③ 内容补齐：content 为空时从 action 对应的旧同名字段取内容
         if not str(normalized.get("content") or "").strip() and action:
             normalized["content"] = str(normalized.get(str(action)) or "").strip()
+        # ④ 类型归一：tool_args 必须为 dict，None 置空以免 Pydantic 校验失败
         if normalized.get("tool_args") is None:
             normalized["tool_args"] = {}
         return normalized

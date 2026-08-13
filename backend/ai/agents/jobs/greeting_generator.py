@@ -18,8 +18,8 @@ from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
-from ai.runtime.deadlines import TaskDeadline
-from ai.runtime.evidence import claim_has_evidence
+from ai.runtime.execution.deadlines import TaskDeadline
+from ai.runtime.safety.evidence import claim_has_evidence
 
 logger = logging.getLogger(__name__)
 

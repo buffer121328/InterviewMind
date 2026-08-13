@@ -18,14 +18,15 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
 
-from ai.agents.resume.resume_context import assemble_resume_context
 from ai.llm.llm_utils import invoke_structured
 from ai.prompts.resume import (
     build_rewrite_executor_prompt,
     build_rewrite_planner_prompt,
 )
-from ai.runtime.deadlines import TaskDeadline, get_current_task_deadline
+from ai.runtime.execution.deadlines import TaskDeadline, get_current_task_deadline
 from app.schemas.llm_outputs import ContentSuggestionsOutput
+
+from ..resume_context import assemble_resume_context
 
 logger = logging.getLogger(__name__)
 

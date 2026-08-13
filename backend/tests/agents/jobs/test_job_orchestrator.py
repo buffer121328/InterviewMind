@@ -49,7 +49,7 @@ class TestAssetOrchestrator:
 
                 # Mock 简历生成
                 with patch(
-                    "ai.agents.resume.resume_generation_sessions.init_generation_session"
+                    "ai.agents.resume.generation.sessions.init_generation_session"
                 ) as mock_gen:
                     mock_gen.return_value = {
                         "needs_input": False,
@@ -122,7 +122,7 @@ class TestAssetOrchestrator:
                 mock_jd.return_value = {"overall_match_score": 15}
 
                 with patch(
-                    "ai.agents.resume.resume_generation_sessions.init_generation_session"
+                    "ai.agents.resume.generation.sessions.init_generation_session"
                 ) as mock_gen:
                     mock_gen.return_value = {"needs_input": False, "result": {}}
 

@@ -32,8 +32,7 @@ test('getAgentRunCategory maps every internal task type to one user-facing categ
         getAgentRunCategory('resume_generation'),
         getAgentRunCategory('job_assets'),
         getAgentRunCategory('job_recommendation_capture'),
-        getAgentRunCategory('interview_experience_collect'),
-    ], ['text-interview', 'text-interview', 'text-interview', 'voice-interview', 'resume-optimization', 'resume-optimization', 'resume-optimization', 'job-delivery', 'job-delivery', 'experience-collection']);
+    ], ['text-interview', 'text-interview', 'text-interview', 'voice-interview', 'resume-optimization', 'resume-optimization', 'resume-optimization', 'job-delivery', 'job-delivery']);
 });
 
 test('groupAgentRunsForDisplay separates user categories and dates', () => {

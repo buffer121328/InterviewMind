@@ -11,31 +11,6 @@ from typing import Any, Dict, List, Optional, TypedDict
 from langchain_core.messages import HumanMessage
 from langgraph.graph import END, StateGraph
 
-from ai.agents.resume.resume_context import (
-    build_jd_requirement_map,
-    build_resume_fact_sheet,
-    build_resume_jd_match_map,
-)
-from ai.agents.resume.resume_generation_review import (
-    node_fact_check,
-    node_finalize_and_review,
-    node_verify_final,
-)
-from ai.agents.resume.resume_sections import (
-    build_section_checkpoint,
-    merge_section_patch,
-    parse_resume_sections,
-    render_resume_sections,
-    reusable_sections,
-    select_retry_sections,
-)
-from ai.agents.resume.resume_generation_support import (
-    bounded_generation_sources as _bounded_generation_sources,
-    compact_optimization_result as _compact_optimization_result,
-    current_generation_deadline as _current_deadline,
-    get_keyword_analysis as _keyword_analysis,
-    safe_json_mapping as _safe_json_mapping,
-)
 from ai.llm import llms
 from ai.llm.llm_utils import clean_markdown_response, invoke_structured
 from ai.prompts.resume import (
@@ -46,6 +21,40 @@ from ai.prompts.resume import (
 from app.schemas.llm_outputs import (
     DraftOptimizationOutput,
     NeedsAnalysisOutput,
+)
+
+from ..resume_context import (
+    build_jd_requirement_map,
+    build_resume_fact_sheet,
+    build_resume_jd_match_map,
+)
+from .review import (
+    node_fact_check,
+    node_finalize_and_review,
+    node_verify_final,
+)
+from .sections import (
+    build_section_checkpoint,
+    merge_section_patch,
+    parse_resume_sections,
+    render_resume_sections,
+    reusable_sections,
+    select_retry_sections,
+)
+from .support import (
+    bounded_generation_sources as _bounded_generation_sources,
+)
+from .support import (
+    compact_optimization_result as _compact_optimization_result,
+)
+from .support import (
+    current_generation_deadline as _current_deadline,
+)
+from .support import (
+    get_keyword_analysis as _keyword_analysis,
+)
+from .support import (
+    safe_json_mapping as _safe_json_mapping,
 )
 
 logger = logging.getLogger(__name__)

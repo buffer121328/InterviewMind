@@ -5,7 +5,7 @@ import uuid
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from ai.runtime.deadlines import TaskDeadline, task_deadline_scope
+from ai.runtime.execution.deadlines import TaskDeadline, task_deadline_scope
 from app.config import get_settings
 from app.db.repositories.resume.resume_generation_repo import (
     get_generation_repo,
@@ -66,12 +66,13 @@ async def init_generation_session(
     deadline: TaskDeadline | None = None,
 ) -> dict[str, Any]:
     """初始化简历生成会话，并可复用上层 Job Assets 的任务总 deadline。"""
-    from ai.agents.resume import resume_generation_graph
-    from ai.runtime.guardrails import (
+    from ai.runtime.safety.guardrails import (
         GuardrailViolation,
         persist_guardrail_decision,
         screen_untrusted_text,
     )
+
+    from . import graph as resume_generation_graph
 
     jd_decision = screen_untrusted_text(
         job_description,
@@ -224,7 +225,7 @@ async def _complete_generation(
     所有模型步骤复用调用方 deadline；可选阶段回调只接收阶段名，不接收简历、
     JD 或模型输出，避免运行观测保存敏感正文。
     """
-    from ai.agents.resume import resume_generation_graph
+    from . import graph as resume_generation_graph
 
     async def report_progress(stage: str, phase: str, result: dict[str, Any]) -> None:
         """上报进度相关后端逻辑。"""
@@ -281,7 +282,7 @@ async def _complete_generation(
         final_state["final_markdown"] = fallback_draft
         final_state["title"] = "新简历"
 
-    from ai.runtime.guardrails import (
+    from ai.runtime.safety.guardrails import (
         GuardrailViolation,
         persist_guardrail_decision,
         validate_final_resume_output,

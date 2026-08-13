@@ -1,7 +1,7 @@
 import type { AgentRun, AgentRunStatus, AgentRunTaskType } from './api/agentRunTypes.ts';
 
 /** User-facing task categories that intentionally hide AgentRun's implementation-level task types. */
-export type AgentRunCategory = 'text-interview' | 'voice-interview' | 'resume-optimization' | 'job-delivery' | 'experience-collection';
+export type AgentRunCategory = 'text-interview' | 'voice-interview' | 'resume-optimization' | 'job-delivery';
 
 /** Supplies the stable category values and labels accepted by Run Center's user-facing filter. */
 export const AGENT_RUN_CATEGORIES: ReadonlyArray<{ value: AgentRunCategory; label: string }> = [
@@ -9,7 +9,6 @@ export const AGENT_RUN_CATEGORIES: ReadonlyArray<{ value: AgentRunCategory; labe
     { value: 'voice-interview', label: '语音面试' },
     { value: 'resume-optimization', label: '简历优化' },
     { value: 'job-delivery', label: '岗位投递' },
-    { value: 'experience-collection', label: '面经采集' },
 ];
 
 /** Maps every supported backend task type to the product category shown to users. */
@@ -17,7 +16,6 @@ export function getAgentRunCategory(taskType: AgentRunTaskType): AgentRunCategor
     if (taskType === 'voice_interview_turn') return 'voice-interview';
     if (taskType === 'resume_optimize' || taskType === 'resume_workspace' || taskType === 'resume_generation') return 'resume-optimization';
     if (taskType === 'job_assets' || taskType === 'job_recommendation_capture') return 'job-delivery';
-    if (taskType === 'interview_experience_collect') return 'experience-collection';
     return 'text-interview';
 }
 
@@ -52,7 +50,6 @@ export function getAgentRunStatusLabel(run: AgentRun): string {
     if (run.task_type === 'interview_start') return '首题已生成';
     if (run.task_type === 'interview_turn' || run.task_type === 'voice_interview_turn') return '本次回复已生成';
     if (run.task_type === 'interview_report') return '报告已生成';
-    if (run.task_type === 'interview_experience_collect') return '采集完成';
     return GENERIC_STATUS_LABELS.succeeded;
 }
 

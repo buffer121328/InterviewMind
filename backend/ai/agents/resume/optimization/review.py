@@ -19,12 +19,12 @@ import hashlib
 import json
 import logging
 
-from ai.agents.resume.resume_pipeline_quality import (
+from .quality import (
     _build_quality_judge_result,
     _build_retry_guidance,
 )
-from ai.agents.resume.resume_pipeline_state import PipelineState, _append_trace
-from ai.agents.resume.resume_rewrite_agent import normalize_rewrite_mode
+from .rewrite import normalize_rewrite_mode
+from .state import PipelineState, _append_trace
 
 logger = logging.getLogger(__name__)
 
@@ -132,10 +132,10 @@ async def stage5_targeted_retry(state: PipelineState, mode: str = "quality") -> 
     logger.info(f"[Stage5.5] 触发第 {state.retry_count} 次定向重写")
 
     if normalize_rewrite_mode(mode) == "quality":
-        from ai.agents.resume.resume_orchestrator import stage3_custom_rewrite
+        from .flow import stage3_custom_rewrite
         state = await stage3_custom_rewrite(state)
     else:
-        from ai.agents.resume.resume_orchestrator import stage3_rewrite_agent
+        from .flow import stage3_rewrite_agent
         state = await stage3_rewrite_agent(state, mode=mode)
 
     _append_trace(

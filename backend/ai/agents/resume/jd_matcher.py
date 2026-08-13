@@ -9,8 +9,8 @@ from typing import Any, Dict, Literal, Optional
 
 from ai.llm.llm_utils import invoke_structured
 from ai.prompts.resume import build_jd_match_user_prompt
-from ai.runtime.deadlines import TaskDeadline
-from ai.runtime.error_classification import ErrorCategory, classify_exception
+from ai.runtime.execution.deadlines import TaskDeadline
+from ai.runtime.safety.errors import ErrorCategory, classify_exception
 from app.schemas.llm_outputs import JDMatchLLMOutput
 
 logger = logging.getLogger(__name__)

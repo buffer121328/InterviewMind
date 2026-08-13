@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from ai.runtime.context_assembler import (
+from ai.runtime.context.assembler import (
     AssembledContext,
     ContextAssembler,
     ContextSource,

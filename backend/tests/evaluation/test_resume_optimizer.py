@@ -61,7 +61,7 @@ class TestResumeOptimizerPrompts:
         """匹配分析师 prompt 应包含 JD 和简历内容。"""
         import inspect
 
-        from ai.agents.resume.resume_orchestrator import stage1_jd_analysis
+        from ai.agents.resume.optimization.flow import stage1_jd_analysis
         source = inspect.getsource(stage1_jd_analysis)
         assert "job_description" in source
         assert "jd_analysis" in source
@@ -79,7 +79,7 @@ class TestResumeOptimizerPrompts:
         """内容优化师 prompt 应包含 STAR 法则引用。"""
         import inspect
 
-        from ai.agents.resume.resume_orchestrator import stage2_material_selection
+        from ai.agents.resume.optimization.flow import stage2_material_selection
         source = inspect.getsource(stage2_material_selection)
         assert "STAR" in source or "STAR法则" in source
 
@@ -97,7 +97,7 @@ class TestResumeOptimizerPrompts:
         """HR 审核官 prompt 应包含筛选标准。"""
         import inspect
 
-        from ai.agents.resume.resume_orchestrator import stage5_quality_judge
+        from ai.agents.resume.optimization.flow import stage5_quality_judge
         source = inspect.getsource(stage5_quality_judge)
         assert "quality_judge" in source
         assert "judge_result" in source
@@ -107,7 +107,7 @@ class TestResumeOptimizerPrompts:
         """HR 审核官 prompt 应包含内容精炼度评估。"""
         import inspect
 
-        from ai.agents.resume.resume_orchestrator import stage5_quality_judge
+        from ai.agents.resume.optimization.flow import stage5_quality_judge
         source = inspect.getsource(stage5_quality_judge)
         assert "quality_judge" in source
         assert "passed" in source
@@ -192,14 +192,14 @@ class TestResumeOptimizerGraph:
 
     def test_graph_compiles_successfully(self):
         """验证 resume optimizer graph 能成功编译。"""
-        from ai.agents.resume.resume_orchestrator import build_resume_optimizer_graph
+        from ai.agents.resume.optimization.flow import build_resume_optimizer_graph
 
         graph = build_resume_optimizer_graph()
         assert graph is not None
 
     def test_graph_has_expected_nodes(self):
         """验证图包含所有期望的节点。"""
-        from ai.agents.resume.resume_orchestrator import build_resume_optimizer_graph
+        from ai.agents.resume.optimization.flow import build_resume_optimizer_graph
 
         graph = build_resume_optimizer_graph()
 
@@ -222,7 +222,7 @@ class TestResumeOptimizerGraph:
 
     def test_graph_has_parallel_expert_nodes(self):
         """验证 JD 分析和素材选择两个准备阶段存在，可由 START 并行触发。"""
-        from ai.agents.resume.resume_orchestrator import build_resume_optimizer_graph
+        from ai.agents.resume.optimization.flow import build_resume_optimizer_graph
 
         graph = build_resume_optimizer_graph()
 
@@ -233,7 +233,7 @@ class TestResumeOptimizerGraph:
 
     def test_graph_has_reflection_loop(self):
         """验证图包含质量评审后的定向返工节点。"""
-        from ai.agents.resume.resume_orchestrator import build_resume_optimizer_graph
+        from ai.agents.resume.optimization.flow import build_resume_optimizer_graph
 
         graph = build_resume_optimizer_graph()
 

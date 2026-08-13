@@ -2,7 +2,7 @@
 
 import pytest
 
-from ai.runtime.guardrails import (
+from ai.runtime.safety.guardrails import (
     screen_untrusted_text,
     validate_final_resume_output,
 )
@@ -35,8 +35,8 @@ def test_final_resume_validator_accepts_markdown_and_rejects_blank_or_injected_c
 
 @pytest.mark.asyncio
 async def test_resume_assembly_ignores_malformed_polish_without_calling_model(monkeypatch):
-    from ai.agents.resume.resume_orchestrator import stage4_assemble
-    from ai.agents.resume.resume_pipeline_state import PipelineState
+    from ai.agents.resume.optimization.flow import stage4_assemble
+    from ai.agents.resume.optimization.state import PipelineState
     from ai.llm import llms
 
     async def fake_invoke_text(*_args, **_kwargs):
@@ -65,8 +65,8 @@ async def test_resume_assembly_ignores_malformed_polish_without_calling_model(mo
 
 @pytest.mark.asyncio
 async def test_resume_generation_blocks_unsafe_jd_before_creating_session():
-    from ai.agents.resume.resume_generation_sessions import init_generation_session
-    from ai.runtime.guardrails import GuardrailViolation
+    from ai.agents.resume.generation.sessions import init_generation_session
+    from ai.runtime.safety.guardrails import GuardrailViolation
 
     with pytest.raises(GuardrailViolation) as exc_info:
         await init_generation_session(
@@ -81,9 +81,9 @@ async def test_resume_generation_blocks_unsafe_jd_before_creating_session():
 
 @pytest.mark.asyncio
 async def test_resume_generation_does_not_persist_unsafe_final_markdown(monkeypatch):
-    from ai.agents.resume import resume_generation_graph
-    from ai.agents.resume import resume_generation_sessions as sessions
-    from ai.runtime.guardrails import GuardrailViolation
+    from ai.agents.resume.generation import graph as resume_generation_graph
+    from ai.agents.resume.generation import sessions
+    from ai.runtime.safety.guardrails import GuardrailViolation
 
     class FakeGraph:
         async def ainvoke(self, _state, config):

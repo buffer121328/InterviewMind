@@ -1,9 +1,7 @@
 export type AgentRunStatus = 'queued' | 'retrying' | 'running' | 'cancel_requested' | 'succeeded' | 'failed' | 'cancelled';
-/** Includes the retired collection type so historical AgentRuns remain readable. */
 export const AGENT_RUN_TASK_TYPES = [
     'ability_profile',
     'evaluation_suite',
-    'interview_experience_collect',
     'interview_report',
     'interview_start',
     'interview_turn',

@@ -2,8 +2,8 @@
 
 import pytest
 
-from ai.agents.resume import resume_generation_graph
-from ai.agents.resume.resume_generation_graph import _keyword_analysis, node_generate_draft
+from ai.agents.resume.generation import graph as resume_generation_graph
+from ai.agents.resume.generation.graph import _keyword_analysis, node_generate_draft
 
 
 def test_null_keyword_analysis_is_treated_as_empty_mapping():
@@ -49,7 +49,7 @@ async def test_draft_generation_accepts_null_keyword_analysis(monkeypatch):
 @pytest.mark.asyncio
 async def test_final_resume_is_rechecked_by_independent_zero_temperature_verifier(monkeypatch):
     """The final editor output cannot pass until the reflector validates trusted facts again."""
-    from ai.agents.resume import resume_generation_review as review
+    from ai.agents.resume.generation import review
     from app.schemas.llm_outputs import FactCheckOutput
 
     captured: dict[str, object] = {}

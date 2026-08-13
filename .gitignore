@@ -51,5 +51,7 @@ README.local.md
 .deepeval/
 .reasonix/
 reasonix.toml
-
+reference
 .codex/npm-cache/
+.codex
+openspec

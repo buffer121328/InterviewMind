@@ -6,15 +6,16 @@ import json
 import logging
 from typing import Any, Mapping
 
-from ai.agents.resume.resume_context import build_resume_fact_sheet
-from ai.agents.resume.resume_generation_support import (
+from ai.llm.llm_utils import clean_markdown_response, invoke_structured
+from ai.prompts.resume import build_fact_check_prompt, build_finalize_review_prompt
+from app.schemas.llm_outputs import FactCheckOutput, FinalReviewOutput
+
+from ..resume_context import build_resume_fact_sheet
+from .support import (
     bounded_generation_sources,
     current_generation_deadline,
     get_keyword_analysis,
 )
-from ai.llm.llm_utils import clean_markdown_response, invoke_structured
-from ai.prompts.resume import build_fact_check_prompt, build_finalize_review_prompt
-from app.schemas.llm_outputs import FactCheckOutput, FinalReviewOutput
 
 logger = logging.getLogger(__name__)
 

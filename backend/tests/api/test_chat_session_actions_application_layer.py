@@ -29,7 +29,8 @@ def test_placeholder_chat_compatibility_routes_are_removed():
         / "ai"
         / "workflows"
         / "interview"
-        / "session_actions.py"
+        / "sessions"
+        / "actions.py"
     ).read_text()
     for source in (route_source, workflow_source):
         tree = ast.parse(source)

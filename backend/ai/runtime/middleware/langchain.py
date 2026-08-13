@@ -4,6 +4,7 @@ from collections.abc import Collection
 from typing import Any
 
 from ai.runtime.context import AgentContext
+
 from .content_safety import prompt_injection_middleware
 
 try:  # pragma: no cover - 运行时可选依赖

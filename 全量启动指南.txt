@@ -1,273 +1,195 @@
-面必过项目：全量启动指南
-========================
+面必过：全量启动指南
+====================
 
-适用目录：项目根目录（本文件所在目录）
-推荐模式：Docker Compose 全容器启动
+适用目录：仓库根目录。本指南只记录可从当前 `env_example`、`docker-compose.yml`、
+`backend/pyproject.toml` 和启动脚本核实的操作；业务背景见 `docs/knowledge.md`，
+目录与调用关系请使用 CodeGraph 查询。
 
-启动后会包含：
-  PostgreSQL + pgvector、Redis、数据库迁移、FastAPI 后端、
-  Dramatiq Worker、Next.js 前端、Nginx 反向代理。
-
-------------------------------------------------------------
-一、首次启动前检查
-------------------------------------------------------------
-
-1. 安装并启动 Docker Desktop。
-   在终端确认：
-
-     docker compose version
-
-2. 确保根目录存在 .env。
-   当前项目已有 .env；如果新环境没有，可执行：
-
-     cp env_example .env
-
-3. 检查 .env 至少已正确填写以下内容：
-
-     POSTGRES_PASSWORD=<数据库密码>
-     TASK_PAYLOAD_ENCRYPTION_KEY=<Fernet 密钥>
-     NEXT_PUBLIC_API_URL=/api
-     TASK_QUEUE_ENABLED=true
-
-   生成 TASK_PAYLOAD_ENCRYPTION_KEY 的命令：
-
-     uv run --project backend python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-
-   注意：
-   - 不要把 .env 提交到 Git。
-   - Docker 全容器模式下 NEXT_PUBLIC_API_URL 必须保持为 /api，
-     不要改成 http://localhost:8000。
-   - TASK_QUEUE_ENABLED=true 时必须同时运行 Redis 和 Worker；
-     本指南的 Compose 启动会自动包含它们。
+推荐模式：Docker Compose 全容器启动。
+该模式会启动 PostgreSQL + pgvector、Redis、一次性数据库迁移、FastAPI、Worker、
+Next.js 和 Nginx。源码开发模式则只用 Compose 启动 PostgreSQL/Redis，其余进程在本机运行。
 
 ------------------------------------------------------------
-二、一条命令全量启动
+一、开始前
 ------------------------------------------------------------
 
-在项目根目录执行：
+需要：
+
+  - Docker Desktop 与 `docker compose`（全容器或依赖容器模式）；
+  - uv 与项目支持的 Python 版本（本机运行后端、生成 Fernet 密钥或运行测试时）；
+  - Node.js 与 npm（本机运行前端时）；
+  - 可选：macOS、Edge 或 Chrome（仅现有 BOSS 标签页桥接）。
+
+不要提交根目录 `.env`，也不要把 Key、Token、Cookie、浏览器 Profile 或完整代理 URL
+粘贴到日志、截图或文档中。
+
+------------------------------------------------------------
+二、创建并检查配置
+------------------------------------------------------------
+
+根目录 `env_example` 是唯一的全量配置模板。新环境执行：
+
+  test -f .env || cp env_example .env
+
+然后在 `.env` 中填写相应服务的真实凭据；不要删除模板变量，用功能开关控制不使用的能力。
+至少核对：
+
+  - `POSTGRES_USER`、`POSTGRES_PASSWORD`、`POSTGRES_DB`、`POSTGRES_PORT`；
+  - 本机源码模式使用的 `DATABASE_URL` 与上述数据库账号/密码一致；
+  - `REDIS_PORT` 和 `REDIS_URL`；
+  - API 与 Worker 共用的 `TASK_PAYLOAD_ENCRYPTION_KEY`；
+  - 标准异步运行的 `TASK_QUEUE_ENABLED=true`；
+  - 全容器模式的 `NEXT_PUBLIC_API_URL=/api`；
+  - 所启用模型、Embedding、Langfuse、mem0 与评测功能所需的对应变量。
+
+生成 Fernet 密钥：
+
+  uv run --project backend python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+
+全容器模式会将 API 和 Worker 的数据库/Redis 地址覆盖为容器内服务地址，并将运行数据
+挂载到 `/app/data`。不要手动把 `AUTO_CREATE_TABLES` 打开来替代迁移。
+
+------------------------------------------------------------
+三、全容器启动（推荐）
+------------------------------------------------------------
+
+在仓库根目录执行：
 
   mkdir -p nginx/logs
   docker compose --env-file .env config --quiet
   docker compose --env-file .env up -d --build
 
-说明：
-  - 第一次执行会构建 backend 和 frontend 镜像，耗时会更长。
-  - migrate 是一次性数据库迁移服务；它显示 Exited (0) 表示迁移成功，属于正常状态。
-  - 后续代码或依赖有改动时，用同一条 up -d --build 重新构建并更新服务。
+首次执行会构建 backend/frontend 镜像。`migrate` 是一次性服务，迁移成功后显示
+`Exited (0)` 属于正常状态；其余服务应运行或通过 health check。
 
-如果只想用 Compose 默认自动读取根目录 .env，也可以执行：
-
-  docker compose up -d --build
-
-但推荐保留 --env-file .env，以明确指定使用哪份配置文件。
-
-------------------------------------------------------------
-三、确认服务全部正常
-------------------------------------------------------------
-
-1. 查看服务状态：
+确认状态与服务：
 
   docker compose --env-file .env ps --all
-
-预期：
-  - postgres、redis、backend、worker、frontend、nginx 处于 running / healthy（状态文字会因 Docker 版本不同而略有差异）。
-  - migrate 为 Exited (0)。
-
-2. 验证网站健康检查：
-
   curl -fsS http://localhost/health
+  docker compose --env-file .env exec backend python -m scripts.deployment readiness
 
-3. 验证后端完整依赖就绪情况：
+浏览器入口与 API 文档：
 
-  docker compose --env-file .env exec backend \
-    python -m scripts.deployment readiness
+  http://localhost
+  http://localhost/api/docs
 
-4. 打开页面：
+日常维护：
 
-  前端页面： http://localhost
-  API 文档：  http://localhost/api/docs
-
-------------------------------------------------------------
-四、首次进入系统后的必要操作
-------------------------------------------------------------
-
-打开 http://localhost 后，进入：设置 → 模型配置。
-
-至少配置并验证：
-
-  1. 一个 Smart 模型通道；
-  2. 一个 Fast 模型通道。
-
-如需使用 RAG 或 mem0 长期记忆，还应在前端配置对应的 Embedding / 长期记忆模型。
-
-模型 Key、Base URL 等敏感信息不要粘贴到 Git、README 或终端输出中。
-
-------------------------------------------------------------
-五、查看日志与常用维护命令
-------------------------------------------------------------
-
-实时查看关键服务日志：
-
+  # 实时查看关键日志
   docker compose --env-file .env logs -f migrate backend worker frontend nginx
 
-仅查看后端日志：
-
-  docker compose --env-file .env logs -f backend
-
-仅查看 Worker 日志：
-
-  docker compose --env-file .env logs -f worker
-
-重启后端和 Worker：
-
+  # 只重启 API 与 Worker
   docker compose --env-file .env restart backend worker
 
-  docker compose --env-file .env restart nginx
-
-
-停止服务（保留数据库数据卷）：
-
+  # 停止服务但保留卷中的数据
   docker compose --env-file .env down
 
-停止服务并删除数据库数据（危险：会删除本地 PostgreSQL 数据）：
-
+  # 删除容器卷中的本地数据：执行前确认无须保留 PostgreSQL 与 artifact 数据
   docker compose --env-file .env down -v
 
 ------------------------------------------------------------
-六、BOSS 现有登录标签页接管与可选投递自动化
+四、源码开发启动
 ------------------------------------------------------------
 
-BOSS 岗位推荐采集不再使用书签或剪贴板。Apple 事件/JXA 由 macOS 宿主机上的
-`browser_automation_service` 执行，主后端可以继续运行在 Docker，通过 Bearer Token
-调用宿主机服务。服务在同一标签页设置官方搜索 URL，按至少 5 秒间隔等待列表稳定，
-读取最多 20 张有限字段岗位卡片；程序不会读取 Cookie、Token、localStorage、认证头或整页 HTML。
+此模式让 PostgreSQL 与 Redis 在容器中运行，后端、Worker 与前端在本机运行。
+请先完成第二节的 `.env` 配置。
 
-现有标签页接管的使用条件：
+终端 1：启动依赖。
 
-1. 在 macOS 宿主机启动 `browser_automation_service`，主后端可以在 Docker 中运行。
-2. 在 Edge/Chrome 打开“查看 → 开发人员 → 允许 Apple 事件中的 JavaScript”。
-3. 在 macOS“隐私与安全性 → 自动化”中允许宿主机浏览器服务的启动终端控制所选浏览器。
-4. 在日常浏览器中打开 BOSS 并手动完成登录、验证码或安全验证，保留该标签页。
-5. 进入“岗位中心 → 浏览器接管”，选择 Edge/Chrome，先点击“检查已打开页面”，
-   再填写搜索关键词、从 15 个热门城市中按中文选择城市、结果数量和基础简历，点击“接管页面并采集”。
-   城市选择器旁的只读框会显示实际提交给 BOSS 的数字城市代码。
+  docker compose --env-file .env up -d postgres redis
 
-基础简历会参与初筛：透明关键词分占 20%，Fast 模型语义分占 80%，语义输出解析失败时
-回退关键词排序。系统过滤实习岗位，保留岗位、薪资、公司人数、官方链接和卡片可见职位介绍，
-并在岗位中心展示匹配度。当前标签页采集默认处理 3 个、最多 20 个岗位；同一用户两次导入仍受最小间隔和
-每小时上限保护。`BOSS_CAPTURE_ACTION_DELAY_SECONDS` 控制导航前动作间隔，
-`BOSS_CAPTURE_POLL_INTERVAL_SECONDS` 的硬下限为 5 秒，
-`BOSS_CAPTURE_MAX_CANDIDATE_CARDS` 不能突破 20。标准 Worker 默认使用
-`AGENT_RUN_WORKER_THREADS=5` 并行生成最多 5 个岗位资产；其他 LLM 任务仍使用原全局单任务门。
-岗位库支持点击查看资产、编辑三种第一人称打招呼方案，并一键加入投递管理，状态为“待投递”。
-岗位中心和投递管理都不执行发送，只可复用已有登录 BOSS 标签页打开岗位。
-
-1. 首次安装宿主机依赖
-
-   从项目根目录执行：
+终端 2：初始化后端、迁移数据库并启动 FastAPI。
 
   cd backend
   uv sync
+  uv run python -m scripts.deployment migrate
+  uv run python -m scripts.deployment readiness
+  uv run python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
-   默认接管 Microsoft Edge（BOSS_BROWSER_CHANNEL=msedge）；也可设置为 chrome。
-   `uv sync` 可能需要使用当前网络代理下载依赖。不要为了无代理启动而修改或删除全局代理配置。
+本机 API 文档：
 
-2. 启动宿主机浏览器服务
+  http://localhost:8000/api/docs
 
-   现有标签页接管不会启动浏览器，只控制用户已打开的 Edge/Chrome 标签页。启动脚本仍默认
-   清理服务进程继承的 HTTP_PROXY、HTTPS_PROXY 和 ALL_PROXY，避免宿主机桥接请求受到不稳定代理影响。
-   代理自动切换节点、负载均衡或出口 IP 漂移时，Google 和 BOSS 都可能将同一浏览器会话识别为异常流量。
+终端 3：启动 Worker。标准配置 `TASK_QUEUE_ENABLED=true` 时必须保持此进程和 Redis 运行。
 
-   在任意目录执行以下完整单行命令，可直接整行复制：
+  cd backend
+  ./scripts/run-worker.sh
 
-  cd "/Users/cheng/Downloads/DesktopOrganizer/学习资料/agent_interview/backend" && ./scripts/run-browser-automation-service.sh
+终端 4：启动前端。保持 `.env` 中的 `/api` 供 Compose 使用，并仅为这一次本机 Next.js
+进程覆盖 API 地址：
 
-   脚本默认等价于以下安全启动方式：监听 127.0.0.1:8765，并只清除本次
-   browser_automation_service 进程及其可选子浏览器继承的代理变量，不会改动当前终端、
-   主后端、Worker 或系统的永久代理设置。
+  cd web
+  npm ci
+  NEXT_PUBLIC_API_URL=http://localhost:8000 npm run dev
 
-  env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u http_proxy -u https_proxy -u all_proxy uv run uvicorn app.entrypoints.browser_automation_service:app --host 127.0.0.1 --port 8765
+本机前端地址通常为：
 
-   如果已经位于 backend/ 目录，并确认当前环境完全没有代理，也可以使用普通单行命令：
+  http://localhost:3000
 
-  BROWSER_AUTOMATION_CLEAR_PROXY_ENV=false ./scripts/run-browser-automation-service.sh
+后端启动会确保 `backend/data/`、`backend/data/artifacts/` 和 `backend/data/static/` 存在。
+相对运行目录配置总是从 `backend/` 解析，不能依赖终端当前工作目录。
 
-3. 启动前检查是否存在代理
+------------------------------------------------------------
+五、首次进入后的模型配置
+------------------------------------------------------------
 
-   只查看代理变量名称，不打印可能包含凭据的完整代理 URL：
+在前端“设置 → 模型配置”中配置并验证至少一个 Smart 模型通道与一个 Fast 模型通道。
+RAG、长期记忆、评测和 Langfuse 只在已配置其依赖与对应开关时使用；外部模型凭据不得
+写入仓库配置或提交到 Git。
 
-  env | awk -F= \
-    'tolower($1) ~ /^(http_proxy|https_proxy|all_proxy)$/ {print $1 "=<set>"}'
+------------------------------------------------------------
+六、macOS BOSS 现有标签页桥接（可选）
+------------------------------------------------------------
 
-   macOS 还可以检查系统代理：
+这项能力只在 macOS 宿主机运行。它只访问用户已经打开的 Edge/Chrome 标签页；不创建
+浏览器 profile、不读取 Cookie/Token/localStorage、不绕过登录、验证码或风控。真实外部
+动作仍必须经过后端治理和用户确认。
 
-  scutil --proxy
+1. 在浏览器中手动登录 BOSS 并完成验证码/安全验证，保留官方页面标签页。
+2. 在“查看 → 开发人员”中启用 Apple 事件中的 JavaScript，并在 macOS“隐私与安全性 →
+   自动化”中允许启动终端控制所选浏览器。
+3. 另开终端启动宿主机服务：
 
-   注意：
-   - `env -u ...` 只能移除进程环境变量，不能关闭 VPN、TUN 模式或 macOS 系统代理。
-   - 如果代理客户端启用了 TUN、增强模式、自动选节点或负载均衡，应在代理客户端中关闭，
-     或改用固定且稳定的出口节点。
-   - 不要通过频繁更换浏览器 profile、Cookie、账号或节点来尝试绕过安全验证。
+     cd backend
+     ./scripts/run-browser-automation-service.sh
 
-4. 处理 8765 端口已被占用
+   默认仅监听 `127.0.0.1:8765`，并且只清除该服务进程继承的代理变量。
 
-   出现 `[Errno 48] address already in use` 时，先查看监听进程：
+4. 检查服务是否存活（不包含凭据或浏览器会话信息）：
 
-  lsof -nP -iTCP:8765 -sTCP:LISTEN
+     curl -fsS http://127.0.0.1:8765/
 
-   确认 PID 属于旧的 browser_automation_service 后，再正常停止：
+5. 在 `.env` 中设置不少于 32 字符的 `BROWSER_AUTOMATION_SERVICE_TOKEN`。
+   主后端在 Docker 中运行时使用：
 
-  kill -TERM <确认后的旧服务 PID>
+     BROWSER_AUTOMATION_SERVICE_URL=http://host.docker.internal:8765
 
-   再次确认命令无输出，表示端口已经释放：
+   主后端也在宿主机运行时使用：
 
-  lsof -nP -iTCP:8765 -sTCP:LISTEN
+     BROWSER_AUTOMATION_SERVICE_URL=http://127.0.0.1:8765
 
-   不要在未确认进程用途时直接 kill，也不要使用 `kill -9` 作为常规停止方式。
+不要将 8765 暴露到公网；如果本机 Docker 无法访问宿主机服务，应先检查 Docker Desktop
+网络与防火墙配置，而不是放宽 Token 校验、复制 Cookie 或尝试绕过验证码。
 
-5. 验证宿主机服务
+------------------------------------------------------------
+七、常见检查与排障
+------------------------------------------------------------
 
-另开终端验证宿主机服务：
+  - 后端健康但 AgentRun 长时间排队：确认 Redis、Worker 与 `TASK_QUEUE_ENABLED=true`。
+  - readiness 失败：先运行 `python -m scripts.deployment migrate`，再核对数据库地址、
+    pgvector、迁移版本和 Embedding 向量维度；不要用 `create_all` 代替正式迁移。
+  - 直接启动前端却请求到错误地址：使用
+    `NEXT_PUBLIC_API_URL=http://localhost:8000 npm run dev`，不要修改容器模式的 `/api`。
+  - 静态文件或 artifact 写入失败：检查 `backend/data/` 是否可写；不要在 `backend/app/`、
+    `backend/ai/` 或其他源码包下创建运行数据目录。
+  - Compose 端口冲突：先使用 `docker compose --env-file .env ps --all` 确认服务状态，
+    再按需要调整模板中的公开端口；不要删除数据库卷来解决端口冲突。
 
-  curl -fsS http://127.0.0.1:8765/
+可选质量检查：
 
-返回 status=running 表示 HTTP 服务已经启动。主后端会使用带 Bearer Token 的
-POST /v1/health 以及 `/v1/boss/browser-tab/*` 继续调用宿主机服务。
-如果主后端运行在 Docker，`.env` 中使用 `BROWSER_AUTOMATION_SERVICE_URL=http://host.docker.internal:8765`；
-如果主后端也运行在宿主机，使用 `http://127.0.0.1:8765`。
+  cd backend && uv run python -m scripts.static_quality governed
+  cd web && npm run typecheck
 
-   如果主后端在 Docker 且 `host.docker.internal` 无法访问 127.0.0.1，需把宿主机服务改为监听 Docker Desktop 可达的宿主机地址，并使用 macOS 防火墙限制来源；Token 仍是必须的。不要在公网直接暴露 8765。
-   如果 curl 报连接失败，先确认启动终端仍在运行，再检查 8765 端口监听状态。
+停止本机源码进程时使用终端的 Ctrl-C；随后按需要执行：
 
-6. 根目录环境变量
-
-根目录 .env 需设置：
-
-  BROWSER_AUTOMATION_SERVICE_URL=http://host.docker.internal:8765
-  BROWSER_AUTOMATION_SERVICE_TOKEN=<至少 32 字符的随机 token>
-
-生成 token：
-
-  openssl rand -hex 32
-
-   Token 由主后端调用宿主机服务时使用，与 BOSS、Google、代理账号密码无关。
-   不要把真实 Token 写入本指南、README、日志或提交到 Git。
-
-7. 首次登录与风控处理
-
-首次使用时，用户应在日常 Edge/Chrome 中自行打开 BOSS、扫码登录并处理验证码，然后保留
-该官方标签页供岗位中心复用。当前岗位中心和投递管理不执行真实投递，也不展示投递预览；
-用户只能查看或编辑打招呼文案，并在已有登录标签页中自行完成后续操作。
-
-   如果浏览器显示 Google“异常流量”，并出现两个公网 IP 不一致：
-   - 这通常表示代理转发或出口 IP 不稳定，不是 BOSS 登录凭据或服务 Token 失效；
-   - 先关闭正在跳转的浏览器和宿主机服务，不要持续刷新；
-   - 按第 2 节的无代理完整命令重新启动服务；
-   - 如果无代理后仍然发生，检查 VPN、TUN、系统代理和上游网络出口；
-   - 必须使用代理时，只使用固定出口，不要使用自动切换或负载均衡节点。
-
-   如果 BOSS 已进入 security.html、安全验证页或搜索页循环跳转：
-   - 停止本次采集，等待用户在同一个已登录 BOSS 标签页中手动处理；
-   - 验证完成前不要自动搜索、刷新或重复打开采集任务；
-   - 手动访问也持续跳转时，应停止网页端尝试并通过 BOSS App 完成验证或联系客服；
-   - 不要清除浏览器站点数据、复制 Cookie、修改请求参数或尝试绕过验证码。
+  docker compose --env-file .env stop postgres redis

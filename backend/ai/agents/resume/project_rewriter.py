@@ -9,8 +9,8 @@ from langchain_core.messages import HumanMessage
 
 from ai.llm import llms
 from ai.prompts.resume import build_project_rewriter_prompt
-from ai.runtime.context_assembler import ContextAssembler, ContextSource
-from ai.runtime.deadlines import TaskDeadline, get_current_task_deadline
+from ai.runtime.context.assembler import ContextAssembler, ContextSource
+from ai.runtime.execution.deadlines import TaskDeadline, get_current_task_deadline
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)

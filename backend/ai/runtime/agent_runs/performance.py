@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 from collections import Counter
-from datetime import datetime, timedelta
+from datetime import timedelta
 from math import ceil
 from typing import Any, Iterable
 
 from sqlalchemy import func, select
 
-from app.db.models import AgentRunModel, ModelMetricEventModel, async_session
 from app.clock import utc_now
+from app.db.models import AgentRunModel, ModelMetricEventModel, async_session
 
 
 def _number(value: Any) -> float:

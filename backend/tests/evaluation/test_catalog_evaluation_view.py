@@ -37,7 +37,6 @@ def _catalog() -> AgentCatalog:
         prompt_version="4",
         execution_modes=("inline",),
         adapter_key="demo_adapter",
-        migration_state="harness",
         evaluation_enabled=True,
         side_effect_policy="read_only",
         graph_reference_mode="diagnostic",
