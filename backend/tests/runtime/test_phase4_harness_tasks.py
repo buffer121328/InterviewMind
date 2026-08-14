@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+
 from ai.runtime.harness.catalog import AgentCatalog, CatalogValidationError
 from ai.runtime.harness.contracts import DeferredExecutionResult, ExecutionContext
 from ai.runtime.harness.registry import (
@@ -12,7 +13,9 @@ from ai.runtime.harness.registry import (
 from ai.workflows.agent_runs.adapters import (
     AbilityProfileExecutionAdapter,
     EvaluationSuiteExecutionAdapter,
+    InterviewEvaluationDraftExecutionAdapter,
     InterviewReportExecutionAdapter,
+    InterviewTurnExecutionAdapter,
     JobAssetsExecutionAdapter,
     JobRecommendationCaptureExecutionAdapter,
     ProductionTaskExecutionAdapter,
@@ -79,16 +82,18 @@ def test_phase4_registry_registers_each_migrated_task_explicitly() -> None:
         "job_recommendation_capture": JobRecommendationCaptureExecutionAdapter,
         "job_assets": JobAssetsExecutionAdapter,
         "evaluation_suite": EvaluationSuiteExecutionAdapter,
+        "interview_evaluation_draft": InterviewEvaluationDraftExecutionAdapter,
     }
 
     registry = get_production_adapter_registry()
 
-    stream_tasks = {"interview_turn", "voice_interview_turn"}
+    stream_only_tasks = {"voice_interview_turn"}
     session_tasks = {"resume_generation"}
     assert set(registry.keys()) == {
         *expected,
         "interview_start",
-        *stream_tasks,
+        "interview_turn",
+        *stream_only_tasks,
         *session_tasks,
     }
     for task_type, adapter_type in expected.items():
@@ -96,7 +101,10 @@ def test_phase4_registry_registers_each_migrated_task_explicitly() -> None:
         assert isinstance(adapter.adapter, ProductionTaskExecutionAdapter)
         assert isinstance(adapter.adapter, adapter_type)
         assert adapter.key == task_type
-    for task_type in {*stream_tasks, *session_tasks}:
+    interview_turn = registry.get("interview_turn")
+    assert isinstance(interview_turn.adapter, InterviewTurnExecutionAdapter)
+    assert interview_turn.key == "interview_turn"
+    for task_type in {*stream_only_tasks, *session_tasks}:
         adapter = registry.get(task_type)
         assert isinstance(adapter.adapter, CallableExecutionAdapter)
         assert adapter.key == task_type

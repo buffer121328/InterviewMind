@@ -8,7 +8,10 @@ from typing import Any
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from ai.workflows.configuration.model_credentials import ModelCredentialErrorForRequest, ModelCredentialUseCases
+from ai.workflows.configuration.model_credentials import (
+    ModelCredentialErrorForRequest,
+    ModelCredentialUseCases,
+)
 from app.security.model_credentials import (
     InvalidModelCredentialId,
     ModelCredentialError,
@@ -80,6 +83,13 @@ class ModelCredentialHydrationMiddleware:
         """处理渠道相关后端逻辑。"""
 
         path = str(scope.get("path", ""))
+        if path == "/api/evaluations/interview-history/drafts" or (
+            path.startswith("/api/evaluations/interview-history/drafts/")
+            and path.endswith("/retry-failed")
+        ):
+            # 草稿任务必须把 credential references 原样加密入队；Worker 会按候选
+            # 模型名逐个水合，避免无关过期凭据提前阻塞整个请求。
+            return frozenset()
         if path != "/api/memory" and not path.startswith("/api/memory/"):
             return None
         channels = {"mem0_llm"}

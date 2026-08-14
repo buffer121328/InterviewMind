@@ -5,6 +5,9 @@ from __future__ import annotations
 from datetime import datetime
 from typing import NoReturn
 
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi.responses import HTMLResponse
+
 from ai.workflows.evaluation import EvaluationUseCaseError, evaluation_use_cases
 from app.api.deps import get_current_user_id
 from app.schemas.evaluations import (
@@ -21,9 +24,10 @@ from app.schemas.evaluations import (
     EvaluationReviewRequest,
     EvaluationRunCreateRequest,
     EvaluationSuiteCreateRequest,
+    InterviewEvaluationConfirmRequest,
+    InterviewEvaluationDraftRequest,
+    InterviewEvaluationRetryRequest,
 )
-from fastapi import APIRouter, Depends, Header, HTTPException, Query
-from fastapi.responses import HTMLResponse
 
 router = APIRouter(prefix="/api/evaluations", tags=["Agent 评测"])
 
@@ -32,6 +36,117 @@ def _raise(exc: EvaluationUseCaseError) -> NoReturn:
     """将应用层错误映射为稳定 HTTP 响应。"""
 
     raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+
+
+@router.get("/interview-history/sources")
+async def list_interview_history_sources(
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    session_id: str | None = Query(default=None, min_length=1, max_length=200),
+    user_id: str = Depends(get_current_user_id),
+):
+    """列出当前 owner 已完成面试中可晋升的持久化问答摘要。"""
+
+    try:
+        return await evaluation_use_cases.list_interview_history_sources(
+            user_id=user_id,
+            limit=limit,
+            offset=offset,
+            session_id=session_id,
+        )
+    except EvaluationUseCaseError as exc:
+        _raise(exc)
+
+
+@router.get("/interview-history/sources/{attempt_id}")
+async def get_interview_history_source(
+    attempt_id: int,
+    capability: str = Query(default="interview_turn"),
+    user_id: str = Depends(get_current_user_id),
+):
+    """返回一个重新校验并脱敏的历史问答可信快照。"""
+
+    try:
+        return await evaluation_use_cases.get_interview_history_source(
+            user_id=user_id, attempt_id=attempt_id, capability=capability
+        )
+    except EvaluationUseCaseError as exc:
+        _raise(exc)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post("/interview-history/drafts", status_code=202)
+async def create_interview_history_draft(
+    request: InterviewEvaluationDraftRequest,
+    user_id: str = Depends(get_current_user_id),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+):
+    """提交 owner-scoped、加密 payload 的历史问答整理 AgentRun。"""
+
+    try:
+        return await evaluation_use_cases.create_interview_history_draft(
+            user_id=user_id,
+            request=request,
+            idempotency_key=idempotency_key,
+        )
+    except EvaluationUseCaseError as exc:
+        _raise(exc)
+
+
+@router.get("/interview-history/drafts/{draft_run_id}")
+async def get_interview_history_draft(
+    draft_run_id: str,
+    user_id: str = Depends(get_current_user_id),
+):
+    """重新加载当前 owner 的历史问答整理草稿和安全进度。"""
+
+    try:
+        return await evaluation_use_cases.get_interview_history_draft(
+            user_id=user_id, draft_run_id=draft_run_id
+        )
+    except EvaluationUseCaseError as exc:
+        _raise(exc)
+
+
+@router.post(
+    "/interview-history/drafts/{draft_run_id}/retry-failed", status_code=202
+)
+async def retry_interview_history_draft_cases(
+    draft_run_id: str,
+    request: InterviewEvaluationRetryRequest,
+    user_id: str = Depends(get_current_user_id),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+):
+    """将当前 owner 选定的失败案例提交为新的整理草稿。"""
+
+    try:
+        return await evaluation_use_cases.retry_interview_history_draft_cases(
+            user_id=user_id,
+            draft_run_id=draft_run_id,
+            request=request,
+            idempotency_key=idempotency_key,
+        )
+    except EvaluationUseCaseError as exc:
+        _raise(exc)
+
+
+@router.post("/interview-history/drafts/{draft_run_id}/confirm", status_code=201)
+async def confirm_interview_history_draft(
+    draft_run_id: str,
+    request: InterviewEvaluationConfirmRequest,
+    user_id: str = Depends(get_current_user_id),
+):
+    """人工确认后原子创建 draft Candidate Dataset，不自动运行或锁定。"""
+
+    try:
+        return await evaluation_use_cases.confirm_interview_history_draft(
+            user_id=user_id,
+            draft_run_id=draft_run_id,
+            request=request,
+        )
+    except EvaluationUseCaseError as exc:
+        _raise(exc)
 
 
 @router.get("/catalog")

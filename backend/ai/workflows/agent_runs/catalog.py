@@ -16,8 +16,10 @@ from ai.runtime.harness.registry import (
 from ai.workflows.agent_runs.adapters import (
     AbilityProfileExecutionAdapter,
     EvaluationSuiteExecutionAdapter,
+    InterviewEvaluationDraftExecutionAdapter,
     InterviewReportExecutionAdapter,
     InterviewStartExecutionAdapter,
+    InterviewTurnExecutionAdapter,
     JobAssetsExecutionAdapter,
     JobRecommendationCaptureExecutionAdapter,
     ObservedExecutionAdapter,
@@ -26,7 +28,6 @@ from ai.workflows.agent_runs.adapters import (
 )
 from ai.workflows.agent_runs.contracts import ExecutionResult
 from app.domain.agent_runs import (
-    TASK_TYPE_INTERVIEW_TURN,
     TASK_TYPE_RESUME_GENERATION,
     TASK_TYPE_VOICE_INTERVIEW_TURN,
 )
@@ -62,6 +63,7 @@ def get_production_adapter_registry() -> ExecutionAdapterRegistry:
     registry = ExecutionAdapterRegistry()
     explicit_adapters = (
         InterviewStartExecutionAdapter(),
+        InterviewTurnExecutionAdapter(),
         ResumeOptimizeExecutionAdapter(),
         ResumeWorkspaceExecutionAdapter(),
         InterviewReportExecutionAdapter(),
@@ -69,10 +71,7 @@ def get_production_adapter_registry() -> ExecutionAdapterRegistry:
         JobRecommendationCaptureExecutionAdapter(),
         JobAssetsExecutionAdapter(),
         EvaluationSuiteExecutionAdapter(),
-        CallableExecutionAdapter(
-            key=TASK_TYPE_INTERVIEW_TURN,
-            runner=_stream_driver_only_adapter,
-        ),
+        InterviewEvaluationDraftExecutionAdapter(),
         CallableExecutionAdapter(
             key=TASK_TYPE_VOICE_INTERVIEW_TURN,
             runner=_stream_driver_only_adapter,

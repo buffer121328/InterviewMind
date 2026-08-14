@@ -193,3 +193,45 @@ RAG、长期记忆、评测和 Langfuse 只在已配置其依赖与对应开关�
 停止本机源码进程时使用终端的 Ctrl-C；随后按需要执行：
 
   docker compose --env-file .env stop postgres redis
+
+------------------------------------------------------------
+十一、历史面试加入评测集
+------------------------------------------------------------
+
+使用前确认：
+
+  - PostgreSQL、Redis、backend 与 worker 均正常；
+  - `TASK_QUEUE_ENABLED=true`，API 与 Worker 使用相同 `TASK_PAYLOAD_ENCRYPTION_KEY`；
+  - 在设置页至少保存一个可用 Fast 模型凭据。若 Fast pool 中配置了 DeepSeek Flash，
+    整理任务会优先尝试它；否则按现有 Fast pool scheduler 和已有 fallback 配置选择模型；
+  - 不需要、也不应在 `.env` 新增“评测整理专用 API Key”。
+
+产品操作：
+
+  1. 打开一个已完成面试，进入“加入评测集”；
+  2. 选择有持久化回答的题目，以及 `interview_turn` 或 `interview_scoring`；
+  3. 提交后等待 AgentRun 到达 `needs_review`；失败案例可以单独重试；
+  4. 逐案例检查源问题、已脱敏回答、冻结 input、evidence、expected facts、forbidden claims、
+     quality rubric、tags、severity 和模型说明；必要时编辑或排除；
+  5. 每个纳入案例勾选“已人工审阅”，填写 Dataset 名称/版本并确认。
+
+安全与结果边界：
+
+  - 模型调用前后都执行确定性脱敏；模型不能改写权威 input 或来源身份；
+  - legacy completed session 若没有 `interview_question_attempts`，不会从 messages 猜测，
+    需重新完成有逐题持久化的新面试后再使用；
+  - 未确认、取消或放弃审阅不会创建 Dataset；
+  - 确认后只创建 draft Candidate Dataset，不会自动锁定、运行评测或建立 Gate；
+  - 未提交的浏览器编辑状态不保证跨设备保留，重新打开时以服务端 AgentRun 草稿为准。
+
+测试/诊断 owner 数据清理先执行 dry-run，再显式执行；命令会覆盖 session、attempt、
+interview AgentRun（含评测草稿）、checkpoint、outbox、artifact、模型指标以及该 owner 的
+评测 Dataset/Suite/Run/Score/Annotation/Gate 等关联数据：
+
+  cd backend
+  uv run python -m scripts.cleanup_interview_data --user-id '<synthetic-owner>'
+  uv run python -m scripts.cleanup_interview_data --user-id '<synthetic-owner>' --execute --skip-langfuse
+
+只有明确要删除所有用户数据时才使用 `--all-users --execute`。不要用
+`docker compose down -v` 代替 owner-scoped 测试清理，因为后者会删除整个 PostgreSQL 与
+artifact volume。

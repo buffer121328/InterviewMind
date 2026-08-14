@@ -27,10 +27,10 @@ import { QuickEvaluationPanel } from './QuickEvaluationPanel';
 import { SatisfactionStatsPanel } from './SatisfactionStatsPanel';
 
 /** Coordinates one-click evaluation by default and keeps six governance surfaces in Advanced Mode. */
-export function EvaluationCenter() {
+export function EvaluationCenter({ focusDatasetId = null }: { focusDatasetId?: string | null }) {
     const [loading, setLoading] = useState(true);
-    const [advancedMode, setAdvancedMode] = useState(false);
-    const [activeTab, setActiveTab] = useState('overview');
+    const [advancedMode, setAdvancedMode] = useState(Boolean(focusDatasetId));
+    const [activeTab, setActiveTab] = useState(focusDatasetId ? 'datasets' : 'overview');
     const [focusRunId, setFocusRunId] = useState<string | null>(null);
     const [catalog, setCatalog] = useState<EvaluationCatalog | null>(null);
     const [overview, setOverview] = useState<EvaluationOverview | null>(null);
@@ -181,7 +181,7 @@ export function EvaluationCenter() {
                             onOpenAnnotations={() => setActiveTab('annotations')}
                         />
                     </TabsContent>
-                    <TabsContent value="datasets"><DatasetsPanel datasets={datasets} suites={suites} onRefresh={refresh} /></TabsContent>
+                    <TabsContent value="datasets"><DatasetsPanel datasets={datasets} suites={suites} focusDatasetId={focusDatasetId} onRefresh={refresh} /></TabsContent>
                     <TabsContent value="annotations"><AnnotationsPanel queue={queue} onRefresh={refresh} /></TabsContent>
                     <TabsContent value="calibration"><CalibrationPanel calibrations={calibrations} onRefresh={refresh} /></TabsContent>
                     <TabsContent value="gates"><GatesPanel gates={gates} runs={runs} onRefresh={refresh} /></TabsContent>

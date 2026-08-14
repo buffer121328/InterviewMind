@@ -437,3 +437,89 @@ def test_memory_delete_middleware_fails_closed_for_missing_credential(
     assert "模型设置中填写" in response.json()["detail"]
     assert "missing-model" in response.json()["detail"]
     assert reached is False
+
+
+def test_interview_history_draft_middleware_preserves_model_references(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Draft submission must not hydrate every configured model before queueing."""
+
+    store = AsyncMock()
+    store.get.side_effect = AssertionError("middleware must not read model credentials")
+    monkeypatch.setattr(
+        "app.security.model_credential_middleware.get_model_credential_store",
+        lambda: store,
+    )
+    app = FastAPI()
+    app.add_middleware(ModelCredentialHydrationMiddleware)
+
+    @app.post("/api/evaluations/interview-history/drafts")
+    async def echo_reference(request: Request) -> dict:
+        return await request.json()
+
+    payload = {
+        "attempt_ids": [11],
+        "capability": "interview_turn",
+        "api_config": {
+            "fast_pool": [
+                {
+                    "credential_id": "deepseek-v4-flash",
+                    "model": "deepseek-v4-flash",
+                    "base_url": "https://example.invalid/v1",
+                },
+                {
+                    "credential_id": "expired-smart",
+                    "model": "expired-smart",
+                    "base_url": "https://example.invalid/v1",
+                },
+            ]
+        },
+    }
+    response = TestClient(app).post(
+        "/api/evaluations/interview-history/drafts",
+        headers={"X-User-ID": "owner-a"},
+        json=payload,
+    )
+
+    assert response.status_code == 200
+    assert response.json() == payload
+    store.get.assert_not_awaited()
+
+
+def test_interview_history_failed_case_retry_preserves_model_references(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Selected-case retry also defers credential hydration to the Worker."""
+
+    store = AsyncMock()
+    store.get.side_effect = AssertionError("middleware must not read model credentials")
+    monkeypatch.setattr(
+        "app.security.model_credential_middleware.get_model_credential_store",
+        lambda: store,
+    )
+    app = FastAPI()
+    app.add_middleware(ModelCredentialHydrationMiddleware)
+
+    @app.post("/api/evaluations/interview-history/drafts/{run_id}/retry-failed")
+    async def echo_reference(run_id: str, request: Request) -> dict:
+        return {"run_id": run_id, "payload": await request.json()}
+
+    payload = {
+        "attempt_ids": [12],
+        "api_config": {
+            "fast": {
+                "credential_id": "deepseek-v4-flash",
+                "model": "deepseek-v4-flash",
+                "base_url": "https://example.invalid/v1",
+            }
+        },
+    }
+    response = TestClient(app).post(
+        "/api/evaluations/interview-history/drafts/draft-run-1/retry-failed",
+        headers={"X-User-ID": "owner-a"},
+        json=payload,
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"run_id": "draft-run-1", "payload": payload}
+    store.get.assert_not_awaited()

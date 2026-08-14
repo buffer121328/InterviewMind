@@ -2,6 +2,7 @@ export type AgentRunStatus = 'queued' | 'retrying' | 'running' | 'cancel_request
 export const AGENT_RUN_TASK_TYPES = [
     'ability_profile',
     'evaluation_suite',
+    'interview_evaluation_draft',
     'interview_report',
     'interview_start',
     'interview_turn',

@@ -12,6 +12,7 @@ import { parseSavedMainView, requiresApiConfig, type MainView } from "@/lib/navi
 import { isInterviewFinished } from "@/lib/interviewSeries";
 import type { JobContextSnapshot } from "@/lib/jobContextHandoff";
 import type { TargetedInterviewHandoff } from "@/lib/interviewReportStructured";
+import { buildInterviewEvaluationHandoff } from "@/lib/interviewHistoryEvaluation";
 import { toast } from "sonner";
 import { ResumeTools } from "@/components/ResumeTools";
 import { LandingPage } from "@/components/LandingPage";
@@ -66,6 +67,7 @@ export default function InterviewPage() {
   const [selectedApplicationId, setSelectedApplicationId] = useState<number | null>(null);
   const [historyDetailSessionId, setHistoryDetailSessionId] = useState<string | null>(null);
   const [historyDetailInitialTab, setHistoryDetailInitialTab] = useState<'overview' | 'dialogue' | 'report'>('overview');
+  const [evaluationFocusDatasetId, setEvaluationFocusDatasetId] = useState<string | null>(null);
   const [resumeJobContext, setResumeJobContext] = useState<JobContextSnapshot | null>(null);
   const [resumeGenerationSessionId, setResumeGenerationSessionId] = useState<string | null>(null);
   const [initialBossJobId, setInitialBossJobId] = useState<number | null>(null);
@@ -638,6 +640,10 @@ export default function InterviewPage() {
             sessionId={historyDetailSessionId}
             initialTab={historyDetailInitialTab}
             onStartTargetedInterview={handleStartTargetedInterview}
+            onOpenEvaluationCenter={() => {
+              setHistoryDetailSessionId(null);
+              setActiveMainTab('evaluations');
+            }}
             open={true}
             onOpenChange={(open) => {
               if (!open) setHistoryDetailSessionId(null);
@@ -663,7 +669,7 @@ export default function InterviewPage() {
     return (
       <>
         <WorkspaceShell sidebarOpen={showSidebar} onSidebarOpenChange={setShowSidebar} currentView="evaluations" onViewChange={handleNavigate} onOpenSettings={() => setShowSettingsDialog(true)} onGoHome={() => setActiveMainTab('landing')} icon={<ShieldCheck className="h-4 w-4" />} title="Agent 评测中心" description="运行评测、观察质量、人工标注并校准 Agent 与 Judge">
-          <EvaluationCenter />
+          <EvaluationCenter key={evaluationFocusDatasetId ?? 'evaluation-center'} focusDatasetId={evaluationFocusDatasetId} />
         </WorkspaceShell>
         <SettingsDialog open={showSettingsDialog} onOpenChange={setShowSettingsDialog} />
       </>
@@ -807,6 +813,12 @@ export default function InterviewPage() {
             sessionId={historyDetailSessionId}
             initialTab={historyDetailInitialTab}
             onStartTargetedInterview={handleStartTargetedInterview}
+            onOpenEvaluationCenter={(datasetId) => {
+              const handoff = buildInterviewEvaluationHandoff(datasetId);
+              setEvaluationFocusDatasetId(handoff.datasetId);
+              setHistoryDetailSessionId(null);
+              setActiveMainTab(handoff.view);
+            }}
             open={true}
             onOpenChange={(open) => {
               if (!open) setHistoryDetailSessionId(null);

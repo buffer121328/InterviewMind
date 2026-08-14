@@ -6,12 +6,25 @@ import argparse
 import asyncio
 import json
 
+from sqlalchemy import delete, func, select, text, update
+
 from app.config import get_settings
 from app.db.models import (
     AgentRunModel,
     ArtifactModel,
+    EvaluationAnnotationModel,
+    EvaluationCalibrationModel,
+    EvaluationCaseModel,
+    EvaluationCaseRunModel,
+    EvaluationDatasetVersionModel,
+    EvaluationGatePolicyModel,
+    EvaluationGateResultModel,
+    EvaluationRunModel,
+    EvaluationScoreModel,
+    EvaluationSuiteModel,
     InterviewQuestionAttemptModel,
     MessageModel,
+    ModelMetricEventModel,
     SessionModel,
     TaskOutboxModel,
     UserProfileModel,
@@ -19,6 +32,7 @@ from app.db.models import (
     async_session,
 )
 from app.domain.agent_runs import (
+    TASK_TYPE_INTERVIEW_EVALUATION_DRAFT,
     TASK_TYPE_INTERVIEW_REPORT,
     TASK_TYPE_INTERVIEW_START,
     TASK_TYPE_INTERVIEW_TURN,
@@ -26,13 +40,23 @@ from app.domain.agent_runs import (
 )
 from observability.config import LangfuseConfig
 from observability.langfuse_client import _create_langfuse_client
-from sqlalchemy import delete, select, text, update
 
 INTERVIEW_TASK_TYPES = {
+    TASK_TYPE_INTERVIEW_EVALUATION_DRAFT,
     TASK_TYPE_INTERVIEW_START,
     TASK_TYPE_INTERVIEW_TURN,
     TASK_TYPE_VOICE_INTERVIEW_TURN,
     TASK_TYPE_INTERVIEW_REPORT,
+}
+
+_CHECKPOINT_DELETE_STATEMENTS = {
+    "checkpoint_writes": text(
+        "DELETE FROM checkpoint_writes WHERE thread_id = ANY(:ids)"
+    ),
+    "checkpoint_blobs": text(
+        "DELETE FROM checkpoint_blobs WHERE thread_id = ANY(:ids)"
+    ),
+    "checkpoints": text("DELETE FROM checkpoints WHERE thread_id = ANY(:ids)"),
 }
 
 
@@ -55,20 +79,20 @@ async def _collect(user_id: str | None) -> dict:
             session_stmt = session_stmt.where(SessionModel.user_id == user_id)
         session_rows = (await db.execute(session_stmt)).all()
         session_ids = [row.session_id for row in session_rows]
-        owner_ids = sorted({row.user_id for row in session_rows})
+        owner_ids = {row.user_id for row in session_rows} | ({user_id} if user_id else set())
 
-        run_stmt = select(AgentRunModel.id, AgentRunModel.trace_id).where(
+        run_stmt = select(
+            AgentRunModel.id, AgentRunModel.trace_id, AgentRunModel.user_id
+        ).where(
             AgentRunModel.task_type.in_(INTERVIEW_TASK_TYPES)
         )
         if user_id:
             run_stmt = run_stmt.where(AgentRunModel.user_id == user_id)
-        if session_ids:
-            run_stmt = run_stmt.where(AgentRunModel.session_id.in_(session_ids))
-        else:
-            run_stmt = run_stmt.where(text("1=0"))
         run_rows = (await db.execute(run_stmt)).all()
         run_ids = [row.id for row in run_rows]
         trace_ids = sorted({row.trace_id for row in run_rows if row.trace_id})
+        owner_ids.update(row.user_id for row in run_rows)
+        owner_ids = sorted(owner_ids)
 
         artifact_stmt = select(ArtifactModel.id, ArtifactModel.storage_key).where(
             ArtifactModel.user_id.in_(owner_ids or ["__none__"]),
@@ -82,9 +106,52 @@ async def _collect(user_id: str | None) -> dict:
             artifact_stmt = artifact_stmt.where(text("1=0"))
         artifacts = (await db.execute(artifact_stmt)).all()
 
+        dataset_ids = list(
+            (
+                await db.execute(
+                    select(EvaluationDatasetVersionModel.id).where(
+                        EvaluationDatasetVersionModel.user_id.in_(owner_ids or ["__none__"])
+                    )
+                )
+            ).scalars()
+        )
+        suite_ids = list(
+            (
+                await db.execute(
+                    select(EvaluationSuiteModel.id).where(
+                        EvaluationSuiteModel.user_id.in_(owner_ids or ["__none__"])
+                    )
+                )
+            ).scalars()
+        )
+        evaluation_run_ids = list(
+            (
+                await db.execute(
+                    select(EvaluationRunModel.id).where(
+                        EvaluationRunModel.user_id.in_(owner_ids or ["__none__"])
+                    )
+                )
+            ).scalars()
+        )
+        case_run_ids = list(
+            (
+                await db.execute(
+                    select(EvaluationCaseRunModel.id).where(
+                        EvaluationCaseRunModel.evaluation_run_id.in_(evaluation_run_ids or ["__none__"])
+                    )
+                )
+            ).scalars()
+        )
+
         async def count(model, condition):
             """在当前只读事务中统计一个已限定条件的关联模型。"""
-            return len((await db.execute(select(model).where(condition))).scalars().all())
+            return int(
+                (
+                    await db.execute(
+                        select(func.count()).select_from(model).where(condition)
+                    )
+                ).scalar_one()
+            )
 
         return {
             "user_ids": owner_ids,
@@ -93,6 +160,10 @@ async def _collect(user_id: str | None) -> dict:
             "trace_ids": trace_ids,
             "artifact_ids": [row.id for row in artifacts],
             "artifact_storage_keys": [row.storage_key for row in artifacts],
+            "dataset_ids": dataset_ids,
+            "suite_ids": suite_ids,
+            "evaluation_run_ids": evaluation_run_ids,
+            "case_run_ids": case_run_ids,
             "counts": {
                 "sessions": len(session_ids),
                 "agent_runs": len(run_ids),
@@ -102,6 +173,13 @@ async def _collect(user_id: str | None) -> dict:
                 "weakness_reports": await count(WeaknessReportModel, WeaknessReportModel.session_id.in_(session_ids or ["__none__"])),
                 "question_attempts": await count(InterviewQuestionAttemptModel, InterviewQuestionAttemptModel.session_id.in_(session_ids or ["__none__"])),
                 "outbox": await count(TaskOutboxModel, TaskOutboxModel.message_key.in_(run_ids or ["__none__"])),
+                "model_metrics": await count(ModelMetricEventModel, ModelMetricEventModel.run_id.in_(run_ids or ["__none__"])),
+                "evaluation_datasets": len(dataset_ids),
+                "evaluation_suites": len(suite_ids),
+                "evaluation_runs": len(evaluation_run_ids),
+                "evaluation_case_runs": len(case_run_ids),
+                "evaluation_scores": await count(EvaluationScoreModel, EvaluationScoreModel.case_run_id.in_(case_run_ids or ["__none__"])),
+                "evaluation_annotations": await count(EvaluationAnnotationModel, EvaluationAnnotationModel.case_run_id.in_(case_run_ids or ["__none__"])),
             },
         }
 
@@ -149,20 +227,51 @@ async def _execute(snapshot: dict) -> dict:
     session_ids = snapshot["session_ids"]
     run_ids = snapshot["run_ids"]
     owner_ids = snapshot["user_ids"]
+    dataset_ids = snapshot["dataset_ids"]
+    suite_ids = snapshot["suite_ids"]
+    evaluation_run_ids = snapshot["evaluation_run_ids"]
+    case_run_ids = snapshot["case_run_ids"]
     async with async_session() as db:
+        if owner_ids:
+            await db.execute(delete(EvaluationGateResultModel).where(EvaluationGateResultModel.user_id.in_(owner_ids)))
+        if case_run_ids:
+            await db.execute(delete(EvaluationAnnotationModel).where(EvaluationAnnotationModel.case_run_id.in_(case_run_ids)))
+            await db.execute(delete(EvaluationScoreModel).where(EvaluationScoreModel.case_run_id.in_(case_run_ids)))
+            await db.execute(delete(EvaluationCaseRunModel).where(EvaluationCaseRunModel.id.in_(case_run_ids)))
+        if evaluation_run_ids:
+            await db.execute(delete(EvaluationRunModel).where(EvaluationRunModel.id.in_(evaluation_run_ids)))
+        if suite_ids:
+            await db.execute(delete(EvaluationSuiteModel).where(EvaluationSuiteModel.id.in_(suite_ids)))
+        if dataset_ids:
+            await db.execute(delete(EvaluationCaseModel).where(EvaluationCaseModel.dataset_version_id.in_(dataset_ids)))
+            await db.execute(delete(EvaluationDatasetVersionModel).where(EvaluationDatasetVersionModel.id.in_(dataset_ids)))
+        if owner_ids:
+            await db.execute(delete(EvaluationCalibrationModel).where(EvaluationCalibrationModel.user_id.in_(owner_ids)))
+            await db.execute(delete(EvaluationGatePolicyModel).where(EvaluationGatePolicyModel.user_id.in_(owner_ids)))
+        if snapshot["artifact_ids"]:
+            await db.execute(
+                delete(ArtifactModel).where(
+                    ArtifactModel.id.in_(snapshot["artifact_ids"])
+                )
+            )
         if run_ids:
             await db.execute(delete(TaskOutboxModel).where(TaskOutboxModel.message_key.in_(run_ids)))
-            await db.execute(delete(ArtifactModel).where(ArtifactModel.id.in_(snapshot["artifact_ids"] or [-1])))
             await db.execute(delete(AgentRunModel).where(AgentRunModel.id.in_(run_ids)))
+        checkpoint_ids = list(dict.fromkeys([*session_ids, *run_ids]))
+        if checkpoint_ids:
+            for table_name, statement in _CHECKPOINT_DELETE_STATEMENTS.items():
+                exists = (
+                    await db.execute(
+                        text("SELECT to_regclass(:name)"), {"name": table_name}
+                    )
+                ).scalar_one_or_none()
+                if exists:
+                    await db.execute(statement, {"ids": checkpoint_ids})
         if session_ids:
             await db.execute(delete(WeaknessReportModel).where(WeaknessReportModel.session_id.in_(session_ids)))
             await db.execute(delete(InterviewQuestionAttemptModel).where(InterviewQuestionAttemptModel.session_id.in_(session_ids)))
             await db.execute(delete(MessageModel).where(MessageModel.session_id.in_(session_ids)))
             await db.execute(update(SessionModel).where(SessionModel.session_id.in_(session_ids)).values(parent_session_id=None))
-            for table_name in ("checkpoint_writes", "checkpoint_blobs", "checkpoints"):
-                exists = (await db.execute(text("SELECT to_regclass(:name)"), {"name": table_name})).scalar_one_or_none()
-                if exists:
-                    await db.execute(text(f"DELETE FROM {table_name} WHERE thread_id = ANY(:ids)"), {"ids": session_ids})
             await db.execute(delete(SessionModel).where(SessionModel.session_id.in_(session_ids)))
         if owner_ids:
             await db.execute(delete(UserProfileModel).where(UserProfileModel.user_id.in_(owner_ids)))

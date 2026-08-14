@@ -1,10 +1,15 @@
 """Evaluation 聚合的 owner-scoped SQLAlchemy Repository。"""
 
-from app.db.models import EvaluationCaseModel, EvaluationDatasetVersionModel, EvaluationScoreModel
-from app.schemas.evaluations import EvaluationCandidateDatasetRequest, EvaluationCaseCreateRequest, EvaluationDatasetCreateRequest
-from app.security.payload_crypto import decrypt_payload, encrypt_payload
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.db.models import EvaluationCaseModel, EvaluationDatasetVersionModel, EvaluationScoreModel
+from app.schemas.evaluations import (
+    EvaluationCandidateDatasetRequest,
+    EvaluationCaseCreateRequest,
+    EvaluationDatasetCreateRequest,
+)
+from app.security.payload_crypto import decrypt_payload, encrypt_payload
 
 from .annotation_repository import AnnotationRepositoryMixin
 from .dataset_repository import DatasetRepositoryMixin
@@ -17,10 +22,12 @@ from .helpers import (
     _now,
     _safe_evidence_refs,
 )
+from .interview_history_repository import InterviewHistoryRepositoryMixin
 from .run_repository import RunRepositoryMixin
 
 
 class EvaluationRepository(
+    InterviewHistoryRepositoryMixin,
     DatasetRepositoryMixin,
     RunRepositoryMixin,
     AnnotationRepositoryMixin,

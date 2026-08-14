@@ -14,6 +14,7 @@ import {
     Loader2,
     MessagesSquare,
     RefreshCw,
+    ShieldCheck,
 } from 'lucide-react';
 import {
     Dialog,
@@ -37,8 +38,9 @@ import {
 } from '@/lib/api/agentRuns';
 import { downloadArtifact, exportArtifact, type ArtifactFormat } from '@/lib/api/artifacts';
 import { getRequestApiConfig } from '@/store/interviewFacade';
+import { InterviewHistoryEvaluationPanel } from '@/components/evaluations/InterviewHistoryEvaluationPanel';
 
-type InterviewDialogTab = 'overview' | 'dialogue' | 'report';
+type InterviewDialogTab = 'overview' | 'dialogue' | 'report' | 'evaluation';
 
 interface InterviewHistoryDetailDialogProps {
     sessionId: string | null;
@@ -47,6 +49,7 @@ interface InterviewHistoryDetailDialogProps {
     /** Allows report buttons to land directly on the Markdown preview. */
     initialTab?: InterviewDialogTab;
     onStartTargetedInterview?: (handoff: TargetedInterviewHandoff) => void;
+    onOpenEvaluationCenter?: (datasetId: string) => void;
 }
 
 const ACTIVE_RUN_STATUSES = new Set<AgentRun['status']>([
@@ -101,6 +104,7 @@ export function InterviewHistoryDetailDialog({
     onOpenChange,
     initialTab = 'overview',
     onStartTargetedInterview,
+    onOpenEvaluationCenter,
 }: InterviewHistoryDetailDialogProps) {
     const [session, setSession] = useState<SessionDetail | null>(null);
     const [report, setReport] = useState<SessionMarkdownReport | null>(null);
@@ -269,10 +273,11 @@ export function InterviewHistoryDetailDialog({
                 ) : session ? (
                     <Tabs defaultValue={initialTab} className="min-h-0 flex-1 gap-0">
                         <div className="border-b border-gray-100 px-6 py-3">
-                            <TabsList className="grid w-full max-w-md grid-cols-3">
+                            <TabsList className="grid w-full max-w-2xl grid-cols-4">
                                 <TabsTrigger value="overview"><FileText />概览</TabsTrigger>
                                 <TabsTrigger value="dialogue"><MessagesSquare />面试问答</TabsTrigger>
                                 <TabsTrigger value="report"><BarChart3 />面试报告</TabsTrigger>
+                                <TabsTrigger value="evaluation"><ShieldCheck />加入评测集</TabsTrigger>
                             </TabsList>
                         </div>
 
@@ -315,6 +320,16 @@ export function InterviewHistoryDetailDialog({
                         <TabsContent value="dialogue" className="min-h-0 flex-1 overflow-hidden">
                             <ScrollArea className="h-full">
                                 <div className="p-6"><DialogueReview messages={dialogueMessages} /></div>
+                            </ScrollArea>
+                        </TabsContent>
+
+                        <TabsContent value="evaluation" className="min-h-0 flex-1 overflow-hidden">
+                            <ScrollArea className="h-full">
+                                <InterviewHistoryEvaluationPanel
+                                    sessionId={session.session_id}
+                                    completed={session.metadata.status === 'completed'}
+                                    onOpenEvaluationCenter={onOpenEvaluationCenter}
+                                />
                             </ScrollArea>
                         </TabsContent>
 

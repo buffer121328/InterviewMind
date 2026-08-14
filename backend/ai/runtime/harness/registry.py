@@ -6,6 +6,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from threading import RLock
 from typing import Any
+
 from .contracts import ExecutionAdapter, ExecutionContext, ExecutionResult
 
 AdapterRunner = Callable[[dict[str, Any], ExecutionContext], Awaitable[ExecutionResult]]

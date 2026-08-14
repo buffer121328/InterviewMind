@@ -14,6 +14,9 @@ from ai.workflows.evaluation.calibration import CalibrationUseCasesMixin
 from ai.workflows.evaluation.contracts import EvaluationUseCaseError
 from ai.workflows.evaluation.datasets import DatasetUseCasesMixin
 from ai.workflows.evaluation.gates import GateUseCasesMixin
+from ai.workflows.evaluation.interview_history_use_cases import (
+    InterviewHistoryEvaluationUseCasesMixin,
+)
 from ai.workflows.evaluation.reporting import ReportingUseCasesMixin
 from ai.workflows.evaluation.runs import RunUseCasesMixin
 from ai.workflows.evaluation.suites import SuiteUseCasesMixin
@@ -25,6 +28,7 @@ from evaluation.builtins import public_evaluation_catalog
 
 
 class EvaluationUseCases(
+    InterviewHistoryEvaluationUseCasesMixin,
     DatasetUseCasesMixin,
     SuiteUseCasesMixin,
     RunUseCasesMixin,

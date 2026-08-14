@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Literal
+
 from app.domain.agent_definitions import AgentDefinition
+
 from .contracts import ExecutionAdapter, ExecutionMode
 from .registry import ExecutionAdapterRegistry
 

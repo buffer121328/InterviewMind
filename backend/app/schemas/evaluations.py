@@ -5,9 +5,10 @@ from __future__ import annotations
 import re
 from typing import Any, Literal
 
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator, model_validator
+
 from app.schemas.schemas import ApiConfig
 from app.security.security import redact_secret_text
-from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator
 
 
 class _EvaluationRequest(BaseModel):
@@ -246,3 +247,166 @@ class EvaluationPage(BaseModel):
     total: int = Field(ge=0)
     limit: int = Field(ge=1)
     offset: int = Field(ge=0)
+
+
+class InterviewEvaluationSourceSnapshot(_EvaluationRequest):
+    """由服务端从历史面试记录冻结的权威评测输入。"""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True, frozen=True)
+
+    attempt_id: int = Field(ge=1)
+    session_id: str = Field(min_length=1, max_length=200)
+    capability: Literal["interview_turn", "interview_scoring"]
+    question: str = Field(min_length=1, max_length=20_000)
+    answer: str = Field(min_length=1, max_length=100_000)
+    input: dict[str, JsonValue]
+    evidence_refs: list[str] = Field(min_length=1, max_length=20)
+    source_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+
+class InterviewEvaluationDraftAnnotation(_EvaluationRequest):
+    """模型可建议且人工可编辑的非权威评测字段。"""
+
+    case_key: str = Field(min_length=1, max_length=160)
+    category: str = Field(min_length=1, max_length=120)
+    expected_facts: list[JsonValue] = Field(default_factory=list, max_length=200)
+    forbidden_claims: list[JsonValue] = Field(default_factory=list, max_length=200)
+    quality_rubric: dict[str, JsonValue] = Field(default_factory=dict)
+    tags: list[str] = Field(default_factory=list, max_length=36)
+    severity: Literal["low", "medium", "high", "critical"] = "medium"
+    explanation: str = Field(default="", max_length=4_000)
+
+
+class InterviewEvaluationDraftCase(_EvaluationRequest):
+    """单个历史问答的可审阅草稿及逐案例校验状态。"""
+
+    attempt_id: int = Field(ge=1)
+    session_id: str = Field(min_length=1, max_length=200)
+    source_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+    question: str = Field(min_length=1, max_length=20_000)
+    answer: str = Field(min_length=1, max_length=100_000)
+    frozen_input: dict[str, JsonValue]
+    evidence_refs: list[str] = Field(min_length=1, max_length=20)
+    validation_status: Literal["valid", "needs_review", "failed"]
+    annotation: InterviewEvaluationDraftAnnotation | None = None
+    failure_reason: str | None = Field(default=None, max_length=500)
+    model: dict[str, JsonValue] = Field(default_factory=dict)
+
+    @field_validator("failure_reason")
+    @classmethod
+    def validate_failure_reason(cls, value: str | None) -> str | None:
+        """失败原因必须已脱敏，避免把供应商异常原文写入 AgentRun。"""
+
+        if value is not None and redact_secret_text(value) != value:
+            raise ValueError("unsafe draft failure reason")
+        return value
+
+
+class InterviewEvaluationDraftResult(_EvaluationRequest):
+    """可持久化在 AgentRun.result 中的安全草稿结果。"""
+
+    capability: Literal["interview_turn", "interview_scoring"]
+    status: Literal["needs_review"] = "needs_review"
+    selected_count: int = Field(ge=0, le=50)
+    valid_count: int = Field(ge=0, le=50)
+    failed_count: int = Field(ge=0, le=50)
+    cases: list[InterviewEvaluationDraftCase] = Field(default_factory=list, max_length=50)
+
+
+class InterviewEvaluationDraftRequest(_EvaluationRequest):
+    """提交历史问答整理任务；只接收模型配置引用，不接收明文凭据。"""
+
+    attempt_ids: list[int] = Field(min_length=1, max_length=50)
+    capability: Literal["interview_turn", "interview_scoring"]
+    api_config: dict[str, JsonValue]
+
+    @field_validator("attempt_ids")
+    @classmethod
+    def validate_attempt_ids(cls, value: list[int]) -> list[int]:
+        """保持用户选择顺序并拒绝重复或非法 ID。"""
+
+        if any(item < 1 for item in value) or len(set(value)) != len(value):
+            raise ValueError("attempt_ids must contain unique positive integers")
+        return value
+
+    @field_validator("api_config")
+    @classmethod
+    def reject_plaintext_credentials(cls, value: dict[str, JsonValue]) -> dict[str, JsonValue]:
+        """队列 payload 只保存 credential reference，禁止明文 API Key。"""
+
+        def walk(item: JsonValue) -> None:
+            if isinstance(item, dict):
+                for key, child in item.items():
+                    if key.lower() in {"api_key", "apikey", "authorization", "cookie", "password", "secret", "token"}:
+                        raise ValueError("plaintext model credentials are not accepted")
+                    walk(child)
+            elif isinstance(item, list):
+                for child in item:
+                    walk(child)
+
+        walk(value)
+        return value
+
+
+class InterviewEvaluationReviewCase(_EvaluationRequest):
+    """人工审阅后的单案例选择和可编辑生成字段。"""
+
+    attempt_id: int = Field(ge=1)
+    reviewed: bool
+    included: bool = True
+    annotation: InterviewEvaluationDraftAnnotation | None = None
+
+    @model_validator(mode="after")
+    def require_review_for_included_case(self):
+        """所有纳入案例必须已审阅且有合法标注。"""
+
+        if self.included and (not self.reviewed or self.annotation is None):
+            raise ValueError("included cases must be reviewed and annotated")
+        return self
+
+
+class InterviewEvaluationConfirmRequest(_EvaluationRequest):
+    """把人工确认的草稿原子创建为 draft Candidate Dataset。"""
+
+    name: str = Field(min_length=1, max_length=160)
+    version: str = Field(min_length=1, max_length=80)
+    cases: list[InterviewEvaluationReviewCase] = Field(min_length=1, max_length=50)
+
+    @field_validator("cases")
+    @classmethod
+    def require_included_case(
+        cls, value: list[InterviewEvaluationReviewCase]
+    ) -> list[InterviewEvaluationReviewCase]:
+        """确认请求至少包含一个已审阅并纳入的数据案例。"""
+
+        if not any(item.included for item in value):
+            raise ValueError("at least one reviewed case must be included")
+        ids = [item.attempt_id for item in value]
+        if len(ids) != len(set(ids)):
+            raise ValueError("duplicate attempt review")
+        return value
+
+
+class InterviewEvaluationRetryRequest(_EvaluationRequest):
+    """仅重试一个已完成草稿中失败的选定案例。"""
+
+    attempt_ids: list[int] = Field(min_length=1, max_length=50)
+    api_config: dict[str, JsonValue]
+
+    @field_validator("attempt_ids")
+    @classmethod
+    def validate_attempt_ids(cls, value: list[int]) -> list[int]:
+        """重试列表必须为唯一正整数。"""
+
+        if any(item < 1 for item in value) or len(set(value)) != len(value):
+            raise ValueError("attempt_ids must contain unique positive integers")
+        return value
+
+    @field_validator("api_config")
+    @classmethod
+    def reject_plaintext_credentials(
+        cls, value: dict[str, JsonValue]
+    ) -> dict[str, JsonValue]:
+        """重试也只接收模型凭据引用。"""
+
+        return InterviewEvaluationDraftRequest.reject_plaintext_credentials(value)

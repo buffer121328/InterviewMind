@@ -1,7 +1,10 @@
 """Harness 事件的 best-effort fan-out。"""
 
 from __future__ import annotations
+
 from collections.abc import Awaitable, Callable, Iterable
+from typing import cast
+
 from .contracts import EventSink, HarnessEvent
 
 EventReceiver = Callable[[HarnessEvent], Awaitable[None]]
@@ -39,6 +42,6 @@ class BestEffortEventSink:
                 if callable(emitter):                   # 如果它有 emit 方法
                     await emitter(event)                #   调它的 emit 发事件
                 else:                                   # 否则
-                    await sink(event)                   #   直接把 sink 当可调用对象调用
+                    await cast(EventReceiver, sink)(event)  # 兼容函数式 receiver
             except Exception as exc:  # noqa: BLE001 - telemetry must remain best effort
                 self._error_types.append(type(exc).__name__)

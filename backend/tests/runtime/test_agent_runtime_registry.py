@@ -303,8 +303,8 @@ async def test_tool_guard_redacts_nested_secrets():
 
 
 def test_production_agent_definitions_are_registered():
-    from ai.workflows.agent_runs.graph_bindings import register_production_graphs
     from ai.workflows.agent_runs.catalog import get_production_adapter_registry
+    from ai.workflows.agent_runs.graph_bindings import register_production_graphs
 
     register_production_graphs()
     from app.domain.agent_definitions import get_agent_definitions
@@ -312,6 +312,7 @@ def test_production_agent_definitions_are_registered():
     definitions = {item.task_type: item for item in get_agent_definitions()}
 
     assert set(definitions) == {
+        "interview_evaluation_draft",
         "interview_start",
         "interview_turn",
         "voice_interview_turn",
@@ -336,7 +337,7 @@ def test_production_agent_definitions_are_registered():
             assert definition.graph_name in graph_registry.names()
         else:
             assert definition.graph_reference_mode == "diagnostic"
-        if definition.task_type != "evaluation_suite":
+        if definition.task_type not in {"evaluation_suite", "interview_evaluation_draft"}:
             assert definition.prompt_name is not None
             assert definition.prompt_version is not None
             assert definition.prompt_version in prompt_registry.versions(

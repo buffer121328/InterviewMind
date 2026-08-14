@@ -90,6 +90,16 @@ class JobAssetsExecutionAdapter(ProductionTaskExecutionAdapter):
         super().__init__(key="job_assets", executor=executor or _run_job_assets)
 
 
+class InterviewEvaluationDraftExecutionAdapter(ProductionTaskExecutionAdapter):
+    """历史面试评测草稿任务的显式 production adapter。"""
+
+    def __init__(self, *, executor: TaskRunner | None = None) -> None:
+        super().__init__(
+            key="interview_evaluation_draft",
+            executor=executor or _run_interview_evaluation_draft,
+        )
+
+
 class EvaluationSuiteExecutionAdapter(ProductionTaskExecutionAdapter):
     """评测套件编排任务的显式 production adapter。"""
 
@@ -135,10 +145,40 @@ async def _run_job_assets(payload: dict[str, Any], user_id: str, progress: Progr
     return await execute_job_assets(payload, user_id, progress)
 
 
+async def _run_interview_evaluation_draft(
+    payload: dict[str, Any], user_id: str, progress: ProgressCallback
+) -> ExecutionResult:
+    from ai.workflows.agent_runs.tasks.evaluation.interview_history_draft import (
+        execute_interview_evaluation_draft,
+    )
+
+    return await execute_interview_evaluation_draft(payload, user_id, progress)
+
+
 async def _run_evaluation_suite(payload: dict[str, Any], user_id: str, progress: ProgressCallback) -> ExecutionResult:
     from ai.workflows.agent_runs.tasks.evaluation.evaluation_suite import execute_evaluation_suite
 
     return await execute_evaluation_suite(payload, user_id, progress)
+
+
+class InterviewTurnExecutionAdapter:
+    """`interview_turn` 的 stream/evaluation 同源执行适配器。"""
+
+    key = "interview_turn"
+
+    def __init__(self, *, evaluation_runner: EvaluationRunner | None = None) -> None:
+        self._evaluation_runner = evaluation_runner or _run_interview_turn_evaluation
+
+    async def run(
+        self,
+        payload: dict[str, Any],
+        context: ExecutionContext,
+    ) -> ExecutionResult:
+        """评测时使用隔离身份；生产请求仍必须由 StreamDriver 持有。"""
+
+        if context.environment == "evaluation":
+            return await self._evaluation_runner(payload, context)
+        raise RuntimeError("stream task must be dispatched through StreamDriver")
 
 
 class InterviewStartExecutionAdapter:
@@ -248,3 +288,47 @@ async def _run_interview_start_evaluation(
         owner_id=context.user_id,
         cache_scope=context.session_id or context.run_id or "",
     )
+
+
+async def _run_interview_turn_evaluation(
+    payload: dict[str, Any],
+    context: ExecutionContext,
+) -> ExecutionResult:
+    """在 evaluation identity 下调用真实 InterviewRuntime，不写源 session。"""
+
+    from ai.agents.interview.interview_graph import node_responder
+
+    state = dict(payload)
+    state.update(
+        {
+            "user_id": context.user_id,
+            "session_id": context.session_id,
+            "run_id": context.run_id,
+            # 历史案例必须显式关闭正式 memory 注入；工具读取也只会命中 eval identity。
+            "memory_context": "",
+            "memory_items": [],
+        }
+    )
+    result = await node_responder(state)
+    return _normalize_runtime_value(result)
+
+
+def _normalize_runtime_value(value: Any) -> Any:
+    """把消息、Pydantic 和容器收敛为 AgentRun 可序列化结果。"""
+
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, dict):
+        return {str(key): _normalize_runtime_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_normalize_runtime_value(item) for item in value]
+    model_dump = getattr(value, "model_dump", None)
+    if callable(model_dump):
+        return _normalize_runtime_value(model_dump(mode="json"))
+    content = getattr(value, "content", None)
+    if content is not None:
+        return {
+            "role": getattr(value, "type", None) or getattr(value, "role", None),
+            "content": _normalize_runtime_value(content),
+        }
+    return str(value)

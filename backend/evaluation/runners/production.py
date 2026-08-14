@@ -185,6 +185,16 @@ class CatalogEvaluationView:
                 runner=_run_interview_planner_case,
                 required_trace_categories=("runtime", "model"),
             ),
+            "interview_turn": EvaluationCaseAdapterSpec(
+                task_type="interview_turn",
+                runner=_run_interview_turn_case,
+                required_trace_categories=("runtime", "model"),
+            ),
+            "interview_scoring": EvaluationCaseAdapterSpec(
+                task_type="interview_turn",
+                runner=_run_interview_turn_case,
+                required_trace_categories=("runtime", "model"),
+            ),
         })
 
     def resolve(self, capability_name: str) -> CatalogEvaluationEntry:
@@ -294,6 +304,40 @@ class CatalogEvaluationAdapter:
             trace,
             entry.production_adapter,
         )
+
+
+async def _run_interview_turn_case(
+    payload: dict[str, Any],
+    context: EvaluationExecutionContext,
+    trace: EvaluationTraceCollector,
+    production_adapter: Any,
+) -> Any:
+    """通过同一 `interview_turn` Harness adapter 执行历史问答案例。"""
+
+    if getattr(production_adapter, "key", None) != "interview_turn":
+        raise EvaluationConfigurationError("interview turn production adapter drifted")
+    from ai.runtime.harness.contracts import DeferredExecutionResult
+    from ai.workflows.agent_runs.catalog import get_evaluation_driver
+    from app.domain.agent_runs import TASK_TYPE_INTERVIEW_TURN
+
+    trace.start_step("interview_turn")
+    try:
+        result = await get_evaluation_driver().run(
+            task_type=TASK_TYPE_INTERVIEW_TURN,
+            payload=payload,
+            run_id=context.run_id,
+            user_id=context.evaluation_user_id,
+            session_id=context.evaluation_session_id,
+            memory_namespace=context.evaluation_memory_namespace,
+            artifact_namespace=context.evaluation_artifact_namespace,
+        )
+        if isinstance(result, DeferredExecutionResult):
+            raise TypeError("evaluation adapter cannot return deferred persistence")
+        trace.finish_step("interview_turn")
+        return _normalize_runtime_value(result)
+    except Exception:
+        trace.finish_step("interview_turn", status="failed")
+        raise
 
 
 async def _run_interview_planner_case(

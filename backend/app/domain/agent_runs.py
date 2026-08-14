@@ -15,6 +15,7 @@ TASK_TYPE_ABILITY_PROFILE = "ability_profile"
 TASK_TYPE_JOB_ASSETS = "job_assets"
 TASK_TYPE_JOB_RECOMMENDATION_CAPTURE = "job_recommendation_capture"
 TASK_TYPE_EVALUATION_SUITE = "evaluation_suite"
+TASK_TYPE_INTERVIEW_EVALUATION_DRAFT = "interview_evaluation_draft"
 
 ACTIVE_STATUSES: frozenset[str] = frozenset(
     {"queued", "retrying", "running", "cancel_requested"}

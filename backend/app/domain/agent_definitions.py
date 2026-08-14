@@ -13,6 +13,7 @@ from typing import Literal
 from app.domain.agent_runs import (
     TASK_TYPE_ABILITY_PROFILE,
     TASK_TYPE_EVALUATION_SUITE,
+    TASK_TYPE_INTERVIEW_EVALUATION_DRAFT,
     TASK_TYPE_INTERVIEW_REPORT,
     TASK_TYPE_INTERVIEW_START,
     TASK_TYPE_INTERVIEW_TURN,
@@ -83,6 +84,24 @@ class AgentDefinitionRegistry:
 
 _DEFINITIONS = (
     AgentDefinition(
+        name="interview_evaluation_draft",
+        version="1",
+        task_type=TASK_TYPE_INTERVIEW_EVALUATION_DRAFT,
+        title="整理历史面试评测草稿",
+        steps=(
+            ("queued", "等待执行资源"),
+            ("loading_sources", "读取并校验历史问答"),
+            ("redacting", "脱敏并冻结可信输入"),
+            ("drafting", "使用模型整理评测约束"),
+            ("validating", "逐案例执行安全与 Schema 校验"),
+            ("needs_review", "等待人工审阅确认"),
+        ),
+        checkpoint_policy="durable",
+        adapter_key=TASK_TYPE_INTERVIEW_EVALUATION_DRAFT,
+        side_effect_policy="read_only",
+        run_gate_policy="worker_limit",
+    ),
+    AgentDefinition(
         name="evaluation_suite",
         version="1",
         task_type=TASK_TYPE_EVALUATION_SUITE,
@@ -134,6 +153,8 @@ _DEFINITIONS = (
         prompt_version="2",
         execution_modes=("stream",),
         adapter_key=TASK_TYPE_INTERVIEW_TURN,
+        evaluation_enabled=True,
+        side_effect_policy="read_only",
         graph_reference_mode="required",
         run_gate_policy="global",
     ),

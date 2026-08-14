@@ -507,6 +507,29 @@ function withQuery(path: string, values: object): string {
 }
 
 export const evaluationApi = {
+    /** Lists only persisted attempts from owner-scoped completed interview sessions. */
+    interviewHistorySources: (sessionId?: string) => apiRequest<Page<InterviewEvaluationSourceSession>>(
+        `/api/evaluations/interview-history/sources?limit=100&offset=0${sessionId ? `&session_id=${encodeURIComponent(sessionId)}` : ''}`,
+    ),
+    createInterviewHistoryDraft: (payload: {
+        attempt_ids: number[];
+        capability: InterviewEvaluationCapability;
+        api_config: Record<string, unknown>;
+    }) => apiRequest<import('./agentRunTypes').AgentRun>('/api/evaluations/interview-history/drafts', {
+        method: 'POST',
+        headers: { 'Idempotency-Key': crypto.randomUUID() },
+        body: JSON.stringify(payload),
+    }),
+    getInterviewHistoryDraft: (runId: string) => apiRequest<import('./agentRunTypes').AgentRun>(`/api/evaluations/interview-history/drafts/${runId}`),
+    retryInterviewHistoryDraftCases: (runId: string, payload: { attempt_ids: number[]; api_config: Record<string, unknown> }) => apiRequest<import('./agentRunTypes').AgentRun>(`/api/evaluations/interview-history/drafts/${runId}/retry-failed`, {
+        method: 'POST',
+        headers: { 'Idempotency-Key': crypto.randomUUID() },
+        body: JSON.stringify(payload),
+    }),
+    confirmInterviewHistoryDraft: (runId: string, payload: Record<string, unknown>) => apiRequest<EvaluationDataset>(`/api/evaluations/interview-history/drafts/${runId}/confirm`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+    }),
     /** Loads server-owned one-click presets and owner-scoped baseline availability. */
     catalog: () => apiRequest<EvaluationCatalog>('/api/evaluations/catalog'),
     overview: () => apiRequest<EvaluationOverview>('/api/evaluations/overview'),
@@ -564,4 +587,62 @@ export async function downloadEvaluationReport(runId: string): Promise<void> {
     link.download = `evaluation-${runId}.html`;
     link.click();
     URL.revokeObjectURL(link.href);
+}
+
+export type InterviewEvaluationCapability = 'interview_turn' | 'interview_scoring';
+export type InterviewEvaluationValidationStatus = 'valid' | 'needs_review' | 'failed';
+
+export interface InterviewEvaluationAttemptSummary {
+    attempt_id: number;
+    sequence: number;
+    question: string;
+    created_at: string;
+}
+
+export interface InterviewEvaluationSourceSession {
+    session_id: string;
+    series_id: string | null;
+    title: string;
+    round_index: number;
+    round_type: string;
+    completed_at: string;
+    eligible: boolean;
+    ineligibility_reason: string | null;
+    attempt_count: number;
+    eligible_attempt_count: number;
+    attempts: InterviewEvaluationAttemptSummary[];
+}
+
+export interface InterviewEvaluationDraftAnnotation {
+    case_key: string;
+    category: string;
+    expected_facts: unknown[];
+    forbidden_claims: unknown[];
+    quality_rubric: Record<string, unknown>;
+    tags: string[];
+    severity: 'low' | 'medium' | 'high' | 'critical';
+    explanation: string;
+}
+
+export interface InterviewEvaluationDraftCase {
+    attempt_id: number;
+    session_id: string;
+    source_hash: string;
+    question: string;
+    answer: string;
+    frozen_input: Record<string, unknown>;
+    evidence_refs: string[];
+    validation_status: InterviewEvaluationValidationStatus;
+    annotation: InterviewEvaluationDraftAnnotation | null;
+    failure_reason: string | null;
+    model: { model?: string; provider?: string; channel?: string; fallback_index?: number };
+}
+
+export interface InterviewEvaluationDraftResult {
+    capability: InterviewEvaluationCapability;
+    status: 'needs_review';
+    selected_count: number;
+    valid_count: number;
+    failed_count: number;
+    cases: InterviewEvaluationDraftCase[];
 }

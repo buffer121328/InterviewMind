@@ -15,6 +15,7 @@ _RETRY_POLICIES: dict[str, RunRetryPolicy] = {
     "ability_profile": "whole_run_retry",
     "job_assets": "whole_run_retry",
     "evaluation_suite": "whole_run_retry",
+    "interview_evaluation_draft": "whole_run_retry",
     "job_recommendation_capture": "whole_run_retry",
 }
 
