@@ -13,7 +13,6 @@ import {
 } from '@/components/ui/dialog';
 import type { JobDetail } from '@/lib/api/jobs';
 import { asRecord, readStringList } from '@/lib/bossCenter';
-import { BossGreetingEditorList } from '@/components/boss/BossGreetingEditorList';
 
 interface BossJobDetailDialogProps {
     open: boolean;
@@ -25,12 +24,9 @@ interface BossJobDetailDialogProps {
     onOpenExistingBossTab: (jobId: number) => void;
     onUseInInterview: () => void;
     onImportToResume: () => void;
-    onSaveGreeting: (jobId: number, greetingIndex: number, messageText: string) => void;
-    onExportGreeting: (jobId: number, greetingIndex: number, messageText: string) => void;
-    onEditGreeting: (greetingIndex: number, value: string) => void;
 }
 
-/** Shows and edits one imported job's persisted delivery assets; it never previews, fills or sends BOSS messages. */
+/** Shows one imported job's persisted details and JD analysis; it never previews, fills or sends BOSS messages. */
 export function BossJobDetailDialog({
     open,
     onClose,
@@ -41,12 +37,8 @@ export function BossJobDetailDialog({
     onOpenExistingBossTab,
     onUseInInterview,
     onImportToResume,
-    onSaveGreeting,
-    onExportGreeting,
-    onEditGreeting,
 }: BossJobDetailDialogProps) {
     const detailAsset = selectedJob?.asset_payload || null;
-    const detailGreetings = detailAsset?.greetings || [];
     const detailJdAnalysis = asRecord(detailAsset?.jd_analysis);
     const detailMatched = readStringList(detailJdAnalysis, "matched_keywords");
     const detailMissing = readStringList(detailJdAnalysis, "missing_keywords");
@@ -60,7 +52,7 @@ export function BossJobDetailDialog({
             <DialogContent className="max-h-[92vh] max-w-4xl overflow-y-auto">
                 <DialogHeader>
                     <DialogTitle>岗位资产详情</DialogTitle>
-                    <DialogDescription>这里只展示和编辑投递资产；不会预览、填写或发送 BOSS 消息。</DialogDescription>
+                    <DialogDescription>这里只展示岗位详情与 JD 分析；不会预览、填写或发送 BOSS 消息。</DialogDescription>
                 </DialogHeader>
                 {loading && <div className="flex items-center justify-center py-20 text-sm text-slate-500"><Loader2 className="mr-2 animate-spin" />加载岗位资产...</div>}
                 {error && <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{error}</div>}
@@ -120,17 +112,6 @@ export function BossJobDetailDialog({
                             )}
                         </section>
 
-                        <section>
-                            <h3 className="mb-3 text-sm font-semibold text-slate-900">打招呼方案（可编辑）</h3>
-                            <BossGreetingEditorList
-                                jobId={selectedJob.id}
-                                greetings={detailGreetings}
-                                actionKey={actionKey}
-                                onChange={onEditGreeting}
-                                onSave={onSaveGreeting}
-                                onExport={onExportGreeting}
-                            />
-                        </section>
                     </div>
                 )}
             </DialogContent>

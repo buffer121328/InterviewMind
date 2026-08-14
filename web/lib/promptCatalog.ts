@@ -41,8 +41,6 @@ const promptCatalog: Record<string, { displayName: string; group: string }> = {
     'resume.rewrite_planner': { displayName: '简历改写规划', group: '简历处理' },
     'resume.rewrite_executor': { displayName: '简历改写执行', group: '简历处理' },
     'resume.material_extraction': { displayName: '简历素材抽取', group: '简历素材' },
-    'jobs.greeting': { displayName: '岗位打招呼文案', group: '岗位处理' },
-    'jobs.greeting_reflection': { displayName: '岗位打招呼文案自审', group: '岗位处理' },
     'jobs.extraction': { displayName: '岗位详情抽取', group: '岗位处理' },
     'jobs.card_extraction': { displayName: '岗位卡片抽取', group: '岗位处理' },
     'jobs.card_scoring': { displayName: '岗位卡片批量匹配评分', group: '岗位处理' },

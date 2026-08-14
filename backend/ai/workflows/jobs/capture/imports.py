@@ -72,7 +72,6 @@ async def import_cards_to_library(
                 "city": city_value,
                 "match_score": match_score,
                 "custom_resume_id": None,
-                "greetings": [],
                 "risk_flags": [],
                 "asset_run_id": None,
                 "asset_status": None,

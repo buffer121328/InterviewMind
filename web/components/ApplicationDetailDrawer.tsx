@@ -163,7 +163,6 @@ export function ApplicationDetailDrawer({ applicationId, onClose }: Props) {
                     latest_status: currentApplication.latest_status,
                     priority: currentApplication.priority,
                     notes: currentApplication.notes ?? '',
-                    greeting_text: currentApplication.greeting_text ?? '',
                 });
             });
         }
@@ -189,7 +188,6 @@ export function ApplicationDetailDrawer({ applicationId, onClose }: Props) {
         if ((draft.latest_status ?? '') !== currentApplication.latest_status) changes.latest_status = draft.latest_status;
         if ((draft.priority ?? '') !== currentApplication.priority) changes.priority = draft.priority;
         if ((draft.notes ?? '') !== (currentApplication.notes ?? '')) changes.notes = draft.notes?.trim();
-        if ((draft.greeting_text ?? '') !== (currentApplication.greeting_text ?? '')) changes.greeting_text = draft.greeting_text?.trim();
 
         if (Object.keys(changes).length === 0) return;
         setSaving(true);
@@ -400,19 +398,9 @@ export function ApplicationDetailDrawer({ applicationId, onClose }: Props) {
                                             </div>
                                         </section>
 
-                                        <section className="space-y-3 rounded-xl border border-teal-100 bg-teal-50/40 p-4">
-                                            <div className="flex flex-wrap items-center justify-between gap-2">
-                                                <h3 className="text-sm font-semibold text-slate-900">待发送打招呼文案</h3>
-                                                <span className="text-xs text-slate-500">只展示和编辑，不自动发送</span>
-                                            </div>
-                                            <Textarea
-                                                value={draft.greeting_text ?? ''}
-                                                onChange={(e) => setDraft((p) => ({ ...p, greeting_text: e.target.value }))}
-                                                rows={6}
-                                                maxLength={500}
-                                                placeholder="从岗位中心导入的打招呼文案会显示在这里"
-                                            />
-                                            {currentApplication?.captured_job_id && (
+                                        {currentApplication?.captured_job_id && (
+                                            <section className="space-y-3 rounded-xl border border-teal-100 bg-teal-50/40 p-4">
+                                                <h3 className="text-sm font-semibold text-slate-900">在已有 BOSS 标签页打开岗位</h3>
                                                 <div className="flex flex-wrap items-end gap-2">
                                                     <label className="grid gap-1 text-xs text-slate-600">已有登录浏览器
                                                         <select
@@ -429,8 +417,8 @@ export function ApplicationDetailDrawer({ applicationId, onClose }: Props) {
                                                         在已有 BOSS 标签页打开岗位
                                                     </Button>
                                                 </div>
-                                            )}
-                                        </section>
+                                            </section>
+                                        )}
 
                                         <Separator />
 

@@ -1,15 +1,8 @@
 import type { AgentRun } from './api/agentRunTypes.ts';
-import type { CapturedJobSummary, GreetingItem } from './api/jobs.ts';
+import type { CapturedJobSummary } from './api/jobs.ts';
 
 /** AgentRun 生命周期中仍视为「进行中」的状态集合；进入该集合后 UI 会持续轮询刷新。 */
 export const ACTIVE_RUN_STATUSES = new Set(["queued", "retrying", "running", "cancel_requested"]);
-
-/** 打招呼文案的语气中文标签；未知语气回退为原文。 */
-export const TONE_LABELS: Record<string, string> = {
-    professional: "稳重专业",
-    technical: "技术沟通",
-    result_oriented: "结果导向",
-};
 
 /** 岗位资产生成状态的中文标签；未知状态回退为原文。 */
 export const ASSET_STATUS_LABELS: Record<string, string> = {
@@ -98,9 +91,6 @@ export function mergeAssetRun(job: CapturedJobSummary, run: AgentRun): CapturedJ
         custom_resume_id: typeof assetRecord?.custom_resume_id === "number"
             ? assetRecord.custom_resume_id
             : job.custom_resume_id,
-        greetings: Array.isArray(assetRecord?.greetings)
-            ? assetRecord.greetings as GreetingItem[]
-            : job.greetings,
         risk_flags: Array.isArray(assetRecord?.risk_flags)
             ? assetRecord.risk_flags.filter((item): item is string => typeof item === "string")
             : job.risk_flags,
@@ -116,22 +106,4 @@ export function captureRunMessage(run: AgentRun, elapsedSeconds: number): string
     if (run.stage === "saving_jobs") return "正在保存岗位、薪资、公司人数、职位介绍与匹配度。";
     if (run.stage === "scheduling_assets") return "正在创建可恢复资产任务；Worker 最多并行处理 5 个岗位。";
     return `任务已持久化，当前阶段：${run.stage} · 已等待 ${elapsedSeconds}s`;
-}
-
-/** Replaces one greeting inside a recommendation result without mutating prior React state. */
-export function replaceResultGreeting(
-    jobs: CapturedJobSummary[],
-    jobId: number,
-    greetingIndex: number,
-    messageText: string,
-): CapturedJobSummary[] {
-    return jobs.map(job => {
-        if (job.job_id !== jobId) return job;
-        return {
-            ...job,
-            greetings: job.greetings.map((greeting, index) => (
-                index === greetingIndex ? { ...greeting, message_text: messageText } : greeting
-            )),
-        };
-    });
 }

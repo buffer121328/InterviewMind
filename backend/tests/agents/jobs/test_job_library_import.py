@@ -69,7 +69,6 @@ class TestDeterministicImport:
             "city": "深圳",
             "match_score": 86.5,
             "custom_resume_id": None,
-            "greetings": [],
             "risk_flags": [],
             "asset_run_id": None,
             "asset_status": None,
@@ -277,13 +276,15 @@ class TestImportBoundaries:
         )
 
 class TestHistoricalAssetCompatibility:
-    """历史岗位资产仍可读取，但新入库不创建新资产。"""
+    """历史岗位资产保持可读，但退休的文案字段不会重新暴露。"""
 
-    def test_job_detail_response_preserves_historical_custom_resume_payload(self):
-        """岗位详情序列化不得丢弃历史 custom_resume_id 或人工编辑内容。"""
-        from app.schemas.job_schemas import JobDetailResponse
+    @pytest.mark.asyncio
+    async def test_job_detail_hides_historical_greetings_but_preserves_resume_assets(self, monkeypatch):
+        """历史 JSON 可保留，但岗位详情只返回仍支持的资产字段。"""
+        from ai.workflows.jobs import use_cases as jobs
 
-        response = JobDetailResponse(job={
+        fake_repo = type("FakeRepo", (), {})()
+        fake_repo.get_job = AsyncMock(return_value={
             "id": 9,
             "company_name": "历史公司",
             "job_title": "历史岗位",
@@ -293,8 +294,11 @@ class TestHistoricalAssetCompatibility:
                 "greetings": [{"tone": "professional", "message_text": "历史文案"}],
             },
         })
+        monkeypatch.setattr(jobs, "get_job_capture_repo", lambda: fake_repo)
 
-        payload = response.model_dump()["job"]["asset_payload"]
+        response = await jobs.JobsUseCases().get_job(job_id=9, user_id="user-1")
+
+        payload = response.job["asset_payload"]
         assert payload["custom_resume_id"] == 88
         assert payload["custom_resume_preview"] == "用户历史简历内容"
-        assert payload["greetings"][0]["message_text"] == "历史文案"
+        assert "greetings" not in payload

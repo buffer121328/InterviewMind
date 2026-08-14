@@ -135,7 +135,6 @@ async def capture_from_imported_cards(
             "city": city_val,
             "match_score": card.get("preliminary_match_score"),
             "custom_resume_id": None,
-            "greetings": [],
             "risk_flags": [],
             "asset_run_id": None,
             "asset_status": None,

@@ -22,8 +22,6 @@ from app.schemas.job_schemas import (
     BossTabCaptureResponse,
     BossTabStatusResponse,
     BossOpenJobRequest,
-    GreetingUpdateRequest,
-    JobExportApplicationRequest,
     JobDetailResponse,
     JobImportResponse,
     JobLibraryImportRequest,
@@ -110,37 +108,6 @@ async def import_cards_to_library(
         lambda: jobs_use_cases.import_cards_to_library(request=request, user_id=user_id),
         "job_import_failed",
         "岗位入库失败",
-    )
-
-
-@router.patch("/{job_id}/assets/greetings/{greeting_index}", response_model=JobDetailResponse)
-async def update_job_greeting(
-    job_id: int,
-    greeting_index: int,
-    request: GreetingUpdateRequest,
-    user_id: str = Depends(get_current_user_id),
-):
-    """保存用户编辑后的打招呼方案。"""
-    return await _call_use_case(
-        lambda: jobs_use_cases.update_greeting(
-            job_id=job_id, greeting_index=greeting_index, request=request, user_id=user_id
-        ),
-        "greeting_update_failed",
-        "保存打招呼方案失败",
-    )
-
-
-@router.post("/{job_id}/export-application")
-async def export_job_to_application(
-    job_id: int,
-    request: JobExportApplicationRequest,
-    user_id: str = Depends(get_current_user_id),
-):
-    """一键加入投递管理，初始状态统一为待投递。"""
-    return await _call_use_case(
-        lambda: jobs_use_cases.export_to_application(job_id=job_id, request=request, user_id=user_id),
-        "job_export_failed",
-        "加入投递管理失败",
     )
 
 

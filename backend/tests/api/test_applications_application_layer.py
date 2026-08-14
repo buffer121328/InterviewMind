@@ -92,8 +92,6 @@ def test_application_detail_mapping_does_not_trigger_async_lazy_event_load():
         source_url = None
         external_job_id = None
         captured_job_id = 7
-        greeting_text = None
-        send_status = "pending"
         custom_resume_id = None
         created_at = datetime(2026, 8, 4, 8, 0, 0)
         updated_at = datetime(2026, 8, 4, 8, 0, 0)

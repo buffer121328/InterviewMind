@@ -236,37 +236,6 @@ class JobCaptureRepo:
         async with async_session() as db:
             return await _update(db, owns_session=True)
 
-    async def update_greeting(
-        self,
-        job_id: int,
-        user_id: str,
-        greeting_index: int,
-        message_text: str,
-    ) -> Optional[Dict[str, Any]]:
-        """在 owner 校验下更新一条已生成文案，同时保留同岗位的其他资产。"""
-        async with async_session() as db:
-            row = await db.scalar(
-                select(CapturedJobModel).where(
-                    CapturedJobModel.id == job_id,
-                    CapturedJobModel.user_id == user_id,
-                )
-            )
-            if row is None:
-                return None
-            payload = dict(row.asset_payload or {})
-            greetings = list(payload.get("greetings") or [])
-            if greeting_index < 0 or greeting_index >= len(greetings):
-                raise IndexError("greeting index out of range")
-            greeting = dict(greetings[greeting_index] or {})
-            greeting["message_text"] = message_text
-            greetings[greeting_index] = greeting
-            payload["greetings"] = greetings
-            row.asset_payload = payload
-            row.updated_at = utc_now()
-            await db.commit()
-            await db.refresh(row)
-            return row.to_dict()
-
     async def claim_for_application(self, job_id: int, user_id: str, session: AsyncSession | None = None) -> bool:
         """原子占用岗位发送权，防止多请求重复点击；可接入外层 UnitOfWork。"""
 

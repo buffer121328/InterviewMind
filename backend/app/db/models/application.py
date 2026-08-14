@@ -5,8 +5,7 @@
 扩展字段（BOSS 岗位自动化）：
 - source_platform / source_url / external_job_id — 平台来源追踪
 - captured_job_id — 关联采集岗位
-- greeting_text — 使用的打招呼文案
-- send_status / send_attempts / last_error / last_screenshot_path — 发送状态追踪
+- greeting_text / send_status — 仅为历史记录保留的退休字段，不再由运行时代码读取或写入
 - jd_analysis_id / custom_resume_id — 关联分析资产
 """
 
@@ -39,8 +38,8 @@ class JobApplicationModel(Base):
     source_url: Mapped[str | None] = mapped_column(String, nullable=True)          # 岗位链接
     external_job_id: Mapped[str | None] = mapped_column(String, nullable=True)     # 平台侧岗位ID
     captured_job_id: Mapped[int | None] = mapped_column(Integer, nullable=True)    # 说明：FK -> captured_jobs
-    greeting_text: Mapped[str | None] = mapped_column(Text, nullable=True)          # 使用的打招呼文案
-    send_status: Mapped[str | None] = mapped_column(String, nullable=True)          # 说明：pending/sending/sent/failed/unknown
+    greeting_text: Mapped[str | None] = mapped_column(Text, nullable=True)          # 历史兼容列；不再暴露
+    send_status: Mapped[str | None] = mapped_column(String, nullable=True)          # 历史兼容列；不再暴露
     send_attempts: Mapped[int] = mapped_column(Integer, default=0)                 # 发送尝试次数
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)             # 最后错误信息
     last_screenshot_path: Mapped[str | None] = mapped_column(String, nullable=True) # 最后截图路径

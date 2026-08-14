@@ -6,7 +6,7 @@
  * 主要功能：
  * 1. 列表/详情/删除：管理已导入岗位
  * 2. 现有浏览器标签页：复用用户已登录的 Edge/Chrome BOSS 页面搜索并读取有限岗位卡片
- * 3. 资产编辑/投递管理联动：保存文案、加入待投递列表，并复用现有登录标签页打开岗位
+ * 3. 复用现有登录标签页打开已入库岗位
  */
 
 import { apiRequest } from './config';
@@ -60,7 +60,6 @@ export interface JobAssetPayload {
     jd_analysis?: Record<string, unknown> | null;
     custom_resume_id?: number | null;
     custom_resume_preview?: string | null;
-    greetings?: GreetingItem[];
     risk_flags?: string[];
     messages?: string[];
 }
@@ -77,13 +76,6 @@ export interface JobDetailResponse {
     message?: string;
 }
 
-export interface GreetingItem {
-    tone: string;
-    message_text: string;
-    highlights_used?: string[];
-    risk_notes?: string;
-}
-
 export interface CapturedJobSummary {
     /** 入库后的岗位库 ID；采集阶段尚未入库时为 null。 */
     job_id: number | null;
@@ -98,7 +90,6 @@ export interface CapturedJobSummary {
     city: string;
     match_score?: number | null;
     custom_resume_id?: number | null;
-    greetings: GreetingItem[];
     risk_flags: string[];
     asset_run_id?: string | null;
     asset_status?: 'queued' | 'retrying' | 'running' | 'cancel_requested' | 'succeeded' | 'failed' | 'cancelled' | null;
@@ -173,8 +164,6 @@ export interface CaptureRecommendationsRequest {
     api_config?: ApiConfig;
 }
 
-export type JobGreetingUpdateResponse = JobDetailResponse;
-
 /** 一键入库提交的一张待入库卡片；顺序即采集时的匹配度顺序。 */
 export interface JobLibraryImportCard {
     company_name: string;
@@ -207,16 +196,6 @@ export interface JobImportResponse {
     jobs: CapturedJobSummary[];
     failed: JobImportFailedItem[];
     message: string;
-}
-
-export interface JobExportApplicationResponse {
-    success: boolean;
-    message?: string;
-    application?: {
-        id: number;
-        latest_status: string;
-        greeting_text?: string | null;
-    };
 }
 
 export interface BossOpenJobResponse {
@@ -313,30 +292,6 @@ export async function captureRecommendations(
         method: 'POST',
         headers: { 'Idempotency-Key': crypto.randomUUID() },
         body: JSON.stringify(req),
-    });
-}
-
-/** 保存岗位资产中的一条可编辑打招呼方案；后端负责 owner 校验。 */
-export async function updateJobGreeting(
-    jobId: number,
-    greetingIndex: number,
-    messageText: string,
-): Promise<JobGreetingUpdateResponse> {
-    return apiRequest<JobGreetingUpdateResponse>(`/api/jobs/${jobId}/assets/greetings/${greetingIndex}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ message_text: messageText }),
-    });
-}
-
-/** 把岗位和当前文案加入投递管理，初始状态固定为待投递。 */
-export async function exportJobToApplication(
-    jobId: number,
-    greetingIndex: number,
-    greetingText: string,
-): Promise<JobExportApplicationResponse> {
-    return apiRequest<JobExportApplicationResponse>(`/api/jobs/${jobId}/export-application`, {
-        method: 'POST',
-        body: JSON.stringify({ greeting_index: greetingIndex, greeting_text: greetingText }),
     });
 }
 

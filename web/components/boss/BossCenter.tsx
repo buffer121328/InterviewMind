@@ -18,14 +18,12 @@ import { getUserId } from "@/lib/api/config";
 import {
     captureRecommendations,
     deleteJob,
-    exportJobToApplication,
     getBossBrowserTabStatus,
     getJobDetail,
     importCardsToLibrary,
     listJobs,
     openJobInExistingBossTab,
     searchAndCaptureBossBrowserTab,
-    updateJobGreeting,
     type BossBrowserChannel,
     type BossTabStatusResponse,
     type CapturedJobSummary,
@@ -39,7 +37,6 @@ import {
     CAPTURE_STATE_KEY,
     getCaptureRunJobs,
     mergeAssetRun,
-    replaceResultGreeting,
 } from "@/lib/bossCenter";
 import { buildJobContextSnapshot, type JobContextSnapshot } from "@/lib/jobContextHandoff";
 import { DEFAULT_PAGE_SIZE } from "@/lib/pagination";
@@ -470,49 +467,6 @@ export function BossCenter({ initialJobId, onInitialJobConsumed, onUseInIntervie
         });
     }, [initialJobId, onInitialJobConsumed]);
 
-    /** Persists one edited greeting while keeping result cards and the open detail dialog synchronized. */
-    const handleSaveGreeting = async (jobId: number, greetingIndex: number, messageText: string) => {
-        if (messageText.trim().length < 20) {
-            toast.error("打招呼文案至少需要 20 个字符");
-            return;
-        }
-        const key = `save:${jobId}:${greetingIndex}`;
-        setActionKey(key);
-        try {
-            const response = await updateJobGreeting(jobId, greetingIndex, messageText.trim());
-            setResults(current => replaceResultGreeting(current, jobId, greetingIndex, messageText.trim()));
-            if (selectedJobId === jobId) setSelectedJob(response.job);
-            toast.success("打招呼方案已保存");
-        } catch (error) {
-            toast.error(error instanceof Error ? error.message : "保存文案失败");
-        } finally {
-            setActionKey(null);
-        }
-    };
-
-    /** Saves the current text and then adds the job to application tracking as 待投递. */
-    const handleExportApplication = async (jobId: number, greetingIndex: number, messageText: string) => {
-        if (messageText.trim().length < 20) {
-            toast.error("请先补充完整打招呼文案");
-            return;
-        }
-        const key = `export:${jobId}:${greetingIndex}`;
-        setActionKey(key);
-        try {
-            const response = await exportJobToApplication(jobId, greetingIndex, messageText.trim());
-            setResults(current => replaceResultGreeting(current, jobId, greetingIndex, messageText.trim()));
-            if (selectedJobId === jobId) {
-                const refreshed = await getJobDetail(jobId);
-                setSelectedJob(refreshed.job);
-            }
-            toast.success(response.message || "已加入投递管理，状态为待投递");
-        } catch (error) {
-            toast.error(error instanceof Error ? error.message : "加入投递管理失败");
-        } finally {
-            setActionKey(null);
-        }
-    };
-
     /** Navigates the already-open logged-in BOSS tab to a persisted official job URL. */
     const handleOpenExistingBossTab = async (jobId: number) => {
         const key = `open:${jobId}`;
@@ -527,18 +481,7 @@ export function BossCenter({ initialJobId, onInitialJobConsumed, onUseInIntervie
         }
     };
 
-    /** Updates a greeting in the open library detail without mutating the asset payload. */
-    const updateSelectedGreeting = (greetingIndex: number, messageText: string) => {
-        setSelectedJob(current => {
-            if (!current) return current;
-            const assetPayload = current.asset_payload || {};
-            const greetings = [...(assetPayload.greetings || [])];
-            const greeting = greetings[greetingIndex];
-            if (!greeting) return current;
-            greetings[greetingIndex] = { ...greeting, message_text: messageText };
-            return { ...current, asset_payload: { ...assetPayload, greetings } };
-        });
-    };
+
 
     return (
         <div className="mx-auto h-full w-full max-w-7xl p-5 sm:p-6">
@@ -546,7 +489,7 @@ export function BossCenter({ initialJobId, onInitialJobConsumed, onUseInIntervie
                 <div className="surface-panel flex flex-col justify-between gap-4 p-4 sm:flex-row sm:items-center">
                     <div>
                         <h1 className="text-lg font-semibold text-slate-950">岗位中心</h1>
-                        <p className="mt-1 text-xs text-slate-500">复用现有登录 BOSS 标签页，导入非实习岗位并生成可编辑投递资产。</p>
+                        <p className="mt-1 text-xs text-slate-500">复用现有登录 BOSS 标签页，导入非实习岗位并整理可用的岗位资料。</p>
                     </div>
                     <TabsList>
                         <TabsTrigger value="recommendations">浏览器接管</TabsTrigger>
@@ -599,11 +542,6 @@ export function BossCenter({ initialJobId, onInitialJobConsumed, onUseInIntervie
                                 actionKey={actionKey}
                                 onDeletePending={handleDeletePending}
                                 onOpenExistingBossTab={jobId => void handleOpenExistingBossTab(jobId)}
-                                onEditGreeting={(jobId, index, value) => {
-                                    setResults(current => replaceResultGreeting(current, jobId, index, value));
-                                }}
-                                onSaveGreeting={(jobId, greetingIndex, messageText) => void handleSaveGreeting(jobId, greetingIndex, messageText)}
-                                onExportGreeting={(jobId, greetingIndex, messageText) => void handleExportApplication(jobId, greetingIndex, messageText)}
                             />
                         </div>
                     </div>
@@ -642,9 +580,6 @@ export function BossCenter({ initialJobId, onInitialJobConsumed, onUseInIntervie
                 onImportToResume={() => {
                     if (selectedJob) onImportToResume(buildJobContextSnapshot(selectedJob));
                 }}
-                onSaveGreeting={(jobId, greetingIndex, messageText) => void handleSaveGreeting(jobId, greetingIndex, messageText)}
-                onExportGreeting={(jobId, greetingIndex, messageText) => void handleExportApplication(jobId, greetingIndex, messageText)}
-                onEditGreeting={updateSelectedGreeting}
             />
         </div>
     );

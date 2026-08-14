@@ -8,65 +8,6 @@ import pytest
 
 
 @pytest.mark.asyncio
-async def test_greeting_receives_only_five_highlights_and_rejects_unsupported_claims(monkeypatch):
-    """Greeting accepts direct highlights only and rejects unsupported model claims."""
-    from ai.agents.jobs import greeting_generator as generator
-
-    captured: dict[str, Any] = {}
-
-    async def fake_invoke(prompt, output_model, *args, **kwargs):
-        from ai.agents.jobs.greeting_generator import GreetingReflectionOutput
-
-        if output_model is GreetingReflectionOutput:
-            return GreetingReflectionOutput(
-                approved=True,
-                truthfulness_pass=True,
-                relevance_pass=True,
-                length_pass=True,
-                issues=[],
-            )
-        captured["prompt"] = prompt
-        base_message = (
-            "您好，我关注到贵司正在招聘后端工程师。我希望结合自己已有的真实项目经历，"
-            "说明在服务开发、接口设计、问题排查和协作交付方面与岗位要求的对应关系，"
-            "也愿意进一步介绍我承担的职责、技术取舍及可验证结果。希望有机会沟通团队当前重点与岗位预期。"
-        )
-        return output_model(greetings=[
-            {
-                "tone": "professional",
-                "message_text": base_message,
-                "highlights_used": ["从未提供的亿级流量经验"],
-                "risk_notes": "",
-            },
-            {
-                "tone": "technical",
-                "message_text": base_message,
-                "highlights_used": ["真实亮点-0"],
-                "risk_notes": "",
-            },
-            {
-                "tone": "result_oriented",
-                "message_text": base_message,
-                "highlights_used": ["真实亮点-1"],
-                "risk_notes": "",
-            },
-        ])
-
-    monkeypatch.setattr("ai.llm.llm_utils.invoke_structured", fake_invoke)
-    highlights = [f"真实亮点-{index}" for index in range(6)]
-    greetings = await generator.generate_greetings(
-        company_name="示例公司",
-        job_title="后端工程师",
-        jd_summary="Python 服务开发",
-        candidate_highlights=highlights,
-    )
-
-    assert "真实亮点-4" in captured["prompt"]
-    assert "真实亮点-5" not in captured["prompt"]
-    assert "兜底文案" in greetings[0]["risk_notes"]
-
-
-@pytest.mark.asyncio
 async def test_ability_scores_are_local_and_only_five_profiles_reach_model(monkeypatch):
     """Model failure cannot change deterministic scores and profiles six/seven stay out of prompt."""
     from ai.workflows.analysis.ability_service import AbilityAnalysisService

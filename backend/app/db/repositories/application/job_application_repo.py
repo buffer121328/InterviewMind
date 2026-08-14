@@ -62,8 +62,6 @@ class JobApplicationRepo:
                 source_url=request.source_url,
                 external_job_id=request.external_job_id,
                 captured_job_id=request.captured_job_id,
-                greeting_text=request.greeting_text,
-                send_status=request.send_status or "pending",
                 custom_resume_id=None,
                 created_at=now,
                 updated_at=now,
@@ -131,29 +129,6 @@ class JobApplicationRepo:
                 return None
             return self._row_to_detail(obj)
 
-    async def claim_application_for_send(
-        self,
-        application_id: int,
-        user_id: str,
-    ) -> bool:
-        """原子地把可重试发送状态占为 sending，防止并发请求重复执行外部动作。"""
-
-        async with async_session() as db:
-            result = await db.execute(
-                update(JobApplicationModel)
-                .where(
-                    JobApplicationModel.id == application_id,
-                    JobApplicationModel.user_id == user_id,
-                    or_(
-                        JobApplicationModel.send_status.is_(None),
-                        JobApplicationModel.send_status.in_(("pending", "failed")),
-                    ),
-                )
-                .values(send_status="sending", updated_at=utc_now())
-            )
-            await db.commit()
-            return result.rowcount == 1
-
     async def update_application(
         self,
         application_id: int,
@@ -179,8 +154,6 @@ class JobApplicationRepo:
                 ("latest_status", request.latest_status),
                 ("priority", request.priority),
                 ("notes", request.notes),
-                ("greeting_text", request.greeting_text),
-                ("send_status", request.send_status),
             ]
             changed = False
             for field_name, value in fields:
@@ -261,8 +234,6 @@ class JobApplicationRepo:
             source_platform=row.source_platform,
             source_url=row.source_url,
             captured_job_id=row.captured_job_id,
-            greeting_text=row.greeting_text,
-            send_status=row.send_status,
             custom_resume_id=row.custom_resume_id,
             created_at=row.created_at.isoformat() if isinstance(row.created_at, datetime) else row.created_at,
             updated_at=row.updated_at.isoformat() if isinstance(row.updated_at, datetime) else row.updated_at,
@@ -285,8 +256,6 @@ class JobApplicationRepo:
             source_url=row.source_url,
             external_job_id=row.external_job_id,
             captured_job_id=row.captured_job_id,
-            greeting_text=row.greeting_text,
-            send_status=row.send_status,
             custom_resume_id=row.custom_resume_id,
             created_at=row.created_at.isoformat() if isinstance(row.created_at, datetime) else row.created_at,
             updated_at=row.updated_at.isoformat() if isinstance(row.updated_at, datetime) else row.updated_at,

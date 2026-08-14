@@ -132,13 +132,9 @@ def test_all_model_wrapper_calls_declare_context_audit_metadata():
 
 
 def test_retired_complete_text_compatibility_parameters_are_absent():
-    """Greeting, fact-check, and RAG no longer expose retired full-text adapters."""
+    """Fact-check and RAG no longer expose retired full-text adapters."""
     from ai.agents.interview.rag.models import RagResult
-    from ai.agents.jobs.greeting_generator import generate_greetings
     from ai.agents.resume.resume_fact_policy import validate_change_items
-    from ai.prompts.jobs import build_greeting_prompt
 
-    assert "custom_resume_summary" not in inspect.signature(generate_greetings).parameters
-    assert "custom_resume_summary" not in inspect.signature(build_greeting_prompt).parameters
     assert "job_description" not in inspect.signature(validate_change_items).parameters
     assert not hasattr(RagResult, "to_legacy_context")

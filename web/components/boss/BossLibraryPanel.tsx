@@ -37,7 +37,7 @@ export function BossLibraryPanel({
             <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
                 <div>
                     <h2 className="text-sm font-semibold">已导入岗位</h2>
-                    <p className="mt-1 text-xs text-slate-500">点击岗位查看完整资产、编辑文案并加入投递管理。</p>
+                    <p className="mt-1 text-xs text-slate-500">点击岗位查看 JD 详情与匹配分析。</p>
                 </div>
                 <Button variant="outline" size="sm" onClick={() => onRefresh()} disabled={jobsLoading}>
                     {jobsLoading ? <Loader2 className="animate-spin" /> : <RefreshCw />}刷新

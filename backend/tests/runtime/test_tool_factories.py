@@ -75,39 +75,21 @@ class TestJobToolFactory:
         calls = []
 
         class FakeUseCases:
-            async def export_to_application(self, **kwargs):
-                calls.append(("prepare", kwargs))
-                return {"success": True, "application": {"id": 7}, "message": "prepared"}
-
             async def open_job_in_existing_tab(self, **kwargs):
                 calls.append(("open", kwargs))
                 return {"success": True, "opened_url": "https://www.zhipin.com/job_detail/abc.html"}
 
-            async def send_boss_application_message(self, **kwargs):
-                calls.append(("send", kwargs))
-                return {"success": True, "status": "sent"}
+
 
         monkeypatch.setattr(job_tools_module, "jobs_use_cases", FakeUseCases())
         tools = {tool.name: tool for tool in make_job_tools(user_id="owner-1")}
 
-        prepared = await tools["prepare_boss_application"].ainvoke({
-            "job_id": 7,
-            "greeting_index": 1,
-            "greeting_text": "您好，我希望进一步沟通这个岗位和团队当前需求。",
-        })
         opened = await tools["open_boss_job"].ainvoke({
             "job_id": 7,
             "browser_channel": "chrome",
         })
 
-        sent = await tools["send_boss_message"].ainvoke({
-            "application_id": 31,
-            "browser_channel": "msedge",
-        })
 
-        assert prepared["success"] is True
+
         assert opened["success"] is True
-        assert sent["success"] is True
         assert calls[0][1]["user_id"] == "owner-1"
-        assert calls[1][1]["user_id"] == "owner-1"
-        assert calls[2][1]["user_id"] == "owner-1"

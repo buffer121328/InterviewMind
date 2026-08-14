@@ -15,7 +15,7 @@ class TestAssetOrchestrator:
 
     @pytest.mark.asyncio
     async def test_generate_assets_full_flow(self):
-        """完整资产生成流程：JD分析 → 简历 → 文案"""
+        """完整资产生成流程：JD分析 → 简历。"""
         from ai.workflows.jobs.job_asset_orchestrator import generate_assets
 
         # Mock 岗位仓库
@@ -59,26 +59,16 @@ class TestAssetOrchestrator:
                         },
                     }
 
-                    # Mock 文案生成
-                    with patch(
-                        "ai.agents.jobs.greeting_generator.generate_greetings"
-                    ) as mock_greet:
-                        mock_greet.return_value = [
-                            {"tone": "professional", "message_text": "您好...", "highlights_used": [], "risk_notes": ""},
-                            {"tone": "technical", "message_text": "技术栈...", "highlights_used": [], "risk_notes": ""},
-                            {"tone": "result_oriented", "message_text": "成果...", "highlights_used": [], "risk_notes": ""},
-                        ]
-
-                        result = await generate_assets(
-                            job_id=1,
-                            user_id="user-1",
-                            resume_content="3年Java开发经验",
-                        )
+                    result = await generate_assets(
+                        job_id=1,
+                        user_id="user-1",
+                        resume_content="3年Java开发经验",
+                    )
 
         assert result["success"] is True
         assert result["assets"].jd_analysis is not None
         assert result["assets"].custom_resume_id == 1
-        assert len(result["assets"].greetings) == 3
+        assert not hasattr(result["assets"], "greetings")
 
     @pytest.mark.asyncio
     async def test_generate_assets_job_not_found(self):
@@ -126,14 +116,9 @@ class TestAssetOrchestrator:
                 ) as mock_gen:
                     mock_gen.return_value = {"needs_input": False, "result": {}}
 
-                    with patch(
-                        "ai.agents.jobs.greeting_generator.generate_greetings"
-                    ) as mock_greet:
-                        mock_greet.return_value = []
-
-                        result = await generate_assets(
-                            job_id=1, user_id="user-1", resume_content="test",
-                        )
+                    result = await generate_assets(
+                        job_id=1, user_id="user-1", resume_content="test",
+                    )
 
         # 低匹配度应有风险标记
         assert any("匹配度过低" in flag for flag in result["assets"].risk_flags)

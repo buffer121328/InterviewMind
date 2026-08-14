@@ -41,8 +41,6 @@ export interface JobApplication {
     source_url: string | null;
     external_job_id: string | null;
     captured_job_id: number | null;
-    greeting_text: string | null;
-    send_status: string | null;
     custom_resume_id: number | null;
     linked_resume: LinkedResumeAsset | null;
     created_at: string;
@@ -62,8 +60,6 @@ export interface JobApplicationListItem {
     source_platform: string | null;
     source_url: string | null;
     captured_job_id: number | null;
-    greeting_text: string | null;
-    send_status: string | null;
     custom_resume_id: number | null;
     created_at: string;
     updated_at: string;
@@ -81,8 +77,6 @@ export interface CreateApplicationRequest {
     source_url?: string;
     external_job_id?: string;
     captured_job_id?: number;
-    greeting_text?: string;
-    send_status?: string;
 }
 
 export interface UpdateApplicationRequest {
@@ -93,7 +87,6 @@ export interface UpdateApplicationRequest {
     latest_status?: string;
     priority?: string;
     notes?: string;
-    greeting_text?: string;
 }
 
 export interface CreateEventRequest {

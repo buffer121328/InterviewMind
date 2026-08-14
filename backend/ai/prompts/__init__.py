@@ -13,7 +13,6 @@ from .interview import (
     memo_hint,
 )
 from .jobs import (
-    build_greeting_prompt,
     build_job_card_extraction_prompt,
     build_job_card_scoring_prompt,
     build_job_extraction_prompt,

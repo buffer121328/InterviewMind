@@ -6,8 +6,7 @@
 流程：
 1. JD 分析 → 调用统一 match_jd(mode="smart")
 2. 定制简历 → 调用 ai.agents.resume.generation.sessions.init_generation_session()
-3. 打招呼文案 → 调用 greeting_generator.generate_greetings()
-4. 资产打包 → 返回 JD 分析、定制简历和可编辑打招呼方案
+3. 资产打包 → 返回 JD 分析、定制简历和风险提示
 
 每步产物可独立审查、可回溯。
 """
@@ -17,7 +16,7 @@ from typing import Any, Dict, List, Optional
 
 from ai.runtime.execution.deadlines import TaskDeadline
 from app.config import get_settings
-from app.schemas.job_schemas import AssetPackage, GreetingItem
+from app.schemas.job_schemas import AssetPackage
 
 logger = logging.getLogger(__name__)
 
@@ -54,8 +53,6 @@ async def generate_assets(
     if not job:
         return {"success": False, "message": f"岗位 {job_id} 不存在"}
 
-    company_name = job.get("company_name", "")
-    job_title = job.get("job_title", "")
     job_description = job.get("job_description", "")
     tags = job.get("tags", [])
 
@@ -80,10 +77,7 @@ async def generate_assets(
             "guardrail": jd_decision.to_audit_payload(),
         }
 
-    from ai.agents.resume.resume_context import (
-        assemble_resume_context,
-        select_candidate_highlights,
-    )
+    from ai.agents.resume.resume_context import assemble_resume_context
 
     deadline = TaskDeadline(float(get_settings().job_assets_task_timeout_seconds))
     context_bundle = assemble_resume_context(
@@ -95,11 +89,6 @@ async def generate_assets(
     compact_resume = context_bundle.fact_sheet.model_dump_json()
     compact_jd = context_bundle.requirement_map.model_dump_json()
     context_metadata = context_bundle.assembled.model_event_fields()
-    candidate_highlights = select_candidate_highlights(
-        context_bundle.fact_sheet,
-        context_bundle.match_map,
-        limit=5,
-    )
 
     # ======================================================================
     # Step 1: JD 分析
@@ -166,53 +155,11 @@ async def generate_assets(
         risk_flags.append(f"定制简历生成失败: {type(e).__name__}")
         logger.error("[AssetOrchestrator] 简历生成失败: %s", type(e).__name__)
 
-    # ======================================================================
-    # Step 3: 打招呼文案
-    # ======================================================================
-    greetings: List[GreetingItem] = []
-    try:
-        from ai.agents.jobs.greeting_generator import generate_greetings
-
-        # JD 摘要
-        jd_summary = ""
-        if jd_analysis:
-            missing = jd_analysis.get("missing_keywords", [])
-            matched = jd_analysis.get("matched_keywords", [])
-            strengths = jd_analysis.get("strengths", [])
-            jd_summary = (
-                f"匹配关键词: {', '.join(matched[:5])}\n"
-                f"缺失关键词: {', '.join(missing[:5])}\n"
-                f"优势: {', '.join(strengths[:3])}"
-            )
-
-        greeting_items = await generate_greetings(
-            company_name=company_name,
-            job_title=job_title,
-            jd_summary=jd_summary,
-            candidate_highlights=candidate_highlights,
-            api_config=api_config,
-            deadline=deadline,
-            call_metadata=context_metadata,
-        )
-
-        for g in greeting_items:
-            greetings.append(GreetingItem(
-                tone=g.get("tone", ""),
-                message_text=g.get("message_text", ""),
-                highlights_used=g.get("highlights_used", []),
-                risk_notes=g.get("risk_notes", ""),
-            ))
-
-        messages.append(f"打招呼文案生成完成: {len(greetings)} 条")
-    except Exception as e:
-        risk_flags.append(f"打招呼文案生成失败: {type(e).__name__}")
-        logger.error("[AssetOrchestrator] 文案生成失败: %s", type(e).__name__)
-
     if include_project_rewrite:
         risk_flags.append("项目改写为可选独立能力，未阻塞默认资产包；请在项目改写入口单独审阅。")
 
     # ======================================================================
-    # Step 4: 风险检查
+    # Step 3: 风险检查
     # ======================================================================
     if jd_analysis and jd_analysis.get("overall_match_score", 0) < 30:
         risk_flags.append(f"匹配度过低 ({jd_analysis.get('overall_match_score')}%)，建议不投递")
@@ -222,7 +169,7 @@ async def generate_assets(
             risk_flags.append("JD 要求微服务但简历未体现，简历可能已过度包装")
 
     # ======================================================================
-    # Step 5: 更新岗位状态
+    # Step 4: 更新岗位状态
     # ======================================================================
     if update_job_status:
         try:
@@ -238,7 +185,6 @@ async def generate_assets(
         jd_analysis=jd_analysis,
         custom_resume_id=custom_resume_id,
         custom_resume_preview=custom_resume_preview,
-        greetings=greetings,
         risk_flags=risk_flags,
         messages=messages,
     )

@@ -100,7 +100,7 @@ export function BossSearchCapturePanel({
                         className="min-h-56 text-xs leading-5"
                         value={resumeContent}
                         onChange={event => onResumeContentChange(event.target.value)}
-                        placeholder="粘贴简历；采集时只使用专业技能段落，用于岗位排序与打招呼文案。"
+                        placeholder="粘贴简历；采集时只使用专业技能段落，用于岗位排序。"
                     />
                 </div>
                 <Button className="w-full bg-teal-700 hover:bg-teal-800" onClick={() => void onCapture()} disabled={captureBusy || checkingTab}>

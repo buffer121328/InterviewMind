@@ -6,16 +6,12 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import type { CapturedJobSummary } from '@/lib/api/jobs';
-import { BossGreetingEditorList } from '@/components/boss/BossGreetingEditorList';
 
 interface BossResultCardProps {
     job: CapturedJobSummary;
     actionKey: string | null;
     onDeletePending: (job: CapturedJobSummary) => void;
     onOpenExistingBossTab: (jobId: number) => void;
-    onEditGreeting: (jobId: number, index: number, value: string) => void;
-    onSaveGreeting: (jobId: number, greetingIndex: number, messageText: string) => void;
-    onExportGreeting: (jobId: number, greetingIndex: number, messageText: string) => void;
 }
 
 /** Renders one current-import result card with its persisted assets and match score. */
@@ -24,9 +20,6 @@ export function BossResultCard({
     actionKey,
     onDeletePending,
     onOpenExistingBossTab,
-    onEditGreeting,
-    onSaveGreeting,
-    onExportGreeting,
 }: BossResultCardProps) {
     if (job.job_id == null) {
         return (
@@ -116,14 +109,6 @@ export function BossResultCard({
                         <p className="mt-2 whitespace-pre-wrap text-xs leading-5 text-slate-600">{job.job_description}</p>
                     </div>
                 )}
-                <BossGreetingEditorList
-                    jobId={jobId}
-                    greetings={job.greetings}
-                    actionKey={actionKey}
-                    onChange={(index, value) => onEditGreeting(jobId, index, value)}
-                    onSave={onSaveGreeting}
-                    onExport={onExportGreeting}
-                />
                 {job.risk_flags.length > 0 && (
                     <div className="flex items-start gap-2 rounded-xl bg-amber-50 p-3 text-xs text-amber-800">
                         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />

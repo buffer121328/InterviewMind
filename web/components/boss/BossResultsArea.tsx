@@ -12,9 +12,6 @@ interface BossResultsAreaProps {
     actionKey: string | null;
     onDeletePending: (job: CapturedJobSummary) => void;
     onOpenExistingBossTab: (jobId: number) => void;
-    onEditGreeting: (jobId: number, index: number, value: string) => void;
-    onSaveGreeting: (jobId: number, greetingIndex: number, messageText: string) => void;
-    onExportGreeting: (jobId: number, greetingIndex: number, messageText: string) => void;
 }
 
 /** Renders the current-import results column: waiting, all-imported, or the card list. */
@@ -24,16 +21,13 @@ export function BossResultsArea({
     actionKey,
     onDeletePending,
     onOpenExistingBossTab,
-    onEditGreeting,
-    onSaveGreeting,
-    onExportGreeting,
 }: BossResultsAreaProps) {
     if (results.length === 0 && !captureRun) {
         return (
             <div className="surface-panel flex min-h-72 flex-col items-center justify-center text-center">
                 <Sparkles className="h-9 w-9 text-slate-300" />
                 <div className="mt-3 text-sm font-medium text-slate-900">等待本次采集结果</div>
-                <p className="mt-1 max-w-md text-xs leading-5 text-slate-500">这里会显示岗位、薪资、公司人数、职位介绍、匹配度和三种可编辑打招呼方案。</p>
+                <p className="mt-1 max-w-md text-xs leading-5 text-slate-500">这里会显示岗位、薪资、公司人数、职位介绍和匹配度。</p>
             </div>
         );
     }
@@ -42,7 +36,7 @@ export function BossResultsArea({
             <div className="surface-panel flex min-h-56 flex-col items-center justify-center text-center">
                 <CheckCircle2 className="h-9 w-9 text-emerald-500" />
                 <div className="mt-3 text-sm font-medium text-slate-900">本次采集的岗位已全部入库</div>
-                <p className="mt-1 max-w-md text-xs leading-5 text-slate-500">资产生成中，可在「岗位库」页签查看匹配度、资产与打招呼文案。</p>
+                <p className="mt-1 max-w-md text-xs leading-5 text-slate-500">可在「岗位库」页签查看岗位详情和匹配度。</p>
             </div>
         );
     }
@@ -55,9 +49,6 @@ export function BossResultsArea({
                     actionKey={actionKey}
                     onDeletePending={onDeletePending}
                     onOpenExistingBossTab={onOpenExistingBossTab}
-                    onEditGreeting={onEditGreeting}
-                    onSaveGreeting={onSaveGreeting}
-                    onExportGreeting={onExportGreeting}
                 />
             ))}
         </>

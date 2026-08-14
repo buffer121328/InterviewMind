@@ -98,13 +98,9 @@ def _register_builtin_prompts() -> None:
         build_planner_prompt,
     )
     from ai.prompts.jobs import (
-        GREETING_PROMPT,
-        GREETING_REFLECTION_PROMPT,
         JOB_CARD_EXTRACTION_PROMPT,
         JOB_CARD_SCORING_PROMPT,
         JOB_EXTRACTION_PROMPT,
-        build_greeting_prompt,
-        build_greeting_reflection_prompt,
         build_job_card_extraction_prompt,
         build_job_card_scoring_prompt,
         build_job_extraction_prompt,
@@ -200,8 +196,6 @@ def _register_builtin_prompts() -> None:
         PromptSpec("resume.rewrite_planner", "1", build_rewrite_planner_prompt, "简历改写规划", REWRITE_PLANNER_PROMPT),
         PromptSpec("resume.rewrite_executor", "1", build_rewrite_executor_prompt, "简历改写执行", REWRITE_EXECUTOR_PROMPT),
         PromptSpec("resume.material_extraction", "1", build_material_extraction_prompt, "简历素材抽取", MATERIAL_EXTRACTION_PROMPT),
-        PromptSpec("jobs.greeting", "3", build_greeting_prompt, "岗位打招呼文案", GREETING_PROMPT),
-        PromptSpec("jobs.greeting_reflection", "1", build_greeting_reflection_prompt, "岗位打招呼文案自审", GREETING_REFLECTION_PROMPT),
         PromptSpec("jobs.extraction", "1", build_job_extraction_prompt, "岗位详情抽取", JOB_EXTRACTION_PROMPT),
         PromptSpec("jobs.card_extraction", "1", build_job_card_extraction_prompt, "岗位卡片抽取", JOB_CARD_EXTRACTION_PROMPT),
         PromptSpec("jobs.card_scoring", "1", build_job_card_scoring_prompt, "岗位卡片批量匹配评分", JOB_CARD_SCORING_PROMPT),

@@ -3,7 +3,6 @@
 from ai.prompts import prompt_registry
 from ai.prompts.interview import build_evaluating_prompt, build_planner_prompt
 from ai.prompts.jobs import (
-    build_greeting_prompt,
     build_job_card_extraction_prompt,
     build_job_card_scoring_prompt,
     build_job_extraction_prompt,
@@ -29,7 +28,6 @@ def test_registry_covers_all_runtime_prompt_families():
         "interview.evaluating",
         "analysis.session_report",
         "analysis.multi_reviewer_consensus.ability_profile",
-        "jobs.greeting",
         "jobs.extraction",
         "jobs.card_extraction",
         "jobs.card_scoring",
@@ -70,7 +68,8 @@ def test_registry_contains_only_current_versions_for_migrated_prompts():
     assert prompt_registry.versions("voice.interview_system") == ("2",)
     assert prompt_registry.versions("analysis.session_report") == ("2",)
     assert prompt_registry.versions("resume.fact_check") == ("2",)
-    assert prompt_registry.versions("jobs.greeting") == ("3",)
+    assert "jobs.greeting" not in prompt_registry.names()
+    assert "jobs.greeting_reflection" not in prompt_registry.names()
 
 
 def test_untrusted_job_inputs_are_data_and_unknown_fields_stay_empty():
@@ -82,7 +81,6 @@ def test_untrusted_job_inputs_are_data_and_unknown_fields_stay_empty():
             card_count=1,
             scoring_context="【candidate_resume】候选人简历\n【job_cards】工程师",
         ),
-        build_greeting_prompt("公司", "岗位", jd_text="JD", highlights_text="亮点"),
     ]
     assert all("不可信数据" in prompt for prompt in prompts)
     assert "空字符串" in prompts[0]

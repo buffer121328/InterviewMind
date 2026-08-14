@@ -35,26 +35,14 @@ def test_job_tools_declare_write_and_external_approval_contracts():
         for tool in make_job_tools(user_id="user-1")
     }
 
-    assert contracts["prepare_boss_application"] == {
-        "effect": "write",
-        "permissions": ["job.application.prepare"],
-        "requires_confirmation": True,
-        "idempotency_key_strategy": "user_id:job_id",
-        "result_retention": "summary",
-    }
-    assert contracts["open_boss_job"] == {
-        "effect": "external",
-        "permissions": ["boss.job.open"],
-        "requires_confirmation": True,
-        "idempotency_key_strategy": None,
-        "result_retention": "summary",
-    }
-    assert contracts["send_boss_message"] == {
-        "effect": "external",
-        "permissions": ["boss.message.send"],
-        "requires_confirmation": True,
-        "idempotency_key_strategy": "user_id:application_id",
-        "result_retention": "summary",
+    assert contracts == {
+        "open_boss_job": {
+            "effect": "external",
+            "permissions": ["boss.job.open"],
+            "requires_confirmation": True,
+            "idempotency_key_strategy": None,
+            "result_retention": "summary",
+        }
     }
 
 
@@ -64,12 +52,6 @@ def test_job_tool_contracts_feed_runtime_governance():
     governance = derive_tool_governance(make_job_tools(user_id="user-1"))
 
     assert governance.permissions == {
-        "prepare_boss_application": frozenset({"job.application.prepare"}),
         "open_boss_job": frozenset({"boss.job.open"}),
-        "send_boss_message": frozenset({"boss.message.send"}),
     }
-    assert governance.approval_tools == frozenset({
-        "prepare_boss_application",
-        "open_boss_job",
-        "send_boss_message",
-    })
+    assert governance.approval_tools == frozenset({"open_boss_job"})

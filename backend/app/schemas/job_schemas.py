@@ -43,14 +43,6 @@ class JobDetailResponse(BaseModel):
     message: Optional[str] = None
 
 
-class GreetingItem(BaseModel):
-    """单条打招呼文案"""
-    tone: str = Field(description="风格: professional/technical/result_oriented")
-    message_text: str = Field(description="文案正文")
-    highlights_used: List[str] = Field(default_factory=list, description="使用的亮点")
-    risk_notes: str = Field(default="", description="风险提示")
-
-
 # ============================================================================
 # 资产生成
 # ============================================================================
@@ -70,7 +62,6 @@ class AssetPackage(BaseModel):
     jd_analysis: Optional[Dict[str, Any]] = None         # JD 匹配分析结果
     custom_resume_id: Optional[int] = None                # 生成简历的 ID
     custom_resume_preview: Optional[str] = None            # 简历 Markdown 预览
-    greetings: List[GreetingItem] = Field(default_factory=list)  # 打招呼文案
     risk_flags: List[str] = Field(default_factory=list)          # 风险标记
     messages: List[str] = Field(default_factory=list)            # 提示消息
 
@@ -211,19 +202,6 @@ class BossTabCaptureResponse(BaseModel):
         if not is_allowed_boss_search_url(value):
             raise ValueError("仅允许返回 BOSS 官方岗位搜索页")
         return value
-
-
-class GreetingUpdateRequest(BaseModel):
-    """定义招呼语请求相关后端数据结构或服务组件。"""
-
-    message_text: str = Field(min_length=20, max_length=800)
-
-
-class JobExportApplicationRequest(BaseModel):
-    """定义岗位投递请求相关后端数据结构或服务组件。"""
-
-    greeting_index: int = Field(default=0, ge=0, le=2)
-    greeting_text: str = Field(min_length=20, max_length=800)
 
 
 class BossOpenJobRequest(BaseModel):

@@ -171,9 +171,7 @@ def test_job_tools_expose_only_capabilities_backed_by_existing_workflows():
     tools = tool_registry.build("jobs", AgentContext(user_id="user-1"))
 
     assert {tool.name for tool in tools} == {
-        "prepare_boss_application",
         "open_boss_job",
-        "send_boss_message",
     }
 
 
