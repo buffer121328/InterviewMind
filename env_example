@@ -1,7 +1,13 @@
 # ============================================================================
 # 面必过全量环境变量模板
 # 复制为 .env 后使用；不要提交真实密码、API Key 或浏览器登录目录。
-# 模型聊天 API Key 在前端设置页录入，以“技术模型名 → API Key”明文 String 存入本机 Redis；模型池在前端维护。
+# 模型聊天 API Key 在前端设置页录入，以“owner 分区 + 技术模型名 → Fernet 密文”存入本机 Redis；模型池在前端维护。
+#
+# 安全边界（无登录）：
+# 本配置仅限本机单人使用；Nginx 只绑定 127.0.0.1，PostgreSQL/Redis 同样只在本机监听。
+# 禁止通过路由器端口转发、Tailscale Funnel、云主机安全组或公网反向代理暴露服务。
+# 一旦需要局域网共享或出现第二位使用者，即“网络暴露”，必须先实施真实认证与对象级授权，
+# 不得通过放开端口绑定或信任 X-User-ID 来放行。
 # ============================================================================
 
 # ----------------------------------------------------------------------------
@@ -23,7 +29,12 @@ REDIS_URL=redis://localhost:6379/0
 TASK_QUEUE_ENABLED=true
 # 使用 Fernet.generate_key() 生成；API 和 Worker 必须完全一致。
 TASK_PAYLOAD_ENCRYPTION_KEY=
-# 本地个人模式下，Redis 只保存“技术模型名 → API Key”的明文 String；TTL 为滑动窗口，保存、查询或业务使用时续期。
+# 模型凭据独立加密密钥：使用 Fernet.generate_key() 生成，与 TASK_PAYLOAD_ENCRYPTION_KEY 不得相同；
+# API 和 Worker 必须完全一致。未配置时模型凭据读写失败关闭。
+MODEL_CREDENTIAL_ENCRYPTION_KEY=
+# 轮换窗口用：填上一代 MODEL_CREDENTIAL_ENCRYPTION_KEY 以解密旧密文；轮换完成并验证后置空。
+MODEL_CREDENTIAL_ENCRYPTION_PREVIOUS_KEY=
+# 本地个人模式下，Redis 保存“owner 分区 + 模型名 → Fernet 密文”；TTL 为滑动窗口，保存、查询或业务使用时续期。
 MODEL_CREDENTIAL_TTL_SECONDS=2592000
 AGENT_RUN_LOCK_TTL_SECONDS=600
 # 用户手动重试与中断恢复共享此上限。
@@ -33,6 +44,9 @@ AGENT_RUN_STALE_SECONDS=1800
 AGENT_RUN_HEARTBEAT_SECONDS=30
 # 单个 Worker 最多并行 5 个岗位资产任务；其他 LLM 任务仍受单任务门禁保护。
 AGENT_RUN_WORKER_THREADS=5
+# Worker 优雅停止时限（毫秒）：须覆盖最长任务预算（240s）+ 清理缓冲，且小于 Compose stop_grace_period（330s）。
+# 提高任何 *_TASK_TIMEOUT_SECONDS 预算时必须同步检查此值与 docker-compose.yml 的 stop_grace_period。
+AGENT_RUN_WORKER_SHUTDOWN_TIMEOUT_MS=300000
 AGENT_RUN_CANCEL_POLL_SECONDS=2
 AGENT_RUN_RECOVERY_INTERVAL_SECONDS=60
 # 交互式简历生成会话在 PostgreSQL 中保留的时间。
@@ -44,6 +58,8 @@ RESUME_GENERATION_SESSION_TTL_HOURS=24
 HOST=0.0.0.0
 PORT=8000
 DEBUG=false
+# 无登录部署的宿主机入口端口；Nginx 仅绑定 127.0.0.1，默认 80，不对外网开放。
+NGINX_PORT=80
 # 全容器部署通过 Nginx 同源访问 API；本地前端直连后端时改为 http://localhost:8000。
 NEXT_PUBLIC_API_URL=/api
 # Docker Compose 会在 API/Worker 启动前执行迁移，因此全容器部署保持 false。
@@ -83,7 +99,7 @@ INTERVIEW_REPORT_TASK_TIMEOUT_SECONDS=180
 RESUME_WORKSPACE_TASK_TIMEOUT_SECONDS=240
 RESUME_GENERATION_TASK_TIMEOUT_SECONDS=240
 JOB_ASSETS_TASK_TIMEOUT_SECONDS=240
-ABILITY_PROFILE_TASK_TIMEOUT_SECONDS=60
+ABILITY_PROFILE_TASK_TIMEOUT_SECONDS=120
 # 素材与项目改写的独立输入预算。
 RESUME_MATERIAL_MAX_ITEMS=8
 RESUME_MATERIAL_ITEM_MAX_CHARS=1200
@@ -110,8 +126,9 @@ LLM_POOL_REDIS_ENABLED=true
 LLM_POOL_INFLIGHT_TTL_SECONDS=600
 # 轮询游标空闲超过该时间后自动清理；后续使用会刷新 TTL。
 LLM_POOL_CURSOR_TTL_SECONDS=86400
-# 个人本地模式允许 Ollama/vLLM/LM Studio；公开部署时应设为 false。
-ALLOW_PRIVATE_MODEL_BASE_URLS=true
+# 默认拒绝私网/回环模型 Base URL（SSRF 防护）；仅本地开发使用 Ollama/vLLM/LM Studio 时显式设为 true。
+# 开启后 metadata 与链路本地地址仍被拒绝；公开部署必须保持 false。
+ALLOW_PRIVATE_MODEL_BASE_URLS=false
 
 # ----------------------------------------------------------------------------
 # Guardrails AI 本地安全校验

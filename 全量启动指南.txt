@@ -9,6 +9,11 @@
 该模式会启动 PostgreSQL + pgvector、Redis、一次性数据库迁移、FastAPI、Worker、
 Next.js 和 Nginx。源码开发模式则只用 Compose 启动 PostgreSQL/Redis，其余进程在本机运行。
 
+安全边界（无登录）：本部署仅限本机单人使用。Nginx 只绑定 127.0.0.1，
+PostgreSQL 与 Redis 同样只在本机监听；禁止通过路由器端口转发、Tailscale Funnel、
+云主机安全组或公网反向代理暴露服务。一旦出现局域网共享或第二位使用者（网络暴露），
+必须暂停并先实施真实认证与对象级授权，不能放开端口绑定或信任 X-User-ID 放行。
+
 ------------------------------------------------------------
 一、开始前
 ------------------------------------------------------------
@@ -38,13 +43,18 @@ Next.js 和 Nginx。源码开发模式则只用 Compose 启动 PostgreSQL/Redis�
   - 本机源码模式使用的 `DATABASE_URL` 与上述数据库账号/密码一致；
   - `REDIS_PORT` 和 `REDIS_URL`；
   - API 与 Worker 共用的 `TASK_PAYLOAD_ENCRYPTION_KEY`；
+  - API 与 Worker 共用的 `MODEL_CREDENTIAL_ENCRYPTION_KEY`（模型凭据独立加密密钥，与上一条不同；未配置时凭据读写失败关闭）；
   - 标准异步运行的 `TASK_QUEUE_ENABLED=true`；
   - 全容器模式的 `NEXT_PUBLIC_API_URL=/api`；
   - 所启用模型、Embedding、Langfuse、mem0 与评测功能所需的对应变量。
 
-生成 Fernet 密钥：
+生成 Fernet 密钥（模型凭据密钥需独立再生成一条，不得与任务载荷密钥相同）：
 
   uv run --project backend python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+
+模型 API Key 在设置页保存后以 Fernet 密文按 owner 分区存入本机 Redis；轮换凭据密钥时，
+把旧密钥写入 `MODEL_CREDENTIAL_ENCRYPTION_PREVIOUS_KEY`，运行
+`uv run --project backend python -m scripts.rotate_model_credentials`，全部验证通过后再移除该变量并重启。
 
 全容器模式会将 API 和 Worker 的数据库/Redis 地址覆盖为容器内服务地址，并将运行数据
 挂载到 `/app/data`。不要手动把 `AUTO_CREATE_TABLES` 打开来替代迁移。
