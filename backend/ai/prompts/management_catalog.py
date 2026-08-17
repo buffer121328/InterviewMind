@@ -22,6 +22,30 @@ _KNOWN_HISTORICAL_PRESENTATIONS = {
 }
 
 
+_RETIRED_MANAGED_PROMPT_NAMES = frozenset({
+    "jobs.greeting",
+    "jobs.greeting_reflection",
+})
+
+
+def is_retired_managed_prompt(name: str) -> bool:
+    """判断提示词名称是否属于已退役的内置管理记录。
+
+    Args:
+        name: 名称。
+    """
+
+    return name in _RETIRED_MANAGED_PROMPT_NAMES
+
+
+_KNOWN_HISTORICAL_PRESENTATIONS = {
+    # Langfuse Cloud 中可能仍有迁移前的远端版本；它们虽然不再参与代码注册，
+    # 但仍属于本产品维护的历史内置提示词，列表展示应保留“内置”标签。
+    "analysis.candidate_profile": ("单场能力画像", "能力分析"),
+    "analysis.weakness_report": ("短板报告", "能力分析"),
+}
+
+
 @dataclass(frozen=True, slots=True)
 class BuiltinManagedPrompt:
     """定义内置托管提示词相关后端数据结构或服务组件。"""

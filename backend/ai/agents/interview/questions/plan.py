@@ -1,5 +1,6 @@
 """将题库/面经候选题转换并合入面试计划。"""
 
+from math import ceil
 from typing import Any, Iterable
 
 from .answer_points import ensure_question_answer_points
@@ -73,3 +74,37 @@ def merge_question_plan(
     for index, item in enumerate(merged, start=1):
         item["id"] = index
     return merged
+
+_TECHNICAL_QUESTION_TYPES = frozenset({"tech", "technical", "system_design"})
+
+
+def is_technical_question(question: object) -> bool:
+    """判断题目是否属于技术题。
+
+    题目可能来自旧的 ``type`` 字段，也可能来自题库的
+    ``question_type`` 字段；非字典或缺少题型时按非技术题处理。
+
+    Args:
+        question: 题目文本。
+    """
+
+    if not isinstance(question, dict):
+        return False
+    question_type = question.get("type") or question.get("question_type")
+    return isinstance(question_type, str) and question_type.strip().lower() in _TECHNICAL_QUESTION_TYPES
+
+
+def technical_follow_up_budget(plan: Iterable[dict[str, Any]] | None) -> int:
+    """按技术题数量计算本轮最多技术追问数。
+
+    技术题预算取技术题数量的一半向上取整；存在技术题时至少允许一次
+    追问，空计划或纯非技术计划预算为 0。
+
+    Args:
+        plan: 计划数据。
+    """
+
+    technical_count = sum(1 for question in (plan or ()) if is_technical_question(question))
+    if technical_count == 0:
+        return 0
+    return max(1, ceil(technical_count / 2))

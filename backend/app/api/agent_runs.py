@@ -13,7 +13,12 @@ from app.api.deps import create_sse_response, get_current_user_id
 from app.schemas.job_schemas import AssetGenerateRequest, CaptureRecommendationsRequest
 from app.schemas.resume_schemas import ResumeOptimizeRequest, ResumeWorkspaceRequest, ResumeWorkspaceRunResponse
 from app.schemas.schemas import InterviewReportRunRequest, InterviewStartRequest, ProfileGenerateRequest
-from ai.runtime.agent_runs.performance import performance_overview, query_performance, serialize_model_metric_event
+from ai.runtime.agent_runs.performance import (
+    performance_overview,
+    query_performance,
+    query_task_health,
+    serialize_model_metric_event,
+)
 from ai.workflows.agent_runs.use_cases import (
     AgentRunUseCaseError,
     agent_run_use_cases,
@@ -236,6 +241,39 @@ async def get_agent_performance_overview(
     return await performance_overview(
         user_id=user_id, days=days, task_type=task_type, agent_name=agent_name
     )
+
+
+@router.get("/performance/task-health")
+async def list_agent_task_health(
+    days: int = Query(default=7, ge=1, le=90),
+    task_type: Optional[str] = Query(default=None),
+    agent_name: Optional[str] = Query(default=None),
+    attention_only: bool = Query(default=False),
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+    user_id: str = Depends(get_current_user_id),
+):
+    """返回当前用户任务调用链摘要，不暴露原始遥测数据。
+
+    Args:
+        days: 统计时间范围（天）。
+        task_type: 按任务类型过滤。
+        agent_name: 按 Agent 名称过滤。
+        attention_only: 仅返回需要关注（异常/降级）的任务。
+        limit: 返回条数上限。
+        offset: 分页偏移量。
+        user_id: 当前用户 ID。
+    """
+    runs, total = await query_task_health(
+        user_id=user_id,
+        days=days,
+        task_type=task_type,
+        agent_name=agent_name,
+        attention_only=attention_only,
+        limit=limit,
+        offset=offset,
+    )
+    return {"runs": runs, "total": total, "limit": limit, "offset": offset}
 
 
 @router.get("/performance/model-events")

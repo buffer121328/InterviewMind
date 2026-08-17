@@ -10,6 +10,7 @@ from pydantic import ValidationError
 from ai.workflows.prompts.management import (
     LangfusePromptManagementService,
     PromptListPage,
+    PromptManagementRetiredPrompt,
     PromptManagementUnavailable,
 )
 from app.api.langfuse_prompts import router
@@ -99,7 +100,7 @@ def configured_client(monkeypatch, text_prompt):
 
 def test_service_lists_metadata_without_prompt_content(configured_client):
     """Listing uses the explicit public API and maps only metadata fields."""
-    result = LangfusePromptManagementService().list_prompts(page=2, limit=10, label="production")
+    result = LangfusePromptManagementService().list_prompts(page=1, limit=10, label="production")
 
     assert result.items[0].model_dump() == {
         "name": "resume-summary",
@@ -112,9 +113,48 @@ def test_service_lists_metadata_without_prompt_content(configured_client):
         "last_updated_at": None,
     }
     assert configured_client.api.prompts.list_calls == [
-        {"page": 2, "limit": 10, "label": "production"}
+        {"page": 1, "limit": 100, "label": "production"}
     ]
     assert result.total == 1
+
+
+def test_service_hides_retired_job_greeting_prompts_and_keeps_custom_prompts(configured_client):
+    """Historical greeting entries cannot create visible list items or inflate pagination."""
+    configured_client.api.prompts.production_names = {
+        "jobs.greeting",
+        "jobs.greeting_reflection",
+        "custom.alpha",
+        "custom.beta",
+    }
+
+    result = LangfusePromptManagementService().list_prompts(page=2, limit=1, label="production")
+
+    assert [item.name for item in result.items] == ["custom.beta"]
+    assert result.total == 2
+    assert configured_client.api.prompts.list_calls == [
+        {"page": 1, "limit": 100, "label": "production"}
+    ]
+
+
+def test_service_rejects_retired_job_greeting_prompts_before_langfuse_calls(configured_client):
+    """Direct service use cannot revive, fetch, preview, or relabel retired prompt names."""
+    service = LangfusePromptManagementService()
+    operations = [
+        lambda: service.fetch_prompt(name="jobs.greeting", version=1, label=None),
+        lambda: service.preview(name="jobs.greeting_reflection", version=1, label=None, values={}),
+        lambda: service.create_version(
+            PromptCreateRequest(name="jobs.greeting", type="text", prompt="retired")
+        ),
+        lambda: service.update_labels(name="jobs.greeting_reflection", version=1, labels=["draft"]),
+    ]
+
+    for operation in operations:
+        with pytest.raises(PromptManagementRetiredPrompt):
+            operation()
+
+    assert configured_client.api.prompts.get_calls == []
+    assert configured_client.create_calls == []
+    assert configured_client.update_calls == []
 
 
 def test_service_enriches_builtin_metadata_with_chinese_presentation():
@@ -314,6 +354,49 @@ def test_router_lists_langfuse_cloud_prompts(monkeypatch):
 
     assert response.status_code == 200
     assert response.json() == {"items": [], "total": 0, "page": 1, "limit": 20}
+
+
+def test_router_rejects_retired_job_greeting_management_actions(monkeypatch):
+    """Routes hide retired names before any service, evaluation, or Langfuse action."""
+    calls: list[str] = []
+
+    class FakeService:
+        """Fail if a retired route reaches the remote-management boundary."""
+
+        def __getattr__(self, name):
+            def fail(*_args, **_kwargs):
+                calls.append(name)
+                raise AssertionError("retired prompt must not reach the service")
+
+            return fail
+
+    monkeypatch.setattr("app.api.langfuse_prompts._service", lambda: FakeService())
+    app = FastAPI()
+    app.include_router(router)
+    client = TestClient(app)
+
+    responses = [
+        client.get("/api/langfuse/prompts/selected", params={"name": "jobs.greeting", "version": 1}),
+        client.post(
+            "/api/langfuse/prompts",
+            json={"name": "jobs.greeting", "type": "text", "prompt": "retired"},
+        ),
+        client.put(
+            "/api/langfuse/prompts/labels?name=jobs.greeting&version=1",
+            json={"labels": ["draft"]},
+        ),
+        client.put(
+            "/api/langfuse/prompts/production",
+            json={"name": "jobs.greeting", "version": 1},
+        ),
+        client.post(
+            "/api/langfuse/prompts/preview",
+            json={"name": "jobs.greeting", "version": 1, "values": {}},
+        ),
+    ]
+
+    assert [response.status_code for response in responses] == [404, 404, 404, 404, 404]
+    assert calls == []
 
 
 def test_service_is_unavailable_when_management_flag_is_disabled(monkeypatch):

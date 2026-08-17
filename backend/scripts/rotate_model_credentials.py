@@ -50,28 +50,63 @@ def _plaintext_legacy_scan_patterns() -> tuple[str, str]:
     )
 
 
+def _text_key(key: str | bytes) -> str:
+    """把 Redis 返回的 key 规范化为文本。
+
+    轮换脚本显式使用 ``decode_responses=False``，因此 scan_iter 在真实
+    Redis 上返回 bytes。所有 key 判断都在这个边界完成文本化，避免把
+    bytes/str 混入后续的前缀判断。
+
+    Args:
+        key: 键名。
+    """
+
+    return key.decode("utf-8") if isinstance(key, bytes) else str(key)
+
+
 async def _scan_keys(redis: Redis, pattern: str) -> list[str]:
+    """扫描 keys。
+
+    Args:
+        redis: Redis 客户端。
+        pattern: 匹配模式。
+    """
     keys: list[str] = []
     async for key in redis.scan_iter(match=pattern):
-        keys.append(key)
+        keys.append(_text_key(key))
     return keys
 
 
-def _is_owner_key(key: str) -> bool:
-    return key.startswith(_OWNER_KEY_PREFIX)
+def _is_owner_key(key: str | bytes) -> bool:
+    """判断是否为owner key。
+
+    Args:
+        key: 键名。
+    """
+    return _text_key(key).startswith(_OWNER_KEY_PREFIX)
 
 
-def _is_legacy_plaintext_key(key: str) -> bool:
-    """旧全局明文模型名 Key：非 owner/channels/model Hash 的 v1 直属 key。"""
+def _is_legacy_plaintext_key(key: str | bytes) -> bool:
+    """旧全局明文模型名 Key：非 owner/channels/model Hash 的 v1 直属 key。
 
+    Args:
+        key: 键名。
+    """
+
+    normalized = _text_key(key)
     prefix = f"{APP_REDIS_NAMESPACE}:model_credentials:v1:"
-    if not key.startswith(prefix) or key == _LEGACY_CHANNELS_KEY:
+    if not normalized.startswith(prefix) or normalized == _LEGACY_CHANNELS_KEY:
         return False
-    return not key.startswith(_OWNER_KEY_PREFIX) and ":model:" not in key
+    return not normalized.startswith(_OWNER_KEY_PREFIX) and ":model:" not in normalized
 
 
-def _model_name_from_legacy_key(key: str) -> str:
-    return key.removeprefix(f"{APP_REDIS_NAMESPACE}:model_credentials:v1:")
+def _model_name_from_legacy_key(key: str | bytes) -> str:
+    """model_name_from_legacy_key 操作。
+
+    Args:
+        key: 键名。
+    """
+    return _text_key(key).removeprefix(f"{APP_REDIS_NAMESPACE}:model_credentials:v1:")
 
 
 async def _rotate_owner_keys(

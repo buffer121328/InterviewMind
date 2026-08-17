@@ -21,7 +21,7 @@ from ai.workflows.evaluation.interview_history import (
 from app.db.models import AgentRunModel, async_session
 from app.db.unit_of_work import UnitOfWork
 from app.domain.agent_runs import TASK_TYPE_INTERVIEW_EVALUATION_DRAFT
-from app.schemas.evaluations import (
+from app.schemas.evaluation.evaluations import (
     EvaluationDatasetCreateRequest,
     InterviewEvaluationConfirmRequest,
     InterviewEvaluationDraftRequest,

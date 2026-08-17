@@ -5,6 +5,8 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from ai.prompts.management_catalog import is_retired_managed_prompt
+
 from app.schemas.langfuse_prompts import (
     PromptBuiltinSyncResponse,
     PromptChatMessage,
@@ -26,6 +28,10 @@ class PromptManagementUnavailable(Exception):
 
 class PromptManagementRemoteError(Exception):
     """定义提示词管理错误相关后端数据结构或服务组件。"""
+
+
+class PromptManagementRetiredPrompt(Exception):
+    """请求试图读取或修改已经退役的内置提示词。"""
 
 
 @dataclass(frozen=True)
@@ -56,14 +62,50 @@ class LangfusePromptManagementService:
             raise PromptManagementUnavailable()
         return client
 
+    @staticmethod
+    def _reject_retired_prompt(name: str) -> None:
+        """在远端调用前阻止已退役的内置提示词被复活。
+
+        Args:
+            name: 名称。
+        """
+
+        if is_retired_managed_prompt(name):
+            raise PromptManagementRetiredPrompt()
+
+
     def list_prompts(self, *, page: int, limit: int, label: str | None = None) -> PromptListPage:
         """列出提示词相关后端逻辑。"""
         try:
-            response = self._client().api.prompts.list(page=page, limit=limit, label=label)
-            items = [self._metadata(item) for item in getattr(response, "data", [])]
-            meta = getattr(response, "meta", None)
-            total = int(getattr(meta, "total_items", len(items)))
-            return PromptListPage(items=items, total=total, page=page, limit=limit)
+            client = self._client()
+            remote_page = 1
+            remote_limit = 100
+            items: list[PromptMetadataResponse] = []
+            while True:
+                response = client.api.prompts.list(
+                    page=remote_page,
+                    limit=remote_limit,
+                    label=label,
+                )
+                raw_items = list(getattr(response, "data", []))
+                items.extend(
+                    self._metadata(item)
+                    for item in raw_items
+                    if not is_retired_managed_prompt(str(getattr(item, "name", "")))
+                )
+                meta = getattr(response, "meta", None)
+                remote_total = int(getattr(meta, "total_items", len(raw_items)))
+                if not raw_items or remote_page * remote_limit >= remote_total:
+                    break
+                remote_page += 1
+
+            start = (page - 1) * limit
+            return PromptListPage(
+                items=items[start:start + limit],
+                total=len(items),
+                page=page,
+                limit=limit,
+            )
         except PromptManagementUnavailable:
             raise
         except Exception as error:
@@ -72,6 +114,7 @@ class LangfusePromptManagementService:
 
     def fetch_prompt(self, *, name: str, version: int | None, label: str | None) -> PromptVersionResponse:
         """获取提示词相关后端逻辑。"""
+        self._reject_retired_prompt(name)
         if (version is None) == (label is None):
             raise ValueError("exactly one of version or label is required")
         try:
@@ -87,6 +130,7 @@ class LangfusePromptManagementService:
 
     def create_version(self, request: PromptCreateRequest) -> PromptVersionResponse:
         """创建版本相关后端逻辑。"""
+        self._reject_retired_prompt(request.name)
         try:
             prompt = self._client().create_prompt(
                 name=request.name,
@@ -106,6 +150,7 @@ class LangfusePromptManagementService:
 
     def update_labels(self, *, name: str, version: int, labels: list[str]) -> PromptVersionResponse:
         """更新标签相关后端逻辑。"""
+        self._reject_retired_prompt(name)
         try:
             prompt = self._client().update_prompt(name=name, version=version, new_labels=labels)
             return self._version(prompt)

@@ -1,4 +1,9 @@
-from ai.agents.interview.questions.plan import merge_question_plan, prepare_candidates
+from ai.agents.interview.questions.plan import (
+    is_technical_question,
+    merge_question_plan,
+    prepare_candidates,
+    technical_follow_up_budget,
+)
 
 
 def test_candidates_prioritize_experience_and_keep_bank_id():
@@ -39,3 +44,23 @@ def test_candidates_carry_followups_for_runtime_reuse():
     )
 
     assert candidates[0]["followups"][0]["question_text"] == "你如何验证这个方案？"
+
+
+def test_is_technical_question_supports_tech_and_system_design() -> None:
+    assert is_technical_question({"type": "tech"}) is True
+    assert is_technical_question({"question_type": "system_design"}) is True
+    assert is_technical_question({"type": "behavior"}) is False
+    assert is_technical_question(None) is False
+
+
+def test_technical_follow_up_budget_is_half_of_technical_questions_with_minimum_one() -> None:
+    plan = [
+        {"type": "intro"},
+        {"type": "tech"},
+        {"type": "system_design"},
+        {"type": "tech"},
+        {"type": "tech"},
+    ]
+
+    assert technical_follow_up_budget(plan) == 2
+    assert technical_follow_up_budget([{ "type": "behavior" }]) == 0

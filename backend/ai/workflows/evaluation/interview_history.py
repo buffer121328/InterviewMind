@@ -10,7 +10,7 @@ from copy import deepcopy
 from typing import Any
 
 from app.domain.interview_rounds import valid_round_types
-from app.schemas.evaluations import (
+from app.schemas.evaluation.evaluations import (
     EvaluationCaseCreateRequest,
     InterviewEvaluationReviewCase,
     InterviewEvaluationSourceSnapshot,

@@ -6,12 +6,13 @@ from typing import Annotated
 from typing import TypeVar
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from ai.prompts.management_catalog import is_retired_managed_prompt
+from ai.workflows.evaluation import EvaluationUseCaseError, evaluation_use_cases
 from ai.workflows.prompts.management import (
     LangfusePromptManagementService,
     PromptManagementRemoteError,
     PromptManagementUnavailable,
 )
-from ai.workflows.evaluation import EvaluationUseCaseError, evaluation_use_cases
 from app.api.deps import get_current_user_id
 from app.schemas.langfuse_prompts import (
     PromptBuiltinSyncResponse,
@@ -32,6 +33,16 @@ T = TypeVar("T")
 def _service() -> LangfusePromptManagementService:
     """处理服务相关后端逻辑。"""
     return LangfusePromptManagementService()
+
+
+def _reject_retired_prompt(name: str) -> None:
+    """阻止已退役的内置提示词进入所有管理路由，统一返回 404。
+
+    Args:
+        name: 提示词名称。
+    """
+    if is_retired_managed_prompt(name):
+        raise HTTPException(status_code=404, detail="提示词不存在")
 
 
 async def _remote(action: Callable[[], T]) -> T:
@@ -81,6 +92,7 @@ async def fetch_prompt(
         raise HTTPException(status_code=422, detail="provide exactly one of version or label")
     if label == "latest":
         raise HTTPException(status_code=422, detail="label cannot be 'latest'")
+    _reject_retired_prompt(name)
     return await _remote(
         lambda: _service().fetch_prompt(name=name, version=version, label=label)
     )
@@ -92,6 +104,7 @@ async def create_prompt_version(
     _user_id: str = Depends(get_current_user_id),
 ) -> PromptVersionResponse:
     """创建提示词版本相关后端逻辑。"""
+    _reject_retired_prompt(request.name)
     return await _remote(lambda: _service().create_version(request))
 
 
@@ -103,6 +116,7 @@ async def update_prompt_labels(
     _user_id: str = Depends(get_current_user_id),
 ) -> PromptVersionResponse:
     """更新提示词标签相关后端逻辑。"""
+    _reject_retired_prompt(name)
     return await _remote(
         lambda: _service().update_labels(
             name=name,
@@ -118,6 +132,7 @@ async def promote_prompt_to_production(
     user_id: str = Depends(get_current_user_id),
 ) -> PromptVersionResponse:
     """提升提示词生产相关后端逻辑。"""
+    _reject_retired_prompt(request.name)
     try:
         await evaluation_use_cases.validate_prompt_promotion(
             user_id=user_id,
@@ -150,6 +165,7 @@ async def preview_prompt(
     _user_id: str = Depends(get_current_user_id),
 ) -> PromptPreviewResponse:
     """预览提示词相关后端逻辑。"""
+    _reject_retired_prompt(request.name)
     return await _remote(
         lambda: _service().preview(
             name=request.name,
