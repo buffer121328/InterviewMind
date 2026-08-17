@@ -19,22 +19,20 @@ from app.api import (
     agent_runs,
     applications,
     artifacts,
-    chat,
     config,
-    evaluations,
     langfuse_prompts,
-    sessions,
-    upload,
-    voice_chat,
 )
+from app.api.evaluation import router as evaluation_router
+from app.api.interview import router as interview_router
 from app.api.interview_experience import router as interview_experience_router
 from app.api.jobs import router as jobs_router
 from app.api.memory import router as memory_router
 from app.api.question_bank import router as question_bank_router
 from app.api.resume import router as resume_router
-from app.api.satisfaction import router as satisfaction_router
+from app.api.resume import upload_router
 from app.config import get_settings
 from app.runtime_paths import ensure_runtime_directories
+from app.security.config_validate_guard import ConfigValidateGuardMiddleware
 from app.security.model_credential_middleware import ModelCredentialHydrationMiddleware
 from app.security.security import redact_secrets, safe_error_message
 
@@ -223,6 +221,9 @@ app = FastAPI(
 # 凭据解析位于业务路由之前；CORS 后注册使其保持最外层并覆盖凭据错误响应。
 app.add_middleware(ModelCredentialHydrationMiddleware)
 
+# 配置验证端点的输入边界（大小/频率/并发），在业务路由前生效。
+app.add_middleware(ConfigValidateGuardMiddleware)
+
 # 配置 CORS - 允许的前端域名
 app.add_middleware(
     CORSMiddleware,
@@ -297,13 +298,11 @@ async def health_check():
 
 
 # 注册路由
-app.include_router(chat.router)
+app.include_router(interview_router)
 app.include_router(agent_runs.router)
-app.include_router(upload.router)
-app.include_router(sessions.router)
+app.include_router(upload_router)
 app.include_router(config.router)
 app.include_router(resume_router)
-app.include_router(voice_chat.router)
 app.include_router(applications.router)
 app.include_router(question_bank_router)
 app.include_router(memory_router)
@@ -311,8 +310,7 @@ app.include_router(jobs_router)
 app.include_router(interview_experience_router)
 app.include_router(langfuse_prompts.router)
 app.include_router(artifacts.router)
-app.include_router(evaluations.router)
-app.include_router(satisfaction_router)
+app.include_router(evaluation_router)
 
 # URL 保持 /static；磁盘目录由 cwd-independent runtime settings 决定。
 app.mount(

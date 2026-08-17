@@ -26,6 +26,7 @@ from ai.runtime.execution.deadlines import (
 )
 from ai.runtime.safety.errors import classify_exception
 from app.config import get_settings
+from app.security.http_outbound import build_guarded_async_client
 from app.security.url_security import validate_outbound_url
 from observability import (
     estimate_model_cost,
@@ -56,6 +57,21 @@ def _attach_llm_observability_attrs(llm: object, metadata: dict[str, Any]) -> No
             object.__setattr__(llm, f"_{key}", value)
         except Exception:
             continue
+
+
+def structured_output_options(llm: object) -> dict[str, Any]:
+    """Return the safest structured-output mode supported by the selected candidate.
+
+    Volcengine Ark's Doubao chat models are the only configured candidates for
+    which this application opts into strict JSON Schema. Other native and
+    OpenAI-compatible providers retain JSON mode so provider-specific schema
+    support cannot break the shared fallback chain.
+    """
+    provider = str(getattr(llm, "_model_provider", "") or "").strip().lower()
+    model = str(getattr(llm, "model_name", None) or getattr(llm, "model", None) or "").strip().lower()
+    if provider == "volcengine" and "doubao" in model:
+        return {"method": "json_schema", "strict": True}
+    return {"method": "json_mode"}
 
 
 def create_llm_from_config(
@@ -100,6 +116,10 @@ def create_llm_from_config(
         "streaming": True,
         "metadata": metadata,
         "tags": [f"provider:{metadata.get('model_provider', 'unknown')}", f"integration:{selected_integration}"],
+        # 重定向链每跳复验出站地址，防止公网端点 3xx 跳转私网。
+        "http_async_client": build_guarded_async_client(
+            timeout=timeout or settings.llm_request_timeout_seconds
+        ),
     }
     if callbacks:
         common_options["callbacks"] = callbacks
@@ -117,11 +137,16 @@ def create_llm_from_config(
 
 
 def _resolve_channel_config(api_config: dict, channel: str) -> dict:
-    """按通道定义解析用户模型配置。"""
+    """按通道定义解析最后一道兼容回退；General 仅属于简历专家路由。"""
     import logging
 
     logger = logging.getLogger(__name__)
-    fallback_chain = [channel, "general", "smart"]
+    if channel == "fast":
+        fallback_chain = ["fast", "smart"]
+    elif channel == "smart":
+        fallback_chain = ["smart", "fast"]
+    else:
+        fallback_chain = [channel, "general", "smart", "fast"]
     for ch in fallback_chain:
         config = api_config.get(ch)
         if config and config.get("api_key"):
@@ -140,6 +165,14 @@ def _valid_model_channel(config: dict | None) -> dict | None:
     return None
 
 
+def resolve_embedding_dimensions(value: object | None = None) -> int:
+    """Resolve a validated embedding dimension with the environment as legacy fallback."""
+    candidate = int(os.getenv("EMBEDDING_DIM", "1536")) if value is None else value
+    if isinstance(candidate, bool) or not isinstance(candidate, int) or not 1 <= candidate <= 16_000:
+        raise ValueError("Embedding dimensions must be an integer between 1 and 16000")
+    return candidate
+
+
 def get_embedding_client_config_from_api_config(api_config: dict | None = None) -> dict:
     """获取嵌入客户端配置来源API配置相关后端逻辑。"""
     request_config = _valid_model_channel((api_config or {}).get("rag_embedding"))
@@ -148,13 +181,13 @@ def get_embedding_client_config_from_api_config(api_config: dict | None = None) 
             "api_key": request_config["api_key"],
             "base_url": request_config["base_url"],
             "model": request_config["model"],
-            "dimensions": int(os.getenv("EMBEDDING_DIM", "1536")),
+            "dimensions": resolve_embedding_dimensions(request_config.get("dimensions")),
         }
     return {
         "api_key": os.getenv("OPENAI_API_KEY", ""),
         "base_url": os.getenv("OPENAI_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
         "model": os.getenv("EMBEDDING_MODEL", "text-embedding-v4"),
-        "dimensions": int(os.getenv("EMBEDDING_DIM", "1536")),
+        "dimensions": resolve_embedding_dimensions(),
     }
 
 
@@ -211,6 +244,55 @@ class ModelGateway:
         fallback = api_config.get(fallback_channel)
         return [dict(fallback)] if fallback and fallback.get("api_key") else []
 
+    @staticmethod
+    def _single_channel(api_config: dict, channel: str) -> list[dict]:
+        """Return one configured direct channel without implicitly adding fallbacks."""
+        configured = api_config.get(channel)
+        if isinstance(configured, dict) and configured.get("api_key"):
+            return [dict(configured)]
+        return []
+
+    def _candidate_groups(self, api_config: dict, channel: str) -> list[tuple[str, list[dict]]]:
+        """Build ordered candidates while keeping core and expert routing separate.
+
+        Smart/Fast are core execution channels. General is intentionally limited
+        to resume-expert fallback so its UI placement and runtime semantics match.
+        Pool members are still ordered by the scheduler; duplicate identities are
+        removed later by ``_candidate_configs``.
+        """
+        fast_pool = self._pool(api_config, "fast_pool", "fast")
+        reasoning_pool = self._pool(api_config, "reasoning_pool", "smart")
+        smart = self._single_channel(api_config, "smart")
+        fast = self._single_channel(api_config, "fast")
+        general = self._single_channel(api_config, "general")
+
+        if channel == "fast":
+            return [
+                ("fast_pool", fast_pool),
+                ("channel:fast", fast),
+                ("reasoning_pool", reasoning_pool),
+                ("channel:smart", smart),
+            ]
+        if channel == "smart":
+            return [
+                ("reasoning_pool", reasoning_pool),
+                ("channel:smart", smart),
+                ("fast_pool", fast_pool),
+                ("channel:fast", fast),
+            ]
+
+        direct = self._single_channel(api_config, channel)
+        groups = [(f"channel:{channel}", direct)]
+        if channel != "general":
+            groups.append(("channel:general", general))
+        groups.extend([
+            ("reasoning_pool", reasoning_pool),
+            ("channel:smart", smart),
+            ("fast_pool", fast_pool),
+            ("channel:fast", fast),
+        ])
+        return groups
+
     def _candidate_configs(self, api_config: dict, channel: str) -> tuple[list[dict], str | None]:
         """从请求配置解析可用模型候选，并保留模型网关的 URL、超时和冷却约束。
 
@@ -218,26 +300,7 @@ class ModelGateway:
             api_config: api 配置。
             channel: 经过类型边界校验的 `channel`；其格式和可选值由参数类型及调用流程约束。
         """
-        fast_pool = self._pool(api_config, "fast_pool", "fast")
-        reasoning_pool = self._pool(api_config, "reasoning_pool", "smart")
-
-        groups: list[tuple[str, list[dict]]] = []
-        if channel == "fast":
-            groups.append(("fast_pool", fast_pool))
-        elif channel == "smart":
-            groups.append(("reasoning_pool", reasoning_pool))
-        else:
-            direct = api_config.get(channel)
-            if direct and direct.get("api_key"):
-                groups.append((f"channel:{channel}", [dict(direct)]))
-
-        general = api_config.get("general")
-        if channel != "general" and general and general.get("api_key"):
-            groups.append(("channel:general", [dict(general)]))
-        if channel != "smart":
-            groups.append(("reasoning_pool", reasoning_pool))
-        if channel != "fast":
-            groups.append(("fast_pool", fast_pool))
+        groups = self._candidate_groups(api_config, channel)
 
         ordered: list[dict] = []
         seen: set[str] = set()
@@ -343,7 +406,7 @@ class ModelGateway:
         """
         return {
             "model": model or os.getenv("EMBEDDING_MODEL", "text-embedding-v4"),
-            "dimensions": dimensions or int(os.getenv("EMBEDDING_DIM", "1536")),
+            "dimensions": resolve_embedding_dimensions(dimensions),
         }
 
     def get_embedding_client_config(
@@ -362,7 +425,10 @@ class ModelGateway:
         config = get_embedding_client_config_from_api_config(api_config)
         return {
             **config,
-            **self.get_embedding_request_options(model=model or config["model"], dimensions=dimensions or config["dimensions"]),
+            **self.get_embedding_request_options(
+                model=model or config["model"],
+                dimensions=dimensions if dimensions is not None else config["dimensions"],
+            ),
         }
 
     async def create_embeddings(
@@ -488,6 +554,9 @@ def create_embedding_client(config: dict):
         base_url=base_url,
         timeout=get_settings().llm_request_timeout_seconds,
         max_retries=0,
+        http_client=build_guarded_async_client(
+            timeout=get_settings().llm_request_timeout_seconds
+        ),
     )
 
 

@@ -26,7 +26,10 @@ def _is_blocked_address(address: ipaddress.IPv4Address | ipaddress.IPv6Address, 
         address: 经过类型边界校验的 `address`；其格式和可选值由参数类型及调用流程约束。
         allow_private: 经过类型边界校验的 `allow_private`；其格式和可选值由参数类型及调用流程约束。
     """
-    if address.is_link_local or address.is_multicast or address.is_unspecified or address.is_reserved:
+    if address.is_link_local or address.is_multicast or address.is_unspecified:
+        return True
+    # 新版 ipaddress 把回环 IPv6 (::1) 归入 reserved；回环/私网统一交给 allow_private 开关。
+    if address.is_reserved and not (address.is_loopback or address.is_private):
         return True
     if not allow_private and (address.is_private or address.is_loopback):
         return True

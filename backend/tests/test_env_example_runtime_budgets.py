@@ -23,7 +23,7 @@ _RUNTIME_BUDGET_KEYS = {
     "RESUME_WORKSPACE_TASK_TIMEOUT_SECONDS": "240",
     "RESUME_GENERATION_TASK_TIMEOUT_SECONDS": "240",
     "JOB_ASSETS_TASK_TIMEOUT_SECONDS": "240",
-    "ABILITY_PROFILE_TASK_TIMEOUT_SECONDS": "60",
+    "ABILITY_PROFILE_TASK_TIMEOUT_SECONDS": "120",
 }
 
 
@@ -44,6 +44,8 @@ def test_env_example_contains_current_runtime_budget_defaults(monkeypatch) -> No
     """Every public deadline/token budget uses the same default as AppSettings."""
     monkeypatch.delenv("TASK_DEADLINE_ENABLED", raising=False)
     monkeypatch.delenv("AGENT_CONTEXT_BUDGET_FLAGS", raising=False)
+    monkeypatch.delenv("INTERVIEW_REPORT_TASK_TIMEOUT_SECONDS", raising=False)
+    monkeypatch.delenv("ABILITY_PROFILE_TASK_TIMEOUT_SECONDS", raising=False)
     values = _template_values()
     assert {key: values.get(key) for key in _RUNTIME_BUDGET_KEYS} == _RUNTIME_BUDGET_KEYS
 
@@ -54,12 +56,14 @@ def test_env_example_contains_current_runtime_budget_defaults(monkeypatch) -> No
     assert settings.voice_interview_task_timeout_seconds == 45
     assert settings.voice_interview_node_timeout_seconds == 15
     assert settings.interactive_min_remaining_attempt_seconds == 3
+    assert settings.interview_report_task_timeout_seconds == 180
+    assert settings.ability_profile_task_timeout_seconds == 120
 
 
 _FEATURE_DEFAULT_KEYS = {
     "TASK_QUEUE_ENABLED": "true",
     "LLM_POOL_REDIS_ENABLED": "true",
-    "ALLOW_PRIVATE_MODEL_BASE_URLS": "true",
+    "ALLOW_PRIVATE_MODEL_BASE_URLS": "false",
     "GUARDRAILS_ENABLED": "true",
     "GUARDRAILS_FAIL_CLOSED": "true",
     "RAG_VECTOR_ENABLED": "true",
@@ -87,7 +91,7 @@ def test_env_example_keeps_product_capabilities_enabled_by_default(monkeypatch) 
 
     settings = AppSettings(_env_file=None)
     assert settings.llm_pool_redis_enabled is True
-    assert settings.allow_private_model_base_urls is True
+    assert settings.allow_private_model_base_urls is False
     assert settings.guardrails_enabled is True
     assert settings.guardrails_fail_closed is True
     assert settings.evaluation_center_enabled is True

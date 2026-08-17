@@ -36,3 +36,37 @@ def test_public_url_is_allowed(monkeypatch):
 def test_rejects_credentials_in_url():
     with pytest.raises(UnsafeOutboundUrl):
         validate_outbound_url("https://user:pass@example.com")
+
+
+def test_rejects_ipv6_loopback_and_private_literals():
+    with pytest.raises(UnsafeOutboundUrl):
+        validate_outbound_url("http://[::1]:11434/v1", allow_private=False)
+    with pytest.raises(UnsafeOutboundUrl):
+        validate_outbound_url("http://[fd00::1]/v1", allow_private=False)
+    with pytest.raises(UnsafeOutboundUrl):
+        # IPv4-mapped IPv6 loopback
+        validate_outbound_url("http://[::ffff:127.0.0.1]/v1", allow_private=False)
+
+
+def test_dns_resolution_with_any_private_address_is_rejected(monkeypatch):
+    def resolve(*_args, **_kwargs):
+        return [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443)),
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("192.168.1.5", 443)),
+        ]
+
+    monkeypatch.setattr(socket, "getaddrinfo", resolve)
+    with pytest.raises(UnsafeOutboundUrl):
+        validate_outbound_url("https://mixed.example.test/v1", allow_private=False)
+    assert validate_outbound_url("https://mixed.example.test/v1", allow_private=True)
+
+
+def test_dns_resolution_all_public_addresses_allowed(monkeypatch):
+    def resolve(*_args, **_kwargs):
+        return [
+            (socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("2606:2800:220:1:248:1893:25c8:1946", 443)),
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443)),
+        ]
+
+    monkeypatch.setattr(socket, "getaddrinfo", resolve)
+    assert validate_outbound_url("https://dualstack.example.test/v1", allow_private=False)

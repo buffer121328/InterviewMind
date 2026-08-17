@@ -44,6 +44,8 @@ class MimoVoiceGateway:
         """校验请求端点后创建无 SDK 自动重试的短生命周期客户端。"""
         from openai import AsyncOpenAI
 
+        from app.security.http_outbound import build_guarded_async_client
+
         settings = get_settings()
         validate_outbound_url(
             base_url,
@@ -54,6 +56,7 @@ class MimoVoiceGateway:
             base_url=base_url,
             timeout=timeout,
             max_retries=0,
+            http_client=build_guarded_async_client(timeout=timeout),
         )
 
     @staticmethod
