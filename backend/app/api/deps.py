@@ -76,10 +76,7 @@ def create_sse_response(generator: AsyncGenerator[str, None]) -> StreamingRespon
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Headers": "*",
-            "X-Accel-Buffering": "no",  # Nginx 禁用缓冲
+            "X-Accel-Buffering": "no",  # Nginx 禁用缓冲；CORS 由全局中间件统一控制
         }
     )
 
@@ -133,15 +130,27 @@ def raise_http_error(status_code: int, error_type: str, message: str):
 
 
 def raise_not_found(message: str = "资源不存在"):
-    """抛出 404 错误"""
+    """抛出标准化的 404 资源不存在错误。
+
+    Args:
+        message: 用户友好的错误消息。
+    """
     raise_http_error(404, "NotFound", message)
 
 
 def raise_bad_request(message: str):
-    """抛出 400 错误"""
+    """抛出标准化的 400 请求错误。
+
+    Args:
+        message: 用户友好的错误消息。
+    """
     raise_http_error(400, "BadRequest", message)
 
 
 def raise_internal_error(message: str = "服务器内部错误"):
-    """抛出 500 错误"""
+    """抛出标准化的 500 内部错误。
+
+    Args:
+        message: 用户友好的错误消息。
+    """
     raise_http_error(500, "InternalServerError", message)
