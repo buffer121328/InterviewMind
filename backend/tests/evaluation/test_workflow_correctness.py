@@ -28,7 +28,7 @@ from ai.agents.resume.optimization.flow import build_resume_optimizer_graph
 
 # 被测模块 ─ LLM 工具
 from ai.llm.llm_utils import clean_json_response
-from app.schemas.interview import (
+from app.schemas.interview.interview import (
     EvaluatingOutput,
     InterviewerAction,
 )

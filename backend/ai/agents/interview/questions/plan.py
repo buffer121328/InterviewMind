@@ -1,7 +1,7 @@
 """将题库/面经候选题转换并合入面试计划。"""
 
 from math import ceil
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 from .answer_points import ensure_question_answer_points
 
@@ -37,7 +37,13 @@ def prepare_candidates(
     question_bank_items: Iterable[dict[str, Any]],
     max_questions: int,
 ) -> list[dict[str, Any]]:
-    """面经显式选择优先，并按题目文本去重。"""
+    """面经显式选择优先，并按题目文本去重。
+
+    Args:
+        experience_questions: 经验相关题目列表。
+        question_bank_items: 题库题目列表。
+        max_questions: 计划题目数。
+    """
     result: list[dict[str, Any]] = []
     seen: set[str] = set()
     for raw in [*experience_questions, *question_bank_items]:
@@ -54,19 +60,97 @@ def prepare_candidates(
     return result
 
 
+INTRODUCTION_ROUND_TYPES = frozenset({"tech_initial", "voice_default"})
+_TECHNICAL_QUESTION_TYPES = frozenset({"tech", "technical", "system_design"})
+
+
+def _question_text(question: object) -> str:
+    """提取候选题的题干文本，兼容计划、题库和纯文本输入。
+
+    Args:
+        question: 候选题字典或题干文本。
+    """
+
+    if isinstance(question, Mapping):
+        return str(
+            question.get("content")
+            or question.get("question_text")
+            or question.get("topic")
+            or ""
+        ).strip()
+    return str(question or "").strip()
+
+
+def is_introduction_question(question: object) -> bool:
+    """判断题目是否要求候选人介绍自身背景或经历。
+
+    优先使用结构化题型；对题库和模型输出中常见的非标准题型，使用
+    收敛的中文题干模式补足识别，避免将“介绍项目架构”等技术题误判。
+
+    Args:
+        question: 候选题字典或题干文本。
+    """
+
+    if isinstance(question, Mapping):
+        question_type = question.get("type") or question.get("question_type")
+        if isinstance(question_type, str) and question_type.strip().casefold() == "intro":
+            return True
+
+    normalized = "".join(_question_text(question).casefold().split())
+    if not normalized:
+        return False
+    return (
+        "自我介绍" in normalized
+        or "介绍一下你自己" in normalized
+        or "介绍你自己" in normalized
+        or ("教育背景" in normalized and "工作经历" in normalized)
+        or ("个人背景" in normalized and "工作经历" in normalized)
+    )
+
+
+def prepare_question_bank_candidates(
+    question_bank_items: Iterable[dict[str, Any]],
+    max_questions: int,
+) -> list[dict[str, Any]]:
+    """将已按优先级筛选的题库题转为规划器候选题。
+
+    Args:
+        question_bank_items: 题库查询结果。
+        max_questions: 计划题目数。
+    """
+
+    return prepare_candidates((), question_bank_items, max_questions)
+
+
 def merge_question_plan(
     candidates: list[dict[str, Any]],
     generated: list[dict[str, Any]],
     max_questions: int,
+    *,
+    round_type: str = "tech_initial",
 ) -> list[dict[str, Any]]:
-    """候选题优先，生成题补足；最终统一连续编号。"""
+    """候选题优先合并、去重并为首轮限制一题自我介绍。
+
+    Args:
+        candidates: 题库或面经候选题。
+        generated: 规划器生成的候选题。
+        max_questions: 计划题目数。
+        round_type: 当前轮次类型。
+    """
+
     merged: list[dict[str, Any]] = []
     seen: set[str] = set()
+    limit_introduction = round_type in INTRODUCTION_ROUND_TYPES
+    introduction_seen = False
     for item in [*candidates, *generated]:
-        content = str(item.get("content") or "").strip()
-        key = " ".join(content.lower().split())
+        content = _question_text(item)
+        key = " ".join(content.casefold().split())
         if not content or key in seen:
             continue
+        if limit_introduction and is_introduction_question(item):
+            if introduction_seen:
+                continue
+            introduction_seen = True
         seen.add(key)
         merged.append(ensure_question_answer_points(item))
         if len(merged) >= max_questions:
@@ -74,8 +158,6 @@ def merge_question_plan(
     for index, item in enumerate(merged, start=1):
         item["id"] = index
     return merged
-
-_TECHNICAL_QUESTION_TYPES = frozenset({"tech", "technical", "system_design"})
 
 
 def is_technical_question(question: object) -> bool:

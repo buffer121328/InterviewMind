@@ -16,7 +16,16 @@ async def write_memory_background(
     user_id: str,
     api_config: dict[str, Any] | None = None,
 ) -> None:
-    """后台写入长期记忆；失败只记录脱敏错误，不阻断主流。"""
+    """后台写入长期记忆；失败只记录脱敏错误，不阻断主流。
+
+    Args:
+        thread_id: 会话线程标识。
+        user_message: 用户消息文本。
+        ai_response_content: AI 回复内容。
+        inputs: 会话输入元数据。
+        user_id: 当前用户标识。
+        api_config: 模型 API 配置，可选。
+    """
     try:
         from ai.memory import get_agent_memory_service, should_skip_write
         from ai.memory.filters import extract_memory_type_hint
@@ -28,13 +37,15 @@ async def write_memory_background(
         if not memory_service.is_enabled:
             return
         memory_type_hint = extract_memory_type_hint(user_message)
+        if memory_type_hint != "preference":
+            return
         metadata: dict[str, Any] = {
             "session_id": thread_id,
             "round_index": inputs.get("round_index", 1),
             "round_type": inputs.get("round_type", "tech_initial"),
+            "memory_type_hint": "preference",
+            "memory_source": "user_preference",
         }
-        if memory_type_hint:
-            metadata["memory_type_hint"] = memory_type_hint
         create_background_task(
             memory_service.add_interaction(
                 user_id=user_id,
@@ -56,7 +67,14 @@ async def get_memory_context(
     memory_types: list[str] | None = None,
     api_config: dict[str, Any] | None = None,
 ) -> tuple[str, list[dict[str, Any]]]:
-    """获取长期记忆上下文；记忆服务不可用时 fail open。"""
+    """获取长期记忆上下文；记忆服务不可用时 fail open。
+
+    Args:
+        user_id: 当前用户标识。
+        query: 记忆检索查询。
+        memory_types: 限定检索的记忆类型列表，可选。
+        api_config: 模型 API 配置，可选。
+    """
     try:
         from ai.memory import format_memory_context, get_agent_memory_service
 

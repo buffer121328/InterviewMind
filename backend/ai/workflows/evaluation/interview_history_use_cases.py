@@ -32,6 +32,11 @@ logger = logging.getLogger(__name__)
 
 
 def _safe_attempt_summary(attempt: Any) -> dict[str, Any]:
+    """safe_attempt_summary 操作。
+
+    Args:
+        attempt: 单次尝试记录。
+    """
     return {
         "attempt_id": int(attempt.id),
         "sequence": int(attempt.sequence),
@@ -51,7 +56,14 @@ class InterviewHistoryEvaluationUseCasesMixin:
         offset: int,
         session_id: str | None = None,
     ) -> dict[str, Any]:
-        """返回 completed session 和可选 attempt 摘要，不返回回答或简历/JD。"""
+        """返回 completed session 和可选 attempt 摘要，不返回回答或简历/JD。
+
+        Args:
+            user_id: 用户 ID，所有者范围限定。
+            limit: 返回数量上限。
+            offset: 偏移量。
+            session_id: 面试会话 ID。
+        """
 
         self._ensure_center_enabled()
         async with UnitOfWork(async_session) as uow:
@@ -102,7 +114,13 @@ class InterviewHistoryEvaluationUseCasesMixin:
     async def get_interview_history_source(
         self, *, user_id: str, attempt_id: int, capability: str
     ) -> dict[str, Any]:
-        """返回一个重新校验并脱敏的可信来源快照。"""
+        """返回一个重新校验并脱敏的可信来源快照。
+
+        Args:
+            user_id: 用户 ID，所有者范围限定。
+            attempt_id: attempt 的 ID。
+            capability: 能力标识。
+        """
 
         self._ensure_center_enabled()
         async with UnitOfWork(async_session) as uow:
@@ -128,7 +146,13 @@ class InterviewHistoryEvaluationUseCasesMixin:
         request: InterviewEvaluationDraftRequest,
         idempotency_key: str | None,
     ) -> dict[str, Any]:
-        """在模型执行前验证所有来源，再创建加密 payload 的 queued AgentRun。"""
+        """在模型执行前验证所有来源，再创建加密 payload 的 queued AgentRun。
+
+        Args:
+            user_id: 用户 ID，所有者范围限定。
+            request: 请求对象。
+            idempotency_key: idempotency 键。
+        """
 
         self._ensure_center_enabled()
         async with UnitOfWork(async_session) as uow:
@@ -171,12 +195,17 @@ class InterviewHistoryEvaluationUseCasesMixin:
             len(request.attempt_ids),
             request.capability,
         )
-        return response.payload
+        return response.body
 
     async def get_interview_history_draft(
         self, *, user_id: str, draft_run_id: str
     ) -> dict[str, Any]:
-        """读取 owner-scoped 草稿任务及其安全结果。"""
+        """读取 owner-scoped 草稿任务及其安全结果。
+
+        Args:
+            user_id: 用户 ID，所有者范围限定。
+            draft_run_id: draft_run 的 ID。
+        """
 
         try:
             payload = await agent_run_use_cases.get_run(
@@ -196,7 +225,14 @@ class InterviewHistoryEvaluationUseCasesMixin:
         request: InterviewEvaluationRetryRequest,
         idempotency_key: str | None,
     ) -> dict[str, Any]:
-        """只把父草稿中选定的失败案例提交为新的整理 AgentRun。"""
+        """只把父草稿中选定的失败案例提交为新的整理 AgentRun。
+
+        Args:
+            user_id: 用户 ID，所有者范围限定。
+            draft_run_id: draft_run 的 ID。
+            request: 请求对象。
+            idempotency_key: idempotency 键。
+        """
 
         self._ensure_center_enabled()
         async with UnitOfWork(async_session) as uow:
@@ -265,7 +301,7 @@ class InterviewHistoryEvaluationUseCasesMixin:
             len(request.attempt_ids),
             capability,
         )
-        return response.payload
+        return response.body
 
     async def confirm_interview_history_draft(
         self,
@@ -274,7 +310,13 @@ class InterviewHistoryEvaluationUseCasesMixin:
         draft_run_id: str,
         request: InterviewEvaluationConfirmRequest,
     ) -> dict[str, Any]:
-        """重验来源后在单一事务中幂等创建 draft Candidate Dataset。"""
+        """重验来源后在单一事务中幂等创建 draft Candidate Dataset。
+
+        Args:
+            user_id: 用户 ID，所有者范围限定。
+            draft_run_id: draft_run 的 ID。
+            request: 请求对象。
+        """
 
         self._ensure_center_enabled()
         async with UnitOfWork(async_session) as uow:

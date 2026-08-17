@@ -1,0 +1,18 @@
+"""岗位库向业务工作台交接的有界上下文模型。"""
+
+from pydantic import BaseModel, Field
+
+
+class JobContextSnapshot(BaseModel):
+    """保存来源身份与用户实际编辑内容的岗位上下文快照。"""
+
+    source_job_id: int = Field(..., gt=0, description="来源岗位库中的岗位 ID")
+    source_platform: str = Field(default="", max_length=50, description="来源平台")
+    source_url: str = Field(default="", max_length=2000, description="来源岗位链接")
+    company_name: str = Field(default="", max_length=200, description="公司名称")
+    company_size_text: str = Field(default="", max_length=100, description="公司规模文本")
+    job_title: str = Field(default="", max_length=200, description="岗位名称")
+    job_description: str = Field(default="", max_length=100_000, description="岗位描述全文")
+    salary_text: str = Field(default="", max_length=100, description="薪资文本")
+    city: str = Field(default="", max_length=100, description="城市")
+    imported_at: str = Field(default="", max_length=100, description="导入时间")

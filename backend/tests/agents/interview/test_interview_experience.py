@@ -9,8 +9,8 @@ from ai.workflows.interview_experience.extractor import extract_questions
 from ai.workflows.interview_experience.providers import NowcoderProvider
 from ai.workflows.interview_experience.quality import ExperienceQuestionQualityService
 from app.api import interview_experience as experience_api
-from app.schemas.experience_provider import ExperienceDocument
-from app.schemas.interview_experience import (
+from app.schemas.interview_experience.experience_provider import ExperienceDocument
+from app.schemas.interview_experience.interview_experience import (
     ExperienceCollectRequest,
     ExperienceGovernanceOutput,
     ExperienceGovernedQuestion,

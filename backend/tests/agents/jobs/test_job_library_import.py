@@ -205,7 +205,7 @@ class TestImportBoundaries:
 
     def test_import_request_requires_one_to_twenty_official_cards(self):
         """请求只接受 1-20 张官方岗位卡片且不要求模型相关字段。"""
-        from app.schemas.job_schemas import JobLibraryImportRequest
+        from app.schemas.jobs.job_schemas import JobLibraryImportRequest
 
         base = {"cards": [make_imported_card()]}
         request = JobLibraryImportRequest(**base)
@@ -244,7 +244,7 @@ class TestImportBoundaries:
     @pytest.mark.asyncio
     async def test_import_use_case_passes_only_cards_and_city_to_service(self):
         """用例只把确定性入库字段交给服务层。"""
-        from app.schemas.job_schemas import JobLibraryImportRequest
+        from app.schemas.jobs.job_schemas import JobLibraryImportRequest
         from ai.workflows.jobs import jobs_use_cases
 
         request = JobLibraryImportRequest(

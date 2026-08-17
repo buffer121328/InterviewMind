@@ -3,7 +3,7 @@ import uuid
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 
-from app.schemas.session import InterviewSession
+from app.schemas.interview.session import InterviewSession
 from sqlalchemy import select, update, delete, func, text
 from app.db.models import async_session, SessionModel, MessageModel
 from .base import BaseService
@@ -37,6 +37,12 @@ class SessionAdvancedService(BaseService):
         锁定父会话后检查是否已有同轮次子会话，避免重复点击或并发请求
         让同一系列出现多个第二轮/第三轮。第四轮、未完成父会话和重复创建
         均通过 ``ValueError`` 返回稳定业务错误，且不会写入新会话。
+
+        Args:
+            parent_session_id: parent_session 的 ID。
+            max_questions: 计划题目数。
+            round_type: 轮次类型。
+            user_id: 用户 ID，所有者范围限定。
         """
         parent = await self.mgmt.get_session(parent_session_id, include_resume_content=True, user_id=user_id)
 
@@ -117,6 +123,11 @@ class SessionAdvancedService(BaseService):
         """克隆会话用于语音面试
 
         自动从源会话继承 user_id，确保用户隔离。
+
+        Args:
+            source_session_id: source_session 的 ID。
+            user_id: 用户 ID，所有者范围限定。
+            max_questions: 计划题目数。
         """
         source = await self.mgmt.get_session(source_session_id, include_resume_content=True, user_id=user_id)
         if not source:
@@ -163,7 +174,13 @@ class SessionAdvancedService(BaseService):
         return await self.mgmt.get_session(new_session_id)
 
     async def rollback_session(self, session_id: str, index: int, user_id: Optional[str] = None) -> bool:
-        """回退会话到指定索引"""
+        """回退会话到指定索引
+
+        Args:
+            session_id: 面试会话 ID。
+            index: 索引位置。
+            user_id: 用户 ID，所有者范围限定。
+        """
         async with async_session() as db:
             try:
                 if not await self._check_session_access(session_id, user_id):
@@ -200,7 +217,12 @@ class SessionAdvancedService(BaseService):
                 return False
 
     async def _clear_checkpoints(self, db, session_id: str) -> None:
-        """清理 LangGraph checkpoint，避免 rollback 后继续使用旧图状态。"""
+        """清理 LangGraph checkpoint，避免 rollback 后继续使用旧图状态。
+
+        Args:
+            db: 数据库会话。
+            session_id: 面试会话 ID。
+        """
         checkpoint_tables = ("checkpoint_writes", "checkpoint_blobs", "checkpoints")
         for table_name in checkpoint_tables:
             try:

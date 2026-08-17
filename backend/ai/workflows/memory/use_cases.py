@@ -1,4 +1,4 @@
-"""提供记忆相关后端功能。"""
+"""记忆管理用例：列表/搜索/历史/合并/清理/增删改，并封装记忆服务不可用时的降级提示。"""
 
 from __future__ import annotations
 
@@ -8,7 +8,9 @@ from dataclasses import dataclass
 from ai.memory.service import get_agent_memory_service
 from app.domain.memory import (
     MEMORY_DISABLED_MESSAGE,
+    MemorySource,
     canonicalize_memory_records,
+    filter_memory_records_by_source,
     memory_history_record_to_item,
     memory_record_to_item,
 )
@@ -33,14 +35,23 @@ logger = logging.getLogger(__name__)
 
 
 async def get_owner_memory_service(user_id: str, api_config: dict | None):
-    """获取用户记忆服务；HTTP 管理用例保留请求级配置适配。"""
+    """获取用户记忆服务；HTTP 管理用例保留请求级配置适配。
+
+    Args:
+        user_id: 当前用户标识（当前实现未使用）。
+        api_config: 请求级模型配置（可选）。
+    """
 
     del user_id
     return await get_agent_memory_service(api_config)
 
 
 def _memory_unavailable_message(memory_service) -> str:
-    """处理记忆不可用消息相关后端逻辑。"""
+    """按记忆服务的就绪状态类别返回用户可读的不可用提示。
+
+    Args:
+        memory_service: 记忆服务实例（用于读取就绪状态类别）。
+    """
     category = getattr(memory_service, "readiness_category", "initialization_failed")
     return {
         "model_channels_missing": MEMORY_DISABLED_MESSAGE,
@@ -53,22 +64,30 @@ def _memory_unavailable_message(memory_service) -> str:
 
 @dataclass(slots=True)
 class MemoryUseCaseError(Exception):
-    """定义记忆用例案例错误相关后端数据结构或服务组件。"""
+    """记忆用例业务异常。"""
 
-    message: str
+    message: str  # 面向用户的可读错误信息
 
 
 class MemoryUseCases:
-    """定义记忆用例案例相关后端数据结构或服务组件。"""
+    """记忆管理用例：封装记忆服务的列表、搜索、历史与生命周期操作。"""
 
     async def list_memories(
         self,
         *,
         user_id: str,
         page_size: int,
+        sources: list[MemorySource] | None = None,
         api_config: dict | None = None,
     ) -> MemoryListResponse:
-        """列出记忆相关后端逻辑。"""
+        """分页列出当前用户记忆，并按来源过滤；服务不可用时返回空结果。
+
+        Args:
+            user_id: 当前用户标识。
+            page_size: 单页返回数量上限。
+            sources: 需要过滤的记忆来源（可选，None 表示不过滤）。
+            api_config: 请求级模型配置（可选）。
+        """
         memory_service = await get_owner_memory_service(user_id, api_config)
         if not memory_service.is_enabled:
             return MemoryListResponse(
@@ -81,7 +100,8 @@ class MemoryUseCases:
 
         records = await memory_service.get_all(user_id=user_id, page_size=page_size)
         canonical_records = canonicalize_memory_records(records)
-        memories = [MemoryItem(**memory_record_to_item(record)) for record in canonical_records]
+        source_filtered_records = filter_memory_records_by_source(canonical_records, sources)
+        memories = [MemoryItem(**memory_record_to_item(record)) for record in source_filtered_records]
         return MemoryListResponse(
             success=True,
             memories=memories,
@@ -96,9 +116,19 @@ class MemoryUseCases:
         query: str,
         limit: int,
         memory_type: str | None,
+        sources: list[MemorySource] | None = None,
         api_config: dict | None = None,
     ) -> MemorySearchResponse:
-        """搜索记忆相关后端逻辑。"""
+        """按关键词与记忆类型搜索当前用户记忆，并按来源过滤。
+
+        Args:
+            user_id: 当前用户标识。
+            query: 搜索关键词。
+            limit: 返回数量上限。
+            memory_type: 记忆类型过滤（可选）。
+            sources: 需要过滤的记忆来源（可选，None 表示不过滤）。
+            api_config: 请求级模型配置（可选）。
+        """
         memory_service = await get_owner_memory_service(user_id, api_config)
         if not memory_service.is_enabled:
             return MemorySearchResponse(
@@ -117,7 +147,8 @@ class MemoryUseCases:
             memory_types=memory_types,
         )
         canonical_records = canonicalize_memory_records(records)
-        memories = [MemoryItem(**memory_record_to_item(record)) for record in canonical_records]
+        source_filtered_records = filter_memory_records_by_source(canonical_records, sources)
+        memories = [MemoryItem(**memory_record_to_item(record)) for record in source_filtered_records]
         return MemorySearchResponse(success=True, memories=memories, query=query, total=len(memories))
 
     async def get_history(
@@ -127,7 +158,13 @@ class MemoryUseCases:
         memory_id: str,
         api_config: dict | None = None,
     ) -> MemoryHistoryResponse:
-        """获取历史相关后端逻辑。"""
+        """获取单条记忆的变更历史。
+
+        Args:
+            user_id: 当前用户标识。
+            memory_id: 记忆标识。
+            api_config: 请求级模型配置（可选）。
+        """
         memory_service = await get_owner_memory_service(user_id, api_config)
         if not memory_service.is_enabled:
             return MemoryHistoryResponse(
@@ -150,7 +187,13 @@ class MemoryUseCases:
         user_id: str,
         request: MemoryConsolidateRequest,
     ) -> MemoryConsolidationResponse:
-        """处理合并记忆相关后端逻辑。"""
+        """整合/合并长期记忆；支持 dry_run 预览，实际写入前必须显式确认。
+
+        Args:
+            user_id: 当前用户标识。
+            request: 记忆合并请求。
+        """
+        # 安全关卡：非 dry_run 时必须显式 confirm，防止误操作改写长期记忆
         if not request.dry_run and not request.confirm:
             raise MemoryUseCaseError("实际整合长期记忆前必须显式 confirm=true")
 
@@ -178,8 +221,14 @@ class MemoryUseCases:
         user_id: str,
         request: MemoryCleanupRequest,
     ) -> MemoryCleanupResponse:
-        """清理记忆相关后端逻辑。"""
+        """清理过期长期记忆；支持 dry_run 预览，实际清理前必须显式确认。
 
+        Args:
+            user_id: 当前用户标识。
+            request: 记忆清理请求。
+        """
+
+        # 安全关卡：非 dry_run 时必须显式 confirm，防止误删长期记忆
         if not request.dry_run and not request.confirm:
             raise MemoryUseCaseError("应用长期记忆清理前必须显式 confirm=true")
         api_config = request.api_config.model_dump() if request.api_config else None
@@ -205,7 +254,12 @@ class MemoryUseCases:
         user_id: str,
         request: MemoryCreateRequest,
     ) -> MemoryWriteResponse:
-        """处理新增记忆相关后端逻辑。"""
+        """为当前用户新增一条长期记忆。
+
+        Args:
+            user_id: 用户 ID，所有者范围限定。
+            request: 请求对象。
+        """
         api_config = request.api_config.model_dump() if request.api_config else None
         memory_service = await get_owner_memory_service(user_id, api_config)
         if not memory_service.is_enabled:
@@ -214,6 +268,7 @@ class MemoryUseCases:
             user_id=user_id,
             content=request.content,
             memory_type=request.memory_type,
+            memory_source=(request.memory_source.value if request.memory_source else None),
         )
         memory_id = _memory_id_from_result(result)
         if not memory_id:
@@ -227,7 +282,13 @@ class MemoryUseCases:
         memory_id: str,
         request: MemoryUpdateRequest,
     ) -> MemoryWriteResponse:
-        """更新记忆相关后端逻辑。"""
+        """更新当前用户指定记忆的内容。
+
+        Args:
+            user_id: 用户 ID，所有者范围限定。
+            memory_id: memory 的 ID。
+            request: 请求对象。
+        """
         api_config = request.api_config.model_dump() if request.api_config else None
         memory_service = await get_owner_memory_service(user_id, api_config)
         if not memory_service.is_enabled:
@@ -248,7 +309,13 @@ class MemoryUseCases:
         memory_id: str,
         api_config: dict | None = None,
     ) -> MemoryDeleteResponse:
-        """删除记忆相关后端逻辑。"""
+        """删除当前用户指定的一条记忆。
+
+        Args:
+            user_id: 用户 ID，所有者范围限定。
+            memory_id: memory 的 ID。
+            api_config: 前端请求携带的模型通道配置。
+        """
         memory_service = await get_owner_memory_service(user_id, api_config)
         if not memory_service.is_enabled:
             return MemoryDeleteResponse(success=False, message=_memory_unavailable_message(memory_service))
@@ -271,7 +338,12 @@ class MemoryUseCases:
         user_id: str,
         request: MemoryDeleteAllRequest,
     ) -> MemoryDeleteResponse:
-        """删除记忆相关后端逻辑。"""
+        """在 confirm 为 true 时清空当前用户的全部记忆。
+
+        Args:
+            user_id: 用户 ID，所有者范围限定。
+            request: 请求对象。
+        """
         if not request.confirm:
             return MemoryDeleteResponse(success=False, message="需要 confirm=true 才能清空全部记忆")
 
@@ -290,7 +362,11 @@ memory_use_cases = MemoryUseCases()
 
 
 def _memory_id_from_result(result: object) -> str | None:
-    """处理记忆ID来源结果相关后端逻辑。"""
+    """从记忆服务结果中提取记忆 ID（兼容 id 字段或 results[0].id）。
+
+    Args:
+        result: 结果对象。
+    """
     if not isinstance(result, dict):
         return None
     if isinstance(result.get("id"), str):

@@ -1,11 +1,11 @@
-"""提供Langfuse提示词相关后端功能。"""
+"""Langfuse 提示词管理 API 路由。"""
 
 import asyncio
 from collections.abc import Callable
-from typing import Annotated
-from typing import TypeVar
+from typing import Annotated, TypeVar
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+
 from ai.prompts.management_catalog import is_retired_managed_prompt
 from ai.workflows.evaluation import EvaluationUseCaseError, evaluation_use_cases
 from ai.workflows.prompts.management import (
@@ -25,13 +25,12 @@ from app.schemas.langfuse_prompts import (
     PromptVersionResponse,
 )
 
-
 router = APIRouter(prefix="/api/langfuse/prompts", tags=["Prompt Management"])
 T = TypeVar("T")
 
 
 def _service() -> LangfusePromptManagementService:
-    """处理服务相关后端逻辑。"""
+    """构建 Langfuse 提示词管理服务实例。"""
     return LangfusePromptManagementService()
 
 
@@ -46,7 +45,11 @@ def _reject_retired_prompt(name: str) -> None:
 
 
 async def _remote(action: Callable[[], T]) -> T:
-    """处理Langfuse提示词相关后端逻辑。"""
+    """在线程中执行同步远程调用，并将远端错误映射为 HTTP 异常。
+
+    Args:
+        action: 待执行的同步远程调用。
+    """
     try:
         return await asyncio.to_thread(action)
     except PromptManagementUnavailable as exc:
@@ -68,7 +71,15 @@ async def list_prompts(
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     label: Annotated[str | None, Query(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")] = None,
 ) -> PromptListResponse:
-    """列出提示词相关后端逻辑。"""
+    """分页列出 Langfuse 提示词。
+
+    Args:
+        _user_id: 当前用户 ID（仅用于鉴权）。
+        page: 页码（从 1 开始）。
+        limit: 每页条数。
+        label: 按标签过滤；'latest' 为保留值禁止使用。
+    """
+    # 防止客户端用保留标签 latest 冒充最新版本查询
     if label == "latest":
         raise HTTPException(status_code=422, detail="label cannot be 'latest'")
     result = await _remote(lambda: _service().list_prompts(page=page, limit=limit, label=label))
@@ -87,7 +98,15 @@ async def fetch_prompt(
     version: Annotated[int | None, Query(ge=0)] = None,
     label: Annotated[str | None, Query(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")] = None,
 ) -> PromptVersionResponse:
-    """获取提示词相关后端逻辑。"""
+    """按版本或标签二选一获取指定提示词。
+
+    Args:
+        name: 提示词名称。
+        _user_id: 当前用户 ID（仅用于鉴权）。
+        version: 版本号；与 label 二选一。
+        label: 标签；与 version 二选一，'latest' 为保留值。
+    """
+    # 版本与标签必须且只能提供一个
     if (version is None) == (label is None):
         raise HTTPException(status_code=422, detail="provide exactly one of version or label")
     if label == "latest":
@@ -103,7 +122,12 @@ async def create_prompt_version(
     request: PromptCreateRequest,
     _user_id: str = Depends(get_current_user_id),
 ) -> PromptVersionResponse:
-    """创建提示词版本相关后端逻辑。"""
+    """为提示词创建新版本。
+
+    Args:
+        request: 提示词创建请求体。
+        _user_id: 当前用户 ID（仅用于鉴权）。
+    """
     _reject_retired_prompt(request.name)
     return await _remote(lambda: _service().create_version(request))
 
@@ -115,7 +139,14 @@ async def update_prompt_labels(
     version: Annotated[int, Query(ge=1)],
     _user_id: str = Depends(get_current_user_id),
 ) -> PromptVersionResponse:
-    """更新提示词标签相关后端逻辑。"""
+    """更新指定提示词版本的标签集合。
+
+    Args:
+        request: 标签更新请求体。
+        name: 提示词名称。
+        version: 目标版本号。
+        _user_id: 当前用户 ID（仅用于鉴权）。
+    """
     _reject_retired_prompt(name)
     return await _remote(
         lambda: _service().update_labels(
@@ -131,8 +162,14 @@ async def promote_prompt_to_production(
     request: PromptProductionPromotionRequest,
     user_id: str = Depends(get_current_user_id),
 ) -> PromptVersionResponse:
-    """提升提示词生产相关后端逻辑。"""
+    """校验评估通过后，将提示词版本提升到 production 标签。
+
+    Args:
+        request: 生产提升请求体。
+        user_id: 当前用户 ID（用于评估校验）。
+    """
     _reject_retired_prompt(request.name)
+    # 提升前先校验该版本是否通过评估，未通过则拒绝
     try:
         await evaluation_use_cases.validate_prompt_promotion(
             user_id=user_id,
@@ -155,7 +192,11 @@ async def promote_prompt_to_production(
 async def sync_builtin_prompts(
     _user_id: str = Depends(get_current_user_id),
 ) -> PromptBuiltinSyncResponse:
-    """同步内置提示词相关后端逻辑。"""
+    """将内置提示词同步到 Langfuse 生产环境。
+
+    Args:
+        _user_id: 当前用户 ID（仅用于鉴权）。
+    """
     return await _remote(lambda: _service().sync_builtin_production_prompts())
 
 
@@ -164,7 +205,12 @@ async def preview_prompt(
     request: PromptPreviewRequest,
     _user_id: str = Depends(get_current_user_id),
 ) -> PromptPreviewResponse:
-    """预览提示词相关后端逻辑。"""
+    """使用给定变量值预览提示词渲染结果。
+
+    Args:
+        request: 提示词预览请求体。
+        _user_id: 当前用户 ID（仅用于鉴权）。
+    """
     _reject_retired_prompt(request.name)
     return await _remote(
         lambda: _service().preview(

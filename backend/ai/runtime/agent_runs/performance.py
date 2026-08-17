@@ -1,11 +1,12 @@
-"""提供性能相关后端功能。"""
+"""模型指标事件的聚合、序列化与性能查询。"""
 
 from __future__ import annotations
 
-from collections import Counter
-from datetime import timedelta
+from collections import Counter, defaultdict
+from datetime import datetime, timedelta, timezone
 from math import ceil
 from typing import Any, Iterable
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, select
 
@@ -13,13 +14,38 @@ from app.clock import utc_isoformat, utc_now
 from app.db.models import AgentRunModel, ModelMetricEventModel, async_session
 
 
+_PERFORMANCE_TIME_ZONE = ZoneInfo("Asia/Shanghai")
+
+
 def _number(value: Any) -> float:
-    """处理性能相关后端逻辑。"""
+    """把数值类型的值安全转为 float，其他类型返回 0.0。
+
+    Args:
+        value: 待转换的值。
+    """
     return float(value) if isinstance(value, (int, float)) else 0.0
 
 
+def _nonnegative_number(value: Any) -> float | None:
+    """返回已上报的非负数值；缺失值不伪造成零。
+
+    Args:
+        value: 值。
+    """
+
+    if not isinstance(value, (int, float)):
+        return None
+    normalized = float(value)
+    return normalized if normalized >= 0 else None
+
+
 def _percentile(values: list[float], percentile: float) -> float | None:
-    """处理性能相关后端逻辑。"""
+    """按最近邻法计算有序样本的百分位数；空样本返回 None。
+
+    Args:
+        values: 样本值列表。
+        percentile: 目标百分位（0~1）。
+    """
     if not values:
         return None
     ordered = sorted(values)
@@ -29,7 +55,12 @@ def _percentile(values: list[float], percentile: float) -> float | None:
 def summarize_model_metric_events(
     events: Iterable[dict[str, Any]], *, run_statuses: Iterable[str] = ()
 ) -> dict[str, Any]:
-    """汇总模型指标事件相关后端逻辑。"""
+    """聚合模型指标事件，产出吞吐、时延、降级与上下文截断等汇总。
+
+    Args:
+        events: 模型指标事件 payload 字典序列。
+        run_statuses: 关联 AgentRun 的状态序列，用于计算运行成功率。
+    """
     rows = list(events)
     started = [row for row in rows if row.get("event_type") == "llm.request.started"]
     completed = [row for row in rows if row.get("event_type") == "llm.request.completed"]
@@ -38,9 +69,22 @@ def summarize_model_metric_events(
     fallback = [row for row in started if int(row.get("fallback_index") or 0) > 0]
     retries = [row for row in started if int(row.get("attempt") or 1) > 1]
     timeouts = [row for row in rows if row.get("event_type") in {"llm.request.failed", "llm.request.skipped"} and row.get("failure_type") == "timeout"]
-    durations = [_number(row.get("model_duration_ms")) for row in terminal if _number(row.get("model_duration_ms")) >= 0]
+    durations = [
+        duration
+        for row in terminal
+        if (duration := _nonnegative_number(row.get("model_duration_ms"))) is not None
+    ]
     authoritative = [row for row in rows if "authoritative_source_truncated" in row]
     overflow = Counter(str(row.get("overflow_strategy") or "unspecified") for row in authoritative)
+    cache_samples = [row for row in completed if isinstance(row.get("cache_hit"), bool)]
+    token_samples = [
+        row
+        for row in completed
+        if isinstance(row.get("input_tokens"), (int, float))
+        or isinstance(row.get("output_tokens"), (int, float))
+    ]
+    input_tokens = int(sum(_number(row.get("input_tokens")) for row in completed))
+    output_tokens = int(sum(_number(row.get("output_tokens")) for row in completed))
     statuses = list(run_statuses)
     succeeded = sum(status == "succeeded" for status in statuses)
     return {
@@ -52,10 +96,11 @@ def summarize_model_metric_events(
         "call_amplification": len(started) / len(logical) if logical else None,
         "p50_model_duration_ms": _percentile(durations, 0.50),
         "p95_model_duration_ms": _percentile(durations, 0.95),
-        "input_tokens": int(sum(_number(row.get("input_tokens")) for row in completed)),
-        "output_tokens": int(sum(_number(row.get("output_tokens")) for row in completed)),
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "total_tokens": input_tokens + output_tokens if token_samples else None,
         "cache_read_tokens": int(sum(_number(row.get("cache_read_tokens")) for row in completed)),
-        "cache_hit_rate": sum(bool(row.get("cache_hit")) for row in completed) / len(completed) if completed else None,
+        "cache_hit_rate": sum(row["cache_hit"] is True for row in cache_samples) / len(cache_samples) if cache_samples else None,
         "retry_rate": len(retries) / len(started) if started else None,
         "fallback_rate": len(fallback) / len(started) if started else None,
         "timeout_rate": len(timeouts) / len(terminal) if terminal else None,
@@ -69,8 +114,227 @@ def summarize_model_metric_events(
     }
 
 
+_MODEL_TREND_TOP_LIMIT = 5
+_OTHER_MODELS_LABEL = "其他模型"
+
+
+def _performance_day(created_at: Any) -> str | None:
+    """将数据库 UTC 时间映射为性能中心使用的中国标准日期。
+
+    Args:
+        created_at: created 时间。
+    """
+
+    if not isinstance(created_at, datetime):
+        return None
+    utc_value = (
+        created_at.replace(tzinfo=timezone.utc)
+        if created_at.tzinfo is None
+        else created_at.astimezone(timezone.utc)
+    )
+    return utc_value.astimezone(_PERFORMANCE_TIME_ZONE).date().isoformat()
+
+
+def _event_payload(event: Any) -> dict[str, Any]:
+    """读取模型事件的已脱敏载荷，非字典载荷按空值处理。"""
+
+    raw_payload = event.get("payload", {}) if isinstance(event, dict) else getattr(event, "payload", {})
+    return raw_payload if isinstance(raw_payload, dict) else {}
+
+
+def _event_type(event: Any) -> str:
+    """读取模型事件类型，兼容 ORM 行与纯函数测试输入。"""
+
+    value = event.get("event_type") if isinstance(event, dict) else getattr(event, "event_type", "")
+    return str(value or "")
+
+
+def _event_model_identity(event: Any) -> tuple[str, str | None] | None:
+    """返回安全持久化的模型名和 Provider；未标记模型不进入按模型趋势。"""
+
+    payload = _event_payload(event)
+    model_name = str(payload.get("model_name") or "").strip()
+    if not model_name:
+        return None
+    model_provider = str(payload.get("model_provider") or "").strip() or None
+    return model_name, model_provider
+
+
+def _performance_trend_metrics(events: list[dict[str, Any]]) -> dict[str, Any]:
+    """将一天或一个模型桶转换为不含原始载荷的安全指标。"""
+
+    summary = summarize_model_metric_events(events)
+    return {
+        "logical_call_count": summary["logical_call_count"],
+        "physical_request_count": summary["physical_request_count"],
+        "retry_count": sum(
+            event["event_type"] == "llm.request.started"
+            and _event_int(event, "attempt", 1) > 1
+            for event in events
+        ),
+        "fallback_count": sum(
+            event["event_type"] == "llm.request.started"
+            and _event_int(event, "fallback_index") > 0
+            for event in events
+        ),
+        "timeout_count": sum(
+            event["event_type"] in {"llm.request.failed", "llm.request.skipped"}
+            and str(event.get("failure_type") or "").lower() in {"timeout", "deadline"}
+            for event in events
+        ),
+        "p95_model_duration_ms": summary["p95_model_duration_ms"],
+        "input_tokens": summary["input_tokens"],
+        "output_tokens": summary["output_tokens"],
+        "total_tokens": summary["total_tokens"],
+    }
+
+
+def _model_provider_label(providers: set[str]) -> str | None:
+    """将同一模型的已知 Provider 压缩为可展示的安全标签。"""
+
+    return "、".join(sorted(providers)) or None
+
+
+def build_performance_model_options(events: Iterable[Any]) -> list[dict[str, str | None]]:
+    """返回按逻辑调用量排序的可筛选模型名和 Provider，不暴露事件载荷。
+
+    Args:
+        events: 已完成 owner、时间和任务过滤的模型事件。
+    """
+
+    providers_by_model: dict[str, set[str]] = defaultdict(set)
+    logical_calls: Counter[str] = Counter()
+    for event in events:
+        identity = _event_model_identity(event)
+        if identity is None:
+            continue
+        model_name, model_provider = identity
+        if model_provider:
+            providers_by_model[model_name].add(model_provider)
+        else:
+            providers_by_model.setdefault(model_name, set())
+        payload = _event_payload(event)
+        if (
+            _event_type(event) == "llm.request.started"
+            and _event_int(payload, "attempt", 1) == 1
+            and _event_int(payload, "fallback_index") == 0
+        ):
+            logical_calls[model_name] += 1
+
+    return [
+        {
+            "model_name": model_name,
+            "model_provider": _model_provider_label(providers_by_model[model_name]),
+        }
+        for model_name in sorted(
+            providers_by_model,
+            key=lambda name: (-logical_calls[name], name.casefold()),
+        )
+    ]
+
+
+def build_performance_daily_trend(events: Iterable[Any]) -> list[dict[str, Any]]:
+    """按产品时区生成不含原始 payload 的每日安全性能聚合。
+
+    Args:
+        events: 事件列表。
+    """
+
+    buckets: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for event in events:
+        created_at = event.get("created_at") if isinstance(event, dict) else getattr(event, "created_at", None)
+        day = _performance_day(created_at)
+        if day is None:
+            continue
+        buckets[day].append({**_event_payload(event), "event_type": _event_type(event)})
+
+    return [
+        {"date": day, **_performance_trend_metrics(buckets[day])}
+        for day in sorted(buckets)
+    ]
+
+
+def build_model_performance_daily_trend(
+    events: Iterable[Any], *, model_name: str | None = None,
+) -> list[dict[str, Any]]:
+    """按实际模型名生成每日安全调用趋势，默认保留前五个模型并归并其余模型。
+
+    Args:
+        events: 已完成 owner、时间和任务过滤的模型事件。
+        model_name: 可选的实际模型名；给定后只输出该模型的聚合。
+    """
+
+    selected_model = str(model_name or "").strip() or None
+    buckets: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    providers_by_model: dict[str, set[str]] = defaultdict(set)
+    for event in events:
+        identity = _event_model_identity(event)
+        if identity is None:
+            continue
+        current_model, model_provider = identity
+        if selected_model and current_model != selected_model:
+            continue
+        created_at = event.get("created_at") if isinstance(event, dict) else getattr(event, "created_at", None)
+        day = _performance_day(created_at)
+        if day is None:
+            continue
+        if model_provider:
+            providers_by_model[current_model].add(model_provider)
+        else:
+            providers_by_model.setdefault(current_model, set())
+        buckets[(day, current_model)].append({
+            **_event_payload(event),
+            "event_type": _event_type(event),
+        })
+
+    logical_calls = {
+        current_model: sum(
+            _performance_trend_metrics(rows)["logical_call_count"]
+            for (day, name), rows in buckets.items()
+            if name == current_model
+        )
+        for current_model in providers_by_model
+    }
+    ranked_models = sorted(
+        providers_by_model,
+        key=lambda name: (-logical_calls[name], name.casefold()),
+    )
+    visible_models = ranked_models if selected_model else ranked_models[:_MODEL_TREND_TOP_LIMIT]
+    other_models = set(ranked_models) - set(visible_models)
+
+    trend: list[dict[str, Any]] = []
+    days = sorted({day for day, _ in buckets})
+    for day in days:
+        for current_model in visible_models:
+            rows = buckets.get((day, current_model))
+            if rows:
+                trend.append({
+                    "date": day,
+                    "model_name": current_model,
+                    "model_provider": _model_provider_label(providers_by_model[current_model]),
+                    **_performance_trend_metrics(rows),
+                })
+        other_rows = [
+            event
+            for current_model in other_models
+            for event in buckets.get((day, current_model), [])
+        ]
+        if other_rows:
+            trend.append({
+                "date": day,
+                "model_name": _OTHER_MODELS_LABEL,
+                "model_provider": None,
+                **_performance_trend_metrics(other_rows),
+            })
+    return trend
+
+
 def serialize_model_metric_event(row: ModelMetricEventModel) -> dict[str, Any]:
-    """序列化模型指标事件相关后端逻辑。"""
+    """把模型指标事件模型序列化为对外字典。
+
+    Args:
+        row: 模型指标事件数据库模型实例。
+    """
     return {
         "event_id": str(row.id), "run_id": row.run_id, "trace_id": row.trace_id,
         "agent_name": row.agent_name, "task_type": row.task_type, "stage": row.stage,
@@ -350,10 +614,24 @@ async def query_task_health(
 
 async def query_performance(
     *, user_id: str, days: int = 7, task_type: str | None = None,
-    agent_name: str | None = None, degradations_only: bool = False,
-    limit: int = 100, offset: int = 0,
+    agent_name: str | None = None, model_name: str | None = None,
+    degradations_only: bool = False, limit: int = 100, offset: int = 0,
 ) -> tuple[list[ModelMetricEventModel], int, list[str]]:
-    """处理性能相关后端逻辑。"""
+    """按条件分页查询模型指标事件并返回匹配总数与运行状态。
+
+    Args:
+        user_id: 用户 ID，限定所有者范围。
+        days: 查询时间范围（天），最大 90。
+        task_type: 按任务类型过滤；None 表示不过滤。
+        agent_name: 按 Agent 名过滤；None 表示不过滤。
+        model_name: 按安全持久化的实际模型名过滤；None 表示不过滤。
+        degradations_only: 仅返回降级（is_degradation）事件。
+        limit: 返回行数上限。
+        offset: 分页偏移量。
+
+    Returns:
+        (事件行列表, 匹配总条数, 关联 AgentRun 状态列表)。
+    """
     since = utc_now() - timedelta(days=max(1, min(days, 90)))
     filters = [ModelMetricEventModel.user_id == user_id, ModelMetricEventModel.created_at >= since]
     run_filters = [AgentRunModel.user_id == user_id, AgentRunModel.created_at >= since]
@@ -363,6 +641,9 @@ async def query_performance(
     if agent_name:
         filters.append(ModelMetricEventModel.agent_name == agent_name)
         run_filters.append(AgentRunModel.agent_name == agent_name)
+    normalized_model_name = str(model_name or "").strip() or None
+    if normalized_model_name:
+        filters.append(ModelMetricEventModel.payload["model_name"].as_string() == normalized_model_name)
     if degradations_only:
         filters.append(ModelMetricEventModel.is_degradation.is_(True))
     async with async_session() as session:
@@ -372,13 +653,39 @@ async def query_performance(
             .order_by(ModelMetricEventModel.created_at.desc(), ModelMetricEventModel.id.desc())
             .limit(limit).offset(offset)
         )).all())
-        statuses = list((await session.scalars(select(AgentRunModel.status).where(*run_filters))).all())
+        if normalized_model_name:
+            matching_run_ids = {row.run_id for row in rows}
+            statuses = [] if not matching_run_ids else list((await session.scalars(
+                select(AgentRunModel.status).where(
+                    *run_filters, AgentRunModel.id.in_(matching_run_ids)
+                )
+            )).all())
+        else:
+            statuses = list((await session.scalars(select(AgentRunModel.status).where(*run_filters))).all())
     return rows, total, statuses
 
 
 async def performance_overview(**kwargs: Any) -> dict[str, Any]:
-    """处理性能相关后端逻辑。"""
-    rows, total, statuses = await query_performance(limit=5000, offset=0, **kwargs)
+    """返回性能总览：汇总大量事件并附上匹配总数。
+
+    Args:
+        **kwargs: 透传给 query_performance 的过滤与分页参数。
+    """
+    query_kwargs = dict(kwargs)
+    selected_model = str(query_kwargs.pop("model_name", "") or "").strip() or None
+    rows, total, statuses = await query_performance(
+        limit=5000, offset=0, model_name=selected_model, **query_kwargs,
+    )
+    option_rows = rows
+    if selected_model:
+        option_rows, _, _ = await query_performance(
+            limit=5000, offset=0, **query_kwargs,
+        )
     summary = summarize_model_metric_events((row.payload or {} for row in rows), run_statuses=statuses)
     summary["total_matching_events"] = total
+    summary["daily_trend"] = build_performance_daily_trend(rows)
+    summary["available_models"] = build_performance_model_options(option_rows)
+    summary["model_daily_trend"] = build_model_performance_daily_trend(
+        rows, model_name=selected_model,
+    )
     return summary

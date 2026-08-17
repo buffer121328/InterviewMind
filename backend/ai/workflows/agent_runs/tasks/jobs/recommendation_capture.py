@@ -1,4 +1,4 @@
-"""提供岗位相关后端功能。"""
+"""岗位推荐页一键采集与入库的 AgentRun 兼容任务。"""
 
 from ai.workflows.agent_runs.contracts import ExecutionResult, ProgressCallback
 from observability import agent_observation
@@ -9,7 +9,13 @@ async def execute_job_recommendation_capture(
     user_id: str,
     progress: ProgressCallback,
 ) -> ExecutionResult:
-    """执行岗位相关后端逻辑。"""
+    """执行岗位推荐采集：抽取技能、调用采集服务并观测上报。
+
+    Args:
+        payload: 任务入参（resume_content、cards、query、api_config 等）。
+        user_id: 运行归属用户。
+        progress: 阶段进度回调。
+    """
     from ai.agents.resume.resume_extract import extract_professional_skills
     from ai.workflows.jobs.job_capture_service import (
         capture_from_imported_cards,
@@ -36,6 +42,7 @@ async def execute_job_recommendation_capture(
             "resume_skills_matched": resume_extraction.matched,
             "top_n": int(payload.get("top_n", 3)),
             "has_city": bool(payload.get("city")),
+            "experience": str(payload.get("experience") or "any"),
             "imported_card_count": min(len(imported_cards), 20),
             "has_source_page": bool(payload.get("source_page_url")),
         },
@@ -49,6 +56,7 @@ async def execute_job_recommendation_capture(
             api_config=payload.get("api_config"),
             top_n=int(payload.get("top_n", 3)),
             city=payload.get("city"),
+            experience=str(payload.get("experience") or "any"),
             progress=progress,
             run_id=run_id,
         )
@@ -56,6 +64,7 @@ async def execute_job_recommendation_capture(
             {
                 "success": bool(result.get("success")),
                 "result_count": int(result.get("total", 0)),
+                "experience_excluded_count": int(result.get("experience_excluded_count", 0)),
             }
         )
         if not result.get("success"):

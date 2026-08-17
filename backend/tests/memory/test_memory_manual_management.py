@@ -32,6 +32,7 @@ async def test_manual_add_stores_raw_content_without_inference():
         user_id="user-1",
         content="我偏好使用 FastAPI",
         memory_type="preference",
+        memory_source="user_preference",
     )
 
     assert result["results"][0]["id"] == "memory-1"
@@ -42,6 +43,7 @@ async def test_manual_add_stores_raw_content_without_inference():
     assert kwargs["infer"] is False
     assert kwargs["run_id"] == "manual-memory"
     assert kwargs["metadata"]["memory_type"] == "preference"
+    assert kwargs["metadata"]["memory_source"] == "user_preference"
 
 
 @pytest.mark.asyncio
@@ -64,7 +66,7 @@ async def test_update_memory_checks_owner_before_calling_mem0():
 
 
 @pytest.mark.asyncio
-async def test_summary_memory_does_not_duplicate_assistant_generated_report():
+async def test_summary_memory_stores_only_report_weakness_with_provenance():
     memory = _FakeMemory()
     service = AgentMemoryService({"version": "test"})
     service._memory = memory
@@ -73,12 +75,19 @@ async def test_summary_memory_does_not_duplicate_assistant_generated_report():
     result = await service.add_summary_memory(
         user_id="user-1",
         session_id="session-1",
-        content="用户需要加强 FastAPI 并发控制",
+        content="面试短板：FastAPI 并发控制不足",
         memory_type="weakness",
+        metadata={"report_generated": True},
     )
 
-    assert result is None
-    assert memory.add_calls == []
+    assert result["results"][0]["id"] == "memory-1"
+    args, kwargs = memory.add_calls[0]
+    assert args == ("面试短板：FastAPI 并发控制不足",)
+    assert kwargs["infer"] is False
+    assert kwargs["metadata"]["source"] == "interview_report"
+    assert kwargs["metadata"]["memory_source"] == "interview_weakness"
+    assert kwargs["metadata"]["session_id"] == "session-1"
+    assert kwargs["metadata"]["report_generated"] is True
 
 class _DuplicateAwareMemory:
     """Fake mem0 client that exposes one existing owner-scoped memory."""

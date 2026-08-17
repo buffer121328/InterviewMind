@@ -11,7 +11,6 @@ import { API_BASE_URL } from "@/lib/api/config";
 import { parseSavedMainView, requiresApiConfig, type MainView } from "@/lib/navigation";
 import { isInterviewFinished } from "@/lib/interviewSeries";
 import type { JobContextSnapshot } from "@/lib/jobContextHandoff";
-import type { TargetedInterviewHandoff } from "@/lib/interviewReportStructured";
 import { buildInterviewEvaluationHandoff } from "@/lib/interviewHistoryEvaluation";
 import { toast } from "sonner";
 import { ResumeTools } from "@/components/ResumeTools";
@@ -94,7 +93,6 @@ export default function InterviewPage() {
     maxQuestions,
     interviewType,
     questionBankCount,
-    experienceQuestions,
     currentSession,
     showAbilityProfile,
     apiConfig, // 订阅 apiConfig 以便配置更新时自动刷新
@@ -112,7 +110,6 @@ export default function InterviewPage() {
     setMaxQuestions,
     setInterviewType,
     setQuestionBankCount,
-    setExperienceQuestions,
     uploadResume,
     startInterview,
     sendMessage,
@@ -427,19 +424,6 @@ export default function InterviewPage() {
     }
   };
 
-  /** Opens an editable专项面试 setup from persisted report recommendations without creating a run. */
-  const handleStartTargetedInterview = (handoff: TargetedInterviewHandoff) => {
-    useInterviewStore.getState().createNewSession();
-    setJobContextSnapshot(null);
-    setJobDescription(handoff.trainingGoal);
-    setCompanyInfo('来源：面试复盘专项训练');
-    setExperienceQuestions(handoff.questions);
-    setStoreShowAbilityProfile(false);
-    setHistoryDetailSessionId(null);
-    setActiveMainTab('interview');
-    toast.success(`已导入 ${handoff.questions.length} 道专项练习题，请确认后开始面试`);
-  };
-
   /** Prefills the editable interview setup from one owner-scoped job snapshot without starting a run. */
   const handleUseJobInInterview = (snapshot: JobContextSnapshot) => {
     handleInterviewJobContextChange(snapshot);
@@ -639,7 +623,6 @@ export default function InterviewPage() {
             key={`${historyDetailSessionId}-${historyDetailInitialTab}`}
             sessionId={historyDetailSessionId}
             initialTab={historyDetailInitialTab}
-            onStartTargetedInterview={handleStartTargetedInterview}
             onOpenEvaluationCenter={() => {
               setHistoryDetailSessionId(null);
               setActiveMainTab('evaluations');
@@ -735,7 +718,6 @@ export default function InterviewPage() {
                 onInterviewTypeChange={setInterviewType}
                 questionBankCount={questionBankCount}
                 onQuestionBankCountChange={setQuestionBankCount}
-                experienceQuestionCount={experienceQuestions.length}
                 isLoading={isLoading}
                 hasApiConfig={hasApiConfig}
                 onStartInterview={handleStartInterview}
@@ -812,7 +794,6 @@ export default function InterviewPage() {
             key={historyDetailSessionId}
             sessionId={historyDetailSessionId}
             initialTab={historyDetailInitialTab}
-            onStartTargetedInterview={handleStartTargetedInterview}
             onOpenEvaluationCenter={(datasetId) => {
               const handoff = buildInterviewEvaluationHandoff(datasetId);
               setEvaluationFocusDatasetId(handoff.datasetId);

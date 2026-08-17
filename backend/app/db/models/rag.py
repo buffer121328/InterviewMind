@@ -3,17 +3,12 @@ RAG 向量检索相关 SQLAlchemy ORM 模型
 对应表: rag_chunks
 """
 
-import os
 from datetime import datetime
 from sqlalchemy import String, Text, Integer, Boolean, DateTime, Index, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 from pgvector.sqlalchemy import Vector
 from .base import Base
-
-# 向量维度由环境变量统一配置，与 embedding_service 保持一致
-_EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "1536"))
-
 
 class RagChunkModel(Base):
     """SQLAlchemy 持久化模型，描述 `RagChunk` 的数据库字段、关系和约束；仓储层负责 owner 过滤、事务提交和敏感数据边界。"""
@@ -29,8 +24,9 @@ class RagChunkModel(Base):
     content: Mapped[str] = mapped_column(Text, nullable=False)
     content_hash: Mapped[str] = mapped_column(String, nullable=False)
     chunk_metadata: Mapped[dict] = mapped_column("metadata", JSONB, default=dict)
-    embedding = mapped_column(Vector(_EMBEDDING_DIM), nullable=True)
+    embedding = mapped_column(Vector(), nullable=True)
     embedding_model: Mapped[str | None] = mapped_column(String, nullable=True)
+    embedding_dimension: Mapped[int | None] = mapped_column(Integer, nullable=True)
     embedding_status: Mapped[str] = mapped_column(String, nullable=False, default="pending")
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)

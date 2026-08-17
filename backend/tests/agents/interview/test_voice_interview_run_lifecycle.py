@@ -11,7 +11,7 @@ from ai.runtime.agent_runs.service import get_task_definition
 from ai.workflows.interview.voice import stream as voice_stream
 from ai.workflows.interview.voice.stream import VoiceStreamUseCases
 from app.domain.agent_runs import TASK_TYPE_VOICE_INTERVIEW_TURN
-from app.schemas.voice import VoiceChatRequest
+from app.schemas.interview.voice import VoiceChatRequest
 
 
 def _agent_run_events(chunks):

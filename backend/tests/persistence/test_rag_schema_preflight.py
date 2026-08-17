@@ -7,16 +7,16 @@ from types import SimpleNamespace
 import pytest
 
 
-def test_validate_rag_vector_type_accepts_matching_fixed_dimension() -> None:
-    """A fixed pgvector column matching configuration is accepted."""
+def test_validate_rag_vector_type_accepts_flexible_dimension() -> None:
+    """The flexible pgvector column and explicit dimension metadata are accepted."""
 
     from app.db.rag_schema import validate_rag_vector_type
 
-    assert validate_rag_vector_type("vector(1536)", expected_dimension=1536) == 1536
+    assert validate_rag_vector_type("vector", expected_dimension=1536) == 1536
 
 
-@pytest.mark.parametrize("database_type", [None, "vector", "text", "vector(not-a-number)"])
-def test_validate_rag_vector_type_rejects_missing_or_unbounded_column(
+@pytest.mark.parametrize("database_type", [None, "text", "vector(not-a-number)", "vector(1536)"])
+def test_validate_rag_vector_type_rejects_missing_invalid_or_legacy_column(
     database_type: str | None,
 ) -> None:
     """Missing and non-fixed vector columns fail before indexing."""
@@ -27,17 +27,16 @@ def test_validate_rag_vector_type_rejects_missing_or_unbounded_column(
         validate_rag_vector_type(database_type, expected_dimension=1536)
 
 
-def test_validate_rag_vector_type_reports_dimension_mismatch_without_dsn() -> None:
-    """Mismatch errors expose only dimensions and remediation, never database credentials."""
+def test_validate_rag_vector_type_requires_dimension_metadata_without_dsn() -> None:
+    """Missing dimension metadata is reported without database credentials."""
 
     from app.db.rag_schema import RagVectorSchemaError, validate_rag_vector_type
 
     with pytest.raises(RagVectorSchemaError) as exc_info:
-        validate_rag_vector_type("vector(768)", expected_dimension=1536)
+        validate_rag_vector_type("vector", expected_dimension=1536, has_dimension_column=False)
 
     message = str(exc_info.value)
-    assert "database=768" in message
-    assert "configured=1536" in message
+    assert "embedding_dimension" in message
     assert "postgresql://" not in message
 
 
@@ -52,7 +51,8 @@ async def test_validate_rag_vector_connection_queries_catalog_before_writes() ->
     class Connection:
         async def execute(self, statement):
             calls.append(statement)
-            return SimpleNamespace(scalar_one_or_none=lambda: "vector(1536)")
+            value = "vector" if len(calls) == 1 else True
+            return SimpleNamespace(scalar_one_or_none=lambda: value)
 
     assert (
         await validate_rag_vector_connection(  # type: ignore[arg-type]
@@ -94,7 +94,9 @@ def test_deployment_readiness_reports_vector_mismatch_as_schema_failure(monkeypa
                 assert params
                 return SimpleNamespace(fetchone=lambda: (params[0],))
             if "format_type" in query_text:
-                return SimpleNamespace(fetchone=lambda: ("vector(768)",))
+                return SimpleNamespace(fetchone=lambda: ("vector(1536)",))
+            if "embedding_dimension" in query_text:
+                return SimpleNamespace(fetchone=lambda: (False,))
             raise AssertionError(f"unexpected readiness query: {query_text}")
 
     monkeypatch.setenv("DATABASE_URL", "postgresql://user:secret@db.example/test")
@@ -113,6 +115,5 @@ def test_deployment_readiness_reports_vector_mismatch_as_schema_failure(monkeypa
     assert ready is False
     assert details["postgres"] == "ok"
     assert details["redis"] == "ok"
-    assert "database=768" in details["schema"]
-    assert "configured=1536" in details["schema"]
+    assert "embedding_dimension" in details["schema"] or "fixed-dimension" in details["schema"]
     assert "secret" not in str(details)

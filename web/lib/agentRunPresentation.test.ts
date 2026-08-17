@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { formatAgentRunFirstTokenDuration } from './agentRunPresentation.ts';
+import { formatAgentRunDate, parseAgentRunTimestamp } from './agentRunPresentation.ts';
 
-test('formats task first-token latency without fabricating historical values', () => {
-    assert.equal(formatAgentRunFirstTokenDuration(null), '暂无数据');
-    assert.equal(formatAgentRunFirstTokenDuration(undefined), '暂无数据');
-    assert.equal(formatAgentRunFirstTokenDuration(275), '275ms');
-    assert.equal(formatAgentRunFirstTokenDuration(1250), '1.3s');
+test('parses legacy unzoned AgentRun timestamps as persisted UTC', () => {
+    const timestamp = parseAgentRunTimestamp('2026-08-15T16:43:41');
+    assert.equal(timestamp?.toISOString(), '2026-08-15T16:43:41.000Z');
+});
+
+test('renders AgentRun timestamps in China Standard Time regardless of browser timezone', () => {
+    assert.match(formatAgentRunDate('2026-08-15T16:43:41Z'), /08\/16.*00:43/);
+    assert.match(formatAgentRunDate('2026-08-15T16:43:41'), /08\/16.*00:43/);
 });

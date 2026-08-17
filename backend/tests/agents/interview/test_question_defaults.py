@@ -5,9 +5,9 @@ from app.domain.interview_rounds import (
     resolve_max_questions,
     resolve_round_type,
 )
-from app.schemas.schemas import ChatRequest, InterviewStartRequest
-from app.schemas.session import SessionCreateRequest
-from app.schemas.voice import VoiceStartRequest
+from app.schemas.interview.schemas import ChatRequest, InterviewStartRequest
+from app.schemas.interview.session import SessionCreateRequest
+from app.schemas.interview.voice import VoiceStartRequest
 
 
 def test_round_type_defaults_are_centralized():
@@ -36,3 +36,8 @@ def test_request_schemas_apply_round_type_defaults():
 
     voice = VoiceStartRequest(thread_id="v", api_config={}, round_type="tech_deep")
     assert voice.max_questions == 20
+
+
+def test_start_request_schemas_exclude_direct_candidate_injection():
+    assert "experience_questions" not in InterviewStartRequest.model_fields
+    assert "experience_questions" not in VoiceStartRequest.model_fields

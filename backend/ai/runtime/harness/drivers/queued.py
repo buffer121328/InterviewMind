@@ -20,40 +20,85 @@ class AgentRunServiceProtocol(Protocol):
     """QueuedDriver 所需的最小 AgentRunService 能力。"""
 
     async def get_task_type_for_worker(self, run_id: str) -> str | None:
-        """查询 run_id 对应的任务类型；未知返回 None。"""
+        """查询 run_id 对应的任务类型；未知返回 None。
+
+        Args:
+            run_id: 任务运行 ID。
+        """
 
     async def claim(self, run_id: str) -> tuple[Any, dict[str, Any]] | None:
-        """领取任务，返回 (run, payload)；已被领取/不存在返回 None。"""
+        """领取任务，返回 (run, payload)；已被领取/不存在返回 None。
+
+        Args:
+            run_id: 任务运行 ID。
+        """
 
     async def mark_stage(self, run_id: str, stage: str) -> None:
-        """记录当前执行阶段。"""
+        """记录当前执行阶段。
+
+        Args:
+            run_id: 任务运行 ID。
+            stage: 阶段标识。
+        """
 
     async def touch(self, run_id: str) -> None:
-        """刷新心跳，防止任务被误判为超时。"""
+        """刷新心跳，防止任务被误判为超时。
+
+        Args:
+            run_id: 任务运行 ID。
+        """
 
     async def is_cancel_requested(self, run_id: str) -> bool:
-        """查询该任务是否已被请求取消。"""
+        """查询该任务是否已被请求取消。
+
+        Args:
+            run_id: 任务运行 ID。
+        """
 
     async def succeed(self, run_id: str, result: dict[str, Any]) -> None:
-        """写入成功终态。"""
+        """写入成功终态。
+
+        Args:
+            run_id: 任务运行 ID。
+            result: 结果对象。
+        """
 
     async def succeed_with_result_writer(self, run_id: str, writer: Any) -> None:
-        """用延迟写入器在成功事务内写结果。"""
+        """用延迟写入器在成功事务内写结果。
+
+        Args:
+            run_id: 任务运行 ID。
+            writer: 传入的 writer 值。
+        """
 
     async def mark_cancelled(self, run_id: str) -> None:
-        """写入取消终态。"""
+        """写入取消终态。
+
+        Args:
+            run_id: 任务运行 ID。
+        """
 
     async def requeue(self, run_id: str) -> None:
-        """把任务重新放回队列等待下次执行。"""
+        """把任务重新放回队列等待下次执行。
+
+        Args:
+            run_id: 任务运行 ID。
+        """
 
     async def fail(self, run_id: str, message: str) -> None:
-        """写入失败终态（安全摘要）。"""
+        """写入失败终态（安全摘要）。
+
+        Args:
+            run_id: 任务运行 ID。
+            message: 单条消息。
+        """
 
 
 class LeaseProtocol(Protocol):
     """全局运行门租约。"""
 
-    async def release(self) -> None: ...
+    async def release(self) -> None:
+        """释放已持有的全局运行门租约。"""
 
 
 GateAcquire = Callable[[], Awaitable[LeaseProtocol | None]]  # 获取全局运行门租约的工厂：成功返回租约，被占用返回 None
@@ -198,7 +243,7 @@ class QueuedDriver:
             raise
         except Exception as exc:  # noqa: BLE001 - failure is persisted as safe AgentRun state
             # ⑥ 收敛失败终态：安全摘要写入 fail。
-            message = safe_error_message(exc)
+            message = "任务执行超时，请稍后重试" if isinstance(exc, TimeoutError) else safe_error_message(exc)
             logger.error("Agent 任务失败: run_id=%s error=%s", run_id, message)
             await self._service.fail(run_id, message)
         finally:

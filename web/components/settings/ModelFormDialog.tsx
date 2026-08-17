@@ -57,6 +57,7 @@ function getInitialValues(editingModel?: ModelConfig, initialValues?: Partial<Mo
             model: source.model || '',
             name: editingModel?.name || '',
             kind: inferKind(source),
+            dimensions: String(source.dimensions || 1536),
         };
     }
     const provider = API_PROVIDERS.find(item => item.id === 'openai');
@@ -67,6 +68,7 @@ function getInitialValues(editingModel?: ModelConfig, initialValues?: Partial<Mo
         model: '',
         name: '',
         kind: 'chat' as ModelKind,
+        dimensions: '1536',
     };
 }
 
@@ -79,6 +81,7 @@ export function ModelFormDialog({ open, onClose, onSave, editingModel, initialVa
     const [baseUrl, setBaseUrl] = useState(initial.baseUrl);
     const [model, setModel] = useState(initial.model);
     const [name, setName] = useState(initial.name);
+    const [dimensions, setDimensions] = useState(initial.dimensions);
     const [showApiKey, setShowApiKey] = useState(false);
     const [isTesting, setIsTesting] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
@@ -86,11 +89,15 @@ export function ModelFormDialog({ open, onClose, onSave, editingModel, initialVa
     const [testedFingerprint, setTestedFingerprint] = useState<string | null>(null);
 
     const providerConfig = API_PROVIDERS.find(item => item.id === provider);
-    const fingerprint = [provider, kind, apiKey, baseUrl, model].join('\u0000');
+    const integration = provider === 'volcengine' ? 'openai_compatible' : editingModel?.integration;
+    const dimensionValue = Number(dimensions);
+    const validDimensions = Number.isInteger(dimensionValue) && dimensionValue >= 1 && dimensionValue <= 16_000;
+    const fingerprint = [provider, kind, apiKey, baseUrl, model, kind === 'embedding' ? dimensions : ''].join('\u0000');
     const currentTestResult = testedFingerprint === fingerprint ? testResult : null;
     const hasStoredCredential = editingModel?.credentialStored === true;
-    const canTest = Boolean(apiKey.trim() && baseUrl.trim() && model.trim());
-    const canSave = Boolean((apiKey.trim() || hasStoredCredential) && baseUrl.trim() && model.trim());
+    const dimensionReady = kind !== 'embedding' || validDimensions;
+    const canTest = Boolean(apiKey.trim() && baseUrl.trim() && model.trim() && dimensionReady);
+    const canSave = Boolean((apiKey.trim() || hasStoredCredential) && baseUrl.trim() && model.trim() && dimensionReady);
     const suggestedModels = useMemo(() => providerConfig?.models || [], [providerConfig]);
 
     /** Handles provider change; updates local UI state first and delegates server mutations through the approved API boundary. */
@@ -124,7 +131,10 @@ export function ModelFormDialog({ open, onClose, onSave, editingModel, initialVa
                     api_key: apiKey.trim(),
                     base_url: baseUrl.trim(),
                     model: model.trim(),
+                    provider,
+                    integration,
                     kind: kind === 'embedding' ? 'embedding' : 'chat',
+                    dimensions: kind === 'embedding' ? dimensionValue : undefined,
                 }),
             });
             const data = await response.json().catch(() => ({}));
@@ -159,6 +169,8 @@ export function ModelFormDialog({ open, onClose, onSave, editingModel, initialVa
                 apiKey: apiKey.trim(),
                 baseUrl: baseUrl.trim().replace(/\/+$/, ''),
                 model: model.trim(),
+                integration,
+                dimensions: kind === 'embedding' ? dimensionValue : undefined,
             });
         } catch (error) {
             toast.error('保存模型连接失败', { description: error instanceof Error ? error.message : undefined });
@@ -281,6 +293,23 @@ export function ModelFormDialog({ open, onClose, onSave, editingModel, initialVa
                                 {suggestedModels.map(item => <option key={item} value={item} />)}
                             </datalist>
                         </label>
+
+                        {kind === 'embedding' && (
+                            <label className="space-y-2">
+                                <span className="text-sm font-medium text-slate-800">向量维度</span>
+                                <input
+                                    type="number"
+                                    min={1}
+                                    max={16000}
+                                    step={1}
+                                    value={dimensions}
+                                    onChange={event => setDimensions(event.target.value)}
+                                    placeholder="例如 1024"
+                                    className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100"
+                                />
+                                {!validDimensions && <span className="text-xs text-red-600">请输入 1–16000 的整数维度</span>}
+                            </label>
+                        )}
 
                         <label className="space-y-2">
                             <span className="text-sm font-medium text-slate-800">连接名称（可选）</span>

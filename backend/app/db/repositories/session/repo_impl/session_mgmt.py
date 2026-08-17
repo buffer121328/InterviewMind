@@ -4,7 +4,7 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime
 from sqlalchemy import select, update, delete, func
 
-from app.schemas.session import (
+from app.schemas.interview.session import (
     InterviewSession,
     SessionListItem,
     SessionMetadata,
@@ -36,7 +36,22 @@ class SessionManagementService(BaseService):
         round_type: str = "tech_initial",
         user_id: str = "default_user"
     ) -> InterviewSession:
-        """创建新会话"""
+        """创建新会话
+
+        Args:
+            session_id: 面试会话 ID。
+            mode: 运行模式。
+            title: 标题文本。
+            resume_filename: 传入的 resume_filename 值。
+            resume_content: 简历正文内容。
+            job_description: 目标岗位 JD。
+            company_info: 公司信息。
+            source_job_id: 来源岗位 ID。
+            job_context_snapshot: 传入的 job_context_snapshot 值。
+            max_questions: 计划题目数。
+            round_type: 轮次类型。
+            user_id: 用户 ID，所有者范围限定。
+        """
         round_type = resolve_round_type(round_type)
         max_questions = resolve_max_questions(round_type, max_questions)
         now = utc_now()
@@ -87,7 +102,13 @@ class SessionManagementService(BaseService):
         include_resume_content: bool = False,
         user_id: Optional[str] = None
     ) -> Optional[InterviewSession]:
-        """获取会话详情"""
+        """获取会话详情
+
+        Args:
+            session_id: 面试会话 ID。
+            include_resume_content: 传入的 include_resume_content 值。
+            user_id: 用户 ID，所有者范围限定。
+        """
         async with async_session() as db:
             stmt = select(SessionModel).where(SessionModel.session_id == session_id)
             if user_id:
@@ -155,7 +176,15 @@ class SessionManagementService(BaseService):
         metadata_updates: Optional[Dict[str, Any]] = None,
         user_id: Optional[str] = None
     ) -> Optional[InterviewSession]:
-        """更新会话信息"""
+        """更新会话信息
+
+        Args:
+            session_id: 面试会话 ID。
+            title: 标题文本。
+            status: 状态字符串。
+            metadata_updates: 传入的 metadata_updates 值。
+            user_id: 用户 ID，所有者范围限定。
+        """
         async with async_session() as db:
             if not await self._check_session_access(session_id, user_id):
                 return None
@@ -186,7 +215,15 @@ class SessionManagementService(BaseService):
         offset: int = 0,
         user_id: Optional[str] = None
     ) -> List[SessionListItem]:
-        """获取会话列表"""
+        """获取会话列表
+
+        Args:
+            status: 状态字符串。
+            mode: 运行模式。
+            limit: 返回数量上限。
+            offset: 偏移量。
+            user_id: 用户 ID，所有者范围限定。
+        """
         async with async_session() as db:
             stmt = select(
                 SessionModel.session_id,
@@ -245,7 +282,12 @@ class SessionManagementService(BaseService):
             return sessions
 
     async def delete_session(self, session_id: str, user_id: Optional[str] = None) -> bool:
-        """删除会话"""
+        """删除会话
+
+        Args:
+            session_id: 面试会话 ID。
+            user_id: 用户 ID，所有者范围限定。
+        """
         async with async_session() as db:
             if not await self._check_session_access(session_id, user_id):
                 return False
@@ -269,7 +311,13 @@ class SessionManagementService(BaseService):
                 return False
 
     async def get_session_count(self, status: Optional[str] = None, mode: Optional[str] = None, user_id: Optional[str] = None) -> int:
-        """获取会话总数"""
+        """获取会话总数
+
+        Args:
+            status: 状态字符串。
+            mode: 运行模式。
+            user_id: 用户 ID，所有者范围限定。
+        """
         async with async_session() as db:
             stmt = select(func.count()).select_from(SessionModel)
             if status:

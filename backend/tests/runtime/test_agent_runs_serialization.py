@@ -11,6 +11,7 @@ from ai.runtime.agent_runs.service import (
     serialize_run,
 )
 from ai.runtime.execution.gate import LocalRunGate
+from app.clock import utc_isoformat
 from app.db.models.agent_run import AgentRunModel
 from app.domain.agent_runs import TASK_TYPE_INTERVIEW_REPORT, TASK_TYPE_RESUME_OPTIMIZE
 from app.security.payload_crypto import (
@@ -287,5 +288,5 @@ def test_serialized_run_event_has_replay_envelope():
         "stage": "optimizing",
         "payload": {"detail": "working"},
         "schema_version": 1,
-        "timestamp": now.isoformat(),
+        "timestamp": utc_isoformat(now),
     }

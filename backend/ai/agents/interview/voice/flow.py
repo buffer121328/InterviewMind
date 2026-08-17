@@ -30,7 +30,12 @@ logger = logging.getLogger(__name__)
 
 
 async def _voice_attempt(awaitable, *, deadline: TaskDeadline):
-    """处理语音相关后端逻辑。"""
+    """执行语音尝试（受 deadline 限制）。
+
+    Args:
+        awaitable: 可等待对象。
+        deadline: 任务时间预算。
+    """
     settings = get_settings()
     timeout = deadline.timeout_for_next_attempt(
         settings.voice_interview_node_timeout_seconds,
@@ -83,7 +88,16 @@ async def save_message_async(
     audio_url: Optional[str] = None,
     user_id: Optional[str] = None,
 ):
-    """异步保存消息到数据库"""
+    """异步保存消息到数据库
+
+    Args:
+        session_id: 面试会话 ID。
+        role: 角色标识。
+        content: 文本内容。
+        question_index: 题目下标。
+        audio_url: 音频 URL。
+        user_id: 用户 ID，所有者范围限定。
+    """
     if not content and not audio_url:
         return
 
@@ -96,7 +110,11 @@ async def save_message_async(
 
 
 def _get_mimo_config(api_config: Dict[str, Any]) -> tuple[str, str]:
-    """读取请求级 MiMo 凭据；Key 始终只保留在当前请求内存中。"""
+    """读取请求级 MiMo 凭据；Key 始终只保留在当前请求内存中。
+
+    Args:
+        api_config: 前端请求携带的模型通道配置。
+    """
     mimo = (api_config or {}).get("mimo") or {}
     api_key = str(mimo.get("api_key") or "").strip()
     if not api_key:
@@ -105,7 +123,11 @@ def _get_mimo_config(api_config: Dict[str, Any]) -> tuple[str, str]:
 
 
 def _sse_error(message: str) -> str:
-    """构造同时兼容新旧前端读取字段的安全 SSE 错误事件。"""
+    """构造同时兼容新旧前端读取字段的安全 SSE 错误事件。
+
+    Args:
+        message: 单条消息。
+    """
     return f"data: {json.dumps({'type': 'error', 'message': message, 'content': message}, ensure_ascii=False)}\n\n"
 
 
@@ -123,7 +145,6 @@ async def node_planner(
     session_id: Optional[str] = None,
     user_id: str = "default_user",
     question_bank_count: int = 0,
-    experience_questions: Optional[List[Dict[str, Any]]] = None,
     memory_context: str = "",
 ) -> Dict[str, Any]:
     """
@@ -184,7 +205,11 @@ async def node_planner(
         except Exception as e:
             logger.error(f"[Voice] 获取轮次信息失败: {e}")
 
-    from ..questions.plan import merge_question_plan, prepare_candidates
+    from ..questions.plan import (
+        is_introduction_question,
+        merge_question_plan,
+        prepare_question_bank_candidates,
+    )
 
     bank_items = []
     bank_count = min(max(question_bank_count, 0), max_questions)
@@ -201,7 +226,8 @@ async def node_planner(
             )
         except Exception as exc:
             logger.warning(f"[Voice] 抽取个人题库失败，将由 planner 补足: {exc}")
-    candidates = prepare_candidates(experience_questions or [], bank_items, max_questions)
+    candidates = prepare_question_bank_candidates(bank_items, max_questions)
+    known_intro_question = any(is_introduction_question(item) for item in candidates)
     remaining = max_questions - len(candidates)
     generated = []
     if remaining > 0:
@@ -215,6 +241,7 @@ async def node_planner(
             round_index=round_index,
             previous_profile=previous_profile,
             previous_questions=previous_questions,
+            known_intro_question=known_intro_question,
             output_format="simple",
             session_id=session_id,
             save_to_db=False,
@@ -222,7 +249,7 @@ async def node_planner(
             owner_id=user_id,
             cache_scope=cache_scope,
         )
-    interview_plan = merge_question_plan(candidates, generated, max_questions)
+    interview_plan = merge_question_plan(candidates, generated, max_questions, round_type=round_type)
     if session_id:
         await SessionRepo().save_interview_plan(session_id, interview_plan)
 
@@ -490,7 +517,6 @@ async def generate_interview_plan(
     session_id: Optional[str] = None,
     user_id: str = "default_user",
     question_bank_count: int = 0,
-    experience_questions: Optional[List[Dict[str, Any]]] = None,
     memory_context: str = "",
 ) -> List[Dict[str, str]]:
     """
@@ -516,7 +542,6 @@ async def generate_interview_plan(
         session_id,
         user_id,
         question_bank_count,
-        experience_questions,
         memory_context,
     )
     return result.get("interview_plan", [])

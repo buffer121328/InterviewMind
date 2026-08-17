@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import async_session
 from app.db.models.application import ApplicationEventModel, JobApplicationModel
-from app.schemas.job_application import EventCreateRequest, ApplicationEventRow
+from app.schemas.jobs.job_application import EventCreateRequest, ApplicationEventRow
 from app.clock import utc_now
 
 logger = logging.getLogger(__name__)
@@ -31,7 +31,13 @@ class ApplicationEventRepo:
         request: EventCreateRequest,
         session: AsyncSession | None = None,
     ) -> ApplicationEventRow:
-        """新增投递事件，并在必要时更新主表状态；可接入外层 UnitOfWork。"""
+        """新增投递事件，并在必要时更新主表状态；可接入外层 UnitOfWork。
+
+        Args:
+            application_id: 岗位申请记录 ID。
+            request: 请求对象。
+            session: 会话数据或数据库会话。
+        """
 
         async def _add(db: AsyncSession, *, owns_session: bool) -> ApplicationEventRow:
             """向投递记录追加事件并持久化时间线；由调用方提供事务边界，本方法不执行外部投递。
@@ -85,7 +91,11 @@ class ApplicationEventRepo:
             return await _add(db, owns_session=True)
 
     async def list_events(self, application_id: int) -> List[ApplicationEventRow]:
-        """获取某个投递记录的事件列表"""
+        """获取某个投递记录的事件列表
+
+        Args:
+            application_id: 岗位申请记录 ID。
+        """
         async with async_session() as db:
             stmt = (
                 select(ApplicationEventModel)
@@ -96,7 +106,11 @@ class ApplicationEventRepo:
             return [self._row_to_model(row) for row in result.scalars().all()]
 
     async def delete_event(self, event_id: int) -> bool:
-        """删除单个事件"""
+        """删除单个事件
+
+        Args:
+            event_id: event 的 ID。
+        """
         async with async_session() as db:
             try:
                 stmt = select(ApplicationEventModel).where(ApplicationEventModel.id == event_id)
@@ -113,7 +127,11 @@ class ApplicationEventRepo:
                 return False
 
     def _row_to_model(self, row: ApplicationEventModel) -> ApplicationEventRow:
-        """将数据库行转换为事件模型"""
+        """将数据库行转换为事件模型
+
+        Args:
+            row: 数据库行记录。
+        """
         return ApplicationEventRow(
             id=row.id,
             application_id=row.application_id,

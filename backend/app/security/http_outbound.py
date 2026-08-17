@@ -16,8 +16,12 @@ from app.security.url_security import validate_outbound_url
 REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 
 
-def _reject_unsafe_redirect(response: httpx.Response) -> None:
-    """响应钩子：重定向响应的目标地址必须再次通过出站校验。"""
+async def _reject_unsafe_redirect(response: httpx.Response) -> None:
+    """响应钩子：重定向响应的目标地址必须再次通过出站校验。
+
+    Args:
+        response: 响应对象。
+    """
 
     if response.status_code not in REDIRECT_STATUSES:
         return
@@ -36,12 +40,20 @@ def build_guarded_async_client(
     *,
     timeout: float | None = None,
     verify: bool = True,
+    transport: httpx.AsyncBaseTransport | None = None,
 ) -> httpx.AsyncClient:
-    """构建跟随重定向但每跳复验出站策略的异步 client。"""
+    """构建跟随重定向但每跳复验出站策略的异步 client。
+
+    Args:
+        timeout: 超时时间（秒）。
+        verify: 传入的 verify 值。
+        transport: 传输通道标识。
+    """
 
     return httpx.AsyncClient(
         timeout=timeout,
         verify=verify,
+        transport=transport,
         follow_redirects=True,
         event_hooks={"response": [_reject_unsafe_redirect]},
     )

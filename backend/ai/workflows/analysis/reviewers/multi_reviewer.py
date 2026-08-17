@@ -1,4 +1,4 @@
-"""提供多评审相关后端功能。"""
+"""并行多视角评审的映射-归约编排（基于 LangGraph 状态机）。"""
 
 from __future__ import annotations
 
@@ -21,49 +21,49 @@ ReviewPerspective = Literal[
     "communication",
     "job_fit",
     "factual_risk",
-]
-ReviewMode = Literal["session_report", "ability_profile"]
+]  # 评审视角：技术深度 / 沟通 / 岗位匹配 / 事实风险
+ReviewMode = Literal["session_report", "ability_profile"]  # 评审模式：单次会话报告 / 能力画像聚合
 
 
 class ReviewerAssessment(BaseModel):
-    """定义评审相关后端数据结构或服务组件。"""
+    """单个评审视角的输出结构：评分、要点、证据引用与状态。"""
 
-    perspective: ReviewPerspective
-    score: float | None = Field(default=None, ge=0, le=10)
-    dimension_scores: dict[str, Annotated[float, Field(ge=0, le=10)]] = Field(default_factory=dict)
-    strengths: list[str] = Field(default_factory=list)
-    concerns: list[str] = Field(default_factory=list)
-    evidence_refs: list[str] = Field(default_factory=list)
-    confidence: float = Field(default=0, ge=0, le=1)
-    status: Literal["success", "error"] = "success"
-    error_type: str | None = None
+    perspective: ReviewPerspective = Field(description="评审视角")
+    score: float | None = Field(default=None, ge=0, le=10, description="整体评分（0-10，可空）")
+    dimension_scores: dict[str, Annotated[float, Field(ge=0, le=10)]] = Field(default_factory=dict, description="各能力维度评分")
+    strengths: list[str] = Field(default_factory=list, description="候选人的亮点")
+    concerns: list[str] = Field(default_factory=list, description="候选人的顾虑")
+    evidence_refs: list[str] = Field(default_factory=list, description="结论引用的证据编号")
+    confidence: float = Field(default=0, ge=0, le=1, description="评审置信度（0-1）")
+    status: Literal["success", "error"] = Field(default="success", description="评审状态")
+    error_type: str | None = Field(default=None, description="失败时的异常类型")
 
 
 class AbilityConsensusOutput(BaseModel):
-    """定义能力共识输出相关后端数据结构或服务组件。"""
+    """多视角评审汇总后的能力共识输出结构。"""
 
-    overall_assessment: str = Field(default="")
-    key_strengths: list[str] = Field(default_factory=list)
-    key_weaknesses: list[str] = Field(default_factory=list)
-    recommendation: Literal["strong_hire", "hire", "borderline", "maybe", "no_hire"] | None = Field(default=None)
-    confidence: float | None = Field(default=None, ge=0, le=1)
+    overall_assessment: str = Field(default="", description="综合评估总结")
+    key_strengths: list[str] = Field(default_factory=list, description="关键优势")
+    key_weaknesses: list[str] = Field(default_factory=list, description="关键短板")
+    recommendation: Literal["strong_hire", "hire", "borderline", "maybe", "no_hire"] | None = Field(default=None, description="录用建议")
+    confidence: float | None = Field(default=None, ge=0, le=1, description="汇总置信度（0-1）")
 
 
 @dataclass(frozen=True, slots=True)
 class ReviewerSpec:
-    """定义评审相关后端数据结构或服务组件。"""
+    """单个评审视角的调用规格：模型通道与温度。"""
 
-    perspective: ReviewPerspective
-    channel: str
-    temperature: float
+    perspective: ReviewPerspective  # 评审视角
+    channel: str  # 模型通道（如 smart / fast / reflector）
+    temperature: float  # 采样温度
 
 
 @dataclass(frozen=True, slots=True)
 class ReviewMapReduceResult:
-    """定义复核映射归约结果相关后端数据结构或服务组件。"""
+    """多评审映射-归约的最终结果。"""
 
-    output: SessionInterviewReportOutput | AbilityConsensusOutput
-    assessments: tuple[ReviewerAssessment, ...]
+    output: SessionInterviewReportOutput | AbilityConsensusOutput  # 归约后的汇总输出
+    assessments: tuple[ReviewerAssessment, ...]  # 各视角的评审评估
 
 
 _REVIEWERS = (
@@ -75,22 +75,26 @@ _REVIEWERS = (
 
 
 class _ReviewState(TypedDict, total=False):
-    """定义复核状态相关后端数据结构或服务组件。"""
+    """多评审状态图的共享运行状态。"""
 
-    mode: ReviewMode
-    context: str
-    contexts: dict[str, str]
-    reviewer: ReviewerSpec
-    reviewers: tuple[ReviewerSpec, ...]
-    assessments: Annotated[list[ReviewerAssessment], operator.add]
-    api_config: dict[str, Any] | None
-    deadline: TaskDeadline | None
-    call_metadata: dict[str, Any]
-    output: SessionInterviewReportOutput | AbilityConsensusOutput
+    mode: ReviewMode  # 评审模式
+    context: str  # 全局评审上下文
+    contexts: dict[str, str]  # 各视角专属评审上下文
+    reviewer: ReviewerSpec  # 当前评审视角规格
+    reviewers: tuple[ReviewerSpec, ...]  # 待运行的评审视角列表
+    assessments: Annotated[list[ReviewerAssessment], operator.add]  # 已收集的评估（按归约合并）
+    api_config: dict[str, Any] | None  # 用户级模型 API 配置
+    deadline: TaskDeadline | None  # 任务截止时间
+    call_metadata: dict[str, Any]  # 调用元数据（用于可观测性）
+    output: SessionInterviewReportOutput | AbilityConsensusOutput  # 归约后的汇总输出
 
 
 def _dispatch_reviewers(state: _ReviewState) -> list[Send]:
-    """处理评审相关后端逻辑。"""
+    """把评审任务分发到各视角节点，作为并行映射阶段的扇出点。
+
+    Args:
+        state: 多评审图的共享运行状态。
+    """
     return [
         Send(
             "review_one",
@@ -108,7 +112,11 @@ def _dispatch_reviewers(state: _ReviewState) -> list[Send]:
 
 
 async def _review_one(state: _ReviewState) -> dict[str, Any]:
-    """处理复核相关后端逻辑。"""
+    """调用单个视角的评审模型；失败时返回带 error 状态的降级评估。
+
+    Args:
+        state: 多评审图的共享运行状态。
+    """
     from ai.prompts.analysis import build_multi_reviewer_prompt
 
     reviewer = state["reviewer"]
@@ -147,7 +155,11 @@ async def _review_one(state: _ReviewState) -> dict[str, Any]:
 
 
 async def _compose_narrative(state: _ReviewState) -> dict[str, Any]:
-    """处理多评审相关后端逻辑。"""
+    """调用汇总模型归约各视角评估，生成最终评审输出。
+
+    Args:
+        state: 多评审图的共享运行状态，含各视角评估结果。
+    """
     from ai.prompts.analysis import build_multi_reviewer_consensus_prompt
 
     assessments = list(state.get("assessments", []))
@@ -189,7 +201,7 @@ async def _compose_narrative(state: _ReviewState) -> dict[str, Any]:
 
 
 def build_multi_reviewer_graph():
-    """构建多评审图相关后端逻辑。"""
+    """构建并编译多评审映射-归约状态图。"""
     graph = StateGraph(_ReviewState)
     graph.add_node("review_one", _review_one)
     graph.add_node("compose_narrative", _compose_narrative)
@@ -211,7 +223,17 @@ async def run_multi_reviewer_map_reduce(
     review_contexts: dict[str, str] | None = None,
     reviewer_perspectives: tuple[ReviewPerspective, ...] | None = None,
 ) -> ReviewMapReduceResult:
-    """运行多评审映射归约相关后端逻辑。"""
+    """运行多评审映射-归约流程，返回汇总输出与各视角评估。
+
+    Args:
+        mode: 评审模式（会话报告或能力画像）。
+        review_context: 全局评审上下文。
+        api_config: 用户级模型 API 配置。
+        deadline: 任务截止时间。
+        call_metadata: 调用元数据（用于可观测性）。
+        review_contexts: 各视角专属评审上下文。
+        reviewer_perspectives: 需要运行的评审视角；为 None 时运行全部。
+    """
     selected_reviewers = tuple(
         reviewer for reviewer in _REVIEWERS
         if reviewer_perspectives is None or reviewer.perspective in reviewer_perspectives

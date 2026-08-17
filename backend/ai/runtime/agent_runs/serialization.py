@@ -3,6 +3,7 @@
 import math
 from typing import Any
 
+from app.clock import utc_isoformat
 from app.db.models import AgentRunEventModel, AgentRunModel
 from app.domain.agent_definitions import get_agent_definition
 from app.domain.agent_runs import can_cancel_status
@@ -13,7 +14,11 @@ from .settings import max_attempts
 
 
 def _public_step_results(value: dict | None) -> dict:
-    """移除步骤状态中的加密恢复载荷，只向客户端暴露时间和状态摘要。"""
+    """移除步骤状态中的加密恢复载荷，只向客户端暴露时间和状态摘要。
+
+    Args:
+        value: 原始步骤结果字典，可为空。
+    """
 
     public: dict[str, dict] = {}
     for step_id, raw in (value or {}).items():
@@ -24,7 +29,11 @@ def _public_step_results(value: dict | None) -> dict:
 
 
 def _first_token_duration_ms(model_events: list[dict[str, Any]] | None) -> int | None:
-    """Return the earliest finite non-negative first-chunk latency in an observation."""
+    """返回观测中最早的一个有限非负首 token 时延。
+
+    Args:
+        model_events: 模型调用事件列表，可为空。
+    """
 
     values = [
         int(value)
@@ -38,7 +47,11 @@ def _first_token_duration_ms(model_events: list[dict[str, Any]] | None) -> int |
 
 
 def serialize_run(run: AgentRunModel) -> dict:
-    """将 AgentRun 模型序列化为 API 响应格式，不公开加密任务输入。"""
+    """将 AgentRun 模型序列化为 API 响应格式，不公开加密任务输入。
+
+    Args:
+        run: 待序列化的 AgentRun 模型。
+    """
 
     definition = get_task_definition(run.task_type)
     agent_definition = get_agent_definition(run.task_type)
@@ -69,15 +82,19 @@ def serialize_run(run: AgentRunModel) -> dict:
             and run.attempts < max_attempts()
         ),
         "can_cancel": can_cancel_status(run.status),
-        "created_at": run.created_at.isoformat(),
-        "updated_at": run.updated_at.isoformat(),
-        "started_at": run.started_at.isoformat() if run.started_at else None,
-        "finished_at": run.finished_at.isoformat() if run.finished_at else None,
+        "created_at": utc_isoformat(run.created_at),
+        "updated_at": utc_isoformat(run.updated_at),
+        "started_at": utc_isoformat(run.started_at),
+        "finished_at": utc_isoformat(run.finished_at),
     }
 
 
 def serialize_event(event: AgentRunEventModel) -> dict:
-    """将 AgentRunEvent 模型序列化为 API 响应格式。"""
+    """将 AgentRunEvent 模型序列化为 API 响应格式。
+
+    Args:
+        event: 待序列化的 AgentRunEvent 模型。
+    """
 
     return {
         "event_id": str(event.id),
@@ -87,5 +104,5 @@ def serialize_event(event: AgentRunEventModel) -> dict:
         "stage": event.stage,
         "payload": event.payload or {},
         "schema_version": event.schema_version,
-        "timestamp": event.created_at.isoformat(),
+        "timestamp": utc_isoformat(event.created_at),
     }

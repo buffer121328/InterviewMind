@@ -1,4 +1,4 @@
-"""提供提供方相关后端功能。"""
+"""可观测性提供商配置。"""
 
 import logging
 import os
@@ -11,19 +11,34 @@ logger = logging.getLogger(__name__)
 
 
 def _normalize_model_provider(value: Any) -> str | None:
-    """把前端供应商 ID 归一到观测维度，避免 aliyun 与 qwen 混用。"""
+    """把前端供应商 ID 归一到观测维度，避免 aliyun 与 qwen 混用。
+
+    Args:
+        value: 值。
+    """
     raw = str(value or "").strip().lower()
     if not raw:
         return None
     if raw in {"aliyun", "dashscope", "bailian", "qwen", "qwq"}:
         return "qwen"
-    if raw in {"deepseek", "openai", "openai_compatible", "custom"}:
-        return "openai_compatible" if raw == "custom" else raw
+    if raw in {"volcengine", "ark", "doubao"}:
+        return "volcengine"
+    if raw == "custom":
+        # Let the configured model name and endpoint identify hosted services
+        # such as Volcengine Ark; unknown custom endpoints still infer to the
+        # generic OpenAI-compatible provider below.
+        return None
+    if raw in {"deepseek", "openai", "openai_compatible"}:
+        return raw
     return raw
 
 
 def provider_observability_metadata(config: Mapping[str, Any] | None) -> dict[str, Any]:
-    """从模型通道配置生成不含凭据的 Provider 元数据，供 Langfuse 和本地事件统一使用。"""
+    """从模型通道配置生成不含凭据的 Provider 元数据，供 Langfuse 和本地事件统一使用。
+
+    Args:
+        config: 配置字典。
+    """
     cfg = dict(config or {})
     base_url = str(cfg.get("base_url") or "")
     endpoint = None
@@ -40,8 +55,15 @@ def provider_observability_metadata(config: Mapping[str, Any] | None) -> dict[st
 
 
 def infer_model_provider(model: Any, base_url: str | None = None) -> str:
-    """根据显式配置缺失时的模型名和端点推断 Provider，只返回可公开观测的归一化名称。"""
+    """根据显式配置缺失时的模型名和端点推断 Provider，只返回可公开观测的归一化名称。
+
+    Args:
+        model: 模型名称。
+        base_url: 基础 URL。
+    """
     text = f"{model or ''} {base_url or ''}".lower()
+    if any(marker in text for marker in ("ark.cn-", "volcengine", "doubao")):
+        return "volcengine"
     if "deepseek" in text:
         return "deepseek"
     if any(marker in text for marker in ("dashscope", "aliyun", "bailian", "qwen", "qwq")):
@@ -52,7 +74,13 @@ def infer_model_provider(model: Any, base_url: str | None = None) -> str:
 
 
 def infer_model_integration(model: Any, base_url: str | None = None, provider: Any = None) -> str:
-    """推断模型客户端集成类型；原生服务商优先，网关和自定义端点保持 generic 兜底。"""
+    """推断模型客户端集成类型；原生服务商优先，网关和自定义端点保持 generic 兜底。
+
+    Args:
+        model: 模型名称。
+        base_url: 基础 URL。
+        provider: 提供商标识。
+    """
     explicit = _normalize_model_provider(provider) or ""
     inferred = infer_model_provider(model, base_url)
     base = (base_url or "").lower()
@@ -95,7 +123,14 @@ def estimate_model_cost(
     input_tokens: int | None = None,
     output_tokens: int | None = None,
 ) -> dict[str, Any]:
-    """按本地价格表估算模型成本，默认支持人民币；缺 token 或价格时明确返回 unavailable。"""
+    """按本地价格表估算模型成本，默认支持人民币；缺 token 或价格时明确返回 unavailable。
+
+    Args:
+        pricing_key: pricing 键。
+        model_name: 模型名称。
+        input_tokens: 传入的 input_tokens 值。
+        output_tokens: 传入的 output_tokens 值。
+    """
     if input_tokens is None or output_tokens is None:
         return {"usage_status": "unavailable", "cost_status": "unavailable"}
     registry = _load_price_registry()

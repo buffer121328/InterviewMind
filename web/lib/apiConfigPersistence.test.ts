@@ -95,3 +95,29 @@ test('rehydration restores non-sensitive settings with empty in-memory keys', ()
     assert.equal(hydrated.models[0].baseUrl, 'https://example.test/v1');
     assert.equal(hydrated.smartModelId, 'model-1');
 });
+
+test('embedding dimensions survive credential-safe persistence and rehydration', () => {
+    const embeddingConfig: ApiConfig = {
+        ...DEFAULT_API_CONFIG,
+        models: [{
+            id: 'embedding-1',
+            name: 'Embedding',
+            provider: 'volcengine',
+            kind: 'embedding',
+            apiKey: 'plaintext-secret-key',
+            credentialStored: true,
+            baseUrl: 'https://example.test/v1',
+            model: 'doubao-embedding-vision',
+            dimensions: 1024,
+            createdAt: '2026-08-15T00:00:00.000Z',
+        }],
+        ragEmbeddingModelId: 'embedding-1',
+    };
+
+    const persisted = apiConfigForPersistence(embeddingConfig);
+    const hydrated = rehydrateApiConfig(persisted, DEFAULT_API_CONFIG);
+
+    assert.equal(persisted.models[0].dimensions, 1024);
+    assert.equal(hydrated.models[0].dimensions, 1024);
+    assert.equal(JSON.stringify(persisted).includes('plaintext-secret-key'), false);
+});

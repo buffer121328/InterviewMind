@@ -11,7 +11,7 @@ from ai.workflows.interview.reports.memory import (
 
 
 def test_build_report_memory_entries_uses_persisted_report_artifacts():
-    """The memory payload should cover weaknesses, actions, and evidenced strengths."""
+    """Only completed interview weaknesses are in the long-term-memory scope."""
     entries = build_report_memory_entries(
         {
             "key_weaknesses": ["回答缺少量化结果"],
@@ -28,15 +28,13 @@ def test_build_report_memory_entries_uses_persisted_report_artifacts():
     )
 
     assert entries == [
-        ("weakness", "最近一次模拟面试确认的短板：回答缺少量化结果；表达结构不够清晰"),
-        ("practice_goal", "最近一次模拟面试的优先练习目标：使用 STAR 结构完成三次复述"),
-        ("candidate_fact", "最近一次模拟面试体现的优势：技术基础扎实"),
+        ("weakness", "面试短板：回答缺少量化结果；表达结构不够清晰"),
     ]
 
 
 @pytest.mark.asyncio
 async def test_persist_report_memories_uses_request_scoped_mem0_config(monkeypatch):
-    """A successful report should automatically create durable owner-scoped memories."""
+    """A completed report persists only an owner-scoped weakness memory."""
     add_summary_memory = AsyncMock(return_value={"id": "memory-1"})
 
     class FakeMemoryService:
@@ -64,12 +62,17 @@ async def test_persist_report_memories_uses_request_scoped_mem0_config(monkeypat
         api_config=api_config,
     )
 
-    assert written == 2
+    assert written == 1
     assert captured_configs == [api_config]
-    assert add_summary_memory.await_count == 2
-    for call in add_summary_memory.await_args_list:
-        assert call.kwargs["user_id"] == "user-1"
-        assert call.kwargs["session_id"] == "session-1"
+    assert add_summary_memory.await_count == 1
+    call = add_summary_memory.await_args_list[0]
+    assert call.kwargs["user_id"] == "user-1"
+    assert call.kwargs["session_id"] == "session-1"
+    assert call.kwargs["memory_type"] == "weakness"
+    assert call.kwargs["metadata"] == {
+        "report_generated": True,
+        "memory_source": "interview_weakness",
+    }
 
 
 def test_degraded_report_does_not_create_authoritative_memories():

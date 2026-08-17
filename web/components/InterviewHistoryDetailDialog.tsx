@@ -29,7 +29,7 @@ import { Button } from '@/components/ui/button';
 import { DialogueReview } from '@/components/DialogueReview';
 import { getSessionDetail, type SessionDetail } from '@/lib/api/sessions';
 import { getSessionInterviewReport, saveSessionReportQuestions, type SessionMarkdownReport } from '@/lib/api/interviewReport';
-import { buildTargetedInterviewHandoff, normalizeStructuredInterviewReport, type TargetedInterviewHandoff } from '@/lib/interviewReportStructured';
+import { normalizeStructuredInterviewReport } from '@/lib/interviewReportStructured';
 import {
     createInterviewReportRun,
     listAgentRuns,
@@ -48,7 +48,6 @@ interface InterviewHistoryDetailDialogProps {
     onOpenChange: (open: boolean) => void;
     /** Allows report buttons to land directly on the Markdown preview. */
     initialTab?: InterviewDialogTab;
-    onStartTargetedInterview?: (handoff: TargetedInterviewHandoff) => void;
     onOpenEvaluationCenter?: (datasetId: string) => void;
 }
 
@@ -103,7 +102,6 @@ export function InterviewHistoryDetailDialog({
     open,
     onOpenChange,
     initialTab = 'overview',
-    onStartTargetedInterview,
     onOpenEvaluationCenter,
 }: InterviewHistoryDetailDialogProps) {
     const [session, setSession] = useState<SessionDetail | null>(null);
@@ -237,14 +235,6 @@ export function InterviewHistoryDetailDialog({
         catch (cause) { toast.error(cause instanceof Error ? cause.message : '加入题库失败'); }
         finally { setSavingQuestions(false); }
     }, [selectedQuestionIndices, sessionId]);
-    const handleTargetedInterview = useCallback(() => {
-        if (!sessionId || !onStartTargetedInterview) return;
-        const selected = selectedQuestionIndices.length ? selectedQuestionIndices.map(index => recommendedQuestions[index]).filter(Boolean) : recommendedQuestions;
-        const weaknesses = structuredReport.weaknessReport.weaknessCategories.map(item => String(item.category || '')).filter(Boolean);
-        onStartTargetedInterview(buildTargetedInterviewHandoff(sessionId, weaknesses, selected));
-        onOpenChange(false);
-    }, [onOpenChange, onStartTargetedInterview, recommendedQuestions, selectedQuestionIndices, sessionId, structuredReport.weaknessReport.weaknessCategories]);
-
     const dialogueMessages = useMemo(() => normalizedDialogue(session), [session]);
     const answeredCount = useMemo(
         () => dialogueMessages.filter(message => message.role === 'user').length,
@@ -349,7 +339,6 @@ export function InterviewHistoryDetailDialog({
                                         </Button>
                                         {report?.success && <Button variant="outline" size="sm" onClick={() => setReportView(value => value === 'structured' ? 'markdown' : 'structured')}>{reportView === 'structured' ? '查看 Markdown' : '查看结构化复盘'}</Button>}
                                         {report?.success && selectedQuestionIndices.length > 0 && <Button variant="outline" size="sm" onClick={() => void handleSaveQuestions()} disabled={savingQuestions}>{savingQuestions ? '保存中...' : '加入题库'}</Button>}
-                                        {report?.success && onStartTargetedInterview && recommendedQuestions.length > 0 && <Button size="sm" onClick={handleTargetedInterview}>开始专项面试</Button>}
                                         <Button variant="outline" size="sm" onClick={() => void handleDownload('html')} disabled={!report?.success || exportingFormat !== null}>
                                             {exportingFormat === 'html' ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileCode2 className="h-4 w-4" />}下载 HTML
                                         </Button>

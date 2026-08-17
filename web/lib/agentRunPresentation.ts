@@ -1,10 +1,32 @@
 import type { AgentRun, AgentRunEvent, AgentRunStatus } from './api/agentRunTypes';
 
-/** Formats a timestamp for the compact task timeline. */
-export function formatAgentRunDate(value?: string | null) { if (!value) return '-'; return new Date(value).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }); }
+export const RUN_CENTER_TIME_ZONE = 'Asia/Shanghai';
+
+/** Parses API timestamps as UTC, including historical values emitted before the explicit `Z` suffix. */
+export function parseAgentRunTimestamp(value?: string | null): Date | null {
+    if (!value) return null;
+    const normalized = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(value) ? value : `${value}Z`;
+    const timestamp = new Date(normalized);
+    return Number.isNaN(timestamp.getTime()) ? null : timestamp;
+}
+
+/** Formats a timestamp for the compact task timeline in China Standard Time. */
+export function formatAgentRunDate(value?: string | null) {
+    const timestamp = parseAgentRunTimestamp(value);
+    return timestamp ? timestamp.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: RUN_CENTER_TIME_ZONE }) : '-';
+}
 
 /** Formats elapsed AgentRun time without reading task payloads. */
-export function formatAgentRunDuration(run: AgentRun) { if (!run.started_at) return '-'; const end = run.finished_at ? new Date(run.finished_at).getTime() : Date.now(); const ms = Math.max(0, end - new Date(run.started_at).getTime()); if (ms < 1000) return `${ms}ms`; if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`; return `${Math.floor(ms / 60_000)}m ${Math.round((ms % 60_000) / 1000)}s`; }
+export function formatAgentRunDuration(run: AgentRun) {
+    const startedAt = parseAgentRunTimestamp(run.started_at);
+    if (!startedAt) return '-';
+    const end = run.finished_at ? parseAgentRunTimestamp(run.finished_at)?.getTime() : Date.now();
+    if (end == null) return '-';
+    const ms = Math.max(0, end - startedAt.getTime());
+    if (ms < 1000) return `${ms}ms`;
+    if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
+    return `${Math.floor(ms / 60_000)}m ${Math.round((ms % 60_000) / 1000)}s`;
+}
 
 /** Formats a real task-level first-token latency while preserving the no-data state. */
 export function formatAgentRunFirstTokenDuration(value?: number | null) {

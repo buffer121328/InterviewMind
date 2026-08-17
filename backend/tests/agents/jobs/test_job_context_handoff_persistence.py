@@ -23,9 +23,9 @@ EDITED_SNAPSHOT = {
 
 def test_request_schemas_accept_typed_job_context_snapshot():
     """三条显式业务入口应共享同一份有界岗位上下文契约。"""
-    from app.schemas.resume_schemas import ResumeWorkspaceRequest
-    from app.schemas.schemas import InterviewStartRequest
-    from app.schemas.voice import VoiceStartRequest
+    from app.schemas.resume.resume_schemas import ResumeWorkspaceRequest
+    from app.schemas.interview.schemas import InterviewStartRequest
+    from app.schemas.interview.voice import VoiceStartRequest
 
     interview = InterviewStartRequest(
         thread_id="mock-1",
@@ -165,7 +165,7 @@ async def test_interview_start_persists_actual_job_snapshot(monkeypatch):
 async def test_voice_start_persists_actual_job_snapshot(monkeypatch):
     """语音面试的新会话与文字入口保持相同的来源快照契约。"""
     from ai.workflows.interview.voice import use_cases as voice
-    from app.schemas.voice import VoiceStartRequest
+    from app.schemas.interview.voice import VoiceStartRequest
 
     created: dict = {}
     session = SimpleNamespace(metadata=SimpleNamespace(mode="voice", round_index=1, question_count=0, max_questions=5), messages=[])

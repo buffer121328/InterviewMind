@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from app.db.models.agent_run import AgentRunModel
-from app.schemas.schemas import InterviewStartRequest
+from app.schemas.interview.schemas import InterviewStartRequest
 
 
 @pytest.mark.asyncio
@@ -45,9 +45,23 @@ async def test_automatic_interview_report_run_uses_session_id_for_grouping(monke
             created_kwargs.update(kwargs)
             return SimpleNamespace(id="report-run", status="queued"), True
 
+    direct_deliveries: list[str] = []
     monkeypatch.setattr(completion, "task_queue_enabled", lambda: True)
     monkeypatch.setattr(completion, "AgentRunService", FakeRunService)
-    monkeypatch.setattr(completion, "enqueue_agent_run", lambda run_id: None)
+    monkeypatch.setattr(
+        completion,
+        "enqueue_agent_run",
+        direct_deliveries.append,
+        raising=False,
+    )
+
+    dispatch_calls: list[int] = []
+
+    async def dispatch_pending_outbox(*, limit, enqueue_fn):
+        dispatch_calls.append(limit)
+        return 1, 0
+
+    monkeypatch.setattr(completion, "dispatch_pending_outbox", dispatch_pending_outbox)
 
     await completion.queue_or_run_session_reports(
         session_id="session-1",
@@ -57,10 +71,13 @@ async def test_automatic_interview_report_run_uses_session_id_for_grouping(monke
 
     assert created_kwargs["task_type"] == completion.TASK_TYPE_INTERVIEW_REPORT
     assert created_kwargs["session_id"] == "session-1"
+    assert dispatch_calls == [50]
+    assert direct_deliveries == []
 
 
 @pytest.mark.asyncio
 async def test_queued_start_dispatches_only_run_id(monkeypatch):
+    from ai.workflows.agent_runs import mutations as agent_run_mutations
     from ai.workflows.agent_runs import use_cases as agent_run_workflow
     from app.api import agent_runs
 
@@ -93,8 +110,8 @@ async def test_queued_start_dispatches_only_run_id(monkeypatch):
 
     monkeypatch.setattr(agent_run_workflow.agent_run_use_cases._session_repo, "get_session", get_session)
     monkeypatch.setattr(agent_run_workflow.agent_run_use_cases._service, "create_or_get", create_or_get)
-    monkeypatch.setattr(agent_run_workflow, "enqueue_agent_run", enqueue)
-    monkeypatch.setattr(agent_run_workflow, "dispatch_pending_outbox", dispatch_pending_outbox)
+    monkeypatch.setattr(agent_run_mutations, "enqueue_agent_run", enqueue)
+    monkeypatch.setattr(agent_run_mutations, "dispatch_pending_outbox", dispatch_pending_outbox)
 
     response = await agent_runs.create_interview_start_run(
         InterviewStartRequest(thread_id="turn-1", mode="mock", resume_context="private resume"),
@@ -112,6 +129,7 @@ async def test_queued_start_dispatches_only_run_id(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_queued_start_keeps_run_retryable_when_outbox_dispatch_fails(monkeypatch):
+    from ai.workflows.agent_runs import mutations as agent_run_mutations
     from ai.workflows.agent_runs import use_cases as agent_run_workflow
     from app.api import agent_runs
 
@@ -139,7 +157,7 @@ async def test_queued_start_keeps_run_retryable_when_outbox_dispatch_fails(monke
     monkeypatch.setattr(agent_run_workflow.agent_run_use_cases._session_repo, "get_session", get_session)
     monkeypatch.setattr(agent_run_workflow.agent_run_use_cases._service, "create_or_get", create_or_get)
     monkeypatch.setattr(agent_run_workflow.agent_run_use_cases._service, "fail", fail)
-    monkeypatch.setattr(agent_run_workflow, "dispatch_pending_outbox", dispatch_pending_outbox)
+    monkeypatch.setattr(agent_run_mutations, "dispatch_pending_outbox", dispatch_pending_outbox)
 
     response = await agent_runs.create_interview_start_run(
         InterviewStartRequest(thread_id="turn-1", mode="mock", resume_context="private resume"),
@@ -154,6 +172,7 @@ async def test_queued_start_keeps_run_retryable_when_outbox_dispatch_fails(monke
 
 @pytest.mark.asyncio
 async def test_existing_queued_run_is_not_dispatched_twice(monkeypatch):
+    from ai.workflows.agent_runs import mutations as agent_run_mutations
     from ai.workflows.agent_runs import use_cases as agent_run_workflow
     from app.api import agent_runs
 
@@ -180,8 +199,8 @@ async def test_existing_queued_run_is_not_dispatched_twice(monkeypatch):
 
     monkeypatch.setattr(agent_run_workflow.agent_run_use_cases._session_repo, "get_session", get_session)
     monkeypatch.setattr(agent_run_workflow.agent_run_use_cases._service, "create_or_get", create_or_get)
-    monkeypatch.setattr(agent_run_workflow, "enqueue_agent_run", dispatched.append)
-    monkeypatch.setattr(agent_run_workflow, "dispatch_pending_outbox", dispatch_pending_outbox)
+    monkeypatch.setattr(agent_run_mutations, "enqueue_agent_run", dispatched.append)
+    monkeypatch.setattr(agent_run_mutations, "dispatch_pending_outbox", dispatch_pending_outbox)
 
     response = await agent_runs.create_interview_start_run(
         InterviewStartRequest(thread_id="turn-1", mode="mock", resume_context="private resume"),
@@ -208,7 +227,7 @@ async def test_interview_report_run_uses_owned_session_id(monkeypatch):
 
     async def create_queued_run(**kwargs):
         created_kwargs.update(kwargs)
-        return agent_run_workflow.AgentRunResponse(payload={})
+        return agent_run_workflow.AgentRunResponse(body={})
 
     monkeypatch.setattr(use_cases._session_repo, "get_session", get_session)
     monkeypatch.setattr(use_cases, "create_queued_run", create_queued_run)
@@ -307,6 +326,7 @@ async def test_recovery_loop_marks_failed_dispatch_and_continues(monkeypatch):
 @pytest.mark.asyncio
 async def test_inline_mode_persists_agent_run_and_deferred_result(monkeypatch):
     """Queue-disabled development mode still writes the AgentRun shown by Run Center."""
+    from ai.workflows.agent_runs import mutations as agent_run_mutations
     from ai.workflows.agent_runs import use_cases as workflow
     from ai.workflows.agent_runs.contracts import DeferredExecutionResult
 
@@ -358,9 +378,9 @@ async def test_inline_mode_persists_agent_run_and_deferred_result(monkeypatch):
         return DeferredExecutionResult(persist=persist)
 
     monkeypatch.setenv("TASK_QUEUE_ENABLED", "false")
-    monkeypatch.setattr(workflow, "get_run_gate", lambda: FakeGate())
+    monkeypatch.setattr(agent_run_mutations, "get_run_gate", lambda: FakeGate())
     monkeypatch.setattr(workflow.AgentRunUseCases, "_run_inline_task", execute)
-    monkeypatch.setattr(workflow, "serialize_run", lambda value: {
+    monkeypatch.setattr(agent_run_mutations, "serialize_run", lambda value: {
         "run_id": value.id,
         "status": value.status,
         "stage": value.stage,
@@ -376,9 +396,9 @@ async def test_inline_mode_persists_agent_run_and_deferred_result(monkeypatch):
         idempotency_key="inline-key",
     )
 
-    assert response.payload["run_id"] == "inline-run-1"
-    assert response.payload["status"] == "succeeded"
-    assert response.payload["result"]["result_id"] == 9
+    assert response.body["run_id"] == "inline-run-1"
+    assert response.body["status"] == "succeeded"
+    assert response.body["result"]["result_id"] == 9
     create_kwargs = next(value for name, value in calls if name == "create")
     assert create_kwargs["idempotency_key"] == "inline-key"
     assert ("stage", ("inline-run-1", "content_optimization")) in calls

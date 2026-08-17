@@ -32,11 +32,20 @@ export function BossResultsArea({
         );
     }
     if (results.length === 0 && captureRun?.status === "succeeded") {
+        const resultMessage = typeof captureRun.result?.message === "string" ? captureRun.result.message : "";
+        const resultTotal = typeof captureRun.result?.total === "number" ? captureRun.result.total : null;
+        const hasNoEligibleResult = resultTotal === 0;
         return (
             <div className="surface-panel flex min-h-56 flex-col items-center justify-center text-center">
                 <CheckCircle2 className="h-9 w-9 text-emerald-500" />
-                <div className="mt-3 text-sm font-medium text-slate-900">本次采集的岗位已全部入库</div>
-                <p className="mt-1 max-w-md text-xs leading-5 text-slate-500">可在「岗位库」页签查看岗位详情和匹配度。</p>
+                <div className="mt-3 text-sm font-medium text-slate-900">
+                    {hasNoEligibleResult ? "没有符合本次筛选条件的岗位" : "本次采集的岗位已全部入库"}
+                </div>
+                <p className="mt-1 max-w-md text-xs leading-5 text-slate-500">
+                    {resultMessage || (hasNoEligibleResult
+                        ? "请放宽筛选条件后重新采集。"
+                        : "可在「岗位库」页签查看岗位详情和匹配度。")}
+                </p>
             </div>
         );
     }

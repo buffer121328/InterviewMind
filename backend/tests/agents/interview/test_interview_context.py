@@ -9,13 +9,8 @@ from ai.agents.interview.planning import planner as interview_planner
 from ai.agents.interview.voice import flow as voice_interview
 
 
-class _Question:
-    def model_dump(self) -> dict:
-        return {"content": "解释事件循环", "source_id": "experience-1"}
-
-
 @pytest.mark.asyncio
-async def test_context_resolves_session_fallback_and_normalizes_sources(monkeypatch):
+async def test_context_resolves_session_fallback_and_clamps_question_bank_count(monkeypatch):
     captured: dict[str, str] = {}
 
     async def fake_memory(
@@ -49,7 +44,6 @@ async def test_context_resolves_session_fallback_and_normalizes_sources(monkeypa
         company_info="未知",
         max_questions=None,
         question_bank_count=20,
-        experience_questions=[_Question()],
         session_metadata=metadata,
         api_config={"mem0_llm": {"model": "memory-model"}},
     )
@@ -61,7 +55,6 @@ async def test_context_resolves_session_fallback_and_normalizes_sources(monkeypa
     assert context.question_bank_count == 4
     assert context.round_index == 2
     assert context.round_type == "tech_deep"
-    assert context.experience_questions[0]["source_id"] == "experience-1"
     assert context.memory_context == "候选人偏好深挖项目"
     assert captured == {
         "user_id": "user-1",
@@ -83,15 +76,12 @@ async def test_graph_fields_are_independent_copies(monkeypatch):
         job_description="JD",
         company_info="公司",
         max_questions=5,
-        experience_questions=[{"content": "原始问题"}],
     )
 
     first = context.graph_fields()
-    first["experience_questions"][0]["content"] = "已修改"
     first["memory_items"][0]["details"]["level"] = "junior"
 
     second = context.graph_fields()
-    assert second["experience_questions"][0]["content"] == "原始问题"
     assert second["memory_items"][0]["details"]["level"] == "senior"
 
 

@@ -5,11 +5,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.api import resume_history as resume_history_routes
+from app.api.resume import history as resume_history_routes
 from ai.workflows.resume import history as resume_history
 from app.db.repositories.resume.resume_repo import ResumeRepo
-from app.schemas.resume_schemas import ResumeHistoryDetailResponse, ResumeHistoryListResponse
-from app.schemas.job_application import ApplicationListResponse
+from app.schemas.resume.resume_schemas import ResumeHistoryDetailResponse, ResumeHistoryListResponse
+from app.schemas.jobs.job_application import ApplicationListResponse
 
 
 def _resume_row():

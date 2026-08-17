@@ -46,7 +46,6 @@ interface InterviewSetupProps {
     onInterviewTypeChange: (value: InterviewType) => void;
     questionBankCount: number;
     onQuestionBankCountChange: (value: number) => void;
-    experienceQuestionCount?: number;
     isLoading: boolean;
     hasApiConfig: boolean;
     onStartInterview: (mode: InterviewMode, options?: { interviewType: InterviewType; maxQuestions: number }) => Promise<void>;
@@ -71,7 +70,6 @@ export function InterviewSetup({
     onInterviewTypeChange,
     questionBankCount,
     onQuestionBankCountChange,
-    experienceQuestionCount = 0,
     isLoading,
     hasApiConfig,
     onStartInterview,
@@ -305,9 +303,7 @@ export function InterviewSetup({
                         </div>
                     </div>
                     <p className="text-xs text-gray-400">
-                        {experienceQuestionCount > 0
-                            ? `另有 ${experienceQuestionCount} 道已选面经题优先用于本次面试，剩余题目由模型补足。`
-                            : "题库题优先使用，剩余题目由模型补足，可减少规划等待。"}
+                        题库题优先使用，剩余题目由模型补足，可减少规划等待。
                     </p>
                 </div>
 
@@ -422,10 +418,8 @@ export function InterviewSetup({
                             { label: "简历", value: resume ? resume.original_name : "待上传", ready: Boolean(resume) },
                             { label: "目标岗位", value: jobDescription.trim() ? "已设置" : "待填写", ready: Boolean(jobDescription.trim()) },
                             {
-                                label: "个性化题目",
-                                value: experienceQuestionCount + questionBankCount > 0
-                                    ? `面经 ${experienceQuestionCount} · 题库 ${questionBankCount}`
-                                    : "由模型生成",
+                                label: "题目来源",
+                                value: questionBankCount > 0 ? `题库 ${questionBankCount} · 模型补足` : "由模型生成",
                                 ready: true,
                             },
                         ].map((item) => (

@@ -1,6 +1,6 @@
 /**
  * Interview Slice - 面试流程管理
- * 
+ *
  * 负责面试的核心流程：开始面试、发送消息、流式响应处理等
  */
 
@@ -8,7 +8,6 @@ import { v4 as uuidv4 } from 'uuid';
 import { getUserId } from '@/hooks/useUserIdentity';
 import type { Message, ResumeInfo, InterviewProgress, InterviewSession, ExecutionPlanStep, InterviewType } from '../types';
 import { API_BASE_URL } from '@/lib/api/config';
-import type { ExperienceQuestionCandidate } from '@/lib/api/interviewExperience';
 import type { JobContextSnapshot } from '@/lib/jobContextHandoff';
 import { listAgentRunEvents } from '@/lib/api/agentRunEvents';
 import { parseStreamEvent, reduceExecutionPlanStreamEvent } from '@/lib/streamEvents';
@@ -33,7 +32,6 @@ export interface InterviewFlowState {
     maxQuestions: number;
     interviewType: InterviewType;
     questionBankCount: number;
-    experienceQuestions: ExperienceQuestionCandidate[];
     showAbilityProfile: boolean;
     apiError: string | null;
     isVoiceMode: boolean;
@@ -55,7 +53,6 @@ export interface InterviewFlowActions {
     setMaxQuestions: (maxQuestions: number) => void;
     setInterviewType: (interviewType: InterviewType) => void;
     setQuestionBankCount: (count: number) => void;
-    setExperienceQuestions: (questions: ExperienceQuestionCandidate[]) => void;
     uploadResume: (file: File) => Promise<void>;
     startInterview: (mode?: 'mock' | 'voice') => Promise<void>;
     sendMessage: (content: string) => Promise<void>;
@@ -108,7 +105,6 @@ export const createInterviewSlice = (set: SetState, get: GetState): InterviewFlo
     maxQuestions: 10,
     interviewType: 'tech_initial',
     questionBankCount: 0,
-    experienceQuestions: [],
     showAbilityProfile: false,
     apiError: null,
     isVoiceMode: false,
@@ -132,9 +128,6 @@ export const createInterviewSlice = (set: SetState, get: GetState): InterviewFlo
     setQuestionBankCount: (count: number) => set((state) => ({
         questionBankCount: Math.max(0, Math.min(count, state.maxQuestions)),
     })),
-    setExperienceQuestions: (questions: ExperienceQuestionCandidate[]) => set({
-        experienceQuestions: questions.slice(0, 20),
-    }),
 
     uploadResume: async (file: File) => {
         set({ isLoading: true });
@@ -169,7 +162,7 @@ export const createInterviewSlice = (set: SetState, get: GetState): InterviewFlo
     startInterview: async (mode: 'mock' | 'voice' = 'mock') => {
         const {
             resume, jobDescription, companyInfo, jobContextSnapshot, maxQuestions, interviewType, questionBankCount,
-            experienceQuestions, getApiConfigForRequest,
+            getApiConfigForRequest,
         } = get();
 
         if (!resume) {
@@ -250,7 +243,6 @@ export const createInterviewSlice = (set: SetState, get: GetState): InterviewFlo
             max_questions: maxQuestions,
             round_type: interviewType,
             question_bank_count: Math.min(questionBankCount, maxQuestions),
-            experience_questions: experienceQuestions.slice(0, maxQuestions),
             api_config: apiConfig,
         };
 
@@ -299,8 +291,7 @@ export const createInterviewSlice = (set: SetState, get: GetState): InterviewFlo
                 messages: [{ role: 'assistant', content: result.first_question, timestamp: new Date().toISOString() }],
                 isStreaming: false,
                 isLoading: false,
-                experienceQuestions: [],
-                currentSession: initializedSession
+                            currentSession: initializedSession
                     ? {
                         ...initializedSession,
                         title: typeof result.session_title === 'string' && result.session_title.trim()

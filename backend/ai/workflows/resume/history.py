@@ -5,7 +5,7 @@ from typing import Literal
 
 from app.db.repositories.resume.resume_repo import get_resume_repo
 from app.db.repositories.session.session_repo import SessionRepo
-from app.schemas.resume_schemas import (
+from app.schemas.resume.resume_schemas import (
     CompletedSessionItem,
     CompletedSessionsResponse,
     ResumeHistoryDetailResponse,
@@ -17,7 +17,7 @@ from app.schemas.resume_schemas import (
 class ResumeHistoryUseCaseError(Exception):
     """简历历史用例异常。"""
 
-    message: str
+    message: str  # 错误信息文本
 
 
 class ResumeHistoryNotFound(ResumeHistoryUseCaseError):

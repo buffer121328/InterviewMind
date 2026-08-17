@@ -14,6 +14,9 @@
 import { apiRequest } from './config';
 import type { ApiConfig } from './resumeTypes';
 
+export type MemorySource = 'resume' | 'user_preference' | 'interview_weakness' | 'unknown';
+export type MemoryWriteSource = Exclude<MemorySource, 'unknown'>;
+
 // ============================================================================
 // 类型定义
 // ============================================================================
@@ -22,6 +25,7 @@ export interface MemoryItem {
     id: string;
     memory: string;
     metadata?: Record<string, unknown>;
+    source: MemorySource;
     score?: number;
     created_at?: string;
     updated_at?: string;
@@ -90,11 +94,17 @@ export interface MemoryDeleteAllResponse {
 export async function addMemory(
     content: string,
     apiConfig: ApiConfig,
+    memorySource: MemoryWriteSource,
     memoryType?: string,
 ): Promise<MemoryWriteResponse> {
     return apiRequest<MemoryWriteResponse>('/api/memory', {
         method: 'POST',
-        body: JSON.stringify({ content, memory_type: memoryType, api_config: apiConfig }),
+        body: JSON.stringify({
+            content,
+            memory_type: memoryType,
+            memory_source: memorySource,
+            api_config: apiConfig,
+        }),
     });
 }
 
@@ -116,10 +126,14 @@ export async function updateMemory(
  * 获取当前用户全部记忆
  * POST /api/memory/list
  */
-export async function getAllMemories(apiConfig: ApiConfig, pageSize = 100): Promise<MemoryListResponse> {
+export async function getAllMemories(
+    apiConfig: ApiConfig,
+    pageSize = 100,
+    sources?: MemorySource[],
+): Promise<MemoryListResponse> {
     return apiRequest<MemoryListResponse>('/api/memory/list', {
         method: 'POST',
-        body: JSON.stringify({ page_size: pageSize, api_config: apiConfig }),
+        body: JSON.stringify({ page_size: pageSize, sources, api_config: apiConfig }),
     });
 }
 
@@ -131,6 +145,7 @@ export async function searchMemories(params: {
     q: string;
     limit?: number;
     memory_type?: string;
+    sources?: MemorySource[];
     api_config: ApiConfig;
 }): Promise<MemorySearchResponse> {
     return apiRequest<MemorySearchResponse>('/api/memory/search', {
@@ -139,6 +154,7 @@ export async function searchMemories(params: {
             query: params.q,
             limit: params.limit,
             memory_type: params.memory_type,
+            sources: params.sources,
             api_config: params.api_config,
         }),
     });

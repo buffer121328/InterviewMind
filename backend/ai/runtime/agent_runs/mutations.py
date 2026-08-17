@@ -26,7 +26,12 @@ from app.domain.agent_runs import (
 
 
 def _queue_wait_ms(run: AgentRunModel, now) -> int:
-    """按首次排队或最近一次重试入队时间计算非负队列等待毫秒数。"""
+    """按首次排队或最近一次重试入队时间计算非负队列等待毫秒数。
+
+    Args:
+        run: 当前的 AgentRun 记录。
+        now: 当前时间戳。
+    """
 
     queued_since = run.updated_at if run.status == "retrying" else run.created_at
     return max(0, int((now - queued_since).total_seconds() * 1000))
@@ -42,7 +47,15 @@ class AgentRunMutationsMixin:
             task_type: str = TASK_TYPE_INTERVIEW_START,
             session_id: str | None = None,
         ) -> tuple[AgentRunModel, bool]:
-            """幂等方式创建 AgentRun：同 user+type+idempotency_key 返回已有记录。"""
+            """幂等方式创建 AgentRun：同 user+type+idempotency_key 返回已有记录。
+
+            Args:
+                user_id: 任务所属用户 ID。
+                payload: 任务载荷（将被加密存储）。
+                idempotency_key: 幂等键，用于重复请求去重。
+                task_type: 任务类型。
+                session_id: 关联会话 ID，可为空。
+            """
             if task_type not in TASK_DEFINITIONS:
                 raise ValueError(f"unknown task type: {task_type}")
             definition = get_agent_definition(task_type)
@@ -73,7 +86,8 @@ class AgentRunMutationsMixin:
                     "checkpoint_policy": definition.checkpoint_policy,
                     "cancellation_policy": definition.cancellation_policy,
                 })
-                await enqueue_agent_run_outbox(session, run.id, now=now)
+                if "queued" in definition.execution_modes:
+                    await enqueue_agent_run_outbox(session, run.id, now=now)
                 try:
                     await session.commit()
                 except IntegrityError:
@@ -99,7 +113,16 @@ class AgentRunMutationsMixin:
             initial_stage: str,
             session_id: str | None = None,
         ) -> tuple[AgentRunModel, bool]:
-            """创建行内相关后端逻辑。"""
+            """创建行内写入或获取已有记录。
+
+            Args:
+                user_id: 任务所属用户 ID。
+                payload: 任务载荷（将被加密存储）。
+                idempotency_key: 幂等键，用于重复请求去重。
+                task_type: 任务类型。
+                initial_stage: 行内任务的起始执行阶段。
+                session_id: 关联会话 ID，可为空。
+            """
             if task_type not in TASK_DEFINITIONS:
                 raise ValueError(f"unknown task type: {task_type}")
             definition = get_agent_definition(task_type)
@@ -180,7 +203,11 @@ class AgentRunMutationsMixin:
                 return run, True
 
     async def claim(self, run_id: str) -> tuple[AgentRunModel, dict] | None:
-            """领取一个 queued/retrying 状态的 AgentRun 开始执行。"""
+            """领取一个 queued/retrying 状态的 AgentRun 开始执行。
+
+            Args:
+                run_id: 任务运行 ID。
+            """
             async with self._runtime_async_session() as session:
                 run = await session.scalar(select(AgentRunModel).where(AgentRunModel.id == run_id).with_for_update())
                 if not run or run.status not in {"queued", "retrying"}:
@@ -204,7 +231,12 @@ class AgentRunMutationsMixin:
                 return run, self._runtime_decrypt_payload(run.payload_encrypted)
 
     async def mark_stage(self, run_id: str, stage: str) -> None:
-            """推进运行阶段并持久化步骤完成记录，不写入敏感任务载荷或模型原文。"""
+            """推进运行阶段并持久化步骤完成记录，不写入敏感任务载荷或模型原文。
+
+            Args:
+                run_id: 任务运行 ID。
+                stage: 要推进到的目标阶段。
+            """
             async with self._runtime_async_session() as session:
                 run = await session.get(AgentRunModel, run_id, with_for_update=True)
                 if not run or run.status != "running":
@@ -237,7 +269,14 @@ class AgentRunMutationsMixin:
             *,
             user_id: str,
         ) -> None:
-            """按 owner 加密保存恢复 checkpoint，事件仅记录不含正文的阶段摘要。"""
+            """按 owner 加密保存恢复 checkpoint，事件仅记录不含正文的阶段摘要。
+
+            Args:
+                run_id: 任务运行 ID。
+                stage: 保存 checkpoint 对应的阶段。
+                checkpoint: 待加密保存的恢复数据。
+                user_id: 任务所属用户 ID，用于校验归属。
+            """
             async with self._runtime_async_session() as session:
                 run = await session.scalar(
                     select(AgentRunModel)
@@ -265,7 +304,13 @@ class AgentRunMutationsMixin:
                 await session.commit()
 
     async def load_checkpoint(self, run_id: str, user_id: str, stage: str) -> dict[str, Any] | None:
-            """按 owner 读取并解密恢复 checkpoint；密文不存在时返回 None。"""
+            """按 owner 读取并解密恢复 checkpoint；密文不存在时返回 None。
+
+            Args:
+                run_id: 任务运行 ID。
+                user_id: 任务所属用户 ID，用于校验归属。
+                stage: 读取 checkpoint 对应的阶段。
+            """
             async with self._runtime_async_session() as session:
                 run = await session.scalar(
                     select(AgentRunModel).where(
@@ -283,7 +328,11 @@ class AgentRunMutationsMixin:
                 return value if isinstance(value, dict) else None
 
     async def touch(self, run_id: str) -> None:
-            """更新 AgentRun 的 updated_at 时间戳，防止被判定为"卡住"。"""
+            """更新 AgentRun 的 updated_at 时间戳，防止被判定为"卡住"。
+
+            Args:
+                run_id: 任务运行 ID。
+            """
             async with self._runtime_async_session() as session:
                 run = await session.get(AgentRunModel, run_id, with_for_update=True)
                 if not run or run.status not in {"running", "cancel_requested"}:
@@ -292,13 +341,21 @@ class AgentRunMutationsMixin:
                 await session.commit()
 
     async def is_cancel_requested(self, run_id: str) -> bool:
-            """检查任务是否已被请求取消。"""
+            """检查任务是否已被请求取消。
+
+            Args:
+                run_id: 任务运行 ID。
+            """
             async with self._runtime_async_session() as session:
                 status = await session.scalar(select(AgentRunModel.status).where(AgentRunModel.id == run_id))
                 return status == "cancel_requested"
 
     async def requeue(self, run_id: str) -> None:
-            """将运行中的 AgentRun 重新放回队列（被取消请求时回退）。"""
+            """将运行中的 AgentRun 重新放回队列（被取消请求时回退）。
+
+            Args:
+                run_id: 任务运行 ID。
+            """
             async with self._runtime_async_session() as session:
                 run = await session.get(AgentRunModel, run_id, with_for_update=True)
                 if not run or run.status not in {"running", "cancel_requested"}:
@@ -312,7 +369,12 @@ class AgentRunMutationsMixin:
                 await session.commit()
 
     async def retry(self, run_id: str, user_id: str) -> AgentRunModel | None:
-            """重试一个失败或被取消的 AgentRun（检查重试策略和次数限制）。"""
+            """重试一个失败或被取消的 AgentRun（检查重试策略和次数限制）。
+
+            Args:
+                run_id: 任务运行 ID。
+                user_id: 任务所属用户 ID，用于校验归属。
+            """
             async with self._runtime_async_session() as session:
                 run = await session.scalar(select(AgentRunModel).where(AgentRunModel.id == run_id, AgentRunModel.user_id == user_id).with_for_update())
                 if (
@@ -341,7 +403,13 @@ class AgentRunMutationsMixin:
             run_id: str,
             result_writer: Callable[[AsyncSession], Awaitable[dict]],
         ) -> None:
-            """在事务内标记 AgentRun 成功：处理取消竞态，写入业务结果。"""
+            """在事务内标记 AgentRun 成功：处理取消竞态，写入业务结果。
+
+            Args:
+                session: 数据库会话。
+                run_id: 任务运行 ID。
+                result_writer: 延迟写入业务结果的回调，与 AgentRun 状态更新同一事务。
+            """
             run = await session.get(AgentRunModel, run_id, with_for_update=True)
             if not run or run.status == "cancelled":
                 return
@@ -373,7 +441,12 @@ class AgentRunMutationsMixin:
                 await self._append_event(session, run, "run.completed")
 
     async def succeed(self, run_id: str, result: dict) -> None:
-            """标记 AgentRun 为成功状态，直接设置结果。"""
+            """标记 AgentRun 为成功状态，直接设置结果。
+
+            Args:
+                run_id: 任务运行 ID。
+                result: 要写入的业务结果。
+            """
             async def result_writer(_session: AsyncSession) -> dict:
                 """将后台任务结果写入 AgentRun 和关联业务表，遵守 owner、事务和脱敏边界。
 
@@ -389,12 +462,22 @@ class AgentRunMutationsMixin:
             run_id: str,
             result_writer: Callable[[AsyncSession], Awaitable[dict]],
         ) -> None:
-            """使用延迟持久化回调标记 AgentRun 成功（业务结果和 AgentRun 同一事务）。"""
+            """使用延迟持久化回调标记 AgentRun 成功（业务结果和 AgentRun 同一事务）。
+
+            Args:
+                run_id: 任务运行 ID。
+                result_writer: 延迟写入业务结果的回调。
+            """
             async with self._runtime_unit_of_work() as uow:
                 await self._succeed_in_session(uow.db, run_id, result_writer)
 
     async def fail(self, run_id: str, message: str) -> None:
-            """标记 AgentRun 为失败状态（处理取消竞态）。"""
+            """标记 AgentRun 为失败状态（处理取消竞态）。
+
+            Args:
+                run_id: 任务运行 ID。
+                message: 失败原因说明。
+            """
             async with self._runtime_unit_of_work() as uow:
                 session = uow.db
                 run = await session.get(AgentRunModel, run_id, with_for_update=True)
@@ -415,7 +498,12 @@ class AgentRunMutationsMixin:
                 await self._append_event(session, run, event_type, {"message": run.error_message})
 
     async def mark_cancelled(self, run_id: str, message: str = "任务已取消") -> None:
-            """强制标记 AgentRun 为已取消（Worker 内部使用）。"""
+            """强制标记 AgentRun 为已取消（Worker 内部使用）。
+
+            Args:
+                run_id: 任务运行 ID。
+                message: 取消原因说明。
+            """
             async with self._runtime_unit_of_work() as uow:
                 session = uow.db
                 run = await session.get(AgentRunModel, run_id, with_for_update=True)
@@ -430,7 +518,12 @@ class AgentRunMutationsMixin:
                 await self._append_event(session, run, "run.cancelled", {"message": message})
 
     async def cancel(self, run_id: str, user_id: str) -> AgentRunModel | None:
-            """取消 AgentRun：队列中直接取消，运行中发取消请求。"""
+            """取消 AgentRun：队列中直接取消，运行中发取消请求。
+
+            Args:
+                run_id: 任务运行 ID。
+                user_id: 任务所属用户 ID，用于校验归属。
+            """
             async with self._runtime_async_session() as session:
                 run = await session.scalar(select(AgentRunModel).where(AgentRunModel.id == run_id, AgentRunModel.user_id == user_id).with_for_update())
                 if not run or run.status not in {"queued", "retrying", "running", "cancel_requested"}:

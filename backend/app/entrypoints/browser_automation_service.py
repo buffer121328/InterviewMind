@@ -21,7 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field
 ROOT_ENV = Path(__file__).resolve().parents[3] / ".env"
 load_dotenv(ROOT_ENV, override=False)
 
-from app.schemas.job_schemas import BossTabCaptureRequest  # noqa: E402
+from app.schemas.jobs.job_schemas import BossTabCaptureRequest  # noqa: E402
 from integrations.boss.existing_tab_bridge import (  # noqa: E402
     BossExistingTabError,
     get_boss_existing_tab_bridge,
@@ -86,7 +86,11 @@ async def favicon() -> Response:
 
 @app.post("/v1/health", dependencies=[Depends(require_browser_service_token)])
 async def health(_: EmptyRequest) -> dict[str, object]:
-    """返回标签页桥接能力和默认浏览器渠道，不探测 GUI 或暴露用户会话信息。"""
+    """返回标签页桥接能力和默认浏览器渠道，不探测 GUI 或暴露用户会话信息。
+
+    Args:
+        _: 占位参数。
+    """
 
     channel = os.getenv("BOSS_BROWSER_CHANNEL", "msedge").strip().lower() or "msedge"
     if channel not in {"msedge", "chrome"}:
@@ -104,14 +108,22 @@ async def health(_: EmptyRequest) -> dict[str, object]:
 
 
 def _require_boss_job_url(source_url: str) -> None:
-    """限制标签页导航端点只能访问 BOSS 官方岗位详情链接。"""
+    """限制标签页导航端点只能访问 BOSS 官方岗位详情链接。
+
+    Args:
+        source_url: 来源 URL。
+    """
 
     if not is_allowed_boss_job_url(source_url):
         raise HTTPException(status_code=400, detail="仅允许 BOSS 直聘官方岗位详情链接")
 
 
 def _raise_existing_tab_error(exc: BossExistingTabError) -> NoReturn:
-    """把宿主机标签页桥接错误转换为稳定 HTTP detail，不暴露页面正文或凭据。"""
+    """把宿主机标签页桥接错误转换为稳定 HTTP detail，不暴露页面正文或凭据。
+
+    Args:
+        exc: 异常实例。
+    """
 
     raise HTTPException(
         status_code=exc.status_code,
@@ -125,7 +137,11 @@ def _raise_existing_tab_error(exc: BossExistingTabError) -> NoReturn:
 
 @app.post("/v1/boss/browser-tab/status", dependencies=[Depends(require_browser_service_token)])
 async def boss_browser_tab_status(request: BossTabStatusRequest) -> dict[str, object]:
-    """检查宿主机已打开的 BOSS 标签页；主后端即使在 Docker 中也不会直接控制 GUI。"""
+    """检查宿主机已打开的 BOSS 标签页；主后端即使在 Docker 中也不会直接控制 GUI。
+
+    Args:
+        request: 请求对象。
+    """
 
     try:
         status_result = await get_boss_existing_tab_bridge().inspect(request.browser_channel)
@@ -136,13 +152,19 @@ async def boss_browser_tab_status(request: BossTabStatusRequest) -> dict[str, ob
 
 @app.post("/v1/boss/browser-tab/search-and-capture", dependencies=[Depends(require_browser_service_token)])
 async def boss_browser_tab_search_and_capture(request: BossTabCaptureRequest) -> dict[str, object]:
-    """复用宿主机现有登录标签页搜索并读取最多 20 张有限字段岗位卡片。"""
+    """复用宿主机现有登录标签页搜索并读取最多 20 张有限字段岗位卡片。
+
+    Args:
+        request: 请求对象。
+    """
 
     try:
         return await get_boss_existing_tab_bridge().search_and_capture(
             query=request.query,
             city=request.city,
             max_cards=request.max_cards,
+            experience=request.experience,
+            job_type=request.job_type,
             browser_channel=request.browser_channel,
         )
     except BossExistingTabError as exc:
@@ -153,7 +175,11 @@ async def boss_browser_tab_search_and_capture(request: BossTabCaptureRequest) ->
 async def boss_browser_tab_send_message(
     request: BossSendMessageHostRequest,
 ) -> dict[str, object]:
-    """在锁定的官方岗位标签页发送一次文案，并要求页面后置条件确认。"""
+    """在锁定的官方岗位标签页发送一次文案，并要求页面后置条件确认。
+
+    Args:
+        request: 请求对象。
+    """
 
     _require_boss_job_url(request.source_url)
     try:
@@ -168,7 +194,11 @@ async def boss_browser_tab_send_message(
 
 @app.post("/v1/boss/browser-tab/open-job", dependencies=[Depends(require_browser_service_token)])
 async def boss_browser_tab_open_job(request: BossOpenJobHostRequest) -> dict[str, object]:
-    """在现有用户浏览器标签页打开官方岗位链接，不填写或发送任何消息。"""
+    """在现有用户浏览器标签页打开官方岗位链接，不填写或发送任何消息。
+
+    Args:
+        request: 请求对象。
+    """
 
     _require_boss_job_url(request.source_url)
     try:

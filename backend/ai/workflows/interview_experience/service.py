@@ -2,19 +2,19 @@
 
 from typing import Any
 
-from app.schemas.experience_provider import ExperienceDocument, ExperienceProvider
+from app.schemas.interview_experience.experience_provider import ExperienceDocument, ExperienceProvider
 
 from .extractor import extract_questions
 from .providers import NowcoderProvider
 
 
 class InterviewExperienceService:
-    """封装业务服务能力。"""
+    """面经采集应用服务：按来源调用适配器采集文档并抽取题目。"""
     def __init__(self, providers: dict[str, ExperienceProvider] | None = None):
         """初始化 `InterviewExperienceService` 的依赖和运行配置；构造阶段不执行业务写入，外部客户端仅在后续方法调用时承担对应的访问边界。
 
         Args:
-            providers: 经过类型边界校验的 `providers`；其格式和可选值由参数类型及调用流程约束。
+            providers: 来源名到采集适配器的映射；缺省时注册牛客适配器。
         """
         self.providers = providers or {
             "nowcoder": NowcoderProvider(),
@@ -28,13 +28,16 @@ class InterviewExperienceService:
         max_pages: int,
         exported_items: list[dict[str, Any]],
     ) -> tuple[list[ExperienceDocument], list[dict[str, object]]]:
-        """从配置的面经来源采集文档或题目，受页数、超时和来源访问边界约束。
+        """按来源采集面经文档，并从中抽取结构化面试题。
 
         Args:
-            source: 经过类型边界校验的 `source`；其格式和可选值由参数类型及调用流程约束。
-            queries: 经过类型边界校验的 `queries`；其格式和可选值由参数类型及调用流程约束。
-            max_pages: 经过类型边界校验的 `max_pages`；其格式和可选值由参数类型及调用流程约束。
-            exported_items: 经过类型边界校验的 `exported_items`；其格式和可选值由参数类型及调用流程约束。
+            source: 面经来源名。
+            queries: 搜索关键词列表。
+            max_pages: 搜索的最大页数。
+            exported_items: 用户显式导入的面经条目列表。
+
+        Returns:
+            (list[ExperienceDocument], list[dict]): 采集到的文档与抽取的题目。
         """
         provider = self.providers.get(source)
         if provider is None:

@@ -90,8 +90,59 @@ async def test_pending_upsert_is_idempotent_and_preserves_unchanged_embedding(mo
     assert chunk_id == 17
     assert "embedding_status = CASE WHEN" in update_clause
     assert "embedding = CASE WHEN" in update_clause
+    assert "embedding_dimension = CASE WHEN" in update_clause
     assert " WHERE " not in update_clause
     assert db.commits == 1
+
+
+@pytest.mark.asyncio
+async def test_embedding_upsert_persists_declared_dimension(monkeypatch):
+    db = _FakeDb()
+    monkeypatch.setattr(rag_index_repo, "async_session", lambda: _FakeSession(db))
+
+    await rag_index_repo.RagIndexRepo().upsert_chunk_with_embedding(
+        user_id="user-1",
+        namespace="user_private",
+        source_type="question_bank",
+        source_id="42",
+        chunk_key="question_bank:42:main",
+        content="FastAPI dependency injection",
+        content_hash="hash-1",
+        embedding=[0.1, 0.2],
+        embedding_model="embed-model",
+        dimensions=2,
+    )
+
+    sql = str(db.statements[0].compile(dialect=postgresql.dialect()))
+    assert "embedding_dimension" in sql
+    assert db.commits == 1
+
+
+@pytest.mark.asyncio
+async def test_reuse_and_vector_search_filter_model_and_dimension(monkeypatch):
+    db = _FakeDb()
+    monkeypatch.setattr(rag_index_repo, "async_session", lambda: _FakeSession(db))
+    repo = rag_index_repo.RagIndexRepo()
+
+    assert await repo.get_reusable_embeddings(
+        user_id="user-1",
+        content_hashes={"hash-1"},
+        embedding_model="embed-model",
+        dimensions=1024,
+    ) == {}
+    assert await repo.search_by_vector(
+        user_id="user-1",
+        namespace="user_private",
+        query_embedding=[0.0] * 1024,
+        embedding_model="embed-model",
+    ) == []
+
+    reuse_sql = str(db.statements[0].compile(dialect=postgresql.dialect()))
+    search_sql = str(db.statements[1].compile(dialect=postgresql.dialect()))
+    assert "rag_chunks.embedding_dimension" in reuse_sql
+    assert "rag_chunks.embedding_model" in reuse_sql
+    assert "rag_chunks.embedding_dimension" in search_sql
+    assert "rag_chunks.embedding_model" in search_sql
 
 
 @pytest.mark.asyncio

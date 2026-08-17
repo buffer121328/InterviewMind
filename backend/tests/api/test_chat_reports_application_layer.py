@@ -14,7 +14,7 @@ FORBIDDEN_NAMES = {"session_repo", "get_ability_service", "get_weakness_report_r
 
 
 def test_chat_report_routes_delegate_to_application_layer():
-    tree = ast.parse((BACKEND_APP / "api" / "chat.py").read_text())
+    tree = ast.parse((BACKEND_APP / "api" / "interview" / "chat.py").read_text())
     checked = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.AsyncFunctionDef) and node.name in MIGRATED_FUNCTIONS:
@@ -26,7 +26,7 @@ def test_chat_report_routes_delegate_to_application_layer():
 
 
 def test_unused_weakness_compatibility_routes_are_removed():
-    source = (BACKEND_APP / "api" / "chat.py").read_text()
+    source = (BACKEND_APP / "api" / "interview" / "chat.py").read_text()
     tree = ast.parse(source)
     function_names = {
         node.name for node in ast.walk(tree) if isinstance(node, ast.AsyncFunctionDef)

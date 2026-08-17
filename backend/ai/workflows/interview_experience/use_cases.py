@@ -9,7 +9,7 @@ from ai.workflows.interview_experience import InterviewExperienceService
 from ai.workflows.interview_experience.quality import ExperienceQuestionQualityService
 from app.db.repositories.interview.question_bank_repo import QuestionBankRepo
 from app.domain.question_bank import normalize_question_key
-from app.schemas.interview_experience import (
+from app.schemas.interview_experience.interview_experience import (
     ExperienceCollectRequest,
     ExperienceCollectResponse,
     ExperienceQuestionImportRequest,
@@ -24,15 +24,19 @@ logger = logging.getLogger(__name__)
 class InterviewExperienceUseCaseError(Exception):
     """面经导入用例异常。"""
 
-    message: str
-    status_code: int = 400
+    message: str  # 错误提示消息
+    status_code: int = 400  # HTTP 状态码
 
 
 class InterviewExperienceBadRequest(InterviewExperienceUseCaseError):
     """面经采集请求不合法。"""
 
     def __init__(self, message: str) -> None:
-        """初始化面经采集用例及其文件解析依赖，保证外部文档导入仍经过统一大小/格式边界。"""
+        """以 422 状态码构造请求参数错误。
+
+        Args:
+            message: 单条消息。
+        """
         super().__init__(message=message, status_code=422)
 
 
@@ -40,7 +44,7 @@ class InterviewExperienceSourceUnavailable(InterviewExperienceUseCaseError):
     """面经来源暂时不可用。"""
 
     def __init__(self) -> None:
-        """初始化面经题导入用例及题库仓储，导入结果由仓储记录审计摘要。"""
+        """以 502 状态码构造来源不可用错误。"""
         super().__init__(message="面经来源暂时不可用，请稍后重试", status_code=502)
 
 
@@ -48,6 +52,7 @@ class InterviewExperienceModelConfigRequired(InterviewExperienceUseCaseError):
     """面经治理缺少可用的请求级模型配置。"""
 
     def __init__(self) -> None:
+        """以 422 状态码构造缺少模型配置错误。"""
         super().__init__(message="请先配置可用的文本模型，再采集面经", status_code=422)
 
 
@@ -55,6 +60,7 @@ class InterviewExperienceGovernanceUnavailable(InterviewExperienceUseCaseError):
     """面经模型质量治理失败。"""
 
     def __init__(self) -> None:
+        """以 502 状态码构造治理失败错误。"""
         super().__init__(message="面经题模型筛选失败，请检查模型配置后重试", status_code=502)
 
 
@@ -202,7 +208,7 @@ class InterviewExperienceImportUseCases:
         """导入用户确认的题目并写入导入记录，单条失败不会泄露原文或阻断其余条目。
 
         Args:
-            request: 请求对象。
+            request: 用户确认导入的题目列表。
             user_id: 当前用户标识。
         """
         success_count = 0

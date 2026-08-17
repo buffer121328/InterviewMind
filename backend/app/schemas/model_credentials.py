@@ -1,19 +1,19 @@
-"""提供模型凭据相关后端功能。"""
+"""模型凭据（API Key）写入、查询与状态检查的 HTTP 数据模型。"""
 
 from pydantic import BaseModel, Field, model_validator
 
 
 class ModelCredentialPutRequest(BaseModel):
-    """定义模型凭据写入请求相关后端数据结构或服务组件。"""
+    """写入模型凭据的请求，api_key 与 source_model 至少提供一个。"""
 
-    model_name: str = Field(min_length=1, max_length=256)
-    api_key: str | None = Field(default=None, max_length=16_384)
-    source_model: str | None = Field(default=None, max_length=256)
-    legacy_id: str | None = Field(default=None, max_length=128)
+    model_name: str = Field(min_length=1, max_length=256, description="模型名称")
+    api_key: str | None = Field(default=None, max_length=16_384, description="API Key")
+    source_model: str | None = Field(default=None, max_length=256, description="原模型名称（凭据继承来源）")
+    legacy_id: str | None = Field(default=None, max_length=128, description="旧版凭据 ID")
 
     @model_validator(mode="after")
     def validate_write_source(self):
-        """校验写入来源相关后端逻辑。"""
+        """api_key 与 source_model 至少提供一个，否则拒绝写入。"""
 
         if not (self.api_key and self.api_key.strip()) and not (
             self.source_model and self.source_model.strip()
@@ -23,21 +23,21 @@ class ModelCredentialPutRequest(BaseModel):
 
 
 class ModelCredentialLookup(BaseModel):
-    """定义模型凭据查询相关后端数据结构或服务组件。"""
+    """按模型名或 legacy_id 查询凭据的请求。"""
 
-    model_name: str = Field(min_length=1, max_length=256)
-    legacy_id: str | None = Field(default=None, max_length=128)
+    model_name: str = Field(min_length=1, max_length=256, description="模型名称")
+    legacy_id: str | None = Field(default=None, max_length=128, description="旧版凭据 ID")
 
 
 class ModelCredentialStatusRequest(BaseModel):
-    """定义模型凭据状态请求相关后端数据结构或服务组件。"""
+    """批量查询模型凭据状态的请求。"""
 
-    models: list[ModelCredentialLookup] = Field(default_factory=list, max_length=200)
+    models: list[ModelCredentialLookup] = Field(default_factory=list, max_length=200, description="要查询的模型列表")
 
 
 class ModelCredentialStatus(BaseModel):
-    """定义模型凭据状态相关后端数据结构或服务组件。"""
+    """单个模型凭据的存储状态。"""
 
-    model_name: str
-    stored: bool
-    expires_at: str | None = None
+    model_name: str = Field(description="模型名称")
+    stored: bool = Field(description="凭据是否已存储")
+    expires_at: str | None = Field(default=None, description="凭据过期时间")

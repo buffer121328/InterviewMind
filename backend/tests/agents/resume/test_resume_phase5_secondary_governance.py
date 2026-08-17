@@ -184,25 +184,17 @@ async def test_vector_search_timeout_degrades_without_blocking_other_retrieval(m
 
 
 @pytest.mark.asyncio
-async def test_report_memory_entries_are_written_in_parallel(monkeypatch):
-    """Optional report-memory writes share latency and cannot serialize the report tail."""
+async def test_report_memory_writes_only_completed_weakness_summary(monkeypatch):
+    """来源过滤后，报告只沉淀一条完成态短板记忆。"""
     from ai.workflows.interview.reports.memory import persist_interview_report_memories
 
-    active = 0
-    max_active = 0
-    both_started = asyncio.Event()
+    calls = []
 
     class Service:
         is_enabled = True
 
-        async def add_summary_memory(self, **_kwargs):
-            nonlocal active, max_active
-            active += 1
-            max_active = max(max_active, active)
-            if active >= 2:
-                both_started.set()
-            await asyncio.wait_for(both_started.wait(), timeout=0.5)
-            active -= 1
+        async def add_summary_memory(self, **kwargs):
+            calls.append(kwargs)
             return {"id": "memory"}
 
     async def get_service(_api_config=None):
@@ -213,9 +205,21 @@ async def test_report_memory_entries_are_written_in_parallel(monkeypatch):
         user_id="owner-a",
         session_id="session-a",
         profile={"key_weaknesses": ["系统设计"], "key_strengths": []},
-        weakness_report={"weakness_categories": [], "improvement_actions": [{"action": "练习容量估算"}]},
+        weakness_report={
+            "weakness_categories": [],
+            "improvement_actions": [{"action": "练习容量估算"}],
+        },
         api_config=None,
     )
 
-    assert written == 2
-    assert max_active == 2
+    assert written == 1
+    assert calls == [{
+        "user_id": "owner-a",
+        "session_id": "session-a",
+        "content": "面试短板：系统设计",
+        "memory_type": "weakness",
+        "metadata": {
+            "report_generated": True,
+            "memory_source": "interview_weakness",
+        },
+    }]

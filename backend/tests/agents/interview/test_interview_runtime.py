@@ -15,7 +15,7 @@ import pytest
 
 from ai.agents.interview.interview_runtime import InterviewRuntime, memo_hint
 from app.domain.interview_rounds import INTERVIEW_CLOSING_MESSAGE
-from app.schemas.interview import (
+from app.schemas.interview.interview import (
     EvaluatingOutput,
     InterviewerAction,
     InterviewerOutput,
@@ -147,8 +147,12 @@ class TestInterviewRuntimeStateMachine:
     @pytest.mark.asyncio
     async def test_evaluating_follow_up(self):
         """evaluating → follow_up 状态转换"""
-        state = {**MOCK_STATE, "turn_phase": "feedback",
-                 "messages": [MagicMock(content="我叫张三，有3年Java经验。")]}
+        state = {
+            **MOCK_STATE,
+            "turn_phase": "feedback",
+            "current_question_index": 1,
+            "messages": [MagicMock(content="我负责过微服务的并发治理和性能优化。")],
+        }
 
         mock_llm = AsyncMock()
         mock_llm.return_value = EvaluatingOutput(
@@ -165,7 +169,8 @@ class TestInterviewRuntimeStateMachine:
         result = await runtime.run()
 
         assert result["follow_up_count"] == 1
-        assert result["current_question_index"] == 0  # 追问不推进题目
+        assert result["total_follow_up_count"] == 1
+        assert result["current_question_index"] == 1  # 追问不推进题目
 
     @pytest.mark.asyncio
     async def test_evaluating_advance(self):
@@ -197,16 +202,17 @@ class TestInterviewRuntimeStateMachine:
         state = {
             **MOCK_STATE,
             "turn_phase": "feedback",
+            "current_question_index": 1,
             "follow_up_count": 2,
-            "messages": [MagicMock(content="这是第二次补充回答。")],
+            "messages": [MagicMock(content="这是第二次技术细节补充回答。")],
         }
         mock_llm = AsyncMock()
 
         result = await InterviewRuntime(state=state, llm_invoker=mock_llm).run()
 
-        assert result["current_question_index"] == 1
+        assert result["current_question_index"] == 2
         assert result["follow_up_count"] == 0
-        assert result["messages"][0]["content"].endswith("请介绍你最有成就感的项目。")
+        assert result["messages"][0]["content"].endswith("你擅长的技术栈有哪些？")
         mock_llm.assert_not_awaited()
 
     @pytest.mark.asyncio
@@ -243,7 +249,12 @@ class TestFollowUpLimits:
 
     def test_follow_up_within_limit(self):
         """追问次数未达上限时的正常追问"""
-        state = {**MOCK_STATE, "follow_up_count": 1, "max_follow_ups": 2}
+        state = {
+            **MOCK_STATE,
+            "current_question_index": 1,
+            "follow_up_count": 1,
+            "max_follow_ups": 2,
+        }
 
         runtime = InterviewRuntime(
             state=state,
@@ -259,11 +270,17 @@ class TestFollowUpLimits:
         result = runtime._handle_follow_up_action(output)
 
         assert result["follow_up_count"] == 2
-        assert result["current_question_index"] == 0
+        assert result["total_follow_up_count"] == 1
+        assert result["current_question_index"] == 1
 
     def test_follow_up_exceeds_limit(self):
         """追问次数已达上限时强制进入下一题"""
-        state = {**MOCK_STATE, "follow_up_count": 2, "max_follow_ups": 2}
+        state = {
+            **MOCK_STATE,
+            "current_question_index": 1,
+            "follow_up_count": 2,
+            "max_follow_ups": 2,
+        }
 
         runtime = InterviewRuntime(
             state=state,
@@ -280,7 +297,7 @@ class TestFollowUpLimits:
 
         # 应该强制进入下一题而非继续追问
         assert result["follow_up_count"] == 0  # 重置
-        assert result["current_question_index"] == 1  # 进入下一题
+        assert result["current_question_index"] == 2  # 进入下一题
 
 
 class TestToolRoundTrip:
@@ -291,6 +308,7 @@ class TestToolRoundTrip:
         state = {
             **MOCK_STATE,
             "turn_phase": "feedback",
+            "current_question_index": 1,
             "messages": [MagicMock(content="我做过一些并发优化，但细节想不起来了。")],
         }
 
@@ -308,7 +326,7 @@ class TestToolRoundTrip:
             EvaluatingOutput(
                 evaluation_notes="回答已经足够进入下一题",
                 action=InterviewerAction.ADVANCE,
-                content="很好。接下来：请介绍你最有成就感的项目。",
+                content="很好。接下来：你擅长的技术栈有哪些？",
                 follow_up_count=0,
             ),
         ])
@@ -329,7 +347,7 @@ class TestToolRoundTrip:
         )
         assert mock_llm.await_count == 2
         assert "【可用参考信息】" in mock_llm.await_args_list[1].args[0]
-        assert result["current_question_index"] == 1
+        assert result["current_question_index"] == 2
         completed_tool_events = [
             item for item in result["trace"]
             if item["step"] == "tool_call" and item["status"] == "completed"
@@ -344,17 +362,22 @@ class TestToolRoundTrip:
 class TestFallbackLogic:
     """兜底逻辑测试"""
 
-    def test_fallback_with_follow_up_available(self):
-        """LLM失败但还有追问次数时默认追问"""
+    def test_fallback_advances_to_preserve_interview_pace(self):
+        """LLM 评估失败时不再用默认追问拖慢面试。"""
         runtime = InterviewRuntime(
-            state={**MOCK_STATE, "follow_up_count": 0, "max_follow_ups": 2},
+            state={
+                **MOCK_STATE,
+                "current_question_index": 1,
+                "follow_up_count": 0,
+                "max_follow_ups": 2,
+            },
             llm_invoker=AsyncMock(),
         )
 
         result = runtime._handle_fallback("user answer", "current question", "next question")
 
-        assert result["follow_up_count"] == 1
-        assert result["current_question_index"] == 0
+        assert result["follow_up_count"] == 0
+        assert result["current_question_index"] == 2
 
     def test_fallback_no_follow_up_available(self):
         """LLM失败且无追问次数时默认进入下一题"""
@@ -499,3 +522,97 @@ async def test_evaluating_context_uses_answer_points_without_exposing_them_in_fe
 
     assert answer_point in captured_prompts[0]
     assert answer_point not in result["messages"][0]["content"]
+
+
+class TestTechnicalFollowUpGovernance:
+    """追问必须由题型、单题上限和整轮预算共同约束。"""
+
+    @pytest.mark.asyncio
+    async def test_non_technical_question_advances_without_evaluator_call(self):
+        runtime = InterviewRuntime(
+            state={
+                **MOCK_STATE,
+                "turn_phase": "feedback",
+                "current_question_index": 0,
+                "messages": [MagicMock(content="我毕业于某大学，做过后端开发。")],
+            },
+            llm_invoker=AsyncMock(),
+        )
+
+        result = await runtime.run()
+
+        assert result["current_question_index"] == 1
+        assert result["follow_up_count"] == 0
+        runtime.llm_invoker.assert_not_awaited()
+
+    def test_technical_question_can_receive_second_follow_up_within_round_budget(self):
+        runtime = InterviewRuntime(
+            state={
+                **MOCK_STATE,
+                "current_question_index": 1,
+                "follow_up_count": 1,
+                "total_follow_up_count": 0,
+            },
+            llm_invoker=AsyncMock(),
+        )
+        output = EvaluatingOutput(
+            evaluation_notes="仍缺少关键指标",
+            action=InterviewerAction.FOLLOW_UP,
+            content="请说明优化前后的延迟和吞吐指标。",
+            follow_up_count=1,
+        )
+
+        result = runtime._handle_follow_up_action(output)
+
+        assert result["current_question_index"] == 1
+        assert result["follow_up_count"] == 2
+        assert result["total_follow_up_count"] == 1
+
+    def test_round_budget_stops_follow_up_after_half_of_technical_questions(self):
+        plan = [
+            {"content": "请自我介绍。", "type": "intro"},
+            *[
+                {"content": f"技术问题 {index}", "type": "tech"}
+                for index in range(1, 5)
+            ],
+        ]
+        runtime = InterviewRuntime(
+            state={
+                **MOCK_STATE,
+                "interview_plan": plan,
+                "current_question_index": 2,
+                "total_follow_up_count": 2,
+            },
+            llm_invoker=AsyncMock(),
+        )
+        output = EvaluatingOutput(
+            evaluation_notes="仍需深入",
+            action=InterviewerAction.FOLLOW_UP,
+            content="请补充具体实现细节。",
+            follow_up_count=0,
+        )
+
+        result = runtime._handle_follow_up_action(output)
+
+        assert runtime.max_total_follow_ups == 2
+        assert result["current_question_index"] == 3
+        assert result["follow_up_count"] == 0
+
+    @pytest.mark.asyncio
+    async def test_evaluator_failure_advances_technical_question_without_fallback_follow_up(self):
+        failing_llm = AsyncMock(side_effect=RuntimeError("temporary model failure"))
+        runtime = InterviewRuntime(
+            state={
+                **MOCK_STATE,
+                "turn_phase": "feedback",
+                "current_question_index": 1,
+                "messages": [MagicMock(content="我会使用监控指标定位瓶颈。")],
+            },
+            llm_invoker=failing_llm,
+        )
+
+        result = await runtime.run()
+
+        assert result["current_question_index"] == 2
+        assert result["follow_up_count"] == 0
+        failing_llm.assert_awaited_once()

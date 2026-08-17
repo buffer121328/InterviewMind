@@ -16,6 +16,7 @@ import type { AgentRun } from "@/lib/api/agentRunTypes";
 import { getAgentRun, listAgentRuns } from "@/lib/api/agentRuns";
 import { getUserId } from "@/lib/api/config";
 import {
+    analyzeJobJd,
     captureRecommendations,
     deleteJob,
     getBossBrowserTabStatus,
@@ -25,6 +26,7 @@ import {
     openJobInExistingBossTab,
     searchAndCaptureBossBrowserTab,
     type BossBrowserChannel,
+    type BossExperience,
     type BossTabStatusResponse,
     type CapturedJobSummary,
     type JobDetail,
@@ -61,6 +63,7 @@ export function BossCenter({ initialJobId, onInitialJobConsumed, onUseInIntervie
     const [resumeUploading, setResumeUploading] = useState(false);
     const [topN, setTopN] = useState(3);
     const [city, setCity] = useState("101280600");
+    const [experience, setExperience] = useState<BossExperience>("any");
     const [browserChannel, setBrowserChannel] = useState<BossBrowserChannel>("msedge");
     const [tabStatus, setTabStatus] = useState<BossTabStatusResponse | null>(null);
     const [tabError, setTabError] = useState<string | null>(null);
@@ -78,6 +81,7 @@ export function BossCenter({ initialJobId, onInitialJobConsumed, onUseInIntervie
     const [selectedJob, setSelectedJob] = useState<JobDetail | null>(null);
     const [detailLoading, setDetailLoading] = useState(false);
     const [detailError, setDetailError] = useState<string | null>(null);
+    const [jdAnalysisError, setJdAnalysisError] = useState<string | null>(null);
     const [actionKey, setActionKey] = useState<string | null>(null);
 
     const defaultResumeText = useMemo(() => resume?.content || "", [resume]);
@@ -274,6 +278,14 @@ export function BossCenter({ initialJobId, onInitialJobConsumed, onUseInIntervie
                 const currentCity = currentUrl.searchParams.get("city")?.trim();
                 if (currentQuery) setQuery(currentQuery);
                 if (currentCity && BOSS_HOT_CITIES.some(item => item.code === currentCity)) setCity(currentCity);
+                const currentExperience = currentUrl.searchParams.get("experience");
+                setExperience(
+                    currentExperience === "104"
+                        ? "one_to_three"
+                        : currentExperience === "101"
+                            ? "experience_unlimited"
+                            : "any",
+                );
             } catch {
                 // 后端已限制为 BOSS 官方 URL；这里只忽略无法展示的异常 URL。
             }
@@ -344,6 +356,8 @@ export function BossCenter({ initialJobId, onInitialJobConsumed, onUseInIntervie
                 query: query.trim(),
                 city: city || undefined,
                 max_cards: 20,
+                experience,
+                job_type: "full_time",
                 browser_channel: browserChannel,
             });
             const domCapture = parseBossDomCapturePayload(browserCapture);
@@ -358,7 +372,13 @@ export function BossCenter({ initialJobId, onInitialJobConsumed, onUseInIntervie
                 visible_card_count: domCapture.cards.length,
                 message: browserCapture.message,
             });
-            toast.info(`已读取 ${domCapture.cards.length} 张非实习岗位卡片，正在创建可恢复导入任务。`);
+            const detailFallbackCount = browserCapture.detail_fallback_count ?? 0;
+            const detailEnrichedCount = browserCapture.detail_enriched_count ?? 0;
+            toast.info(
+                detailFallbackCount > 0
+                    ? `已读取 ${domCapture.cards.length} 张岗位卡片，补充 ${detailEnrichedCount} 张详情；${detailFallbackCount} 张暂保留搜索摘要。`
+                    : `已读取 ${domCapture.cards.length} 张岗位卡片并补充职位详情，正在创建可恢复导入任务。`,
+            );
             const run = await captureRecommendations({
                 query: query.trim(),
                 resume_content: effectiveResumeContent.trim(),
@@ -366,13 +386,15 @@ export function BossCenter({ initialJobId, onInitialJobConsumed, onUseInIntervie
                 cards: domCapture.cards,
                 top_n: Math.min(domCapture.cards.length, 20, Math.max(1, topN)),
                 city: city || undefined,
+                experience,
                 api_config: apiConfig,
             });
             setCaptureRun(run);
             if (run.status === "succeeded") {
                 const importedJobs = getCaptureRunJobs(run);
                 setResults(importedJobs);
-                toast.success(`已采集 ${importedJobs.length} 个岗位，确认后可一键入库`);
+                const resultMessage = typeof run.result?.message === "string" ? run.result.message : "";
+                toast.success(resultMessage || `已采集 ${importedJobs.length} 个岗位，确认后可一键入库`);
             } else {
                 toast.success("导入任务已创建，可切换页面后继续查看");
             }
@@ -390,6 +412,7 @@ export function BossCenter({ initialJobId, onInitialJobConsumed, onUseInIntervie
         setSelectedJobId(jobId);
         setSelectedJob(null);
         setDetailError(null);
+        setJdAnalysisError(null);
         setDetailLoading(true);
         try {
             const response = await getJobDetail(jobId);
@@ -447,6 +470,41 @@ export function BossCenter({ initialJobId, onInitialJobConsumed, onUseInIntervie
             toast.success(response.message || `已入库 ${response.total} 个岗位`);
         } catch (error) {
             toast.error(error instanceof Error ? error.message : "一键入库失败");
+        } finally {
+            setActionKey(null);
+        }
+    };
+
+    /** Explicitly analyzes the selected persisted job with the current resume; it never creates a resume or delivery action. */
+    const handleAnalyzeSelectedJobJd = async () => {
+        if (!selectedJob) return;
+        const analysisResume = defaultResumeText.trim() || resumeContent.trim();
+        if (!analysisResume) {
+            const message = "请先上传或填写当前简历内容，再进行 JD 匹配分析";
+            setJdAnalysisError(message);
+            toast.error(message);
+            return;
+        }
+        const apiConfig = requireApiConfig();
+        if (!apiConfig) {
+            setJdAnalysisError("请先在设置中配置可用模型后再进行 JD 匹配分析");
+            return;
+        }
+        const key = `jd-analysis:${selectedJob.id}`;
+        setActionKey(key);
+        setJdAnalysisError(null);
+        try {
+            const response = await analyzeJobJd(selectedJob.id, {
+                resume_content: analysisResume,
+                api_config: apiConfig,
+            });
+            setSelectedJob(response.job);
+            void refreshJobs(false);
+            toast.success(response.message || "JD 匹配分析已完成");
+        } catch (error) {
+            const message = error instanceof Error ? error.message : "JD 匹配分析失败，请稍后重试";
+            setJdAnalysisError(message);
+            toast.error(message);
         } finally {
             setActionKey(null);
         }
@@ -513,6 +571,8 @@ export function BossCenter({ initialJobId, onInitialJobConsumed, onUseInIntervie
                                 onQueryChange={setQuery}
                                 city={city}
                                 onCityChange={setCity}
+                                experience={experience}
+                                onExperienceChange={setExperience}
                                 topN={topN}
                                 onTopNChange={setTopN}
                                 resumeContent={resumeContent}
@@ -568,12 +628,15 @@ export function BossCenter({ initialJobId, onInitialJobConsumed, onUseInIntervie
                     setSelectedJobId(null);
                     setSelectedJob(null);
                     setDetailError(null);
+                    setJdAnalysisError(null);
                 }}
                 selectedJob={selectedJob}
                 loading={detailLoading}
                 error={detailError}
+                analysisError={jdAnalysisError}
                 actionKey={actionKey}
                 onOpenExistingBossTab={jobId => void handleOpenExistingBossTab(jobId)}
+                onAnalyzeJd={() => void handleAnalyzeSelectedJobJd()}
                 onUseInInterview={() => {
                     if (selectedJob) onUseInInterview(buildJobContextSnapshot(selectedJob));
                 }}

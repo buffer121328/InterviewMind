@@ -26,22 +26,55 @@ class AgentRunServiceProtocol(Protocol):
         initial_stage: str,
         session_id: str | None,
     ) -> tuple[Any, bool]:
-        """按幂等键创建或获取 run，返回 (run, 是否新建)。"""
+        """按幂等键创建或获取 run，返回 (run, 是否新建)。
+
+        Args:
+            user_id: 用户 ID，所有者范围限定。
+            payload: 载荷字典。
+            idempotency_key: 幂等键。
+            task_type: 任务类型。
+            initial_stage: 传入的 initial_stage 值。
+            session_id: 面试会话 ID。
+        """
 
     async def mark_stage(self, run_id: str, stage: str) -> None:
-        """记录当前执行阶段。"""
+        """记录当前执行阶段。
+
+        Args:
+            run_id: 任务运行 ID。
+            stage: 阶段标识。
+        """
 
     async def succeed(self, run_id: str, result: dict[str, Any]) -> None:
-        """写入成功终态。"""
+        """写入成功终态。
+
+        Args:
+            run_id: 任务运行 ID。
+            result: 结果对象。
+        """
 
     async def fail(self, run_id: str, message: str) -> None:
-        """写入失败终态（安全摘要）。"""
+        """写入失败终态（安全摘要）。
+
+        Args:
+            run_id: 任务运行 ID。
+            message: 单条消息。
+        """
 
     async def is_cancel_requested(self, run_id: str) -> bool:
-        """查询该任务是否已被请求取消。"""
+        """查询该任务是否已被请求取消。
+
+        Args:
+            run_id: 任务运行 ID。
+        """
 
     async def mark_cancelled(self, run_id: str, message: str = "任务已取消") -> None:
-        """写入取消终态。"""
+        """写入取消终态。
+
+        Args:
+            run_id: 任务运行 ID。
+            message: 单条消息。
+        """
 
 
 class LeaseProtocol(Protocol):
@@ -170,7 +203,21 @@ class SessionDriver:
                 raise SessionDriverConflict("任务已取消")
 
             # ③ 阶段推进回调：每推进前先查取消，取消则收敛并中断。
+                """执行 mark_stage 操作。
+
+                Args:
+
+                    run_id: 运行记录 ID。
+
+                    stage: stage。
+
+                """
             async def mark_stage(stage: str) -> None:
+                """标记 stage。
+
+                Args:
+                    stage: 阶段标识。
+                """
                 if await self._service.is_cancel_requested(run.id):
                     await self._cancel(run.id, execution)
                     raise SessionDriverConflict("任务已取消")

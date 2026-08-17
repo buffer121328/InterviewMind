@@ -4,11 +4,7 @@ Pydantic 数据模型定义
 """
 
 from typing import List, Literal, Optional
-from pydantic import BaseModel, Field, model_validator
-from enum import Enum
-
-from app.domain.interview_rounds import resolve_max_questions, resolve_round_type
-from app.schemas.job_context import JobContextSnapshot
+from pydantic import BaseModel, Field
 
 
 # ============================================================================
@@ -24,6 +20,13 @@ class ModelChannelConfig(BaseModel):
     provider: Optional[str] = Field(default=None, description="服务商标识，如 deepseek/qwen/openai_compatible")
     integration: Optional[str] = Field(default=None, description="LangChain 集成方式，如 deepseek/qwen/openai_compatible")
     pricing_key: Optional[str] = Field(default=None, description="本地价格表键名；缺省使用 model")
+    dimensions: Optional[int] = Field(
+        default=None,
+        ge=1,
+        le=16_000,
+        strict=True,
+        description="Embedding 输出维度；未提供时使用服务端兼容回退",
+    )
 
 
 class ModelPoolMemberConfig(ModelChannelConfig):
@@ -45,12 +48,12 @@ class ApiConfig(BaseModel):
         default_factory=list,
         description="快速模型池；为空时兼容回退到 fast 单模型",
     )
-    # 简历工具专家通道（可选，未配置时回退到 smart）
-    general: Optional[ModelChannelConfig] = Field(default=None, description="通用任务通道（简历分析、主持人）")
-    match_analyst: Optional[ModelChannelConfig] = Field(default=None, description="匹配分析师通道")
-    content_writer: Optional[ModelChannelConfig] = Field(default=None, description="内容优化师通道")
-    hr_reviewer: Optional[ModelChannelConfig] = Field(default=None, description="HR审核官通道")
-    reflector: Optional[ModelChannelConfig] = Field(default=None, description="质量审核通道")
+    # 简历工具专家通道（可选，专属通道未配置时先回退到 general）
+    general: Optional[ModelChannelConfig] = Field(default=None, description="简历专家通用/主持人通道；不参与 Smart/Fast 核心回退")
+    match_analyst: Optional[ModelChannelConfig] = Field(default=None, description="匹配分析师专属通道；未配置时回退到 general")
+    content_writer: Optional[ModelChannelConfig] = Field(default=None, description="内容优化师专属通道；未配置时回退到 general")
+    hr_reviewer: Optional[ModelChannelConfig] = Field(default=None, description="HR 审核官专属通道；未配置时回退到 general")
+    reflector: Optional[ModelChannelConfig] = Field(default=None, description="质量审核专属通道；未配置时回退到 general")
     mimo: Optional[ModelChannelConfig] = Field(default=None, description="MiMo ASR/文本/TTS 拆分语音通道")
     # 检索/记忆通道（可选，未配置时回退到服务端 .env）
     rag_embedding: Optional[ModelChannelConfig] = Field(default=None, description="RAG 向量检索 Embedding 通道")
@@ -58,41 +61,12 @@ class ApiConfig(BaseModel):
     mem0_embedder: Optional[ModelChannelConfig] = Field(default=None, description="mem0 语义检索 Embedding 通道")
 
 
-
 # ============================================================================
 # 请求/响应模型
 # ============================================================================
 
-class ChatRequest(BaseModel):
-    """聊天请求模型"""
-    message: str = Field(..., description="用户消息内容")
-    thread_id: str = Field(..., description="会话线程ID")
-    mode: Literal["mock"] = Field(default="mock", description="面试模式")
-    resume_context: str = Field(..., description="简历上下文")
-    job_description: str = Field(..., description="岗位描述")
-    company_info: str = Field(default="未知", description="公司背景信息")
-    max_questions: int | None = Field(default=None, ge=1, le=20, description="最大问题数量；不传时按面试类型默认")
-    round_type: str = Field(default="tech_initial", description="面试类型：tech_initial/tech_deep/hr_comprehensive")
-
-    @model_validator(mode="after")
-    def resolve_question_defaults(self):
-        """解析 `question defaults`。"""
-        self.round_type = resolve_round_type(self.round_type)
-        self.max_questions = resolve_max_questions(self.round_type, self.max_questions)
-        return self
-    # 用户配置（可选）
-    user_id: Optional[str] = Field(default=None, description="用户标识")
-    api_config: Optional[ApiConfig] = Field(default=None, description="用户自定义 API 配置")
-
-
-class ChatStreamResponse(BaseModel):
-    """聊天流式响应模型"""
-    type: str = Field(..., description="响应类型: plan, step_update, token, state_update, error, done")
-    content: Optional[str] = Field(None, description="响应内容")
-
-
 class FileUploadResponse(BaseModel):
-    """文件上传响应模型"""
+    """文件上传接口的响应模型"""
     success: bool = Field(..., description="上传是否成功")
     message: str = Field(..., description="响应消息")
     filename: Optional[str] = Field(None, description="存储的文件名")
@@ -111,48 +85,6 @@ class ResumeInfo(BaseModel):
     last_used: Optional[str] = Field(None, description="最后使用时间")
 
 
-class InterviewCandidateQuestion(BaseModel):
-    """仅用于本次面试计划的受限候选题。"""
-
-    question_text: str = Field(min_length=2, max_length=500)
-    reference_answer: Optional[str] = Field(default=None, max_length=10_000)
-    tags: List[str] = Field(default_factory=list, max_length=10)
-    difficulty: Literal["easy", "medium", "hard"] = "medium"
-    target_skill: Optional[str] = Field(default=None, max_length=100)
-    question_type: Literal["intro", "tech", "behavior", "system_design"] = "tech"
-    source_type: str = Field(default="experience", max_length=100)
-    source_id: str = Field(max_length=200)
-
-
-class InterviewStartRequest(BaseModel):
-    """面试开始请求模型"""
-    thread_id: str = Field(..., description="会话线程ID")
-    mode: Literal["mock"] = Field(..., description="面试模式")
-    resume_context: Optional[str] = Field(default=None, description="简历上下文（下一轮面试时可从数据库加载）")
-    resume_filename: str = Field(default="", description="简历文件名")
-    job_description: Optional[str] = Field(default=None, description="岗位描述（下一轮面试时可从数据库加载）")
-    company_info: str = Field(default="未知", description="公司背景信息")
-    job_context_snapshot: Optional[JobContextSnapshot] = Field(default=None, description="来源岗位与实际编辑上下文快照")
-    max_questions: int | None = Field(default=None, ge=1, le=20, description="最大问题数量；不传时按面试类型默认")
-    round_type: str = Field(default="tech_initial", description="面试类型：tech_initial/tech_deep/hr_comprehensive")
-
-    @model_validator(mode="after")
-    def resolve_question_defaults(self):
-        """解析 `question defaults`。"""
-        self.round_type = resolve_round_type(self.round_type)
-        self.max_questions = resolve_max_questions(self.round_type, self.max_questions)
-        return self
-    question_bank_count: int = Field(default=0, ge=0, le=20, description="从个人题库抽取的题数")
-    experience_questions: List[InterviewCandidateQuestion] = Field(
-        default_factory=list,
-        max_length=20,
-        description="本次面试直接使用、但不强制入库的面经候选题",
-    )
-    # 用户配置（可选）
-    user_id: Optional[str] = Field(default=None, description="用户标识")
-    api_config: Optional[ApiConfig] = Field(default=None, description="用户自定义 API 配置")
-
-
 class ErrorResponse(BaseModel):
     """错误响应模型"""
     error: str = Field(..., description="错误类型")
@@ -160,27 +92,18 @@ class ErrorResponse(BaseModel):
     details: Optional[dict] = Field(None, description="错误详情")
 
 
-class RollbackRequest(BaseModel):
-    """回退请求模型"""
-    thread_id: str = Field(..., description="会话线程ID")
-    index: int = Field(..., description="回退到的消息索引（0-based）")
-
-
 class ApiConfigValidateRequest(BaseModel):
     """API 配置验证请求"""
     api_key: str = Field(..., description="API Key")
     base_url: str = Field(..., description="API Base URL")
     model: str = Field(..., description="模型名称")
+    provider: Optional[str] = Field(default=None, description="服务商标识，用于选择兼容客户端")
+    integration: Optional[str] = Field(default=None, description="LangChain 集成方式")
     kind: Literal["chat", "embedding"] = Field(default="chat", description="模型类型")
-
-
-class ProfileGenerateRequest(BaseModel):
-    """画像生成请求"""
-    user_id: Optional[str] = Field(default=None, description="用户标识")
-    api_config: Optional[ApiConfig] = Field(default=None, description="用户自定义 API 配置")
-
-
-class InterviewReportRunRequest(BaseModel):
-    """面试报告生成请求"""
-    session_id: str
-    api_config: Optional[ApiConfig] = None
+    dimensions: Optional[int] = Field(
+        default=None,
+        ge=1,
+        le=16_000,
+        strict=True,
+        description="Embedding 输出维度",
+    )

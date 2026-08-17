@@ -1,6 +1,7 @@
 """模型网关应统一普通模型、语音模型与 Embedding 的配置解析。"""
 
 import pytest
+from langchain_openai import ChatOpenAI
 
 from app.config import get_settings
 from app.schemas.schemas import ApiConfig
@@ -13,6 +14,10 @@ def _channel(model: str) -> dict:
         "base_url": "https://example.invalid/v1",
         "model": model,
     }
+
+
+def _models(configs: list[dict]) -> list[str]:
+    return [str(config["model"]) for config in configs]
 
 
 @pytest.fixture
@@ -111,6 +116,141 @@ def test_failed_pool_member_enters_cooldown(monkeypatch, local_model_pool):
     assert first.model_name == "flash-a"
     assert second.model_name == "flash-b"
     get_settings.cache_clear()
+
+
+def test_fast_candidate_chain_uses_fast_pool_then_fast_then_reasoning(local_model_pool):
+    gateway = llms.ModelGateway()
+    candidates, _ = gateway._candidate_configs(
+        {
+            "smart": _channel("smart-legacy"),
+            "fast": _channel("fast-legacy"),
+            "fast_pool": [_channel("fast-primary")],
+            "general": _channel("general-not-used"),
+            "reasoning_pool": [_channel("reasoning-fallback")],
+        },
+        "fast",
+    )
+
+    assert _models(candidates) == [
+        "fast-primary",
+        "fast-legacy",
+        "reasoning-fallback",
+        "smart-legacy",
+    ]
+    assert "general-not-used" not in _models(candidates)
+
+
+def test_reasoning_candidate_chain_uses_reasoning_then_smart_then_fast(local_model_pool):
+    gateway = llms.ModelGateway()
+    candidates, _ = gateway._candidate_configs(
+        {
+            "smart": _channel("smart-legacy"),
+            "fast": _channel("fast-legacy"),
+            "reasoning_pool": [_channel("reasoning-primary")],
+            "general": _channel("general-not-used"),
+            "fast_pool": [_channel("fast-fallback")],
+        },
+        "smart",
+    )
+
+    assert _models(candidates) == [
+        "reasoning-primary",
+        "smart-legacy",
+        "fast-fallback",
+        "fast-legacy",
+    ]
+    assert "general-not-used" not in _models(candidates)
+
+
+def test_resume_expert_chain_uses_direct_then_general_then_core_fallbacks(local_model_pool):
+    gateway = llms.ModelGateway()
+    candidates, _ = gateway._candidate_configs(
+        {
+            "smart": _channel("smart-legacy"),
+            "fast": _channel("fast-legacy"),
+            "content_writer": _channel("writer-primary"),
+            "general": _channel("general-fallback"),
+            "reasoning_pool": [_channel("reasoning-fallback")],
+            "fast_pool": [_channel("fast-fallback")],
+        },
+        "content_writer",
+    )
+
+    assert _models(candidates) == [
+        "writer-primary",
+        "general-fallback",
+        "reasoning-fallback",
+        "smart-legacy",
+        "fast-fallback",
+        "fast-legacy",
+    ]
+
+
+def test_unconfigured_resume_expert_starts_with_general(local_model_pool):
+    gateway = llms.ModelGateway()
+    candidates, _ = gateway._candidate_configs(
+        {
+            "smart": _channel("smart-legacy"),
+            "fast": _channel("fast-legacy"),
+            "general": _channel("general-primary"),
+            "reasoning_pool": [_channel("reasoning-fallback")],
+            "fast_pool": [_channel("fast-fallback")],
+        },
+        "match_analyst",
+    )
+
+    assert _models(candidates) == [
+        "general-primary",
+        "reasoning-fallback",
+        "smart-legacy",
+        "fast-fallback",
+        "fast-legacy",
+    ]
+
+
+def test_expert_and_general_same_identity_are_tried_once(local_model_pool):
+    gateway = llms.ModelGateway()
+    same_model = _channel("main-model")
+    candidates, _ = gateway._candidate_configs(
+        {
+            "smart": _channel("smart-legacy"),
+            "fast": _channel("fast-legacy"),
+            "content_writer": same_model,
+            "general": dict(same_model),
+            "reasoning_pool": [_channel("reasoning-fallback")],
+            "fast_pool": [_channel("fast-fallback")],
+        },
+        "content_writer",
+    )
+
+    assert _models(candidates) == [
+        "main-model",
+        "reasoning-fallback",
+        "smart-legacy",
+        "fast-fallback",
+        "fast-legacy",
+    ]
+
+
+def test_ark_doubao_uses_openai_compatible_client_and_strict_schema_metadata():
+    llm = llms.create_llm_from_config(
+        api_key="test-key",
+        base_url="https://ark.cn-beijing.volces.com/api/v3",
+        model="doubao-seed-1-6-250615",
+        provider="volcengine",
+    )
+    metadata = llms.provider_observability_metadata(
+        {
+            "api_key": "test-key",
+            "provider": "volcengine",
+            "base_url": "https://ark.cn-beijing.volces.com/api/v3",
+            "model": "doubao-seed-1-6-250615",
+        }
+    )
+
+    assert isinstance(llm, ChatOpenAI)
+    assert metadata["model_provider"] == "volcengine"
+    assert metadata["model_integration"] == "openai_compatible"
 
 
 class _FakeRedis:
@@ -465,6 +605,24 @@ def test_embedding_options_use_environment(monkeypatch):
     assert options == {"model": "embed-small", "dimensions": 768}
 
 
+def test_embedding_client_config_prefers_request_dimensions(monkeypatch):
+    monkeypatch.setenv("EMBEDDING_DIM", "1536")
+
+    config = llms.model_gateway.get_embedding_client_config(
+        api_config={
+            "rag_embedding": {
+                "api_key": "request-key",
+                "base_url": "https://example.invalid/v1",
+                "model": "request-embed",
+                "dimensions": 1024,
+            }
+        }
+    )
+
+    assert config["model"] == "request-embed"
+    assert config["dimensions"] == 1024
+
+
 async def _create_embeddings_case(monkeypatch):
     captured = {}
 
@@ -518,6 +676,50 @@ def test_rag_embedding_service_uses_model_gateway(monkeypatch):
 
     assert captured == {"input": "hello", "model": "embed-model", "dimensions": 2, "api_config": None}
     assert embedding == [0.3, 0.4]
+
+
+@pytest.mark.asyncio
+async def test_rag_embedding_service_uses_request_channel_dimensions(monkeypatch):
+    from ai.rag import embedding_service
+
+    captured = {}
+
+    async def fake_create_embeddings(input_value, *, model=None, dimensions=None, api_config=None):
+        captured.update({"input": input_value, "model": model, "dimensions": dimensions})
+        return type(
+            "EmbeddingResponse",
+            (),
+            {"data": [type("Item", (), {"embedding": [0.3, 0.4]})()]},
+        )()
+
+    api_config = {
+        "rag_embedding": {
+            "api_key": "request-key",
+            "base_url": "https://example.invalid/v1",
+            "model": "request-embed",
+            "dimensions": 2,
+        }
+    }
+    monkeypatch.setattr(embedding_service.llms.model_gateway, "create_embeddings", fake_create_embeddings)
+
+    embedding = await embedding_service.generate_embedding("hello", api_config=api_config)
+
+    assert embedding == [0.3, 0.4]
+    assert captured == {"input": "hello", "model": "request-embed", "dimensions": 2}
+
+
+def test_embedding_cache_identity_includes_request_dimension():
+    from ai.rag.embedding_service import _embedding_cache_key
+
+    config = {"rag_embedding": {"base_url": "https://example.invalid/v1"}}
+    key_1024 = _embedding_cache_key(
+        "same content", model="embed-model", dimensions=1024, api_config=config
+    )
+    key_1536 = _embedding_cache_key(
+        "same content", model="embed-model", dimensions=1536, api_config=config
+    )
+
+    assert key_1024 != key_1536
 
 
 @pytest.mark.asyncio

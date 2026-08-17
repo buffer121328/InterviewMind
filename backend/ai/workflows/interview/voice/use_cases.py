@@ -15,7 +15,7 @@ from ai.workflows.jobs.job_context import (
 )
 from app.db.repositories.session.session_repo import SessionRepo
 from app.domain.interview_rounds import resolve_max_questions
-from app.schemas.voice import VoiceCloneRequest, VoiceStartRequest, VoiceStartResponse
+from app.schemas.interview.voice import VoiceCloneRequest, VoiceStartRequest, VoiceStartResponse
 
 logger = logging.getLogger(__name__)
 
@@ -123,7 +123,6 @@ class VoiceInterviewUseCases:
                 company_info=None,
                 max_questions=None,
                 question_bank_count=request.question_bank_count,
-                experience_questions=request.experience_questions,
                 session_metadata=metadata,
                 api_config=api_config,
             )
@@ -136,7 +135,6 @@ class VoiceInterviewUseCases:
                 session_id=session_id,
                 user_id=user_id,
                 question_bank_count=context.question_bank_count,
-                experience_questions=list(context.experience_questions),
                 memory_context=context.memory_context,
             )
             await self._session_repo.save_interview_plan(session_id, interview_plan)

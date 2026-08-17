@@ -37,17 +37,33 @@ export const BOSS_HOT_CITIES = [
     { name: "武汉", code: "101200100" },
 ] as const;
 
-/** Formats one backend timestamp for compact list display. */
+/** Time zone used for user-facing BOSS capture timestamps. */
+export const BOSS_DISPLAY_TIME_ZONE = "Asia/Shanghai";
+
+/** Adds the UTC marker required by legacy backend timestamp columns that store UTC without an offset. */
+export function normalizeBossTimestamp(value: string): string {
+    const normalized = value.trim();
+    if (!normalized || !normalized.includes("T") || /(?:Z|[+-]\d{2}:?\d{2})$/i.test(normalized)) return normalized;
+    return `${normalized}Z`;
+}
+
+/** Formats one backend timestamp for compact BOSS list display in China Standard Time. */
 export function formatDate(value?: string): string {
     if (!value) return "时间未知";
-    const date = new Date(value);
+    const date = new Date(normalizeBossTimestamp(value));
     if (Number.isNaN(date.getTime())) return value;
-    return date.toLocaleString("zh-CN", {
+    const fields = new Intl.DateTimeFormat("en-CA", {
+        timeZone: BOSS_DISPLAY_TIME_ZONE,
         month: "2-digit",
         day: "2-digit",
         hour: "2-digit",
         minute: "2-digit",
-    });
+        hourCycle: "h23",
+    }).formatToParts(date).reduce<Record<string, string>>((result, part) => {
+        if (part.type !== "literal") result[part.type] = part.value;
+        return result;
+    }, {});
+    return `${fields.month}/${fields.day} ${fields.hour}:${fields.minute}`;
 }
 
 /** Narrows an unknown asset field to a plain record before reading whitelisted keys. */

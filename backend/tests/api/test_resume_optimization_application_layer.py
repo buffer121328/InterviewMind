@@ -37,7 +37,7 @@ import json
 import pytest
 
 from ai.workflows.resume import optimization as resume_optimization
-from app.schemas.resume_schemas import ResumeAnalyzeRequest, ResumeOptimizeRequest
+from app.schemas.resume.resume_schemas import ResumeAnalyzeRequest, ResumeOptimizeRequest
 
 
 class _FakeResumeRepo:

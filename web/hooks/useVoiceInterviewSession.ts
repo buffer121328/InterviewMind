@@ -6,7 +6,6 @@ import { useInterviewStore } from '@/store/useInterviewStore';
 import type { Message } from '@/store/types';
 import {
     buildVoiceStartRequestPayload,
-    clearPendingExperienceQuestions,
     getVoiceRequestApiConfig,
     selectInterviewSession,
     setVoiceInterviewProgress,
@@ -113,7 +112,6 @@ export function useVoiceInterviewSession({
                 setVoiceHistory(data.history!);
             }
 
-            clearPendingExperienceQuestions();
             setInitializing(false);
             fetchSessions();
 

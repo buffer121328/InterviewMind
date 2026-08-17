@@ -35,9 +35,12 @@ import {
     updateMemory,
     type MemoryHistoryItem,
     type MemoryItem,
+    type MemorySource,
+    type MemoryWriteSource,
 } from '@/lib/api/memory';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useInterviewStore } from '@/store/useInterviewStore';
 import { toast } from 'sonner';
 
@@ -54,11 +57,27 @@ function formatDate(value?: string) {
     });
 }
 
+const SOURCE_FILTERS: Array<{ value: 'all' | MemoryWriteSource; label: string }> = [
+    { value: 'all', label: '全部' },
+    { value: 'resume', label: '简历信息' },
+    { value: 'user_preference', label: '交互偏好' },
+    { value: 'interview_weakness', label: '面试短板' },
+];
+
+function sourceLabel(source: MemorySource) {
+    return {
+        resume: '简历信息',
+        user_preference: '交互偏好',
+        interview_weakness: '面试短板',
+        unknown: '未标注来源',
+    }[source];
+}
+
 /** Encapsulates metadata labels; returns typed data or state and keeps side effects within the owning module boundary. */
 function metadataLabels(metadata?: Record<string, unknown>) {
     if (!metadata) return [];
     return Object.entries(metadata)
-        .filter(([, value]) => ['string', 'number', 'boolean'].includes(typeof value))
+        .filter(([key, value]) => key !== 'memory_source' && ['string', 'number', 'boolean'].includes(typeof value))
         .slice(0, 4)
         .map(([key, value]) => `${key}: ${String(value)}`);
 }
@@ -69,6 +88,7 @@ export function MemoryCenter() {
     const [memories, setMemories] = useState<MemoryItem[]>([]);
     const [total, setTotal] = useState(0);
     const [query, setQuery] = useState('');
+    const [sourceFilter, setSourceFilter] = useState<'all' | MemoryWriteSource>('all');
     const [loading, setLoading] = useState(true);
     const [actingId, setActingId] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
@@ -79,6 +99,7 @@ export function MemoryCenter() {
     const [editorOpen, setEditorOpen] = useState(false);
     const [editingMemory, setEditingMemory] = useState<MemoryItem | null>(null);
     const [editorContent, setEditorContent] = useState('');
+    const [editorSource, setEditorSource] = useState<MemoryWriteSource | ''>('');
 
     /** Resolves the in-memory model settings used by mem0 without logging or persisting credentials. */
     const memoryApiConfig = useCallback(() => {
@@ -101,7 +122,11 @@ export function MemoryCenter() {
         }
         setLoading(true);
         try {
-            const response = await getAllMemories(apiConfig, 200);
+            const response = await getAllMemories(
+                apiConfig,
+                200,
+                sourceFilter === 'all' ? undefined : [sourceFilter],
+            );
             setMemories(response.memories || []);
             setTotal(response.total || 0);
             setError(response.message || null);
@@ -111,7 +136,7 @@ export function MemoryCenter() {
         } finally {
             setLoading(false);
         }
-    }, [memoryApiConfig]);
+    }, [memoryApiConfig, sourceFilter]);
 
     useEffect(() => {
         const timer = window.setTimeout(() => void load(), 0);
@@ -128,7 +153,12 @@ export function MemoryCenter() {
         if (!apiConfig) return;
         setLoading(true);
         try {
-            const response = await searchMemories({ q: query.trim(), limit: 20, api_config: apiConfig });
+            const response = await searchMemories({
+                q: query.trim(),
+                limit: 20,
+                sources: sourceFilter === 'all' ? undefined : [sourceFilter],
+                api_config: apiConfig,
+            });
             setMemories(response.memories || []);
             setTotal(response.total || 0);
             setError(response.message || null);
@@ -163,6 +193,7 @@ export function MemoryCenter() {
     const openEditor = (item?: MemoryItem) => {
         setEditingMemory(item || null);
         setEditorContent(item?.memory || '');
+        setEditorSource(item && item.source !== 'unknown' ? item.source : '');
         setEditorOpen(true);
     };
 
@@ -173,17 +204,22 @@ export function MemoryCenter() {
             toast.error('请输入记忆内容');
             return;
         }
+        if (!editingMemory && !editorSource) {
+            toast.error('请选择记忆来源');
+            return;
+        }
         const apiConfig = memoryApiConfig();
         if (!apiConfig) return;
         setActingId(editingMemory?.id || '__new__');
         try {
             const response = editingMemory
                 ? await updateMemory(editingMemory.id, content, apiConfig)
-                : await addMemory(content, apiConfig);
+                : await addMemory(content, apiConfig, editorSource as MemoryWriteSource);
             if (!response.success) throw new Error(response.message);
             setEditorOpen(false);
             setEditingMemory(null);
             setEditorContent('');
+            setEditorSource('');
             await load();
             toast.success(editingMemory ? '长期记忆已更新' : '长期记忆已添加');
         } catch (saveError) {
@@ -240,7 +276,7 @@ export function MemoryCenter() {
                             长期记忆治理
                         </div>
                         <p className="mt-1 text-xs leading-5 text-slate-500">
-                            面试报告生成成功后，自动沉淀短板、练习目标和优势事实；回答中的稳定偏好也会即时尝试写入。
+                            长期记忆仅保留简历信息、明确交互偏好与已完成面试报告中的短板；每条记录均可按来源查看。
                         </p>
                     </div>
                     <div className="flex items-center gap-2">
@@ -271,6 +307,22 @@ export function MemoryCenter() {
                     </div>
                     <Button className="bg-teal-700 hover:bg-teal-800" onClick={() => void handleSearch()} disabled={loading}>搜索</Button>
                 </div>
+
+                <div className="mt-3 flex flex-wrap gap-2" aria-label="长期记忆来源筛选">
+                    {SOURCE_FILTERS.map(filter => (
+                        <Button
+                            key={filter.value}
+                            type="button"
+                            size="sm"
+                            variant={sourceFilter === filter.value ? 'default' : 'outline'}
+                            className={sourceFilter === filter.value ? 'bg-teal-700 hover:bg-teal-800' : ''}
+                            onClick={() => setSourceFilter(filter.value)}
+                            disabled={loading}
+                        >
+                            {filter.label}
+                        </Button>
+                    ))}
+                </div>
             </section>
 
             {error && (
@@ -292,9 +344,9 @@ export function MemoryCenter() {
                     ) : memories.length === 0 ? (
                         <div className="flex min-h-64 flex-col items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-white text-center">
                             <Database className="h-9 w-9 text-slate-300" />
-                            <div className="mt-3 text-sm font-medium text-slate-900">{query.trim() ? '没有匹配的记忆' : '尚未形成长期记忆'}</div>
+                            <div className="mt-3 text-sm font-medium text-slate-900">{query.trim() ? '没有匹配的记忆' : sourceFilter === 'all' ? '尚未形成长期记忆' : `暂无${sourceLabel(sourceFilter)}记忆`}</div>
                             <p className="mt-1 max-w-md text-xs leading-5 text-slate-500">
-                                请先分配 mem0 提取 LLM 与 Embedding；完成模拟面试并等待面试报告生成成功后，这里会自动出现记忆。
+                                请先分配 mem0 提取 LLM 与 Embedding；你也可以手动添加并选择来源。完成面试报告后，短板会自动沉淀。
                             </p>
                         </div>
                     ) : (
@@ -302,7 +354,12 @@ export function MemoryCenter() {
                             {memories.map(item => (
                                 <article key={item.id} className="surface-panel p-4">
                                     <div className="flex items-start justify-between gap-3">
-                                        <p className="text-sm leading-6 text-slate-800">{item.memory}</p>
+                                        <div className="space-y-2">
+                                            <span className="inline-flex rounded-full bg-teal-50 px-2 py-0.5 text-[10px] font-medium text-teal-700">
+                                                {sourceLabel(item.source)}
+                                            </span>
+                                            <p className="text-sm leading-6 text-slate-800">{item.memory}</p>
+                                        </div>
                                         {typeof item.score === 'number' && (
                                             <span className="shrink-0 rounded-full bg-teal-50 px-2 py-0.5 text-[10px] font-medium text-teal-700">
                                                 {(item.score * 100).toFixed(0)}%
@@ -366,9 +423,21 @@ export function MemoryCenter() {
                     <DialogHeader>
                         <DialogTitle>{editingMemory ? '编辑长期记忆' : '添加长期记忆'}</DialogTitle>
                         <DialogDescription>
-                            {editingMemory ? '修改后会记录在该记忆的变更历史中。' : '这段内容会原样保存，不会被 mem0 自动改写或抽取。'}
+                            {editingMemory ? '修改后会记录在该记忆的变更历史中。' : '请选择来源；内容会原样保存，不会被 mem0 自动改写或抽取。'}
                         </DialogDescription>
                     </DialogHeader>
+                    {!editingMemory && (
+                        <Select value={editorSource} onValueChange={value => setEditorSource(value as MemoryWriteSource)}>
+                            <SelectTrigger>
+                                <SelectValue placeholder="选择记忆来源" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="resume">简历信息</SelectItem>
+                                <SelectItem value="user_preference">用户交互偏好</SelectItem>
+                                <SelectItem value="interview_weakness">面试短板</SelectItem>
+                            </SelectContent>
+                        </Select>
+                    )}
                     <Textarea
                         value={editorContent}
                         onChange={event => setEditorContent(event.target.value)}

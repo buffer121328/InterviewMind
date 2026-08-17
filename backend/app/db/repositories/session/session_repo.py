@@ -6,7 +6,7 @@
 import logging
 from typing import List, Optional, Dict, Any
 
-from app.schemas.session import (
+from app.schemas.interview.session import (
     InterviewSession,
     SessionListItem
 )
@@ -297,19 +297,40 @@ class SessionRepo:
         return await self.profile.get_series_final_profiles(limit, user_id)
 
     async def get_series_final_profile_records(self, limit: int, user_id: str) -> List[Dict[str, Any]]:
-        """获取序列最终画像记录相关后端逻辑。"""
+        """获取最近完成轮次的公司画像记录。
+
+        Args:
+            limit: 返回数量上限。
+            user_id: 用户 ID，所有者范围限定。
+        """
         return await self.profile.get_series_final_profile_records(limit, user_id)
 
     async def get_series_round_profiles(self, series_id: str, user_id: str) -> List[Dict[str, Any]]:
-        """按 owner 和轮次顺序读取一个公司系列的单轮画像来源。"""
+        """按 owner 和轮次顺序读取一个公司系列的单轮画像来源。
+
+        Args:
+            series_id: 面试序列 ID。
+            user_id: 用户 ID，所有者范围限定。
+        """
         return await self.profile.get_series_round_profiles(series_id, user_id)
 
     async def save_company_profile(self, session_id: str, profile_data: Dict[str, Any], user_id: str) -> bool:
-        """把公司总画像幂等保存到当前 owner 的已完成第三轮。"""
+        """把公司总画像幂等保存到当前 owner 的已完成第三轮。
+
+        Args:
+            session_id: 面试会话 ID。
+            profile_data: profile 数据。
+            user_id: 用户 ID，所有者范围限定。
+        """
         return await self.profile.save_company_profile(session_id, profile_data, user_id)
 
     async def get_company_profile(self, session_id: str, user_id: str) -> Optional[Dict[str, Any]]:
-        """按 owner 读取会话关联的公司总画像，不回退到单轮画像。"""
+        """按 owner 读取会话关联的公司总画像，不回退到单轮画像。
+
+        Args:
+            session_id: 面试会话 ID。
+            user_id: 用户 ID，所有者范围限定。
+        """
         return await self.profile.get_company_profile(session_id, user_id)
 
     async def save_user_profile(self, profile_data: Dict[str, Any], user_id: str) -> bool:

@@ -1,0 +1,65 @@
+"""
+候选人能力画像数据模型
+用于后台异步分析服务
+"""
+
+from typing import Dict, List, Literal, Optional
+
+from pydantic import BaseModel, Field
+
+
+class DimensionScore(BaseModel):
+    """单个维度的评分"""
+    score: Optional[float] = Field(default=None, ge=0, le=10, description="评分 (0-10)；降级报告为空")
+    evidence: str = Field(description="支撑该评分的证据")
+    trend: Optional[str] = Field(default=None, description="变化趋势: improving/stable/declining")
+    reason: Optional[str] = Field(default=None, description="评分原因说明")
+    better_answer_example: Optional[str] = Field(default=None, description="更好的回答示例")
+    improvement_tip: Optional[str] = Field(default=None, description="具体改进建议")
+
+
+class CandidateProfile(BaseModel):
+    """候选人综合能力画像"""
+
+    # 核心维度评分 (6维)
+    professional_competence: DimensionScore = Field(description="专业能力")
+    execution_results: DimensionScore = Field(description="执行与结果导向")
+    logic_problem_solving: DimensionScore = Field(description="逻辑与问题解决")
+    communication: DimensionScore = Field(description="沟通表达力")
+    growth_potential: DimensionScore = Field(description="成长潜力")
+    collaboration: DimensionScore = Field(description="协作能力")
+
+    # 技能标签
+    skill_tags: List[str] = Field(default_factory=list, description="技能标签列表")
+
+    # 元信息
+    total_questions_analyzed: int = Field(default=0, description="已分析的问题数")
+    last_updated: str = Field(description="最后更新时间")
+
+    # 综合评价
+    overall_assessment: Optional[str] = Field(default=None, description="整体评价摘要")
+    key_strengths: List[str] = Field(default_factory=list, description="主要优势")
+    key_weaknesses: List[str] = Field(default_factory=list, description="主要不足")
+
+    # 推荐结果
+    recommendation: Optional[str] = Field(default=None, description="录用建议: hire/maybe/no_hire")
+    confidence: Optional[float] = Field(default=None, ge=0, le=1, description="推荐置信度")
+
+    # 报告生成状态
+    generation_mode: Literal["model_reviewed", "degraded_evidence_only", "not_ready"] = Field(
+        default="model_reviewed",
+        description="模型评审、证据受限降级或未就绪",
+    )
+    missing_dimensions: List[str] = Field(
+        default_factory=list,
+        description="降级时未生成评分的能力维度",
+    )
+
+
+class AnalysisContext(BaseModel):
+    """分析上下文"""
+    resume: str = Field(description="简历内容")
+    job_description: str = Field(description="职位描述")
+    company_info: str = Field(description="公司信息")
+    qa_history: List[Dict[str, str]] = Field(description="问答历史：[{question, answer}]")
+    previous_profile: Optional[CandidateProfile] = Field(default=None, description="历史画像（用于增量更新）")

@@ -17,7 +17,7 @@ from ai.workflows.evaluation.analytics import (
     _weighted_success_rate,
 )
 from ai.workflows.evaluation.contracts import EvaluationUseCaseError
-from app.schemas.evaluations import EvaluationGatePolicyCreateRequest
+from app.schemas.evaluation.evaluations import EvaluationGatePolicyCreateRequest
 
 
 @pytest.mark.fast

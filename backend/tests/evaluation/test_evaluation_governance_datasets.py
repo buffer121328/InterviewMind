@@ -16,7 +16,7 @@ from app.db.repositories.evaluation.repository import (
     _candidate_governance_metadata,
 )
 from app.db.models.evaluation import EvaluationAnnotationModel
-from app.schemas.evaluations import (
+from app.schemas.evaluation.evaluations import (
     EvaluationAnnotationCreateRequest,
     EvaluationCandidateDatasetRequest,
     EvaluationCaseCreateRequest,
@@ -306,7 +306,7 @@ def test_online_sampling_is_deterministic_and_trace_is_sanitized() -> None:
 def test_evaluation_router_exposes_report_candidate_and_online_governance() -> None:
     """闭环 API 必须包含报告、失败沉淀与线上抽样入口。"""
 
-    from app.api.evaluations import router
+    from app.api.evaluation.evaluations import router
 
     paths = {route.path for route in router.routes}
     assert "/api/evaluations/runs/{run_id}/report" in paths
@@ -343,7 +343,7 @@ def test_prompt_promotion_is_blocked_before_remote_write(monkeypatch) -> None:
 @pytest.mark.fast
 async def test_dataset_parent_is_flushed_before_case_rows_are_added():
     """The dataset FK parent must exist before encrypted child cases are flushed."""
-    from app.schemas.evaluations import EvaluationDatasetCreateRequest
+    from app.schemas.evaluation.evaluations import EvaluationDatasetCreateRequest
 
     order: list[str] = []
 

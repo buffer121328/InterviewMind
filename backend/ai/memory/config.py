@@ -13,12 +13,22 @@ logger = logging.getLogger(__name__)
 
 
 def _env(key: str, default: str = "") -> str:
-    """读取环境变量，空字符串视为未设置。"""
+    """读取环境变量，空字符串视为未设置。
+
+    Args:
+        key: 键名。
+        default: 默认值。
+    """
     return os.getenv(key) or default
 
 
 def _request_channel(api_config: Optional[dict[str, Any]], name: str) -> Optional[dict[str, Any]]:
-    """从前端 api_config 读取完整模型通道。"""
+    """从前端 api_config 读取完整模型通道。
+
+    Args:
+        api_config: 前端请求携带的模型通道配置。
+        name: 名称。
+    """
     if not isinstance(api_config, dict):
         return None
     channel = api_config.get(name)
@@ -29,8 +39,22 @@ def _request_channel(api_config: Optional[dict[str, Any]], name: str) -> Optiona
     return None
 
 
+def _embedding_dimensions(channel: Optional[dict[str, Any]]) -> int:
+    """Resolve a safe request-level dimension while preserving the env fallback.
+
+    Args:
+        channel: 模型通道名称。
+    """
+    value: object = (channel or {}).get("dimensions")
+    if value is None:
+        value = int(_env("MEM0_EMBEDDING_DIMS", _env("EMBEDDING_DIM", "1536")))
+    if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 16_000:
+        raise ValueError("mem0 embedding dimensions must be an integer between 1 and 16000")
+    return value
+
+
 def _pgvector_connection_config() -> dict[str, Any]:
-    """处理pgvector连接配置相关后端逻辑。"""
+    """解析 pgvector 连接配置：优先 MEM0_PGVECTOR_URL，否则回退主库 DATABASE_URL。"""
     explicit_url = _env("MEM0_PGVECTOR_URL")
     database_url = _env("DATABASE_URL")
     fallback_url = "postgresql://{user}:{password}@{host}:{port}/{database}".format(
@@ -42,6 +66,11 @@ def _pgvector_connection_config() -> dict[str, Any]:
     )
 
     def parse_dsn(value: str) -> dict[str, Any] | None:
+        """解析 PostgreSQL DSN 为连接参数字典；无效时返回 None。
+
+        Args:
+            value: 形如 postgresql://user:pass@host:port/db 的 DSN 字符串。
+        """
         parsed = urlparse(value.replace("postgresql+asyncpg://", "postgresql://", 1))
         database = parsed.path.lstrip("/")
         if parsed.scheme not in {"postgresql", "postgres"}:
@@ -69,7 +98,7 @@ def _pgvector_connection_config() -> dict[str, Any]:
 
 
 def get_mem0_database_mode() -> str:
-    """获取mem0数据库模式相关后端逻辑。"""
+    """返回 mem0 数据库模式：显式分离的专用库返回 dedicated，否则 shared。"""
     explicit_url = _env("MEM0_PGVECTOR_URL")
     if not explicit_url:
         return "shared"
@@ -93,10 +122,17 @@ def get_mem0_config(api_config: Optional[dict[str, Any]] = None) -> Optional[dic
 
     Returns:
         dict: mem0 配置字典；未启用或 OpenAI-compatible 通道凭据不完整时返回 None。
+
+    Args:
+        api_config: 前端请求携带的模型通道配置。
     """
     request_llm = _request_channel(api_config, "mem0_llm")
     request_embedder = _request_channel(api_config, "mem0_embedder") or _request_channel(api_config, "rag_embedding")
     request_configured = bool(request_llm and request_embedder)
+    embedding_dimensions = _embedding_dimensions(request_embedder)
+    collection_name = _env("MEM0_PGVECTOR_COLLECTION", "mem0_memories")
+    if request_embedder is not None:
+        collection_name = f"{collection_name}_d{embedding_dimensions}"
 
     # 检查是否启用：服务端 .env 可显式启用；前端请求携带完整 mem0 通道时也启用。
     enabled = _env("MEM0_ENABLED", "true").lower()
@@ -108,9 +144,9 @@ def get_mem0_config(api_config: Optional[dict[str, Any]] = None) -> Optional[dic
     pgvector_config = {
         "provider": "pgvector",
         "config": {
-            "collection_name": _env("MEM0_PGVECTOR_COLLECTION", "mem0_memories"),
+            "collection_name": collection_name,
             **_pgvector_connection_config(),
-            "embedding_model_dims": int(_env("MEM0_EMBEDDING_DIMS", "1536")),
+            "embedding_model_dims": embedding_dimensions,
             "hnsw": True,
         },
     }
@@ -162,7 +198,7 @@ def get_mem0_config(api_config: Optional[dict[str, Any]] = None) -> Optional[dic
             "model": mem0_embedder_model,
             "api_key": mem0_embedder_api_key,
             "openai_base_url": mem0_embedder_base_url,
-            "embedding_dims": int(_env("MEM0_EMBEDDING_DIMS", "1536")),
+            "embedding_dims": embedding_dimensions,
         },
     }
 

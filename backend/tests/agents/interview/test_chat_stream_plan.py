@@ -4,6 +4,7 @@ import json
 
 import pytest
 
+from ai.workflows.interview.chat import stream as chat_stream
 from ai.workflows.interview.chat.stream import ChatStreamUseCases
 
 
@@ -97,22 +98,32 @@ class _CompletingRepo:
     def __init__(self):
         self.completed = False
         self.messages = []
+        self.operations = []
 
     async def add_message(self, **kwargs):
         if self.completed:
             raise ValueError("面试已完成，不能继续提交回答")
-        self.messages.append((kwargs["role"], kwargs["content"]))
+        item = (kwargs["role"], kwargs["content"])
+        self.messages.append(item)
+        self.operations.append(("message", *item))
         return None
 
-    async def update_session(self, **_kwargs):
+    async def update_session(self, **kwargs):
+        if self.completed:
+            raise AssertionError("最终进度不得在 completed 之后写入")
+        question_count = kwargs["metadata_updates"]["question_count"]
+        self.operations.append(("progress", question_count))
         return None
 
 
 class _CompletingGraph:
-    def __init__(self, repo: _CompletingRepo):
-        self.repo = repo
-
     async def astream_events(self, *_args, **_kwargs):
+        # 模拟 LangGraph 事件投影相对节点执行乱序：先观察 summary，再观察 responder。
+        yield {
+            "event": "on_chain_end",
+            "metadata": {"langgraph_node": "summary"},
+            "data": {"output": {"question_count": 5, "max_questions": 5}},
+        }
         yield {
             "event": "on_chain_end",
             "metadata": {"langgraph_node": "responder"},
@@ -123,37 +134,78 @@ class _CompletingGraph:
                 "current_question_index": 5,
             }},
         }
-        self.repo.completed = True
-        yield {
-            "event": "on_chain_end",
-            "metadata": {"langgraph_node": "summary"},
-            "data": {"output": {"question_count": 5, "max_questions": 5}},
-        }
 
 
 @pytest.mark.asyncio
-async def test_final_response_is_saved_before_summary_completes_session(monkeypatch):
-    """The closing answer must be persisted before the summary node locks the session."""
+async def test_final_response_and_progress_are_saved_before_session_completion(monkeypatch):
+    """Summary projection order must not complete the session before final persistence."""
     monkeypatch.setattr("ai.memory.should_skip_write", lambda *_args: True)
     repo = _CompletingRepo()
+
+    async def fake_handle_interview_complete(**kwargs):
+        assert kwargs["session_id"] == "session-completing"
+        assert kwargs["user_id"] == "user-1"
+        repo.operations.append(("complete",))
+        repo.completed = True
+
+    monkeypatch.setattr(chat_stream, "handle_interview_complete", fake_handle_interview_complete)
     use_cases = ChatStreamUseCases()
     use_cases._session_repo = repo
 
     lines = [
         line
         async for line in use_cases._event_generator(
-            _CompletingGraph(repo),
-            {"current_question_index": 0, "max_questions": 5},
+            _CompletingGraph(),
+            {
+                "current_question_index": 4,
+                "max_questions": 5,
+                "api_config": {"fast": {"model": "test"}},
+            },
             {},
             "session-completing",
-            "我的回答",
+            "我的最终回答",
             "user-1",
             _Lease(),
         )
     ]
     events = [_decode(line) for line in lines]
+    state_updates = [
+        json.loads(event["content"])
+        for event in events
+        if event["type"] == "state_update"
+    ]
 
-    assert [item[0] for item in repo.messages] == ["user", "assistant"]
-    assert repo.messages[-1] == ("assistant", "本轮面试结束")
+    assert repo.operations == [
+        ("message", "user", "我的最终回答"),
+        ("message", "assistant", "本轮面试结束"),
+        ("progress", 5),
+        ("complete",),
+    ]
+    assert state_updates == [{"question_count": 5, "max_questions": 5}]
     assert not [event for event in events if event["type"] == "error"]
     assert events[-1]["type"] == "done"
+
+
+@pytest.mark.asyncio
+async def test_graph_summary_only_returns_completion_state(monkeypatch):
+    from ai.agents.interview.interview_graph import node_summary
+    from ai.workflows.interview.lifecycle import completion
+
+    completion_calls = []
+
+    async def fake_handle_interview_complete(**kwargs):
+        completion_calls.append(kwargs)
+
+    monkeypatch.setattr(completion, "handle_interview_complete", fake_handle_interview_complete)
+
+    result = await node_summary({
+        "session_id": "session-1",
+        "user_id": "user-1",
+        "run_id": "run-1",
+        "question_count": 5,
+        "max_questions": 5,
+        "api_config": None,
+    })
+
+    assert result == {"messages": [], "question_count": 5, "max_questions": 5}
+    assert completion_calls == []

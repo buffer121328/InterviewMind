@@ -9,7 +9,7 @@ FORBIDDEN_NAMES = {"build_interview_context", "uuid"}
 
 
 def test_chat_start_route_delegates_to_application_layer():
-    tree = ast.parse((BACKEND_APP / "api" / "chat.py").read_text())
+    tree = ast.parse((BACKEND_APP / "api" / "interview" / "chat.py").read_text())
     for node in ast.walk(tree):
         if isinstance(node, ast.AsyncFunctionDef) and node.name == "start_interview":
             names = {child.id for child in ast.walk(node) if isinstance(child, ast.Name)}

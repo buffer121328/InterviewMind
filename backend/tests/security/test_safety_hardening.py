@@ -42,8 +42,8 @@ async def test_redis_rate_limit_failure_is_fail_closed():
 @pytest.mark.asyncio
 async def test_resume_generation_cannot_bypass_pending_review():
     from ai.agents.resume.resume_review import initialize_review
-    from app.api.resume_generation import init_resume_generation
-    from app.schemas.resume_schemas import ResumeGenerateInitRequest
+    from app.api.resume.generation import init_resume_generation
+    from app.schemas.resume.resume_schemas import ResumeGenerateInitRequest
     from fastapi import HTTPException
 
     request = ResumeGenerateInitRequest(
@@ -95,7 +95,7 @@ async def test_resume_generation_submit_and_status_are_user_scoped(monkeypatch):
     from types import SimpleNamespace
 
     from ai.workflows.resume import generation as resume_generation
-    from app.api import resume_generation as resume_api
+    from app.api.resume import generation as resume_api
 
     submit_calls = []
     status_calls = []

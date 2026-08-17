@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from app.db.models import EvaluationDatasetVersionModel, EvaluationSuiteModel
-from app.schemas.evaluations import EvaluationDatasetCreateRequest, EvaluationSuiteCreateRequest
+from app.schemas.evaluation.evaluations import EvaluationDatasetCreateRequest, EvaluationSuiteCreateRequest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,7 +20,13 @@ class DatasetRepositoryMixin:
             user_id: str,
             request: EvaluationDatasetCreateRequest,
         ) -> EvaluationDatasetVersionModel:
-            """创建数据集版本和加密案例；同一 owner/name/version 由数据库拒绝重复。"""
+            """创建数据集版本和加密案例；同一 owner/name/version 由数据库拒绝重复。
+
+            Args:
+                session: 会话数据或数据库会话。
+                user_id: 用户 ID，所有者范围限定。
+                request: 请求对象。
+            """
 
             canonical_cases = [case.model_dump(mode="json") for case in request.cases]
             dataset = EvaluationDatasetVersionModel(
@@ -53,7 +59,14 @@ class DatasetRepositoryMixin:
             limit: int,
             offset: int,
         ) -> tuple[list[EvaluationDatasetVersionModel], int]:
-            """分页列出当前 owner 的数据集元数据，不解密案例正文。"""
+            """分页列出当前 owner 的数据集元数据，不解密案例正文。
+
+            Args:
+                session: 会话数据或数据库会话。
+                user_id: 用户 ID，所有者范围限定。
+                limit: 返回数量上限。
+                offset: 偏移量。
+            """
 
             where = EvaluationDatasetVersionModel.user_id == user_id
             total = await session.scalar(
@@ -75,7 +88,13 @@ class DatasetRepositoryMixin:
             dataset_id: str,
             user_id: str,
         ) -> EvaluationDatasetVersionModel | None:
-            """按 owner 获取一个数据集版本。"""
+            """按 owner 获取一个数据集版本。
+
+            Args:
+                session: 会话数据或数据库会话。
+                dataset_id: dataset 的 ID。
+                user_id: 用户 ID，所有者范围限定。
+            """
 
             return await session.scalar(
                 select(EvaluationDatasetVersionModel).where(
@@ -92,7 +111,14 @@ class DatasetRepositoryMixin:
             name: str,
             version: str,
         ) -> EvaluationDatasetVersionModel | None:
-            """按 owner/name/version 精确读取数据集，供内置版本幂等引导使用。"""
+            """按 owner/name/version 精确读取数据集，供内置版本幂等引导使用。
+
+            Args:
+                session: 会话数据或数据库会话。
+                user_id: 用户 ID，所有者范围限定。
+                name: 名称。
+                version: 版本字符串。
+            """
 
             return await session.scalar(
                 select(EvaluationDatasetVersionModel).where(
@@ -109,7 +135,13 @@ class DatasetRepositoryMixin:
             dataset_id: str,
             user_id: str,
         ) -> list[EvaluationCaseModel]:
-            """按 owner 返回案例安全元数据；不解密输入和 Golden。"""
+            """按 owner 返回案例安全元数据；不解密输入和 Golden。
+
+            Args:
+                session: 会话数据或数据库会话。
+                dataset_id: dataset 的 ID。
+                user_id: 用户 ID，所有者范围限定。
+            """
 
             if await self.get_dataset(session, dataset_id=dataset_id, user_id=user_id) is None:
                 raise LookupError("dataset not found")
@@ -127,7 +159,13 @@ class DatasetRepositoryMixin:
             dataset_id: str,
             user_id: str,
         ) -> EvaluationDatasetVersionModel | None:
-            """锁定 calibrated 数据集；锁定后 Repository 不提供原地案例修改入口。"""
+            """锁定 calibrated 数据集；锁定后 Repository 不提供原地案例修改入口。
+
+            Args:
+                session: 会话数据或数据库会话。
+                dataset_id: dataset 的 ID。
+                user_id: 用户 ID，所有者范围限定。
+            """
 
             dataset = await self.get_dataset(session, dataset_id=dataset_id, user_id=user_id)
             if dataset is None:
@@ -148,7 +186,14 @@ class DatasetRepositoryMixin:
             user_id: str,
             status: str,
         ) -> EvaluationDatasetVersionModel | None:
-            """按单向状态机推进 Dataset Version 生命周期。"""
+            """按单向状态机推进 Dataset Version 生命周期。
+
+            Args:
+                session: 会话数据或数据库会话。
+                dataset_id: dataset 的 ID。
+                user_id: 用户 ID，所有者范围限定。
+                status: 状态字符串。
+            """
 
             dataset = await self.get_dataset(session, dataset_id=dataset_id, user_id=user_id)
             if dataset is None:
@@ -177,7 +222,13 @@ class DatasetRepositoryMixin:
             user_id: str,
             request: EvaluationSuiteCreateRequest,
         ) -> EvaluationSuiteModel:
-            """创建套件前再次校验 Dataset 与 Gate Policy 所有权。"""
+            """创建套件前再次校验 Dataset 与 Gate Policy 所有权。
+
+            Args:
+                session: 会话数据或数据库会话。
+                user_id: 用户 ID，所有者范围限定。
+                request: 请求对象。
+            """
 
             dataset = await self.get_dataset(
                 session, dataset_id=request.dataset_version_id, user_id=user_id
@@ -213,7 +264,12 @@ class DatasetRepositoryMixin:
             *,
             user_id: str,
         ) -> list[EvaluationSuiteModel]:
-            """列出当前 owner 的套件。"""
+            """列出当前 owner 的套件。
+
+            Args:
+                session: 会话数据或数据库会话。
+                user_id: 用户 ID，所有者范围限定。
+            """
 
             rows = await session.scalars(
                 select(EvaluationSuiteModel)
@@ -229,7 +285,13 @@ class DatasetRepositoryMixin:
             suite_id: str,
             user_id: str,
         ) -> EvaluationSuiteModel | None:
-            """按 owner 获取套件。"""
+            """按 owner 获取套件。
+
+            Args:
+                session: 会话数据或数据库会话。
+                suite_id: 评测套件 ID。
+                user_id: 用户 ID，所有者范围限定。
+            """
 
             return await session.scalar(
                 select(EvaluationSuiteModel).where(
@@ -245,7 +307,13 @@ class DatasetRepositoryMixin:
             user_id: str,
             name: str,
         ) -> EvaluationSuiteModel | None:
-            """按 owner/name 精确读取套件，避免一键评测重复创建治理事实。"""
+            """按 owner/name 精确读取套件，避免一键评测重复创建治理事实。
+
+            Args:
+                session: 会话数据或数据库会话。
+                user_id: 用户 ID，所有者范围限定。
+                name: 名称。
+            """
 
             return await session.scalar(
                 select(EvaluationSuiteModel).where(

@@ -42,7 +42,7 @@ class AppSettings(BaseSettings):
     resume_workspace_task_timeout_seconds: int = Field(default=240, ge=30, le=1800)
     resume_generation_task_timeout_seconds: int = Field(default=240, ge=30, le=1800)
     job_assets_task_timeout_seconds: int = Field(default=240, ge=30, le=1800)
-    ability_profile_task_timeout_seconds: int = Field(default=60, ge=5, le=600)
+    ability_profile_task_timeout_seconds: int = Field(default=120, ge=5, le=600)
     resume_material_max_items: int = Field(default=8, ge=1, le=20)
     resume_material_item_max_chars: int = Field(default=1200, ge=200, le=5000)
     project_rewrite_project_max_chars: int = Field(default=5000, ge=500, le=20000)

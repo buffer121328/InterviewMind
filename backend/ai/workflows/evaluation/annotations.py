@@ -7,7 +7,7 @@ from typing import Any
 from app.config import get_settings
 from app.db.models import async_session
 from app.db.unit_of_work import UnitOfWork
-from app.schemas.evaluations import (
+from app.schemas.evaluation.evaluations import (
     EvaluationAdjudicationRequest,
     EvaluationAnnotationCreateRequest,
 )
@@ -26,7 +26,13 @@ class AnnotationUseCasesMixin:
         case_run_id: str,
         request: EvaluationAnnotationCreateRequest,
     ) -> dict[str, Any]:
-        """追加人工标注 revision。"""
+        """追加人工标注 revision。
+
+        Args:
+            user_id: 当前用户标识。
+            case_run_id: 目标案例运行标识。
+            request: 标注创建请求。
+        """
 
         self._ensure_center_enabled()
         async with UnitOfWork(async_session) as uow:
@@ -46,7 +52,12 @@ class AnnotationUseCasesMixin:
     async def list_annotations(
         self, *, user_id: str, case_run_id: str
     ) -> dict[str, Any]:
-        """返回 append-only 标注历史。"""
+        """返回 append-only 标注历史。
+
+        Args:
+            user_id: 当前用户标识。
+            case_run_id: 目标案例运行标识。
+        """
 
         self._ensure_center_enabled()
         async with UnitOfWork(async_session) as uow:
@@ -65,7 +76,13 @@ class AnnotationUseCasesMixin:
         annotation_id: str,
         request: EvaluationAdjudicationRequest,
     ) -> dict[str, Any]:
-        """通过现有 annotation 定位案例并追加专家裁决。"""
+        """通过现有 annotation 定位案例并追加专家裁决。
+
+        Args:
+            user_id: 当前用户标识。
+            annotation_id: 来源标注标识。
+            request: 专家裁决请求。
+        """
 
         self._ensure_center_enabled()
         async with UnitOfWork(async_session) as uow:
@@ -99,7 +116,11 @@ class AnnotationUseCasesMixin:
             return _annotation(row)
 
     async def annotation_queue(self, *, user_id: str) -> dict[str, Any]:
-        """汇总当前用户所有 needs_review 案例，不阻塞已完成 Worker。"""
+        """汇总当前用户所有 needs_review 案例，不阻塞已完成 Worker。
+
+        Args:
+            user_id: 当前用户标识。
+        """
 
         self._ensure_center_enabled()
         async with UnitOfWork(async_session) as uow:
@@ -120,7 +141,11 @@ class AnnotationUseCasesMixin:
 
 
 def _mirror_human_annotation(row: Any) -> None:
-    """处理标注相关后端逻辑。"""
+    """把人工标注镜像到评测上报指标（布尔/数值归一化为评分）。
+
+    Args:
+        row: 标注记录，含 value、metric_name、case_run_id 等字段。
+    """
 
     try:
         from observability.evaluation_reporting import EvaluationScore, report_score

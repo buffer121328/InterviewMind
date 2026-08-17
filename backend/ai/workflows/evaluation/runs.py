@@ -29,7 +29,7 @@ from app.config import get_settings
 from app.db.models import async_session
 from app.db.unit_of_work import UnitOfWork
 from app.domain.agent_runs import TASK_TYPE_EVALUATION_SUITE
-from app.schemas.evaluations import (
+from app.schemas.evaluation.evaluations import (
     EvaluationCandidateDatasetRequest,
     EvaluationQuickRunRequest,
     EvaluationReviewRequest,
@@ -263,7 +263,7 @@ class RunUseCasesMixin:
         except AgentRunUseCaseError as exc:
             raise EvaluationUseCaseError(exc.message, status_code=exc.status_code) from exc
 
-        agent_run_id = str(agent_response.payload.get("run_id") or "")
+        agent_run_id = str(agent_response.body.get("run_id") or "")
         async with UnitOfWork(async_session) as uow:
             if agent_run_id:
                 await self.repository.attach_agent_run(
@@ -275,7 +275,7 @@ class RunUseCasesMixin:
             run = await self.repository.get_run(
                 uow.db, run_id=evaluation_run_id, user_id=user_id
             )
-            return _run(run, agent_run=agent_response.payload)
+            return _run(run, agent_run=agent_response.body)
 
     async def list_runs(
         self, *, user_id: str, limit: int, offset: int
@@ -503,7 +503,7 @@ class RunUseCasesMixin:
             result = await agent_run_use_cases.retry_run(
                 run_id=agent_run_id, user_id=user_id
             )
-            return result.payload
+            return result.body
         except AgentRunUseCaseError as exc:
             raise EvaluationUseCaseError(exc.message, exc.status_code) from exc
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, Sequence
 
 from app.db.models import EvaluationGatePolicyModel, EvaluationGateResultModel, EvaluationRunModel
-from app.schemas.evaluations import EvaluationGatePolicyCreateRequest
+from app.schemas.evaluation.evaluations import EvaluationGatePolicyCreateRequest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,7 +22,13 @@ class GateRepositoryMixin:
             user_id: str,
             request: EvaluationGatePolicyCreateRequest,
         ) -> EvaluationGatePolicyModel:
-            """创建版本化 Gate Policy。"""
+            """创建版本化 Gate Policy。
+
+            Args:
+                session: 会话数据或数据库会话。
+                user_id: 用户 ID，所有者范围限定。
+                request: 请求对象。
+            """
 
             metric_thresholds = {
                 name: (
@@ -63,7 +69,13 @@ class GateRepositoryMixin:
             policy_id: str,
             user_id: str,
         ) -> EvaluationGatePolicyModel | None:
-            """按 owner 获取 Gate Policy。"""
+            """按 owner 获取 Gate Policy。
+
+            Args:
+                session: 会话数据或数据库会话。
+                policy_id: policy 的 ID。
+                user_id: 用户 ID，所有者范围限定。
+            """
 
             return await session.scalar(
                 select(EvaluationGatePolicyModel).where(
@@ -75,7 +87,12 @@ class GateRepositoryMixin:
     async def list_gate_policies(
             self, session: AsyncSession, *, user_id: str
         ) -> list[EvaluationGatePolicyModel]:
-            """列出当前 owner 的 Gate Policy。"""
+            """列出当前 owner 的 Gate Policy。
+
+            Args:
+                session: 会话数据或数据库会话。
+                user_id: 用户 ID，所有者范围限定。
+            """
 
             return list(
                 await session.scalars(
@@ -96,7 +113,17 @@ class GateRepositoryMixin:
             blocked_by: Sequence[str],
             details: dict[str, Any],
         ) -> EvaluationGateResultModel:
-            """追加不可变 Gate Result，供 Prompt 发布审计。"""
+            """追加不可变 Gate Result，供 Prompt 发布审计。
+
+            Args:
+                session: 数据库会话或会话数据。
+                user_id: 用户 ID，所有者范围限定。
+                run_id: 任务运行 ID。
+                policy_id: policy 的 ID。
+                passed: 是否通过。
+                blocked_by: 传入的 blocked_by 值。
+                details: 传入的 details 值。
+            """
 
             row = EvaluationGateResultModel(
                 id=_id("egresult"),
@@ -121,7 +148,15 @@ class GateRepositoryMixin:
             prompt_version: str,
             run_id: str | None = None,
         ) -> EvaluationGateResultModel | None:
-            """返回指定 Prompt 版本最近一次 owner-scoped 门禁结果。"""
+            """返回指定 Prompt 版本最近一次 owner-scoped 门禁结果。
+
+            Args:
+                session: 数据库会话或会话数据。
+                user_id: 用户 ID，所有者范围限定。
+                prompt_name: 提示词名称。
+                prompt_version: 提示词版本。
+                run_id: 任务运行 ID。
+            """
 
             statement = (
                 select(EvaluationGateResultModel)

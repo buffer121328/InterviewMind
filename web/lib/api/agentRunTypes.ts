@@ -85,6 +85,32 @@ export interface AgentRunEvent {
     timestamp: string;
 }
 
+export interface AgentPerformanceTrendPoint {
+    /** China Standard Time calendar date generated server-side from safe model metrics. */
+    date: string;
+    logical_call_count: number;
+    physical_request_count: number;
+    retry_count: number;
+    fallback_count: number;
+    timeout_count: number;
+    p95_model_duration_ms: number | null;
+    input_tokens: number;
+    output_tokens: number;
+    total_tokens: number | null;
+}
+
+/** A safe owner-scoped selector item; it never contains model request or response text. */
+export interface AgentPerformanceModelOption {
+    model_name: string;
+    model_provider: string | null;
+}
+
+/** One safe daily metric bucket for an actual model name or the server-produced other-model group. */
+export interface AgentModelPerformanceTrendPoint extends AgentPerformanceTrendPoint {
+    model_name: string;
+    model_provider: string | null;
+}
+
 export interface AgentPerformanceOverview {
     sample_event_count: number;
     total_matching_events: number;
@@ -97,6 +123,7 @@ export interface AgentPerformanceOverview {
     p95_model_duration_ms: number | null;
     input_tokens: number;
     output_tokens: number;
+    total_tokens: number | null;
     cache_read_tokens: number;
     cache_hit_rate: number | null;
     retry_rate: number | null;
@@ -106,6 +133,11 @@ export interface AgentPerformanceOverview {
     authoritative_truncation_rate: number | null;
     overflow_strategy_counts: Record<string, number>;
     definitions: Record<string, string>;
+    daily_trend?: AgentPerformanceTrendPoint[];
+    /** Available actual model names within the current owner/time/task/Agent scope. */
+    available_models?: AgentPerformanceModelOption[];
+    /** Top five actual model names by logical call volume plus an optional other-model group. */
+    model_daily_trend?: AgentModelPerformanceTrendPoint[];
 }
 
 export interface ModelMetricEvent {
@@ -119,4 +151,33 @@ export interface ModelMetricEvent {
     is_degradation: boolean;
     payload: Record<string, unknown>;
     timestamp: string;
+}
+
+export type AgentTaskHealthOutcome = 'succeeded' | 'recovered' | 'failed' | 'active';
+export type AgentTaskHealthIssue = 'timeout' | 'authentication' | 'rate_limit' | 'network' | 'request' | 'model_failure' | 'skipped' | 'context_protection' | 'fallback' | 'retry';
+
+/** One owner-scoped product summary of a task's model call chain, never a raw telemetry event. */
+export interface AgentTaskHealth {
+    run_id: string;
+    trace_id: string | null;
+    task_type: AgentRunTaskType;
+    agent_name: string;
+    task_status: AgentRunStatus;
+    stage: string | null;
+    primary_stage: string | null;
+    outcome: AgentTaskHealthOutcome;
+    primary_issue: AgentTaskHealthIssue | null;
+    model_provider: string | null;
+    model_name: string | null;
+    logical_call_count: number;
+    physical_attempt_count: number;
+    failed_attempt_count: number;
+    timeout_count: number;
+    retry_count: number;
+    fallback_count: number;
+    skipped_count: number;
+    context_protection_count: number;
+    created_at: string | null;
+    finished_at: string | null;
+    last_model_event_at: string | null;
 }

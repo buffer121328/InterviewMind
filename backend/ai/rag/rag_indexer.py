@@ -26,12 +26,23 @@ def _utcnow() -> datetime:
 
 
 def _make_chunk_key(source_type: str, source_id: str, suffix: str = "main") -> str:
-    """生成稳定的 chunk_key"""
+    """生成稳定的 chunk_key
+
+    Args:
+        source_type: 来源类型。
+        source_id: 来源记录 ID。
+        suffix: 传入的 suffix 值。
+    """
     return f"{source_type}:{source_id}:{suffix}"
 
 
 def _truncate_chunk(text: str, max_chars: int = 800) -> str:
-    """截断 chunk 到最大字符数"""
+    """截断 chunk 到最大字符数
+
+    Args:
+        text: 文本内容。
+        max_chars: chars 的最大值。
+    """
     if len(text) <= max_chars:
         return text
     return text[:max_chars]
@@ -43,7 +54,12 @@ def _truncate_chunk(text: str, max_chars: int = 800) -> str:
 async def extract_question_bank_chunks(
     user_id: str, limit: int = 200
 ) -> List[Dict[str, Any]]:
-    """从 question_bank_items 提取 chunk"""
+    """从 question_bank_items 提取 chunk
+
+    Args:
+        user_id: 用户 ID，所有者范围限定。
+        limit: 返回数量上限。
+    """
     from app.db.models.interview import QuestionBankItemModel
 
     async with async_session() as db:
@@ -83,7 +99,12 @@ async def extract_question_bank_chunks(
 async def extract_candidate_material_chunks(
     user_id: str, limit: int = 100
 ) -> List[Dict[str, Any]]:
-    """从 candidate_materials 提取 chunk"""
+    """从 candidate_materials 提取 chunk
+
+    Args:
+        user_id: 用户 ID，所有者范围限定。
+        limit: 返回数量上限。
+    """
     from app.db.models.resume import CandidateMaterialModel
 
     async with async_session() as db:
@@ -119,7 +140,12 @@ async def extract_candidate_material_chunks(
 async def extract_weakness_report_chunks(
     user_id: str, limit: int = 20
 ) -> List[Dict[str, Any]]:
-    """从 interview_weakness_reports 提取 chunk（每个短板分类一个 chunk）"""
+    """从 interview_weakness_reports 提取 chunk（每个短板分类一个 chunk）
+
+    Args:
+        user_id: 用户 ID，所有者范围限定。
+        limit: 返回数量上限。
+    """
     from app.db.models.interview import WeaknessReportModel
 
     async with async_session() as db:
@@ -166,7 +192,12 @@ async def extract_weakness_report_chunks(
 async def extract_jd_analysis_chunks(
     user_id: str, limit: int = 10
 ) -> List[Dict[str, Any]]:
-    """从 jd_analysis_results 提取 chunk"""
+    """从 jd_analysis_results 提取 chunk
+
+    Args:
+        user_id: 用户 ID，所有者范围限定。
+        limit: 返回数量上限。
+    """
     from app.db.models.jd import JdAnalysisResultModel
 
     async with async_session() as db:
@@ -214,7 +245,13 @@ async def extract_jd_analysis_chunks(
 async def extract_session_qa_chunks(
     user_id: str, session_id: Optional[str] = None, limit: int = 50
 ) -> List[Dict[str, Any]]:
-    """从 sessions.interview_plan 提取历史题目 chunk（用于去重和追问）"""
+    """从 sessions.interview_plan 提取历史题目 chunk（用于去重和追问）
+
+    Args:
+        user_id: 用户 ID，所有者范围限定。
+        session_id: 面试会话 ID。
+        limit: 返回数量上限。
+    """
     from app.db.models.session import SessionModel
 
     async with async_session() as db:
@@ -277,6 +314,7 @@ class RagIndexer:
         user_id: str,
         with_embedding: bool = True,
         source_types: Optional[List[str]] = None,
+        api_config: Optional[dict] = None,
     ) -> Dict[str, int]:
         """
         为用户构建/更新全部 RAG 索引
@@ -304,7 +342,12 @@ class RagIndexer:
                 continue
             try:
                 chunks = await extractor(user_id)
-                count = await self._index_chunks(chunks, user_id, with_embedding)
+                count = await self._index_chunks(
+                    chunks,
+                    user_id,
+                    with_embedding,
+                    api_config=api_config,
+                )
                 stale_count = await self._deactivate_stale_snapshot(
                     user_id=user_id,
                     source_type=source_type,
@@ -334,7 +377,13 @@ class RagIndexer:
         source_type: str,
         chunks: List[Dict[str, Any]],
     ) -> int:
-        """在某来源完整提取和 upsert 成功后，失效本轮快照中已经消失的旧 chunk。"""
+        """在某来源完整提取和 upsert 成功后，失效本轮快照中已经消失的旧 chunk。
+
+        Args:
+            user_id: 用户 ID，所有者范围限定。
+            source_type: 来源类型。
+            chunks: 分片列表。
+        """
 
         scopes_by_namespace: dict[str, set[tuple[str, str]]] = {
             "user_private": set()
@@ -362,11 +411,20 @@ class RagIndexer:
         chunks: List[Dict[str, Any]],
         user_id: str,
         with_embedding: bool,
+        api_config: Optional[dict] = None,
     ) -> int:
-        """处理索引片段相关后端逻辑。"""
+        """批量索引分片并返回更新计数。
+
+        Args:
+            chunks: 分片列表。
+            user_id: 用户 ID，所有者范围限定。
+            with_embedding: 传入的 with_embedding 值。
+            api_config: 前端请求携带的模型通道配置。
+        """
         if not chunks:
             return 0
 
+        config = get_embedding_config(api_config) if api_config else self._config
         contents = [str(chunk["content"]) for chunk in chunks]
         content_hashes = [compute_content_hash(content) for content in contents]
         embeddings: list[list[float]] | None = None
@@ -377,8 +435,8 @@ class RagIndexer:
                 reusable = await loader(
                     user_id=user_id,
                     content_hashes=set(content_hashes),
-                    embedding_model=self._config["model"],
-                    dimensions=self._config.get("dimensions"),
+                    embedding_model=config["model"],
+                    dimensions=config.get("dimensions"),
                 )
             missing_hashes: list[str] = []
             missing_texts: list[str] = []
@@ -390,9 +448,10 @@ class RagIndexer:
                 if missing_texts:
                     generated = await generate_embeddings_batch(
                         missing_texts,
-                        model=self._config["model"],
-                        dimensions=self._config.get("dimensions"),
+                        model=config["model"],
+                        dimensions=config.get("dimensions"),
                         batch_size=min(20, max(1, len(missing_texts))),
+                        api_config=api_config,
                     )
                     if len(generated) != len(missing_texts):
                         raise ValueError("embedding batch result count mismatch")
@@ -420,7 +479,8 @@ class RagIndexer:
                 await self._repo.upsert_chunk_with_embedding(
                     **common,
                     embedding=embeddings[index],
-                    embedding_model=self._config["model"],
+                    embedding_model=config["model"],
+                    dimensions=config["dimensions"],
                 )
             else:
                 await self._repo.upsert_chunk(**common)
@@ -430,6 +490,7 @@ class RagIndexer:
         self,
         user_id: Optional[str] = None,
         batch_size: int = 20,
+        api_config: Optional[dict] = None,
     ) -> int:
         """
         处理状态为 pending 的 chunk，生成 embedding
@@ -447,7 +508,14 @@ class RagIndexer:
 
         texts = [c.content for c in pending]
         try:
-            embeddings = await generate_embeddings_batch(texts, batch_size=batch_size)
+            config = get_embedding_config(api_config) if api_config else self._config
+            embeddings = await generate_embeddings_batch(
+                texts,
+                model=config["model"],
+                dimensions=config["dimensions"],
+                batch_size=batch_size,
+                api_config=api_config,
+            )
         except Exception as e:
             logger.error(
                 "[RAG Indexer] 批量 embedding 失败: error_type=%s",
@@ -461,7 +529,8 @@ class RagIndexer:
                 await self._repo.update_embedding(
                     chunk_id=chunk.id,
                     embedding=emb,
-                    embedding_model=self._config["model"],
+                    embedding_model=config["model"],
+                    dimensions=config["dimensions"],
                 )
                 success += 1
             except Exception as e:

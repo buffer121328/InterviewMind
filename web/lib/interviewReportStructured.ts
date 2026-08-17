@@ -1,4 +1,3 @@
-import type { ExperienceQuestionCandidate } from './api/interviewExperience.ts';
 import type { SessionMarkdownReport } from './api/interviewReport.ts';
 
 type UnknownRecord = Record<string, unknown>;
@@ -28,20 +27,3 @@ export function normalizeStructuredInterviewReport(report: Partial<SessionMarkdo
         },
     };
 }
-
-/** Builds a deterministic, editable interview setup handoff without creating a run. */
-export function buildTargetedInterviewHandoff(sessionId: string, weaknesses: string[], questions: string[]) {
-    return {
-        trainingGoal: `专项训练目标：${weaknesses.length ? weaknesses.join('、') : '面试短板复盘'}。请围绕推荐练习题进行针对性追问。`,
-        questions: questions.map<ExperienceQuestionCandidate>((question, index) => ({
-            question_text: question,
-            tags: ['面试复盘', ...weaknesses.slice(0, 2)],
-            difficulty: 'medium',
-            question_type: 'tech',
-            source_type: 'interview_report',
-            source_id: `${sessionId}:${index}`,
-        })),
-    };
-}
-
-export type TargetedInterviewHandoff = ReturnType<typeof buildTargetedInterviewHandoff>;

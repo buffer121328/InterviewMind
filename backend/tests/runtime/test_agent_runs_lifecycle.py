@@ -9,6 +9,7 @@ from types import SimpleNamespace
 import pytest
 from cryptography.fernet import Fernet
 
+from app.clock import utc_isoformat
 from app.db.models.agent_run import AgentRunModel
 
 
@@ -508,7 +509,7 @@ async def test_event_stream_replays_from_last_event_id_when_larger(monkeypatch):
 
     assert list_after_sequences == [7, 8]
     assert chunks == [
-        f'id: 8\nevent: run.completed\ndata: {json.dumps({"event_id": "8", "run_id": "run-1", "sequence": 8, "type": "run.completed", "stage": "succeeded", "payload": {"ok": True}, "schema_version": 1, "timestamp": now.isoformat()}, ensure_ascii=False)}\n\n'
+        f'id: 8\nevent: run.completed\ndata: {json.dumps({"event_id": "8", "run_id": "run-1", "sequence": 8, "type": "run.completed", "stage": "succeeded", "payload": {"ok": True}, "schema_version": 1, "timestamp": utc_isoformat(now)}, ensure_ascii=False)}\n\n'
     ]
 
 

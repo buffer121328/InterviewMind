@@ -179,6 +179,7 @@ async def test_resume_adapters_preserve_owner_progress_and_deferred_result(adapt
 
 @pytest.mark.asyncio
 async def test_job_assets_inline_run_does_not_acquire_global_gate(monkeypatch) -> None:
+    from ai.workflows.agent_runs import mutations as agent_run_mutations
     from ai.workflows.agent_runs import use_cases as workflow
 
     calls: list[str] = []
@@ -205,10 +206,10 @@ async def test_job_assets_inline_run_does_not_acquire_global_gate(monkeypatch) -
     async def execute(*_args, **_kwargs):
         return {"success": True}
 
-    monkeypatch.setattr(workflow, "task_queue_enabled", lambda: False)
-    monkeypatch.setattr(workflow, "get_run_gate", lambda: FailingGate())
+    monkeypatch.setattr(agent_run_mutations, "task_queue_enabled", lambda: False)
+    monkeypatch.setattr(agent_run_mutations, "get_run_gate", lambda: FailingGate())
     monkeypatch.setattr(workflow.AgentRunUseCases, "_run_inline_task", execute)
-    monkeypatch.setattr(workflow, "serialize_run", lambda _run: {"status": "succeeded"})
+    monkeypatch.setattr(agent_run_mutations, "serialize_run", lambda _run: {"status": "succeeded"})
     use_cases = workflow.AgentRunUseCases()
     use_cases._service = Service()
 

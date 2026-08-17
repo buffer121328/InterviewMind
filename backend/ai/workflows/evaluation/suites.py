@@ -7,7 +7,7 @@ from typing import Any
 from app.config import get_settings
 from app.db.models import async_session
 from app.db.unit_of_work import UnitOfWork
-from app.schemas.evaluations import EvaluationSuiteCreateRequest
+from app.schemas.evaluation.evaluations import EvaluationSuiteCreateRequest
 
 from ai.workflows.evaluation.serializers import _suite
 from ai.workflows.evaluation.contracts import EvaluationUseCaseError
@@ -19,7 +19,12 @@ class SuiteUseCasesMixin:
     async def create_suite(
         self, *, user_id: str, request: EvaluationSuiteCreateRequest
     ) -> dict[str, Any]:
-        """创建 owner-scoped Evaluation Suite。"""
+        """创建 owner-scoped Evaluation Suite。
+
+        Args:
+            user_id: 当前用户标识。
+            request: 套件创建请求。
+        """
 
         self._ensure_center_enabled()
         async with UnitOfWork(async_session) as uow:
@@ -32,7 +37,11 @@ class SuiteUseCasesMixin:
             return _suite(row)
 
     async def list_suites(self, *, user_id: str) -> dict[str, Any]:
-        """列出当前用户套件。"""
+        """列出当前用户套件。
+
+        Args:
+            user_id: 当前用户标识。
+        """
 
         self._ensure_center_enabled()
         async with UnitOfWork(async_session) as uow:

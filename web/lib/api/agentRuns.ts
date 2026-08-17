@@ -180,11 +180,23 @@ export async function pollAgentRun(
 }
 
 /** Loads the owner-scoped local performance aggregate; no model text or credentials are returned. */
-export async function getAgentPerformanceOverview(params: { days?: number; taskType?: string; agentName?: string } = {}) {
+export async function getAgentPerformanceOverview(params: { days?: number; taskType?: string; agentName?: string; modelName?: string } = {}) {
     const query = new URLSearchParams({ days: String(params.days || 7) });
     if (params.taskType) query.set('task_type', params.taskType);
     if (params.agentName) query.set('agent_name', params.agentName);
+    if (params.modelName) query.set('model_name', params.modelName);
     return apiRequest<import('./agentRunTypes').AgentPerformanceOverview>(`/api/agent-runs/performance/overview?${query}`);
+}
+
+/** Lists one owner-scoped product summary per task call chain instead of raw telemetry events. */
+export async function listAgentTaskHealth(params: { days?: number; attentionOnly?: boolean; limit?: number; offset?: number } = {}) {
+    const query = new URLSearchParams({
+        days: String(params.days ?? 7),
+        limit: String(params.limit ?? 100),
+        offset: String(params.offset ?? 0),
+    });
+    if (params.attentionOnly) query.set('attention_only', 'true');
+    return apiRequest<{ runs: import('./agentRunTypes').AgentTaskHealth[]; total: number; limit: number; offset: number }>(`/api/agent-runs/performance/task-health?${query}`);
 }
 
 /** Lists safe local model metric events for the current owner. */

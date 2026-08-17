@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.schemas.evaluations import InterviewEvaluationDraftAnnotation
+from app.schemas.evaluation.evaluations import InterviewEvaluationDraftAnnotation
 
 
 def _session() -> SimpleNamespace:

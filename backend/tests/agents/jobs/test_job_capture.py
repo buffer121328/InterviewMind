@@ -227,6 +227,83 @@ class TestJobCaptureService:
         assert result["jobs"][0]["pending_import"] is True
 
     @pytest.mark.asyncio
+    async def test_no_experience_filters_explicit_jd_requirements_before_ranking(self):
+        """A hard eligibility boundary must run before the Fast semantic ranking call."""
+        from ai.workflows.jobs import job_capture_service
+
+        experienced = {
+            **make_imported_card(1),
+            "title_summary": "1-3年 本科",
+            "job_description": "任职要求：需要 1 年以上相关工作经验。",
+        }
+        allowed = {
+            **make_imported_card(2),
+            "title_summary": "经验不限 本科",
+            "job_description": "经验不限，欢迎应届生投递，无需工作经验。",
+        }
+        score_cards = AsyncMock(side_effect=lambda **kwargs: kwargs["cards"])
+        with patch(
+            "ai.workflows.jobs.capture.scoring.score_job_cards_by_match",
+            new=score_cards,
+        ):
+            result = await job_capture_service.capture_from_imported_cards(
+                user_id="user-1",
+                query="Agent",
+                resume_content="候选人简历",
+                imported_cards=[experienced, allowed],
+                source_page_url=VALID_BOSS_SEARCH_URL,
+                api_config={"smart": {"model": "mock"}},
+                experience="no_experience",
+                top_n=20,
+            )
+
+        assert result["success"] is True
+        assert result["total"] == 1
+        assert result["experience_excluded_count"] == 1
+        assert result["jobs"][0]["job_title"] == "Agent 工程师 2"
+        score_cards.assert_awaited_once()
+        assert [card["job_title"] for card in score_cards.await_args.kwargs["cards"]] == [
+            "Agent 工程师 2"
+        ]
+
+    @pytest.mark.asyncio
+    async def test_no_experience_returns_empty_result_without_model_ranking_when_all_rejected(self):
+        """Rejected cards must not be used to manufacture a result or trigger ranking."""
+        from ai.workflows.jobs import job_capture_service
+
+        score_cards = AsyncMock()
+        cards = [
+            {
+                **make_imported_card(index),
+                "title_summary": "1-3年 本科",
+                "job_description": "负责服务端开发，具有相关工作经验。",
+            }
+            for index in (1, 2)
+        ]
+        with patch(
+            "ai.workflows.jobs.capture.scoring.score_job_cards_by_match",
+            new=score_cards,
+        ):
+            result = await job_capture_service.capture_from_imported_cards(
+                user_id="user-1",
+                query="Agent",
+                resume_content="候选人简历",
+                imported_cards=cards,
+                source_page_url=VALID_BOSS_SEARCH_URL,
+                api_config={"smart": {"model": "mock"}},
+                experience="no_experience",
+                top_n=20,
+            )
+
+        assert result["success"] is True
+        assert result["total"] == 0
+        assert result["jobs"] == []
+        assert result["experience_excluded_count"] == 2
+        assert "已排除 2 张" in result["message"]
+        score_cards.assert_not_awaited()
+
+
+    @pytest.mark.asyncio
     async def test_dom_import_rejects_external_and_navigation_cards(self):
         """External links and navigation-like rows must not reach persistence."""
         from ai.workflows.jobs import job_capture_service
@@ -394,9 +471,24 @@ class TestJobCaptureService:
         assert "logs" not in result
 
 
+def test_dom_import_request_accepts_the_controlled_experience_intents():
+    """The AgentRun import payload carries the same bounded experience contract as browser search."""
+    from app.schemas.jobs.job_schemas import CaptureRecommendationsRequest
+
+    base = {
+        "query": "Agent",
+        "resume_content": "候选人简历",
+        "source_page_url": VALID_BOSS_SEARCH_URL,
+        "cards": [make_imported_card()],
+    }
+    for experience in ("any", "no_experience", "experience_unlimited", "one_to_three"):
+        request = CaptureRecommendationsRequest(**base, experience=experience)
+        assert request.experience == experience
+
+
 def test_dom_import_request_requires_official_bounded_cards():
     """The API schema accepts 1-20 official cards and rejects the browser-era contract."""
-    from app.schemas.job_schemas import CaptureRecommendationsRequest
+    from app.schemas.jobs.job_schemas import CaptureRecommendationsRequest
 
     base = {
         "query": "Agent",
@@ -436,7 +528,7 @@ def test_dom_import_request_requires_official_bounded_cards():
 
 def test_existing_tab_capture_request_requires_query_and_numeric_city_code():
     """The browser-control API trims a real query and rejects arbitrary city text."""
-    from app.schemas.job_schemas import BossTabCaptureRequest
+    from app.schemas.jobs.job_schemas import BossTabCaptureRequest
 
     request = BossTabCaptureRequest(query="  AI Agent  ", city="101280600")
 

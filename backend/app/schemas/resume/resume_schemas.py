@@ -1,0 +1,291 @@
+"""
+简历工具相关的请求/响应模型
+"""
+
+from typing import List, Optional, Dict, Any, Literal
+from pydantic import BaseModel, Field
+from app.schemas.jobs.job_context import JobContextSnapshot
+from app.schemas.schemas import ApiConfig
+
+
+# ============================================================================
+# 请求模型
+# ============================================================================
+
+class ResumeOptimizeRequest(BaseModel):
+    """简历优化请求"""
+    resume_content: str = Field(..., description="简历内容")
+    job_description: str = Field(..., description="目标职位描述")
+    session_ids: List[str] = Field(default=[], description="关联的面试 session_id 列表，最多3个")
+    include_overall_profile: bool = Field(default=False, description="是否包含综合能力画像")
+    mode: Literal["fast", "balanced", "quality"] = Field(default="balanced", description="优化模式：fast 快速预览 / balanced 智能优化 / quality 高质量流水线")
+    user_id: Optional[str] = Field(default=None, description="用户标识")
+    api_config: Optional[ApiConfig] = Field(default=None, description="用户自定义 API 配置")
+
+
+class ResumeWorkspaceRequest(BaseModel):
+    """启动单份简历和单个 JD 的可恢复工作台任务。
+
+    请求仅承载一次工作台运行所需的简历、JD 和可选的当前用户面试上下文；
+    路由层使用认证用户作为 owner，不信任也不使用 ``user_id`` 客户端字段。
+    """
+
+    resume_content: str = Field(..., min_length=1, description="本次工作台唯一使用的简历内容")
+    job_description: str = Field(..., min_length=1, description="本次工作台唯一使用的目标 JD")
+    session_ids: List[str] = Field(default_factory=list, max_length=3, description="当前用户可选的最多三个面试会话")
+    include_overall_profile: bool = Field(default=False, description="是否在优化时使用当前用户能力画像")
+    mode: Literal["fast", "balanced", "quality"] = Field(default="balanced", description="内容优化模式")
+    api_config: Optional[ApiConfig] = Field(default=None, description="经过模型网关处理的模型配置")
+    job_context_snapshot: Optional[JobContextSnapshot] = Field(default=None, description="来源岗位与本次实际使用的上下文快照")
+
+
+class ResumeAnalyzeRequest(BaseModel):
+    """简历竞争力分析请求"""
+    resume_content: str = Field(..., description="简历内容")
+    job_description: Optional[str] = Field(default=None, description="目标职位描述（可选）")
+    session_ids: List[str] = Field(default=[], description="关联的面试 session_id 列表，最多3个")
+    user_id: Optional[str] = Field(default=None, description="用户标识")
+    api_config: Optional[ApiConfig] = Field(default=None, description="用户自定义 API 配置")
+
+
+class ResumeReviewDecision(BaseModel):
+    """数据对象，承载 `ResumeReviewDecision` 的结构化字段和跨模块契约；只表达数据，不在构造或序列化时执行外部调用。"""
+    item_id: str = Field(..., min_length=1, max_length=64, description="待审阅优化项 ID")
+    decision: Literal["approved", "rejected"] = Field(..., description="审阅决定：approved/rejected")
+
+
+class ResumeReviewRequest(BaseModel):
+    """API 请求数据对象，定义 `ResumeReview` 的字段校验和反序列化契约；只承载数据，不执行业务副作用。"""
+    expected_version: int = Field(..., ge=1, description="期望的结果版本号，防止覆盖旧版本")
+    decisions: List[ResumeReviewDecision] = Field(..., min_length=1, max_length=100, description="审阅决定列表")
+
+
+class ResumeReviewResponse(BaseModel):
+    """API 响应数据对象，定义 `ResumeReview` 的序列化契约；只暴露当前 owner 可见且已脱敏的结果。"""
+    success: bool = Field(default=True, description="是否成功")
+    result_id: int = Field(..., description="结果记录 ID")
+    review: Dict[str, Any] = Field(..., description="持久化的人工审阅状态")
+
+
+# ============================================================================
+# 响应模型
+# ============================================================================
+
+class DimensionScore(BaseModel):
+    """维度评分"""
+    score: float = Field(..., ge=0, le=100, description="评分 (0-100)")
+    comment: str = Field(..., description="评价说明")
+
+
+class ResumeChangeItem(BaseModel):
+    """简历变更项 - 标记每处变更的类型和可信度"""
+    change_type: str = Field(
+        default="polish",
+        description="变更类型: polish(润色)/restructure(重组)/suggest_addition(建议新增)/fact_inference(事实推断)"
+    )
+    section_name: str = Field(default="", description="变更所在部分")
+    original_text: Optional[str] = Field(default=None, description="原文（如有）")
+    optimized_text: str = Field(default="", description="优化后文本")
+    confidence: float = Field(default=0.8, ge=0, le=1, description="变更置信度 (0-1)")
+    requires_user_confirmation: bool = Field(default=False, description="是否需要用户确认")
+    reason: Optional[str] = Field(default=None, description="变更原因")
+
+
+class ResumeOptimizeResult(BaseModel):
+    """简历优化结果"""
+    match_score: float = Field(..., ge=0, le=100, description="JD 匹配度 (0-100)")
+    hr_pass_rate: float = Field(..., ge=0, le=100, description="HR 通过率预估 (0-100)")
+    optimized_sections: List[Dict[str, Any]] = Field(..., description="各部分优化建议")
+    key_improvements: List[str] = Field(..., description="关键改进点")
+    interview_insights: Optional[str] = Field(default=None, description="基于面试的洞察")
+    keyword_analysis: Optional[Dict[str, Any]] = Field(default=None, description="关键词分析")
+    change_items: List[ResumeChangeItem] = Field(default_factory=list, description="变更明细列表")
+    overall_confidence: float = Field(default=0.8, ge=0, le=1, description="整体优化置信度")
+    requires_user_review: bool = Field(default=False, description="是否需要用户审核")
+
+
+class ResumeAnalyzeResult(BaseModel):
+    """简历竞争力分析结果"""
+    overall_score: float = Field(..., ge=0, le=100, description="综合评分 (0-100)")
+    dimension_scores: Dict[str, DimensionScore] = Field(..., description="各维度评分")
+    strengths: List[str] = Field(..., description="优势")
+    weaknesses: List[str] = Field(..., description="不足")
+    priority_improvements: List[str] = Field(..., description="优先改进建议")
+    interview_insights: Optional[str] = Field(default=None, description="基于面试的洞察")
+
+
+class JDMatchResult(BaseModel):
+    """JD 匹配 Agent 的稳定公开输出，不包含模型请求或凭据。"""
+
+    overall_match_score: float = Field(..., ge=0, le=100, description="综合匹配分 (0-100)")
+    skill_match_score: float = Field(..., ge=0, le=100, description="技能匹配分 (0-100)")
+    project_match_score: float = Field(..., ge=0, le=100, description="项目匹配分 (0-100)")
+    experience_match_score: float = Field(..., ge=0, le=100, description="经验匹配分 (0-100)")
+    education_match_score: float = Field(..., ge=0, le=100, description="教育匹配分 (0-100)")
+    matched_keywords: List[str] = Field(default_factory=list, description="命中关键词")
+    missing_keywords: List[str] = Field(default_factory=list, description="缺失关键词")
+    strengths: List[str] = Field(default_factory=list, description="优势")
+    risks: List[str] = Field(default_factory=list, description="风险")
+    priority_actions: List[str] = Field(default_factory=list, description="优先改进建议")
+    selection_hints: Dict[str, Any] = Field(default_factory=dict, description="素材筛选/项目改写方向提示")
+
+
+class ResumeWorkspaceResult(BaseModel):
+    """一个完成工作台任务返回的竞争力、匹配和受审阅优化结果。"""
+
+    success: bool = Field(default=True, description="是否成功")
+    result_id: int = Field(..., description="结果记录 ID")
+    competition_analysis: ResumeAnalyzeResult = Field(..., description="竞争力分析结果")
+    jd_matching: JDMatchResult = Field(..., description="JD 匹配分析结果")
+    content_optimization: ResumeOptimizeResult = Field(..., description="内容优化结果")
+    review: Dict[str, Any] = Field(default_factory=dict, description="高风险优化项的持久化人工审阅状态")
+    warnings: List[str] = Field(default_factory=list, description="告警信息列表")
+    source_job_id: Optional[int] = Field(default=None, description="来源岗位 ID")
+    job_context_snapshot: Optional[JobContextSnapshot] = Field(default=None, description="来源岗位上下文快照")
+
+
+class ResumeWorkspaceRunResponse(BaseModel):
+    """工作台 AgentRun 创建或内联完成时的 HTTP 响应契约。"""
+
+    task_type: Literal["resume_workspace"] = Field(..., description="任务类型")
+    status: str = Field(..., description="任务状态")
+    run_id: Optional[str] = Field(default=None, description="运行 ID")
+    stage: Optional[str] = Field(default=None, description="当前阶段")
+    result: Optional[ResumeWorkspaceResult] = Field(default=None, description="工作台运行结果")
+
+
+# ============================================================================
+# API 响应包装
+# ============================================================================
+
+class ResumeOptimizeResponse(BaseModel):
+    """简历优化 API 响应"""
+    success: bool = Field(..., description="是否成功")
+    result: Optional[ResumeOptimizeResult] = Field(default=None, description="优化结果")
+    result_id: Optional[int] = Field(default=None, description="结果 ID（用于后续查询）")
+    message: Optional[str] = Field(default=None, description="消息")
+
+
+class ResumeAnalyzeResponse(BaseModel):
+    """简历分析 API 响应"""
+    success: bool = Field(..., description="是否成功")
+    result: Optional[ResumeAnalyzeResult] = Field(default=None, description="分析结果")
+    result_id: Optional[int] = Field(default=None, description="结果 ID（用于后续查询）")
+    message: Optional[str] = Field(default=None, description="消息")
+
+
+class ResumeHistoryItem(BaseModel):
+    """简历分析/优化历史列表项；result_data 可按需省略。"""
+
+    id: int = Field(..., description="历史记录 ID")
+    user_id: Optional[str] = Field(default=None, description="用户标识")
+    result_type: Literal["analyze", "optimize"] = Field(..., description="结果类型：analyze/optimize")
+    resume_content: Optional[str] = Field(default=None, description="简历内容")
+    resume_preview: str = Field(default="", description="简历预览摘要")
+    job_description: Optional[str] = Field(default=None, description="目标职位描述")
+    session_ids: List[str] = Field(default_factory=list, description="关联的面试 session_id 列表")
+    include_profile: bool = Field(default=False, description="是否包含综合能力画像")
+    result_data: Optional[Dict[str, Any]] = Field(default=None, description="结果详情数据")
+    created_at: str = Field(..., description="创建时间")
+
+
+class ResumeHistoryListResponse(BaseModel):
+    """API 响应数据对象，定义 `ResumeHistoryList` 的序列化契约；只暴露当前 owner 可见且已脱敏的结果。"""
+    success: bool = Field(..., description="是否成功")
+    results: List[ResumeHistoryItem] = Field(default_factory=list, description="历史记录列表")
+    total: int = Field(default=0, description="符合条件的记录总数")
+    limit: int = Field(default=20, description="分页大小")
+    offset: int = Field(default=0, description="分页偏移量")
+    message: Optional[str] = Field(default=None, description="消息")
+
+
+class ResumeHistoryDetail(BaseModel):
+    """围绕 `ResumeHistoryDetail` 的领域对象，集中表达其职责、边界和与相邻模块的协作契约。"""
+    id: int = Field(..., description="历史记录 ID")
+    user_id: str = Field(..., description="用户标识")
+    result_type: Literal["analyze", "optimize"] = Field(..., description="结果类型：analyze/optimize")
+    resume_content: str = Field(..., description="简历内容")
+    job_description: Optional[str] = Field(default=None, description="目标职位描述")
+    session_ids: List[str] = Field(default_factory=list, description="关联的面试 session_id 列表")
+    include_profile: bool = Field(default=False, description="是否包含综合能力画像")
+    result_data: Dict[str, Any] = Field(..., description="结果详情数据")
+    created_at: str = Field(..., description="创建时间")
+
+
+class ResumeHistoryDetailResponse(BaseModel):
+    """API 响应数据对象，定义 `ResumeHistoryDetail` 的序列化契约；只暴露当前 owner 可见且已脱敏的结果。"""
+    success: bool = Field(..., description="是否成功")
+    result: ResumeHistoryDetail = Field(..., description="历史记录详情")
+
+
+class CompletedSessionItem(BaseModel):
+    """可用于简历优化的已完成会话"""
+    session_id: str = Field(..., description="会话 ID")
+    title: str = Field(..., description="会话标题")
+    updated_at: str = Field(..., description="更新时间")
+    round_index: int = Field(default=1, description="面试轮次")
+    round_type: str = Field(default="tech_initial", description="面试类型")
+    message_count: int = Field(default=0, description="消息数量")
+
+
+class CompletedSessionsResponse(BaseModel):
+    """已完成会话列表响应"""
+    success: bool = Field(..., description="是否成功")
+    sessions: List[CompletedSessionItem] = Field(default=[], description="会话列表")
+    message: Optional[str] = Field(default=None, description="消息")
+
+
+# ============================================================================
+# 简历生成相关模型
+# ============================================================================
+
+class ResumeGenerateInitRequest(BaseModel):
+    """简历生成初始化请求"""
+    optimization_result_id: Optional[int] = Field(default=None, description="关联的优化结果 ID")
+    resume_content: str = Field(..., description="简历内容")
+    job_description: str = Field(..., description="目标职位描述")
+    optimization_result: Dict[str, Any] = Field(..., description="优化结果数据")
+    template_style: str = Field(default="professional", description="模板风格: professional/academic/creative")
+    user_id: Optional[str] = Field(default=None, description="用户标识")
+    api_config: Optional[ApiConfig] = Field(default=None, description="API 配置")
+
+
+class ResumeGenerateSubmitRequest(BaseModel):
+    """简历生成提交回答请求"""
+    session_id: str = Field(..., description="会话 ID")
+    answers: Dict[str, str] = Field(..., description="用户回答 {问题: 回答}")
+    api_config: Optional[ApiConfig] = Field(default=None, description="API 配置")
+
+
+class ResumeGenerateInitResponse(BaseModel):
+    """简历生成初始化响应"""
+    success: bool = Field(..., description="是否成功")
+    session_id: str = Field(..., description="会话 ID")
+    needs_input: bool = Field(..., description="是否需要用户输入")
+    questions: List[str] = Field(default=[], description="需要用户回答的问题")
+    result: Optional[Dict[str, Any]] = Field(default=None, description="如果无需输入，直接返回结果")
+    message: Optional[str] = Field(default=None, description="消息")
+
+
+class ResumeGenerateSubmitResponse(BaseModel):
+    """简历生成提交响应"""
+    success: bool = Field(..., description="是否成功")
+    resume_id: Optional[int] = Field(default=None, description="生成的简历 ID")
+    title: Optional[str] = Field(default=None, description="简历标题")
+    content: Optional[str] = Field(default=None, description="生成的简历内容 (Markdown)")
+    message: Optional[str] = Field(default=None, description="消息")
+
+
+class GeneratedResumeItem(BaseModel):
+    """生成的简历列表项"""
+    id: int = Field(..., description="ID")
+    title: str = Field(..., description="标题")
+    job_description: Optional[str] = Field(default=None, description="目标职位")
+    created_at: str = Field(..., description="创建时间")
+
+
+class GeneratedResumesResponse(BaseModel):
+    """生成的简历列表响应"""
+    success: bool = Field(..., description="是否成功")
+    resumes: List[GeneratedResumeItem] = Field(default=[], description="简历列表")
+    message: Optional[str] = Field(default=None, description="消息")

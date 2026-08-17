@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from copy import deepcopy
 from dataclasses import dataclass
-from typing import Any, Iterable, Mapping
+from typing import Any
 
 from fastapi import HTTPException
 
@@ -13,6 +13,7 @@ from app.domain.interview_rounds import resolve_max_questions, resolve_round_typ
 
 logger = logging.getLogger(__name__)
 
+# 面试记忆检索涉及的记忆类型
 _MEMORY_TYPES = [
     "preference",
     "candidate_fact",
@@ -25,16 +26,42 @@ _MEMORY_TYPES = [
 @dataclass(frozen=True, slots=True)
 class InterviewContextSnapshot:
     """一次面试规划期间保持不变的求职者上下文。"""
+# resume_context。
 
+    # 岗位描述（JD）。
+    # 简历内容
+    # 公司信息文本。
+    # resume_context（str 类型）。
     resume_context: str
+    # questions 的最大值。
+    # 职位描述
+    # question_bank 的数量。
+    # 目标岗位 JD。
     job_description: str
+    # memory_context。
+    # 公司信息
+    # memory_items，字符串类型。
+    # 公司信息。
     company_info: str
+    # 轮次序号。
+    # 最大题目数
+    # 面试轮次类型。
+    # 计划题目数。
     max_questions: int
+    # 题库可抽取的题目数量
+    # question_bank 的数量。
     question_bank_count: int
-    experience_questions: tuple[dict[str, Any], ...]
+    # 记忆上下文文本
+    # 长期记忆上下文。
     memory_context: str
+    # 记忆条目列表
+    # memory_items（tuple 类型）。
     memory_items: tuple[dict[str, Any], ...]
+    # 当前面试轮次（从 1 开始）
+    # 轮次序号。
     round_index: int
+    # 轮次类型（首轮/二轮/三轮）
+    # 轮次类型。
     round_type: str
 
     def graph_fields(self) -> dict[str, Any]:
@@ -45,25 +72,11 @@ class InterviewContextSnapshot:
             "company_info": self.company_info,
             "max_questions": self.max_questions,
             "question_bank_count": self.question_bank_count,
-            "experience_questions": deepcopy(list(self.experience_questions)),
             "memory_context": self.memory_context,
             "memory_items": deepcopy(list(self.memory_items)),
             "round_index": self.round_index,
             "round_type": self.round_type,
         }
-
-
-def _question_dict(item: Any) -> dict[str, Any]:
-    """将题目对象转换为稳定的字典表示，兼容持久化和 Prompt 所需字段。
-
-    Args:
-        item: 单条数据。
-    """
-    if hasattr(item, "model_dump"):
-        return deepcopy(item.model_dump())
-    if isinstance(item, Mapping):
-        return deepcopy(dict(item))
-    raise TypeError("experience question must be a mapping or Pydantic model")
 
 
 async def load_interview_memory(
@@ -72,7 +85,14 @@ async def load_interview_memory(
     company_info: str,
     api_config: dict[str, Any] | None = None,
 ) -> tuple[str, list[dict[str, Any]]]:
-    """加载面试记忆相关后端逻辑。"""
+    """加载候选人的面试长期记忆（偏好、事实、短板等）。
+
+    Args:
+        user_id: 用户 ID。
+        job_description: 职位描述，用于记忆检索。
+        company_info: 公司信息，用于记忆检索。
+        api_config: 可选的模型 API 配置。
+    """
     try:
         from ai.memory import format_memory_context, get_agent_memory_service
 
@@ -101,11 +121,22 @@ async def build_interview_context(
     max_questions: int | None,
     round_type: str | None = None,
     question_bank_count: int = 0,
-    experience_questions: Iterable[Any] = (),
     session_metadata: Any | None = None,
     api_config: dict[str, Any] | None = None,
 ) -> InterviewContextSnapshot:
-    """构建面试上下文相关后端逻辑。"""
+    """构建面试上下文快照，合并落库元数据与记忆。
+
+    Args:
+        user_id: 用户 ID。
+        resume_context: 显式传入的简历内容，缺失时回退到会话元数据。
+        job_description: 显式传入的职位描述，缺失时回退到会话元数据。
+        company_info: 显式传入的公司信息，缺失时回退到会话元数据。
+        max_questions: 显式传入的题目数，缺失时回退到会话元数据。
+        round_type: 显式传入的轮次类型，缺失时回退到会话元数据。
+        question_bank_count: 题库可抽取的题目数量。
+        session_metadata: 会话元数据（可含已落库上下文）。
+        api_config: 可选的模型 API 配置。
+    """
     stored_resume = getattr(session_metadata, "resume_content", None)
     stored_jd = getattr(session_metadata, "job_description", None)
     stored_company = getattr(session_metadata, "company_info", None)
@@ -119,7 +150,6 @@ async def build_interview_context(
     # 已有会话恢复/语音切换时优先使用落库题数，请求值仅作为新会话或兼容兜底。
     resolved_max = resolve_max_questions(resolved_round_type, stored_max if stored_max is not None else max_questions)
     resolved_bank_count = min(max(question_bank_count, 0), resolved_max)
-    resolved_questions = tuple(_question_dict(item) for item in experience_questions)
     memory_context, memory_items = await load_interview_memory(
         user_id,
         resolved_jd,
@@ -133,7 +163,6 @@ async def build_interview_context(
         company_info=resolved_company,
         max_questions=resolved_max,
         question_bank_count=resolved_bank_count,
-        experience_questions=resolved_questions,
         memory_context=memory_context,
         memory_items=tuple(deepcopy(memory_items)),
         round_index=getattr(session_metadata, "round_index", None) or 1,

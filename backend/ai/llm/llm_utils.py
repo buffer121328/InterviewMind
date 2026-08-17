@@ -33,7 +33,11 @@ T = TypeVar('T', bound=BaseModel)
 
 
 def _resolve_deadline(deadline: TaskDeadline | None) -> TaskDeadline | None:
-    """解析显式/上下文 deadline；未迁移流程默认保留原有 attempt 超时语义。"""
+    """解析显式/上下文 deadline；未迁移流程默认保留原有 attempt 超时语义。
+
+    Args:
+        deadline: 任务时间预算。
+    """
     if deadline is not None:
         return deadline
     current = get_current_task_deadline()
@@ -57,7 +61,19 @@ def _record_attempt_failure(
     runtime_metadata: dict[str, Any],
     audit_metadata: dict[str, Any],
 ) -> None:
-    """记录 wrapper 捕获的稳定失败类型，覆盖 wait_for 将超时表现为取消的问题。"""
+    """记录 wrapper 捕获的稳定失败类型，覆盖 wait_for 将超时表现为取消的问题。
+
+    Args:
+        input_value: 输入内容。
+        current_llm: 传入的 current_llm 值。
+        channel: 模型通道名称。
+        candidate_count: candidate 的数量。
+        candidate_index: 候选序号。
+        error: 异常实例。
+        duration_ms: 耗时（毫秒）。
+        runtime_metadata: 运行时元数据。
+        audit_metadata: 传入的 audit_metadata 值。
+    """
     settings = get_settings()
     classified = classify_exception(error)
     identity = getattr(current_llm, "_model_pool_identity", "") or ""
@@ -98,7 +114,18 @@ async def _invoke_with_fallback(
     deadline: TaskDeadline | None = None,
     call_metadata: dict[str, Any] | None = None,
 ) -> T:
-    """主通道有限重试后 fallback；迁移流程的所有 attempt 共享总 deadline。"""
+    """主通道有限重试后 fallback；迁移流程的所有 attempt 共享总 deadline。
+
+    Args:
+        input_value: 输入内容。
+        output_model: 传入的 output_model 值。
+        api_config: 前端请求携带的模型通道配置。
+        channel: 模型通道名称。
+        max_retries: 最大重试次数。
+        temperature: 采样温度。
+        deadline: 任务时间预算。
+        call_metadata: 调用元数据。
+    """
     settings = get_settings()
     attempt_timeout = settings.llm_request_timeout_seconds
     task_deadline = _resolve_deadline(deadline)
@@ -114,10 +141,8 @@ async def _invoke_with_fallback(
         # 但 LangChain 默认的 `json_schema` 模式并非所有
         # OpenAI 兼容提供方都可用；保留本地模式校验，
         # 同时通过更通用的 JSON 模式引导生成。
-        structured_llm = current_llm.with_structured_output(
-            output_model,
-            method="json_mode",
-        )
+        structured_options = llms.structured_output_options(current_llm)
+        structured_llm = current_llm.with_structured_output(output_model, **structured_options)
         attempts = max_retries + 1 if candidate_index == 0 else 1
         for attempt in range(attempts):
             effective_timeout = float(attempt_timeout)
@@ -156,6 +181,8 @@ async def _invoke_with_fallback(
                 "deadline_remaining_ms": task_deadline.remaining_ms if task_deadline else None,
                 "queue_wait_ms": 0,
                 "wrapper_managed": True,
+                "structured_output_method": structured_options["method"],
+                "structured_output_strict": structured_options.get("strict", False),
             }
             metadata = {
                 **runtime_metadata,
@@ -220,6 +247,9 @@ def _ensure_json_keyword_in_messages(messages: list) -> None:
     """
     DashScope API 的 json_object 模式要求 messages 中必须包含 "json" 字样。
     如果所有消息中都没有，则在最后一条消息的 content 末尾追加。
+
+    Args:
+        messages: 消息列表。
     """
     for msg in messages:
         content = getattr(msg, "content", "")

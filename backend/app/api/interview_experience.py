@@ -9,7 +9,7 @@ from ai.workflows.interview_experience.use_cases import (
     interview_experience_import_use_cases,
 )
 from app.api.deps import get_current_user_id
-from app.schemas.interview_experience import (
+from app.schemas.interview_experience.interview_experience import (
     ExperienceCollectRequest,
     ExperienceCollectResponse,
     ExperienceQuestionImportRequest,
@@ -25,7 +25,12 @@ async def collect_interview_experiences(
     request: ExperienceCollectRequest,
     user_id: str = Depends(get_current_user_id),
 ):
-    """采集面经，经模型质量治理后直接写入当前用户题库。"""
+    """采集面经，经模型质量治理后直接写入当前用户题库。
+
+    Args:
+        request: 面经采集请求体。
+        user_id: 当前用户 ID（用于 owner 校验）。
+    """
     try:
         return await interview_experience_import_use_cases.collect(request=request, user_id=user_id)
     except InterviewExperienceUseCaseError as exc:
@@ -37,5 +42,10 @@ async def import_experience_questions(
     request: ExperienceQuestionImportRequest,
     user_id: str = Depends(get_current_user_id),
 ):
-    """将用户确认后的面经候选题写入个人题库。"""
+    """将用户确认后的面经候选题写入个人题库。
+
+    Args:
+        request: 题库导入请求体。
+        user_id: 当前用户 ID（用于 owner 校验）。
+    """
     return await interview_experience_import_use_cases.import_questions(request=request, user_id=user_id)

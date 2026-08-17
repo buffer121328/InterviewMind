@@ -1,4 +1,4 @@
-"""提供后端逻辑相关后端功能。"""
+"""部署辅助脚本：迁移与就绪检查。"""
 
 import os
 import subprocess
@@ -11,6 +11,7 @@ from alembic.config import Config
 from alembic.script import ScriptDirectory
 
 from app.db.rag_schema import (
+    RAG_VECTOR_DIMENSION_COLUMN_SQL,
     RAG_VECTOR_TYPE_SQL,
     RagVectorSchemaError,
     configured_embedding_dimension,
@@ -83,7 +84,7 @@ def existing_public_tables() -> set[str]:
 
 
 def migrate() -> None:
-    """处理迁移相关后端逻辑。"""
+    """执行数据库迁移：识别遗留 ORM 模式后 stamp，再升级到最新。"""
     tables = existing_public_tables()
     if tables and "alembic_version" not in tables:
         missing = sorted(set(LEGACY_SCHEMA_TABLES) - tables)
@@ -115,6 +116,10 @@ def readiness() -> tuple[bool, dict[str, str]]:
             ]
             vector_type_row = connection.execute(RAG_VECTOR_TYPE_SQL).fetchone()
             vector_type = vector_type_row[0] if vector_type_row else None
+            dimension_column_row = connection.execute(
+                RAG_VECTOR_DIMENSION_COLUMN_SQL
+            ).fetchone()
+            has_dimension_column = bool(dimension_column_row and dimension_column_row[0])
         details["postgres"] = "ok"
         if revision != expected:
             details["schema"] = f"Alembic revision is {revision or 'missing'}, expected {expected}"
@@ -125,6 +130,7 @@ def readiness() -> tuple[bool, dict[str, str]]:
                 validate_rag_vector_type(
                     vector_type,
                     expected_dimension=configured_embedding_dimension(),
+                    has_dimension_column=has_dimension_column,
                 )
                 details["schema"] = "ok"
             except RagVectorSchemaError as exc:

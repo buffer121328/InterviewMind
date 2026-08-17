@@ -1,6 +1,6 @@
 /**
  * Store Types & Constants
- * 
+ *
  * 所有 store 相关的类型定义和常量配置
  */
 
@@ -85,6 +85,7 @@ export interface ModelConfig {
     model: string;
     pricingKey?: string;
     integration?: string;
+    dimensions?: number;
     createdAt: string;
 }
 
@@ -357,6 +358,7 @@ export const API_PROVIDERS = [
     { id: 'deepseek', name: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1', apiKeyUrl: 'https://platform.deepseek.com/api_keys', models: [] },
     { id: 'zhipu', name: '智谱 AI', baseUrl: 'https://open.bigmodel.cn/api/paas/v4', apiKeyUrl: 'https://open.bigmodel.cn/usercenter/apikeys', models: [] },
     { id: 'aliyun', name: '阿里云百炼', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', apiKeyUrl: 'https://bailian.console.aliyun.com/#/api-key', models: ['text-embedding-v4'] },
+    { id: 'volcengine', name: '火山方舟', baseUrl: 'https://ark.cn-beijing.volces.com/api/v3', apiKeyUrl: 'https://console.volcengine.com/ark/region:ark+cn-beijing/apikey', models: ['doubao-embedding-vision'] },
     { id: 'moonshot', name: 'Moonshot', baseUrl: 'https://api.moonshot.cn/v1', apiKeyUrl: 'https://platform.moonshot.cn/console/api-keys', models: [] },
     { id: 'mimo', name: '小米 MiMo', baseUrl: 'https://api.xiaomimimo.com/v1', apiKeyUrl: 'https://mimo.mi.com', models: ['mimo-v2.5'] },
     { id: 'siliconflow', name: 'SiliconFlow', baseUrl: 'https://api.siliconflow.cn/v1', apiKeyUrl: 'https://cloud.siliconflow.cn/account/ak', models: [] },

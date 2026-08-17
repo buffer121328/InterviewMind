@@ -9,9 +9,9 @@ from app.domain.interview_reports import build_interview_report_markdown, build_
 from app.db.repositories.interview.question_bank_repo import get_question_bank_repo
 from app.db.repositories.interview.weakness_report_repo import get_weakness_report_repo
 from app.db.repositories.session.session_repo import SessionRepo
-from app.schemas.interview_report import SaveReportQuestionsRequest, SaveReportQuestionsResponse
-from app.schemas.session import SessionMarkdownReportResponse
-from app.schemas.schemas import ProfileGenerateRequest
+from app.schemas.interview.interview_report import SaveReportQuestionsRequest, SaveReportQuestionsResponse
+from app.schemas.interview.session import SessionMarkdownReportResponse
+from app.schemas.interview.schemas import ProfileGenerateRequest
 from ai.workflows.analysis.ability_service import get_ability_service
 
 
@@ -19,6 +19,8 @@ from ai.workflows.analysis.ability_service import get_ability_service
 class InterviewReportUseCaseError(Exception):
     """面试报告用例异常。"""
 
+    # 单条消息。
+    # 单条消息。
     message: str
 
 
@@ -39,7 +41,12 @@ class InterviewReportUseCases:
         self._question_bank_repo = get_question_bank_repo()
 
     async def generate_profile(self, *, request: ProfileGenerateRequest | None, user_id: str) -> dict[str, object]:
-        """生成画像相关后端逻辑。"""
+        """创建能力画像生成任务，并返回任务负载结果。
+
+        Args:
+            request: 请求对象。
+            user_id: 用户 ID，所有者范围限定。
+        """
         import uuid
 
         from ai.workflows.agent_runs.use_cases import agent_run_use_cases
@@ -50,7 +57,7 @@ class InterviewReportUseCases:
             user_id=user_id,
             idempotency_key=f"ability-profile:{user_id}:{uuid.uuid4()}",
         )
-        return response.payload
+        return response.body
 
     async def get_overall_profile(self, *, user_id: str) -> dict[str, object]:
         """读取 overall profile，并通过 owner 校验限制可见范围；资源不存在或状态不合法时返回稳定的业务结果或异常。
@@ -76,7 +83,12 @@ class InterviewReportUseCases:
         session_id: str,
         user_id: str,
     ) -> SessionMarkdownReportResponse:
-        """获取会话报告相关后端逻辑。"""
+        """读取单场面试的统一 Markdown 报告（含画像与短板地图）。
+
+        Args:
+            session_id: 面试会话 ID。
+            user_id: 用户 ID，所有者范围限定。
+        """
         session = await self._session_repo.get_session(session_id, user_id=user_id)
         if not session:
             raise InterviewReportNotFound(message="会话不存在或无权访问")
@@ -129,7 +141,13 @@ class InterviewReportUseCases:
         request: SaveReportQuestionsRequest,
         user_id: str,
     ) -> SaveReportQuestionsResponse:
-        """保存题目相关后端逻辑。"""
+        """把报告推荐题（按持久化索引）去重保存到题库。
+
+        Args:
+            session_id: 面试会话 ID。
+            request: 请求对象。
+            user_id: 用户 ID，所有者范围限定。
+        """
         session = await self._session_repo.get_session(session_id, user_id=user_id)
         if not session:
             raise InterviewReportNotFound(message="会话不存在或无权访问")

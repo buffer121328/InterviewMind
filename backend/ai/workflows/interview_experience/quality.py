@@ -8,7 +8,7 @@ from ai.llm.llm_utils import invoke_structured
 from ai.prompts.interview_experience import build_experience_governance_prompt
 from ai.runtime.execution.deadlines import TaskDeadline
 from app.config import get_settings
-from app.schemas.interview_experience import (
+from app.schemas.interview_experience.interview_experience import (
     ExperienceGovernanceOutput,
     ExperienceGovernedQuestion,
 )
@@ -17,7 +17,7 @@ MAX_GOVERNANCE_CANDIDATES = 100
 
 
 class ExperienceQuestionQualityService:
-    """Use the governed model gateway to filter and enrich bounded candidates."""
+    """使用受治理的模型网关对候选题进行筛选与富化。"""
 
     async def review(
         self,
@@ -25,7 +25,15 @@ class ExperienceQuestionQualityService:
         *,
         api_config: dict[str, Any],
     ) -> ExperienceGovernanceOutput:
-        """Return exactly one validated model decision for every bounded candidate."""
+        """对每个受边界约束的候选题返回恰好一条经过校验的模型决策。
+
+        Args:
+            candidates: 候选题列表。
+            api_config: 用户级模型 API 配置。
+
+        Returns:
+            ExperienceGovernanceOutput: 逐条对应候选题的治理结果。
+        """
         bounded = candidates[:MAX_GOVERNANCE_CANDIDATES]
         payload = [
             {

@@ -19,7 +19,7 @@ from ai.runtime.agent_runs.event_stream import build_run_event_envelope
 from app.db.models import async_session
 from app.db.repositories.resume.resume_repo import get_resume_repo
 from app.db.unit_of_work import UnitOfWork
-from app.schemas.resume_schemas import (
+from app.schemas.resume.resume_schemas import (
     ResumeAnalyzeRequest,
     ResumeAnalyzeResponse,
     ResumeOptimizeRequest,
@@ -42,7 +42,17 @@ async def optimize_resume_streaming(
     api_config: dict | None = None,
     mode: str = "balanced",
 ) -> AsyncGenerator[dict, None]:
-    """优化简历相关后端逻辑。"""
+    """以异步生成器逐段产出简历优化的进度事件与最终结果（含审阅状态）。
+
+    Args:
+        resume_content: 简历文本内容。
+        job_description: 目标职位描述。
+        session_ids: 关联的面试会话 ID 列表，默认空列表。
+        include_overall_profile: 是否生成整体职业画像。
+        user_id: 当前用户标识。
+        api_config: 请求级模型配置，默认 None。
+        mode: 优化模式（如 "balanced"）。
+    """
     yield {"type": "progress", "stage": "preparing", "message": "正在读取简历、JD 与关联面试"}
     yield {"type": "progress", "stage": "optimizing", "message": "正在执行简历优化流水线"}
     pipeline_result = await run_pipeline(
@@ -69,7 +79,7 @@ async def optimize_resume_streaming(
 class ResumeOptimizationUseCaseError(Exception):
     """简历优化用例异常。"""
 
-    message: str
+    message: str  # 错误信息文本
 
 
 class ResumeOptimizationBadRequest(ResumeOptimizationUseCaseError):
@@ -240,9 +250,9 @@ class ResumeOptimizationUseCases:
             """运行 event，沿用既有任务状态、重试和持久化边界，不在辅助函数中绕过审批或 owner 校验。
 
             Args:
-                event_type: 经过类型边界校验的 `event_type`；其格式和可选值由参数类型及调用流程约束。
-                stage: 经过类型边界校验的 `stage`；其格式和可选值由参数类型及调用流程约束。
-                payload: 请求载荷。
+                event_type: AgentRun 事件类型（如 "run.started"）。
+                stage: 运行阶段名称，可为 None。
+                payload: 事件附加的业务数据，可为 None。
             """
             nonlocal sequence
             sequence += 1
@@ -314,7 +324,7 @@ class ResumeOptimizationUseCases:
         """校验 common 是否满足当前流程约束；失败时返回可定位的业务异常，不执行副作用。
 
         Args:
-            request: 请求对象。
+            request: 待校验的简历分析或优化请求。
         """
         if len(request.session_ids) > 3:
             raise ResumeOptimizationBadRequest(message="最多只能选择 3 个面试记录")

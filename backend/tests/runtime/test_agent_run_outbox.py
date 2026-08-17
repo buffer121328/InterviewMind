@@ -5,6 +5,7 @@ from datetime import datetime
 import pytest
 
 from app.db.models.agent_run import AgentRunEventModel, AgentRunModel, TaskOutboxModel
+from app.domain.agent_runs import TASK_TYPE_INTERVIEW_TURN
 from ai.runtime.agent_runs import outbox
 
 
@@ -76,6 +77,54 @@ async def test_create_or_get_writes_agent_run_outbox_in_same_session(monkeypatch
     assert outbox_items[0].message_key == run.id
     assert outbox_items[0].payload == {"run_id": run.id}
     assert outbox_items[0].status == "pending"
+
+
+@pytest.mark.asyncio
+async def test_create_or_get_does_not_enqueue_stream_only_agent_run(monkeypatch):
+    from ai.runtime.agent_runs import service as service_module
+
+    added = []
+
+    class FakeSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def scalar(self, _statement):
+            return None
+
+        def add(self, item):
+            added.append(item)
+
+        async def flush(self):
+            return None
+
+        async def commit(self):
+            return None
+
+        async def rollback(self):
+            raise AssertionError("rollback should not be called")
+
+        async def refresh(self, _item):
+            return None
+
+    monkeypatch.setattr(service_module, "async_session", lambda: FakeSession())
+    monkeypatch.setattr(service_module, "encrypt_payload", lambda payload: "encrypted-payload")
+
+    run, created = await service_module.AgentRunService().create_or_get(
+        user_id="user-1",
+        payload={"thread_id": "session-1"},
+        idempotency_key="stream-turn-1",
+        task_type=TASK_TYPE_INTERVIEW_TURN,
+        session_id="session-1",
+    )
+
+    assert created is True
+    assert any(item is run for item in added if isinstance(item, AgentRunModel))
+    assert len([item for item in added if isinstance(item, AgentRunEventModel)]) == 1
+    assert not [item for item in added if isinstance(item, TaskOutboxModel)]
 
 
 def test_dispatch_outbox_items_keeps_failed_item_retryable_then_marks_dispatched():

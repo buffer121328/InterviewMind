@@ -6,7 +6,7 @@ import pytest
 from ai.runtime.agent_runs.policies import allows_whole_run_retry
 from app.config import AppSettings
 from app.db.models.evaluation import EvaluationCaseModel, EvaluationCaseRunModel
-from app.schemas.evaluations import (
+from app.schemas.evaluation.evaluations import (
     EvaluationAnnotationCreateRequest,
     EvaluationDatasetCreateRequest,
     EvaluationDatasetStatusRequest,
@@ -283,7 +283,7 @@ async def test_prompt_production_promotion_runs_the_evaluation_gate(monkeypatch)
 def test_evaluation_router_contains_owner_scoped_plan_endpoints() -> None:
     """后端路由应覆盖总览、数据集、运行、标注、校准和门禁。"""
 
-    from app.api.evaluations import router
+    from app.api.evaluation.evaluations import router
 
     paths = {route.path for route in router.routes}
     assert {

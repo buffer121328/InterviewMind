@@ -21,6 +21,7 @@ from app.domain.interview_rounds import (
 from app.schemas.llm_outputs import HintOutput, PlanOutput, SimplePlanOutput
 
 from ..questions.answer_points import ensure_question_answer_points
+from ..questions.plan import INTRODUCTION_ROUND_TYPES, is_introduction_question
 from .context import PlannerContextBundle, assemble_planner_context
 
 logger = logging.getLogger(__name__)
@@ -38,7 +39,7 @@ ROUND_STRATEGIES = {
         "name": "综合面",
         "focus": "基础专业能力、项目概述、行为面试题、综合素质初评",
         "requirements": """
-    1. 第 1 道为自我介绍题。
+    1. 第 1 道为自我介绍题；同一轮不得再生成自我介绍题。
     2. 重点考察简历中提到的核心技能和专业知识，覆盖广度而非深度。
     3. 至少包含 1 道行为面试题（如：团队合作、解决冲突的经历）。
     4. 题目难度适中，建立基础素质基线。
@@ -183,7 +184,25 @@ def _build_planner_prompt_bundle(
     owner_id: str,
     cache_scope: str,
 ) -> tuple[str, PlannerContextBundle]:
-    """构建规划器提示词打包相关后端逻辑。"""
+    """组装规划器提示词与打包上下文。
+
+    Args:
+        resume: 候选人简历内容。
+        job_description: 职位描述。
+        company_info: 公司信息。
+        max_questions: 最大题目数。
+        round_type: 轮次类型。
+        round_index: 当前轮次。
+        previous_profile: 上一轮候选人画像。
+        previous_questions: 上一轮已问过的问题。
+        output_format: 输出格式（full/simple）。
+        weakness_report: 短板报告。
+        retrieval_context: RAG 检索上下文。
+        memory_context: 长期记忆上下文。
+        previous_summary: 上一轮候选人可见摘要。
+        owner_id: 缓存 owner（用户 ID）。
+        cache_scope: 事实缓存作用域。
+    """
     from ai.prompts.interview import (
         build_planner_prompt as build_central_planner_prompt,
     )
@@ -228,6 +247,7 @@ def build_planner_prompt(
     round_index: int = 1,
     previous_profile: Optional[Dict] = None,
     previous_questions: Optional[List[str]] = None,
+    known_intro_question: bool = False,
     output_format: str = "full",
     weakness_report: Optional[Dict] = None,
     retrieval_context: Optional[Dict] = None,
@@ -236,7 +256,26 @@ def build_planner_prompt(
     owner_id: str = "",
     cache_scope: str = "",
 ) -> str:
-    """构建规划器提示词相关后端逻辑。"""
+    """构建面试题目规划器提示词。
+
+    Args:
+        resume: 候选人简历内容。
+        job_description: 职位描述。
+        company_info: 公司信息。
+        max_questions: 最大题目数。
+        round_type: 轮次类型。
+        round_index: 当前轮次。
+        previous_profile: 上一轮候选人画像。
+        previous_questions: 上一轮已问过的问题。
+        known_intro_question: 是否已有自我介绍题。
+        output_format: 输出格式（full/simple）。
+        weakness_report: 短板报告。
+        retrieval_context: RAG 检索上下文。
+        memory_context: 长期记忆上下文。
+        previous_summary: 上一轮候选人可见摘要。
+        owner_id: 缓存 owner（用户 ID）。
+        cache_scope: 事实缓存作用域。
+    """
     prompt, _bundle = _build_planner_prompt_bundle(
         resume=resume,
         job_description=job_description,
@@ -323,6 +362,7 @@ async def generate_interview_plan(
     round_index: int = 1,
     previous_profile: Optional[Dict] = None,
     previous_questions: Optional[List[str]] = None,
+    known_intro_question: bool = False,
     output_format: str = "full",
     session_id: Optional[str] = None,
     save_to_db: bool = False,
@@ -347,6 +387,7 @@ async def generate_interview_plan(
         round_index: 当前轮次序号
         previous_profile: 上一轮的候选人画像（可选）
         previous_questions: 上一轮已问过的问题（可选）
+        known_intro_question: 已选择候选题是否已包含自我介绍题，避免补入第二道
         output_format: 输出格式 - "full" 包含 id/type，"simple" 只有 topic/content
         session_id: 会话 ID（用于保存到数据库）
         save_to_db: 是否保存到数据库
@@ -399,7 +440,11 @@ async def generate_interview_plan(
         interview_plan = [item.model_dump() for item in structured_plan.questions]
         if not interview_plan:
             logger.warning("[Planner] LLM 返回空计划，使用当前轮次的默认问题兜底。")
-        elif round_type == "tech_initial" and output_format == "full":
+        elif (
+            round_type == "tech_initial"
+            and output_format == "full"
+            and not known_intro_question
+        ):
             canonical_intro = ensure_question_answer_points(DEFAULT_QUESTIONS[0])
             interview_plan[0].update({
                 "topic": canonical_intro["topic"],
@@ -416,6 +461,7 @@ async def generate_interview_plan(
             output_format=output_format,
             round_type=round_type,
             previous_questions=previous_questions,
+            has_existing_intro=known_intro_question,
         )
 
         logger.info(f"[Planner] 成功生成 {len(interview_plan)} 个面试问题 (要求数量: {max_questions})")
@@ -453,18 +499,29 @@ async def generate_interview_plan(
             output_format,
             round_type=round_type,
             previous_questions=previous_questions,
+            has_existing_intro=known_intro_question,
             include_provenance=True,
         )
 
 
 def _normalize_question_key(content: str) -> str:
-    """规范化题目键相关后端逻辑。"""
+    """规范化题目键：归一化空白与大小写并去掉常见标点，用于查重。
+
+    Args:
+        content: 题目原始文本。
+    """
     normalized = " ".join(str(content or "").casefold().split())
     return "".join(char for char in normalized if char not in "，。！？；：,.!?;:、")
 
 
 def _is_near_duplicate(content: str, existing: List[str], *, threshold: float = 0.86) -> bool:
-    """处理面试规划器相关后端逻辑。"""
+    """判断题目与历史题目是否近似重复，防止与上一轮或本计划内容高度相似。
+
+    Args:
+        content: 待检查题目文本。
+        existing: 已存在题目列表。
+        threshold: 相似度阈值。
+    """
     key = _normalize_question_key(content)
     if not key:
         return True
@@ -485,9 +542,19 @@ def _get_default_questions(
     *,
     round_type: str = "tech_initial",
     previous_questions: Optional[List[str]] = None,
+    has_existing_intro: bool = False,
     include_provenance: bool = False,
 ) -> List[Dict[str, Any]]:
-    """获取默认题目相关后端逻辑。"""
+    """获取当前轮次的本地兜底题目，去重并避免重复自我介绍题。
+
+    Args:
+        max_questions: 需要的题目数。
+        output_format: 输出格式（full/simple）。
+        round_type: 轮次类型。
+        previous_questions: 历史题目，用于去重。
+        has_existing_intro: 是否已包含自我介绍题。
+        include_provenance: 是否附加来源与兜底原因字段。
+    """
     requested_count = min(max(int(max_questions or 0), 0), MAX_QUESTIONS)
     if requested_count == 0:
         return []
@@ -496,11 +563,19 @@ def _get_default_questions(
     existing_questions = [str(item) for item in (previous_questions or []) if str(item).strip()]
     selected: List[Dict[str, Any]] = []
     seen_exact = {_normalize_question_key(item) for item in existing_questions}
+    limit_intro_questions = round_type in INTRODUCTION_ROUND_TYPES
+    intro_seen = has_existing_intro or any(
+        is_introduction_question(item) for item in existing_questions
+    )
     for raw in catalog:
         content = str(raw.get("content") or "").strip()
         key = _normalize_question_key(content)
         if not key or key in seen_exact or _is_near_duplicate(content, existing_questions):
             continue
+        if limit_intro_questions and is_introduction_question(raw):
+            if intro_seen:
+                continue
+            intro_seen = True
         seen_exact.add(key)
         existing_questions.append(content)
         selected.append(dict(raw))
@@ -556,18 +631,36 @@ def _ensure_plan_question_count(
     output_format: str,
     round_type: str,
     previous_questions: Optional[List[str]],
+    has_existing_intro: bool = False,
 ) -> List[Dict[str, Any]]:
-    """确保计划题目相关后端逻辑。"""
+    """确保计划题目数量达标：去重后不足时用本地兜底题补齐。
+
+    Args:
+        interview_plan: 模型生成的题目列表。
+        max_questions: 需要的题目数。
+        output_format: 输出格式（full/simple）。
+        round_type: 轮次类型。
+        previous_questions: 历史题目，用于去重。
+        has_existing_intro: 是否已包含自我介绍题。
+    """
     requested_count = min(max(int(max_questions or 0), 0), MAX_QUESTIONS)
     existing_questions = [str(item) for item in (previous_questions or []) if str(item).strip()]
     normalized: List[Dict[str, Any]] = []
     seen_exact = {_normalize_question_key(item) for item in existing_questions}
+    limit_intro_questions = round_type in INTRODUCTION_ROUND_TYPES
+    intro_seen = has_existing_intro or any(
+        is_introduction_question(item) for item in existing_questions
+    )
 
     for raw in interview_plan:
         content = str(raw.get("content") or "").strip()
         key = _normalize_question_key(content)
         if not key or key in seen_exact or _is_near_duplicate(content, existing_questions):
             continue
+        if limit_intro_questions and is_introduction_question(raw):
+            if intro_seen:
+                continue
+            intro_seen = True
         seen_exact.add(key)
         existing_questions.append(content)
         normalized.append(dict(raw))
@@ -583,6 +676,7 @@ def _ensure_plan_question_count(
                 *(previous_questions or []),
                 *(str(item.get("content") or "") for item in normalized),
             ],
+            has_existing_intro=intro_seen,
             include_provenance=True,
         )
         for raw in fallback:
@@ -615,6 +709,11 @@ async def _generate_hints_async(
     异步生成回答提示（后台任务）
 
     使用 fast 模型为每道题目生成回答提示，完成后更新数据库
+
+    Args:
+        session_id: 会话 ID。
+        interview_plan: 面试题目列表。
+        api_config: 可选的模型 API 配置。
     """
     try:
         logger.info(f"[HintGenerator] 开始为会话 {session_id} 生成回答提示")

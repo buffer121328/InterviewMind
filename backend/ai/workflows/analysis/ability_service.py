@@ -14,7 +14,7 @@ from ai.runtime.execution.deadlines import TaskDeadline
 from app.clock import utc_now
 from app.config import get_settings
 from app.db.repositories.session.session_repo import SessionRepo
-from app.schemas.candidate_profile import CandidateProfile, DimensionScore
+from app.schemas.interview.candidate_profile import CandidateProfile, DimensionScore
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +42,9 @@ class AbilityAnalysisService:
     async def get_overall_profile(self, user_id: str) -> Optional[Dict[str, Any]]:
         """
         获取用户综合能力画像（从数据库读取）
+
+        Args:
+            user_id: 用户 ID。
 
         Returns:
             Optional[Dict]: 包含 profile 和 generated_at 的字典，如果不存在则返回 None
@@ -120,7 +123,15 @@ class AbilityAnalysisService:
         round_profiles: List[Dict[str, Any]],
         api_config: Optional[Dict] = None,
     ) -> CandidateProfile:
-        """处理汇总公司画像相关后端逻辑。"""
+        """把同一次面试三轮的单轮画像聚合为一份公司总画像。
+
+        Args:
+            round_profiles: 三轮单轮画像列表（需恰好 3 份且均非降级生成）。
+            api_config: 用户级模型 API 配置。
+
+        Returns:
+            CandidateProfile: 聚合后的公司总画像。
+        """
         if len(round_profiles) != 3:
             raise ValueError("公司总画像需要完整的三轮单轮画像")
         if any(profile.get("generation_mode") == "degraded_evidence_only" for profile in round_profiles):
@@ -132,7 +143,15 @@ class AbilityAnalysisService:
         profiles: List[Dict[str, Any]],
         api_config: Optional[Dict] = None,
     ) -> CandidateProfile:
-        """处理汇总画像相关后端逻辑。"""
+        """对多次面试画像做时间加权聚合，生成综合能力画像。
+
+        Args:
+            profiles: 按时间倒序的面试画像列表（取最近 5 份）。
+            api_config: 用户级模型 API 配置。
+
+        Returns:
+            CandidateProfile: 时间加权后的综合能力画像。
+        """
         selected = [dict(profile) for profile in profiles[:5]]
         weights = [max(0.4, 1.0 - index * 0.15) for index in range(len(selected))]
         dimensions: dict[str, DimensionScore] = {}
@@ -282,7 +301,11 @@ class AbilityAnalysisService:
         )
 
     async def _fallback_to_latest(self, profiles: List[Dict[str, Any]]) -> CandidateProfile:
-        """降级方案：返回最近一次的画像"""
+        """降级方案：返回最近一次的画像
+
+        Args:
+            profiles: 面试画像列表（按时间倒序）。
+        """
         if not profiles:
             return self._get_empty_profile()
 
@@ -313,7 +336,7 @@ class AbilityAnalysisService:
 _ability_service = None
 
 def get_ability_service() -> AbilityAnalysisService:
-    """读取 ability service，并通过 owner 或生命周期校验限制可见范围；资源不存在或状态不合法时返回稳定的业务结果或异常。"""
+    """获取全局单例的 AbilityAnalysisService，首次调用时惰性创建。"""
     global _ability_service
     if _ability_service is None:
         _ability_service = AbilityAnalysisService()

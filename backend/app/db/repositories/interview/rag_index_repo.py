@@ -9,6 +9,7 @@ from typing import List, Optional, Dict, Any
 
 from sqlalchemy import case, cast, func, select, text, tuple_, update
 from sqlalchemy.dialects.postgresql import JSONB, insert as pg_insert
+from pgvector.sqlalchemy import Vector
 
 from app.db.models import async_session
 from app.db.models.rag import RagChunkModel
@@ -41,6 +42,17 @@ class RagIndexRepo:
         """
         插入或更新一个 chunk（按 scope 唯一键做 upsert）。
         返回 chunk id。
+
+        Args:
+            user_id: 用户 ID，所有者范围限定。
+            namespace: 命名空间标识。
+            source_type: 来源类型。
+            source_id: 来源记录 ID。
+            chunk_key: chunk 键。
+            content: 文本内容。
+            content_hash: 内容指纹。
+            metadata: 元数据字典。
+            source_version: 来源版本。
         """
         now = _utcnow()
         async with async_session() as db:
@@ -77,6 +89,10 @@ class RagIndexRepo:
                             (content_changed, None),
                             else_=RagChunkModel.embedding_model,
                         ),
+                        "embedding_dimension": case(
+                            (content_changed, None),
+                            else_=RagChunkModel.embedding_dimension,
+                        ),
                         "embedding_status": case(
                             (content_changed, "pending"),
                             else_=RagChunkModel.embedding_status,
@@ -102,10 +118,30 @@ class RagIndexRepo:
         content_hash: str,
         embedding: List[float],
         embedding_model: str,
+        dimensions: int,
         metadata: Optional[Dict[str, Any]] = None,
         source_version: Optional[str] = None,
     ) -> int:
-        """upsert chunk 并同时写入 embedding"""
+        """upsert chunk 并同时写入 embedding
+
+        Args:
+            user_id: 用户 ID，所有者范围限定。
+            namespace: 命名空间标识。
+            source_type: 来源类型。
+            source_id: 来源记录 ID。
+            chunk_key: chunk 键。
+            content: 文本内容。
+            content_hash: 内容指纹。
+            embedding: 向量嵌入。
+            embedding_model: 嵌入模型名称。
+            dimensions: 向量维度。
+            metadata: 元数据字典。
+            source_version: 来源版本。
+        """
+        if len(embedding) != dimensions:
+            raise ValueError(
+                f"embedding dimension mismatch: expected={dimensions}, actual={len(embedding)}"
+            )
         now = _utcnow()
         async with async_session() as db:
             stmt = (
@@ -122,6 +158,7 @@ class RagIndexRepo:
                     chunk_metadata=metadata or {},
                     embedding=embedding,
                     embedding_model=embedding_model,
+                    embedding_dimension=dimensions,
                     embedding_status="completed",
                     is_active=True,
                     created_at=now,
@@ -136,6 +173,7 @@ class RagIndexRepo:
                         "source_version": source_version,
                         "embedding": embedding,
                         "embedding_model": embedding_model,
+                        "embedding_dimension": dimensions,
                         "embedding_status": "completed",
                         "is_active": True,
                         "updated_at": now,
@@ -155,7 +193,14 @@ class RagIndexRepo:
         embedding_model: str,
         dimensions: int | None = None,
     ) -> dict[str, List[float]]:
-        """获取嵌入相关后端逻辑。"""
+        """查询可复用的嵌入记录。
+
+        Args:
+            user_id: 用户 ID，所有者范围限定。
+            content_hashes: 传入的 content_hashes 值。
+            embedding_model: 嵌入模型名称。
+            dimensions: 向量维度。
+        """
         if not content_hashes:
             return {}
         async with async_session() as db:
@@ -164,6 +209,7 @@ class RagIndexRepo:
                     RagChunkModel.user_id == user_id,
                     RagChunkModel.content_hash.in_(content_hashes),
                     RagChunkModel.embedding_model == embedding_model,
+                    RagChunkModel.embedding_dimension == dimensions,
                     RagChunkModel.embedding_status == "completed",
                     RagChunkModel.is_active.is_(True),
                 )
@@ -180,8 +226,20 @@ class RagIndexRepo:
         chunk_id: int,
         embedding: List[float],
         embedding_model: str,
+        dimensions: int,
     ) -> None:
-        """更新单个 chunk 的 embedding"""
+        """更新单个 chunk 的 embedding
+
+        Args:
+            chunk_id: chunk 的 ID。
+            embedding: 向量嵌入。
+            embedding_model: 嵌入模型名称。
+            dimensions: 向量维度。
+        """
+        if len(embedding) != dimensions:
+            raise ValueError(
+                f"embedding dimension mismatch: expected={dimensions}, actual={len(embedding)}"
+            )
         async with async_session() as db:
             await db.execute(
                 update(RagChunkModel)
@@ -189,6 +247,7 @@ class RagIndexRepo:
                 .values(
                     embedding=embedding,
                     embedding_model=embedding_model,
+                    embedding_dimension=dimensions,
                     embedding_status="completed",
                     updated_at=_utcnow(),
                 )
@@ -240,7 +299,12 @@ class RagIndexRepo:
         user_id: Optional[str] = None,
         limit: int = 50,
     ) -> List[RagChunkModel]:
-        """获取待 embedding 的 chunk"""
+        """获取待 embedding 的 chunk
+
+        Args:
+            user_id: 用户 ID，所有者范围限定。
+            limit: 返回数量上限。
+        """
         async with async_session() as db:
             stmt = (
                 select(RagChunkModel)
@@ -265,6 +329,13 @@ class RagIndexRepo:
     ) -> List[Dict[str, Any]]:
         """
         使用 pg_trgm 做模糊文本检索
+
+        Args:
+            user_id: 用户 ID，所有者范围限定。
+            namespace: 命名空间标识。
+            query: 查询字符串或对象。
+            source_types: 来源类型列表。
+            limit: 返回数量上限。
         """
         async with async_session() as db:
             similarity_expr = func.similarity(RagChunkModel.content, query)
@@ -309,19 +380,32 @@ class RagIndexRepo:
         user_id: str,
         namespace: str,
         query_embedding: List[float],
+        embedding_model: str | None = None,
         source_types: Optional[List[str]] = None,
         limit: int = 10,
         min_score: float = 0.3,
     ) -> List[Dict[str, Any]]:
         """
         使用 pgvector 做余弦相似度检索
+
+        Args:
+            user_id: 用户 ID，所有者范围限定。
+            namespace: 命名空间标识。
+            query_embedding: 传入的 query_embedding 值。
+            embedding_model: 嵌入模型名称。
+            source_types: 来源类型列表。
+            limit: 返回数量上限。
+            min_score: score 的最小值。
         """
         async with async_session() as db:
             # 说明：1 - cosine_distance = cosine_similarity
             # 说明：Keep the pgvector bind type explicit. Passing a bare Python list
             # 说明：保留这里的兼容性、安全性或流程约束。
-            typed_query_embedding = cast(query_embedding, RagChunkModel.embedding.type)
-            cosine_sim = func.cosine_distance(RagChunkModel.embedding, typed_query_embedding)
+            query_dimensions = len(query_embedding)
+            dimension_type = Vector(query_dimensions)
+            typed_embedding = cast(RagChunkModel.embedding, dimension_type)
+            typed_query_embedding = cast(query_embedding, dimension_type)
+            cosine_sim = func.cosine_distance(typed_embedding, typed_query_embedding)
             stmt = (
                 select(
                     RagChunkModel.id,
@@ -339,9 +423,12 @@ class RagIndexRepo:
                     RagChunkModel.is_active == True,
                     RagChunkModel.embedding_status == "completed",
                     RagChunkModel.embedding.is_not(None),
+                    RagChunkModel.embedding_dimension == query_dimensions,
                     (1 - cosine_sim) >= min_score,
                 )
             )
+            if embedding_model:
+                stmt = stmt.where(RagChunkModel.embedding_model == embedding_model)
             if source_types:
                 stmt = stmt.where(RagChunkModel.source_type.in_(source_types))
             stmt = stmt.order_by(cosine_sim.asc()).limit(limit)
@@ -372,6 +459,15 @@ class RagIndexRepo:
     ) -> List[Dict[str, Any]]:
         """
         结构化过滤检索
+
+        Args:
+            user_id: 用户 ID，所有者范围限定。
+            namespace: 命名空间标识。
+            source_types: 来源类型列表。
+            tags: 标签列表。
+            target_skill: 目标技能。
+            is_verified: 是否verified。
+            limit: 返回数量上限。
         """
         async with async_session() as db:
             stmt = select(RagChunkModel).where(
@@ -420,7 +516,14 @@ class RagIndexRepo:
         source_type: Optional[str] = None,
         only_active: bool = True,
     ) -> int:
-        """统计 chunk 数量"""
+        """统计 chunk 数量
+
+        Args:
+            user_id: 用户 ID，所有者范围限定。
+            namespace: 命名空间标识。
+            source_type: 来源类型。
+            only_active: 传入的 only_active 值。
+        """
         async with async_session() as db:
             stmt = select(func.count(RagChunkModel.id))
             if user_id:

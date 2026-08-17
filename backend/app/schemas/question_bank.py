@@ -7,9 +7,9 @@ from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
-QuestionPriority = Literal["required", "high", "low"]
-QuestionType = Literal["intro", "tech", "behavior", "system_design"]
-QuestionDifficulty = Literal["easy", "medium", "hard"]
+QuestionPriority = Literal["required", "high", "low"]  # 题目优先级：必考/高/低
+QuestionType = Literal["intro", "tech", "behavior", "system_design"]  # 题目类型：开场/技术/行为/系统设计
+QuestionDifficulty = Literal["easy", "medium", "hard"]  # 题目难度：简单/中等/困难
 
 
 class QuestionBankFollowup(BaseModel):
@@ -93,20 +93,20 @@ class QuestionBankListResponse(BaseModel):
 class QuestionBankImportItem(BaseModel):
     """批量导入中的单道受约束题目，兼容 question_text/content 两种题干字段。"""
 
-    question_text: Optional[str] = Field(default=None, max_length=500)
-    content: Optional[str] = Field(default=None, max_length=500)
-    reference_answer: Optional[str] = Field(default=None, max_length=10_000)
-    tags: List[str] = Field(default_factory=list, max_length=10)
-    difficulty: QuestionDifficulty = "medium"
-    target_skill: Optional[str] = Field(default=None, max_length=100)
-    question_type: QuestionType = "tech"
-    priority: QuestionPriority = "low"
-    source_type: Optional[str] = Field(default=None, max_length=100)
-    source_id: Optional[str] = Field(default=None, max_length=200)
+    question_text: Optional[str] = Field(default=None, max_length=500, description="题干（与 content 二选一）")
+    content: Optional[str] = Field(default=None, max_length=500, description="题干（与 question_text 二选一）")
+    reference_answer: Optional[str] = Field(default=None, max_length=10_000, description="参考答案")
+    tags: List[str] = Field(default_factory=list, max_length=10, description="标签列表")
+    difficulty: QuestionDifficulty = Field(default="medium", description="难度")
+    target_skill: Optional[str] = Field(default=None, max_length=100, description="考察技能")
+    question_type: QuestionType = Field(default="tech", description="题目类型")
+    priority: QuestionPriority = Field(default="low", description="优先级")
+    source_type: Optional[str] = Field(default=None, max_length=100, description="来源类型")
+    source_id: Optional[str] = Field(default=None, max_length=200, description="来源 ID")
 
     @property
     def resolved_question_text(self) -> str:
-        """Return the compatible non-empty question text."""
+        """返回非空的题目文本（兼容 question_text/content 两个字段）。"""
         return str(self.question_text or self.content or "").strip()
 
 
@@ -127,20 +127,20 @@ class QuestionBankImportResponse(BaseModel):
 
 class QuestionFileCandidate(BaseModel):
     """上传文件解析得到、尚未入库的候选题。"""
-    question_text: str = Field(min_length=5, max_length=500)
-    reference_answer: Optional[str] = Field(default=None, max_length=10_000)
-    tags: List[str] = Field(default_factory=list, max_length=10)
-    difficulty: Literal["easy", "medium", "hard"] = "medium"
-    target_skill: Optional[str] = Field(default=None, max_length=100)
-    question_type: Literal["intro", "tech", "behavior", "system_design"] = "tech"
-    priority: QuestionPriority = "low"
-    source_type: str = Field(default="upload", max_length=100)
-    source_id: str = Field(max_length=200)
+    question_text: str = Field(min_length=5, max_length=500, description="题干")
+    reference_answer: Optional[str] = Field(default=None, max_length=10_000, description="参考答案")
+    tags: List[str] = Field(default_factory=list, max_length=10, description="标签列表")
+    difficulty: Literal["easy", "medium", "hard"] = Field(default="medium", description="难度")
+    target_skill: Optional[str] = Field(default=None, max_length=100, description="考察技能")
+    question_type: Literal["intro", "tech", "behavior", "system_design"] = Field(default="tech", description="题目类型")
+    priority: QuestionPriority = Field(default="low", description="优先级")
+    source_type: str = Field(default="upload", max_length=100, description="来源类型")
+    source_id: str = Field(max_length=200, description="来源 ID")
 
 
 class QuestionFilePreviewResponse(BaseModel):
     """API 响应数据对象，定义 `QuestionFilePreview` 的序列化契约；只暴露当前 owner 可见且已脱敏的结果。"""
-    success: bool
-    filename: str
-    questions: List[QuestionFileCandidate] = Field(default_factory=list)
-    message: Optional[str] = None
+    success: bool = Field(description="是否成功")
+    filename: str = Field(description="上传文件名")
+    questions: List[QuestionFileCandidate] = Field(default_factory=list, description="解析出的候选题列表")
+    message: Optional[str] = Field(default=None, description="提示消息")

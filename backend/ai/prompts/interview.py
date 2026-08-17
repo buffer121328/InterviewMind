@@ -1,4 +1,4 @@
-"""提供面试相关后端功能。"""
+"""面试相关的 LangChain Prompt 模板与渲染。"""
 
 from ai.prompts.langchain_templates import prompt_template, render_prompt
 from ai.prompts.shared import (
@@ -93,7 +93,7 @@ EVALUATING_PROMPT = prompt_template(
 
 【决策规则】
 1. 先用一句话客观评价回答，指出一个已覆盖点或最关键缺口；不要给分，不要讽刺。
-2. follow_up：仅当回答与当前题相关但缺少关键证据、原理或个人贡献，且追问次数小于上限时使用。追问必须只问一个具体问题。
+2. follow_up：仅当 runtime_context 标记当前主问题为技术题、回答缺少关键证据或原理、当前题追问次数小于上限且 remaining_total_follow_ups 大于 0 时使用。intro 和 behavior 题必须使用 advance 或 end_round。追问必须只问一个具体问题。
 3. advance：回答已足够，或继续追问价值低时使用；content 必须自然过渡并完整复述上下文中的下一题原文。
 4. end_round：仅当当前题是最后一题且无需追问时使用；content 必须原样输出：
    感谢你的分享，你的规划很有条理。本次面试到此结束，后续我们会尽快联系你。
@@ -109,7 +109,11 @@ EVALUATING_PROMPT = prompt_template(
 
 
 def memo_hint(memory_context: str) -> str:
-    """处理面试相关后端逻辑。"""
+    """构造记忆提示片段；无记忆上下文时返回空串。
+
+    Args:
+        memory_context: 检索到的长期记忆上下文文本。
+    """
     if not memory_context:
         return ""
     return render_prompt(MEMO_HINT_PROMPT, memory_context=memory_context)
@@ -124,7 +128,17 @@ def build_planner_prompt(
     output_format="full",
     planning_context="未提供",
 ):
-    """构建规划器提示词相关后端逻辑。"""
+    """渲染面试题目规划器提示词。
+
+    Args:
+        round_index: 轮次序号。
+        round_type: 轮次类型（tech_initial 等）。
+        max_questions: 计划生成题目数。
+        strategy_focus: 策略侧重点。
+        requirements: 额外要求文本。
+        output_format: 输出格式（full/simple）。
+        planning_context: 规划上下文（简历/JD 摘要等）。
+    """
     json_format = (
         '{"questions":[{"topic":"考察主题","content":"具体问题","answer_points":["回答结构要点","关键原理或证据要点"]}]}'
         if output_format == "simple"
@@ -143,7 +157,11 @@ def build_planner_prompt(
 
 
 def build_hints_prompt(questions_text: str) -> str:
-    """构建提示词相关后端逻辑。"""
+    """渲染题目提示（hints）提示词。
+
+    Args:
+        questions_text: 已生成题目的文本。
+    """
     return render_prompt(
         HINTS_PROMPT,
         prompt_name="interview.hints",
@@ -154,7 +172,15 @@ def build_hints_prompt(questions_text: str) -> str:
 
 
 def build_opening_prompt(round_index, round_type, strategy_focus, first_question, memory_context=""):
-    """构建提示词相关后端逻辑。"""
+    """渲染面试开场提示词。
+
+    Args:
+        round_index: 轮次序号。
+        round_type: 轮次类型。
+        strategy_focus: 策略侧重点。
+        first_question: 第一道问题文本。
+        memory_context: 长期记忆上下文。
+    """
     _ = round_type
     return render_prompt(
         OPENING_PROMPT,
@@ -171,7 +197,12 @@ def build_evaluating_prompt(
     runtime_context,
     tool_instruction="",
 ):
-    """构建评估提示词相关后端逻辑。"""
+    """渲染面试回答评估提示词。
+
+    Args:
+        runtime_context: 运行时上下文（题目、回答、进度等）。
+        tool_instruction: 工具调用说明文本。
+    """
     return render_prompt(
         EVALUATING_PROMPT,
         prompt_name="interview.evaluating",

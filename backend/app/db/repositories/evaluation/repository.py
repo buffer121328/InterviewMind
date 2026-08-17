@@ -4,7 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import EvaluationCaseModel, EvaluationDatasetVersionModel, EvaluationScoreModel
-from app.schemas.evaluations import (
+from app.schemas.evaluation.evaluations import (
     EvaluationCandidateDatasetRequest,
     EvaluationCaseCreateRequest,
     EvaluationDatasetCreateRequest,

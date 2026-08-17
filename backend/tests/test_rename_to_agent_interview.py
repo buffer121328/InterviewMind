@@ -258,6 +258,7 @@ class TestAgentMemoryConfigBehavior:
                 "api_key": "dashscope-key",
                 "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
                 "model": "text-embedding-v4",
+                "dimensions": 1024,
             },
         }
         with patch.dict(os.environ, env, clear=False):
@@ -270,6 +271,9 @@ class TestAgentMemoryConfigBehavior:
         assert config["llm"]["config"]["model"] == "deepseek-v4-flash"
         assert config["embedder"]["config"]["api_key"] == "dashscope-key"
         assert config["embedder"]["config"]["model"] == "text-embedding-v4"
+        assert config["embedder"]["config"]["embedding_dims"] == 1024
+        assert config["vector_store"]["config"]["embedding_model_dims"] == 1024
+        assert config["vector_store"]["config"]["collection_name"] == "mem0_memories_d1024"
 
 
 class TestAgentMemoryServiceRename:

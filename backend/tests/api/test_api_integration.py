@@ -369,7 +369,7 @@ class TestSessionCRUD:
         self.mock_repo.add_message = AsyncMock(return_value=None)
 
         # 替换 sessions 应用层中的 SessionRepo 实例
-        with patch("app.api.sessions.session_management_use_cases._session_repo", self.mock_repo):
+        with patch("app.api.interview.sessions.session_management_use_cases._session_repo", self.mock_repo):
             yield
 
     def test_create_session(self, client):
@@ -542,7 +542,7 @@ class TestErrorResponseFormat:
         mock_use_cases.get_session = AsyncMock(
             side_effect=SessionManagementNotFound(message="会话 nonexistent 不存在")
         )
-        with patch("app.api.sessions.session_management_use_cases", mock_use_cases):
+        with patch("app.api.interview.sessions.session_management_use_cases", mock_use_cases):
             yield
 
     def test_404_format(self, client):

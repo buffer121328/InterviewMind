@@ -5,13 +5,15 @@ import uuid
 
 from app.domain.interview_rounds import resolve_max_questions, resolve_round_type
 from app.db.repositories.session.session_repo import SessionRepo
-from app.schemas.session import SessionCreateRequest, SessionUpdateRequest
+from app.schemas.interview.session import SessionCreateRequest, SessionUpdateRequest
 
 
 @dataclass(slots=True)
 class SessionManagementUseCaseError(Exception):
     """会话管理用例异常。"""
 
+    # 单条消息。
+    # 单条消息。
     message: str
 
 

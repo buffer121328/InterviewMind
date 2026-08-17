@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.db.models import EvaluationAnnotationModel, EvaluationCalibrationModel, EvaluationCaseRunModel, EvaluationRunModel, EvaluationScoreModel
-from app.schemas.evaluations import EvaluationAnnotationCreateRequest
+from app.schemas.evaluation.evaluations import EvaluationAnnotationCreateRequest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,7 +24,15 @@ class AnnotationRepositoryMixin:
             request: EvaluationAnnotationCreateRequest,
             adjudication: bool = False,
         ) -> EvaluationAnnotationModel:
-            """验证案例 owner 后追加 revision，不更新或删除历史标注。"""
+            """验证案例 owner 后追加 revision，不更新或删除历史标注。
+
+            Args:
+                session: 数据库会话或会话数据。
+                case_run_id: 案例运行 ID。
+                user_id: 用户 ID，所有者范围限定。
+                request: 请求对象。
+                adjudication: 传入的 adjudication 值。
+            """
 
             if await self.get_case_run(session, case_run_id=case_run_id, user_id=user_id) is None:
                 raise LookupError("case run not found")
@@ -102,7 +110,13 @@ class AnnotationRepositoryMixin:
             case_run_id: str,
             user_id: str,
         ) -> list[EvaluationAnnotationModel]:
-            """按案例 owner 返回追加式标注历史。"""
+            """按案例 owner 返回追加式标注历史。
+
+            Args:
+                session: 会话数据或数据库会话。
+                case_run_id: 案例运行 ID。
+                user_id: 用户 ID，所有者范围限定。
+            """
 
             if await self.get_case_run(session, case_run_id=case_run_id, user_id=user_id) is None:
                 raise LookupError("case run not found")
@@ -120,7 +134,13 @@ class AnnotationRepositoryMixin:
             annotation_id: str,
             user_id: str,
         ) -> EvaluationAnnotationModel | None:
-            """通过案例运行 owner 读取标注，避免跨用户存在性泄漏。"""
+            """通过案例运行 owner 读取标注，避免跨用户存在性泄漏。
+
+            Args:
+                session: 会话数据或数据库会话。
+                annotation_id: annotation 的 ID。
+                user_id: 用户 ID，所有者范围限定。
+            """
 
             return await session.scalar(
                 select(EvaluationAnnotationModel)
@@ -151,7 +171,18 @@ class AnnotationRepositoryMixin:
             statistics: dict[str, Any],
             threshold: float | None,
         ) -> EvaluationCalibrationModel:
-            """保存不可变 Calibration Version。"""
+            """保存不可变 Calibration Version。
+
+            Args:
+                session: 数据库会话或会话数据。
+                user_id: 用户 ID，所有者范围限定。
+                metric_name: 指标名称。
+                judge_version: 传入的 judge_version 值。
+                dataset_version: 传入的 dataset_version 值。
+                sample_count: sample 的数量。
+                statistics: 传入的 statistics 值。
+                threshold: 阈值。
+            """
 
             row = EvaluationCalibrationModel(
                 id=_id("ecal"),
@@ -172,7 +203,12 @@ class AnnotationRepositoryMixin:
     async def list_calibrations(
             self, session: AsyncSession, *, user_id: str
         ) -> list[EvaluationCalibrationModel]:
-            """列出当前 owner 的 Calibration 历史。"""
+            """列出当前 owner 的 Calibration 历史。
+
+            Args:
+                session: 会话数据或数据库会话。
+                user_id: 用户 ID，所有者范围限定。
+            """
 
             return list(
                 await session.scalars(
@@ -189,7 +225,13 @@ class AnnotationRepositoryMixin:
             calibration_id: str,
             user_id: str,
         ) -> EvaluationCalibrationModel | None:
-            """按 owner 获取一个不可变 Calibration Version。"""
+            """按 owner 获取一个不可变 Calibration Version。
+
+            Args:
+                session: 会话数据或数据库会话。
+                calibration_id: calibration 的 ID。
+                user_id: 用户 ID，所有者范围限定。
+            """
 
             return await session.scalar(
                 select(EvaluationCalibrationModel).where(

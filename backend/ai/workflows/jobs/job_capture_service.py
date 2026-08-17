@@ -33,6 +33,7 @@ async def capture_from_imported_cards(
     api_config: Optional[dict] = None,
     top_n: int = 5,
     city: Optional[str] = None,
+    experience: str = "any",
     progress: Callable[[str], Awaitable[None]] | None = None,
     run_id: str | None = None,
 ) -> Dict[str, Any]:
@@ -40,6 +41,19 @@ async def capture_from_imported_cards(
 
     上游桥接不启动浏览器或复制 profile；本函数不接收 Cookie、HTML 或认证信息，
     只接收最多 20 张经过 URL 白名单约束的有限字段岗位卡片。
+
+    Args:
+        user_id: 用户 ID，所有者范围限定。
+        query: 查询字符串或对象。
+        resume_content: 简历正文内容。
+        imported_cards: 传入的 imported_cards 值。
+        source_page_url: 传入的 source_page_url 值。
+        api_config: 前端请求携带的模型通道配置。
+        top_n: 返回数量上限。
+        city: 城市名称。
+        experience: 经验描述。
+        progress: 进度回调函数。
+        run_id: 任务运行 ID。
     """
     from ai.agents.resume.resume_extract import extract_professional_skills
 
@@ -48,7 +62,12 @@ async def capture_from_imported_cards(
     top_n = max(1, min(int(top_n), 20))
 
     async def mark(stage: str, message: str) -> None:
-        """同步更新 AgentRun 阶段与脱敏 TXT 日志。"""
+        """同步更新 AgentRun 阶段与脱敏 TXT 日志。
+
+        Args:
+            stage: 阶段标识。
+            message: 单条消息。
+        """
         if progress is not None:
             await progress(stage)
         await capture_log.write(message)
@@ -94,9 +113,28 @@ async def capture_from_imported_cards(
             "message": "导入内容中没有有效岗位卡片，请回到 BOSS 搜索结果页重新提取。",
         }
 
+    cards, experience_excluded_count = normalization.filter_cards_for_experience(cards, experience)
+    if experience_excluded_count:
+        await capture_log.write(
+            f"无经验资格校验已排除 {experience_excluded_count} 张明确要求既往工作经验的岗位卡片"
+        )
+    if not cards:
+        message = (
+            "无经验筛选后没有符合条件的岗位，"
+            f"已排除 {experience_excluded_count} 张明确要求工作经验的岗位。"
+        )
+        await mark("awaiting_import", message)
+        return {
+            "success": True,
+            "total": 0,
+            "jobs": [],
+            "experience_excluded_count": experience_excluded_count,
+            "message": message,
+        }
+
     await mark("extracting_jobs", f"已接收并确认 {len(cards)} 张有效岗位卡片")
 
-    # Step 2.5: 用 fast 通道做轻量匹配度打分，按分取前 top_n 个
+    # Step 2.5: 无经验资格过滤已完成；Fast 通道只对合格卡片做轻量匹配度排序。
     await mark("ranking_jobs", "正在按简历匹配度排序岗位")
     if resume_content:
         scored_cards = await scoring.score_job_cards_by_match(
@@ -140,11 +178,18 @@ async def capture_from_imported_cards(
             "asset_status": None,
         })
 
-    await mark("awaiting_import", f"采集完成，{len(results)} 个岗位等待入库确认")
-    await capture_log.write(f"采集完成：{len(results)} 个岗位等待入库确认")
+    feedback_suffix = (
+        f"；无经验资格校验已排除 {experience_excluded_count} 张明确要求工作经验的岗位"
+        if experience_excluded_count
+        else ""
+    )
+    message = f"已采集 {len(results)} 个岗位，等待入库确认{feedback_suffix}"
+    await mark("awaiting_import", message)
+    await capture_log.write(f"采集完成：{message}")
     return {
         "success": len(results) > 0,
         "total": len(results),
         "jobs": results,
-        "message": f"已采集 {len(results)} 个岗位，等待入库确认",
+        "experience_excluded_count": experience_excluded_count,
+        "message": message,
     }

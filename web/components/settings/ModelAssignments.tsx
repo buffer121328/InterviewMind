@@ -39,6 +39,7 @@ function ModelSelect({
     models,
     onChange,
     required = false,
+    emptyLabel,
 }: {
     label: string;
     description: string;
@@ -46,6 +47,7 @@ function ModelSelect({
     models: ModelConfig[];
     onChange: (id: string) => boolean;
     required?: boolean;
+    emptyLabel?: string;
 }) {
     return (
         <label className="grid gap-2">
@@ -59,7 +61,7 @@ function ModelSelect({
                 onChange={event => onChange(event.target.value)}
                 className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100"
             >
-                <option value="">{required ? '请选择模型连接' : '未单独配置（使用默认回退）'}</option>
+                <option value="">{required ? '请选择模型连接' : emptyLabel || '未单独配置（使用默认回退）'}</option>
                 {models.map(model => (
                     <option key={model.id} value={model.id}>{model.name}</option>
                 ))}
@@ -157,7 +159,7 @@ export function ModelAssignments(props: ModelAssignmentsProps) {
             <Section
                 icon={Gauge}
                 title="核心执行与模型池"
-                description="Smart 负责规划、总结等复杂任务；Fast 负责高频问答。模型池为空时，后端回退到对应单模型。"
+                description="Smart 负责复杂任务与报告；Fast 负责高频问答。Reasoning/Fast Pool 只服务核心通道，General 不参与这里的回退。"
             >
                 <div className="grid gap-5 md:grid-cols-2">
                     <ModelSelect label="Smart 通道" description="复杂推理、面试规划与报告生成。" value={config.smartModelId} models={primaryModels} onChange={props.onSetSmartModel} required />
@@ -172,14 +174,14 @@ export function ModelAssignments(props: ModelAssignmentsProps) {
             <Section
                 icon={Users}
                 title="简历专家通道"
-                description="为多 Agent 简历工作流分配独立模型。任何未配置通道都会由后端回退到 Smart。"
+                description="为多 Agent 简历工作流分配独立模型。专家未单独配置时先使用 General；General 未配置时再回退到核心模型链。"
             >
                 <div className="grid gap-5 md:grid-cols-2">
-                    <ModelSelect label="通用 / 主持人" description="简历分析、流程主持与结果汇总。" value={config.generalModelId} models={primaryModels} onChange={props.onSetGeneralModel} />
-                    <ModelSelect label="JD 匹配分析师" description="岗位要求拆解、关键词和差距分析。" value={config.matchAnalystModelId} models={primaryModels} onChange={props.onSetMatchAnalystModel} />
-                    <ModelSelect label="内容优化师" description="项目经历改写和定向优化建议。" value={config.contentWriterModelId} models={primaryModels} onChange={props.onSetContentWriterModel} />
-                    <ModelSelect label="HR 审核官" description="招聘筛选视角、风险和真实性边界。" value={config.hrReviewerModelId} models={primaryModels} onChange={props.onSetHrReviewerModel} />
-                    <ModelSelect label="质量审核" description="检查结构、完整性与多 Agent 结果一致性。" value={config.reflectorModelId} models={primaryModels} onChange={props.onSetReflectorModel} />
+                    <ModelSelect label="通用 / 主持人" description="简历分析、流程主持与结果汇总；也是其他专家未单独配置时的默认模型。" value={config.generalModelId} models={primaryModels} onChange={props.onSetGeneralModel} emptyLabel="未配置（专家请求将回退到核心链）" />
+                    <ModelSelect label="JD 匹配分析师" description="岗位要求拆解、关键词和差距分析；留空时使用 General。" value={config.matchAnalystModelId} models={primaryModels} onChange={props.onSetMatchAnalystModel} emptyLabel="未单独配置（使用 General）" />
+                    <ModelSelect label="内容优化师" description="项目经历改写和定向优化建议；留空时使用 General。" value={config.contentWriterModelId} models={primaryModels} onChange={props.onSetContentWriterModel} emptyLabel="未单独配置（使用 General）" />
+                    <ModelSelect label="HR 审核官" description="招聘筛选视角、风险和真实性边界；留空时使用 General。" value={config.hrReviewerModelId} models={primaryModels} onChange={props.onSetHrReviewerModel} emptyLabel="未单独配置（使用 General）" />
+                    <ModelSelect label="质量审核" description="检查结构、完整性与多 Agent 结果一致性；留空时使用 General。" value={config.reflectorModelId} models={primaryModels} onChange={props.onSetReflectorModel} emptyLabel="未单独配置（使用 General）" />
                 </div>
             </Section>
 

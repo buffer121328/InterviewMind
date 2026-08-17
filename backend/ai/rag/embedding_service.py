@@ -27,7 +27,14 @@ _embedding_cache: "OrderedDict[str, List[float]]" = OrderedDict()
 
 
 def _embedding_cache_key(text: str, *, model: str, dimensions: int, api_config: Optional[dict]) -> str:
-    """处理嵌入缓存键相关后端逻辑。"""
+    """生成嵌入缓存的稳定键（含通道、模型与维度，不含原文）。
+
+    Args:
+        text: 待嵌入文本。
+        model: 嵌入模型名。
+        dimensions: 目标向量维度。
+        api_config: 前端模型通道配置。
+    """
     channel = (api_config or {}).get("rag_embedding") or {}
     provider = str(channel.get("base_url") or "environment")
     normalized = " ".join(text.split())
@@ -36,12 +43,16 @@ def _embedding_cache_key(text: str, *, model: str, dimensions: int, api_config: 
 
 
 def clear_embedding_cache() -> None:
-    """清理嵌入缓存相关后端逻辑。"""
+    """清空进程内嵌入缓存（测试与配置重载时调用）。"""
     _embedding_cache.clear()
 
 
 def _cache_get(key: str) -> List[float] | None:
-    """处理缓存相关后端逻辑。"""
+    """读取缓存向量并更新 LRU 顺序。
+
+    Args:
+        key: 缓存键。
+    """
     value = _embedding_cache.get(key)
     if value is None:
         return None
@@ -50,7 +61,12 @@ def _cache_get(key: str) -> List[float] | None:
 
 
 def _cache_put(key: str, value: List[float]) -> None:
-    """处理缓存写入相关后端逻辑。"""
+    """写入缓存向量，超出上限时淘汰最旧项。
+
+    Args:
+        key: 缓存键。
+        value: 向量列表。
+    """
     _embedding_cache[key] = list(value)
     _embedding_cache.move_to_end(key)
     while len(_embedding_cache) > _EMBEDDING_CACHE_MAX_ITEMS:
@@ -63,7 +79,13 @@ def _validate_embedding_response(
     expected_count: int,
     expected_dimensions: int,
 ) -> List[List[float]]:
-    """校验第三方 embedding 返回数量和维度，避免错误向量进入 pgvector 写入路径。"""
+    """校验第三方 embedding 返回数量和维度，避免错误向量进入 pgvector 写入路径。
+
+    Args:
+        response: 响应对象。
+        expected_count: expected 的数量。
+        expected_dimensions: 传入的 expected_dimensions 值。
+    """
 
     data = list(getattr(response, "data", None) or [])
     if len(data) != expected_count:
@@ -87,7 +109,11 @@ def _validate_embedding_response(
 
 
 def compute_content_hash(content: str) -> str:
-    """计算内容的 SHA-256 哈希值，用于避免重复 embedding。"""
+    """计算内容的 SHA-256 哈希值，用于避免重复 embedding。
+
+    Args:
+        content: 文本内容。
+    """
     return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
 
@@ -99,7 +125,15 @@ async def _embedding_call(
     api_config: Optional[dict],
     deadline: TaskDeadline,
 ):
-    """处理嵌入相关后端逻辑。"""
+    """调用模型网关生成嵌入，并在任务 deadline 内限制耗时。
+
+    Args:
+        input_value: 待嵌入的文本或文本列表。
+        model: 嵌入模型名。
+        dimensions: 目标向量维度。
+        api_config: 前端模型通道配置。
+        deadline: 任务时间预算。
+    """
     timeout = deadline.timeout_for_next_attempt(deadline.total_timeout)
     if timeout <= 0:
         raise TaskDeadlineExceeded("embedding deadline exhausted")
@@ -122,7 +156,15 @@ def _record_embedding_failure(
     item_count: int,
     exc: BaseException,
 ) -> None:
-    """记录 embedding 依赖失败的耗时、计数和稳定错误类别。"""
+    """记录 embedding 依赖失败的耗时、计数和稳定错误类别。
+
+    Args:
+        operation: 操作标识。
+        call_id: 调用 ID。
+        started_at: 开始时间。
+        item_count: item 的数量。
+        exc: 异常实例。
+    """
 
     timed_out = isinstance(exc, (TimeoutError, TaskDeadlineExceeded))
     record_external_io_event(
@@ -164,8 +206,13 @@ async def generate_embedding(
     if not text or not text.strip():
         raise ValueError("embedding 输入文本不能为空")
 
-    selected_model = model or EMBEDDING_MODEL
-    dims = dimensions or EMBEDDING_DIM
+    effective_config = llms.model_gateway.get_embedding_client_config(
+        model=model,
+        dimensions=dimensions,
+        api_config=api_config,
+    )
+    selected_model = str(effective_config["model"])
+    dims = int(effective_config["dimensions"])
     started_at = perf_counter()
     call_id = new_runtime_event_id("embedding")
     try:
@@ -213,14 +260,27 @@ async def generate_embeddings_batch(
     batch_size: int = 20,
     api_config: Optional[dict] = None,
 ) -> List[List[float]]:
-    """生成嵌入批量相关后端逻辑。"""
+    """批量生成文本嵌入。
+
+    Args:
+        texts: 传入的 texts 值。
+        model: 模型名称。
+        dimensions: 向量维度。
+        batch_size: 传入的 batch_size 值。
+        api_config: 前端请求携带的模型通道配置。
+    """
     if not texts:
         return []
     if any(not text or not text.strip() for text in texts):
         raise ValueError("embedding 输入文本不能为空")
 
-    selected_model = model or EMBEDDING_MODEL
-    dims = dimensions or EMBEDDING_DIM
+    effective_config = llms.model_gateway.get_embedding_client_config(
+        model=model,
+        dimensions=dimensions,
+        api_config=api_config,
+    )
+    selected_model = str(effective_config["model"])
+    dims = int(effective_config["dimensions"])
     deadline = TaskDeadline(get_settings().embedding_timeout_seconds)
     started_at = perf_counter()
     call_id = new_runtime_event_id("embedding_batch")
@@ -286,9 +346,14 @@ async def generate_embeddings_batch(
         raise RuntimeError(f"批量 embedding 生成失败: {type(exc).__name__}") from exc
 
 
-def get_embedding_config() -> dict:
-    """返回当前 embedding 配置。"""
+def get_embedding_config(api_config: Optional[dict] = None) -> dict:
+    """返回当前 embedding 配置。
+
+    Args:
+        api_config: 前端请求携带的模型通道配置。
+    """
+    effective_config = llms.model_gateway.get_embedding_client_config(api_config=api_config)
     return {
-        "model": EMBEDDING_MODEL,
-        "dimensions": EMBEDDING_DIM,
+        "model": effective_config["model"],
+        "dimensions": effective_config["dimensions"],
     }

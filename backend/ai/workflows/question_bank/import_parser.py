@@ -3,7 +3,7 @@
 import re
 from typing import Any
 
-from app.schemas.experience_provider import ExperienceDocument
+from app.schemas.interview_experience.experience_provider import ExperienceDocument
 from ai.workflows.interview_experience.extractor import extract_questions
 
 _QUESTION_PREFIX = re.compile(
@@ -44,7 +44,13 @@ def _question_text(line: str, *, allow_hint: bool = True) -> str | None:
 
 
 def parse_question_document(*, content: str, filename: str, source_id: str) -> list[dict[str, Any]]:
-    """解析常见 Markdown/Q&A 文档；无法识别答案时仍保留题目。"""
+    """解析常见 Markdown/Q&A 文档；无法识别答案时仍保留题目。
+
+    Args:
+        content: 文本内容。
+        filename: 文件名。
+        source_id: source 的 ID。
+    """
     questions: list[dict[str, Any]] = []
     current: dict[str, Any] | None = None
     answer_lines: list[str] = []

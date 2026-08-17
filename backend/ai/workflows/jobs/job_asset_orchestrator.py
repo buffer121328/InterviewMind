@@ -16,7 +16,7 @@ from typing import Any, Dict, List, Optional
 
 from ai.runtime.execution.deadlines import TaskDeadline
 from app.config import get_settings
-from app.schemas.job_schemas import AssetPackage
+from app.schemas.jobs.job_schemas import AssetPackage
 
 logger = logging.getLogger(__name__)
 

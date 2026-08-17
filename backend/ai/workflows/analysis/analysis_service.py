@@ -7,6 +7,8 @@ import logging
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any, Dict, List, Optional
 
+from langchain_core.exceptions import OutputParserException
+
 from ai.llm import llm_utils
 from ai.runtime.context.assembler import (
     AssembledContext,
@@ -26,7 +28,7 @@ from ai.workflows.analysis.report_records import (
     to_candidate_profile,
 )
 from app.config import get_settings
-from app.schemas.candidate_profile import CandidateProfile
+from app.schemas.interview.candidate_profile import CandidateProfile
 from app.schemas.llm_outputs import (
     CandidateProfileOutput,
     EvidenceChunkOutput,
@@ -112,6 +114,19 @@ class SessionReportAnalysisService:
                 exc_info=True,
             )
             raise
+        except (TimeoutError, OutputParserException) as exc:
+            reason = "model_timeout" if isinstance(exc, TimeoutError) else "output_contract_failure"
+            profile, weakness_payload = build_degraded_report(
+                qa_history,
+                degradation_reason=reason,
+            )
+            logger.warning(
+                "[SessionReportAnalysis] 已生成证据受限降级报告: session=%s qa_count=%s reason=%s",
+                session_id,
+                len(qa_history),
+                reason,
+            )
+            return profile, weakness_payload
         except Exception as exc:
             logger.error(
                 "[SessionReportAnalysis] 生成面试评估失败: session=%s error=%s",

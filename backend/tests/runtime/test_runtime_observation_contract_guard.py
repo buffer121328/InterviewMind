@@ -401,6 +401,8 @@ async def test_mem0_operations_emit_only_external_io_runtime_events():
         "mem0.search",
         "mem0.search",
         "mem0.add_interaction",
+        "mem0.add_report_weakness",
+        "mem0.add_report_weakness",
     ]
     assert [event["status"] for event in observation.runtime_events] == [
         "started",
@@ -408,6 +410,8 @@ async def test_mem0_operations_emit_only_external_io_runtime_events():
         "started",
         "started",
         "completed",
+        "completed",
+        "started",
         "completed",
     ]
     assert all(event["dependency"] == "mem0" for event in observation.runtime_events)

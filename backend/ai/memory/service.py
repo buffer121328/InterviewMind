@@ -16,7 +16,7 @@ from time import perf_counter
 from typing import Any, Optional
 
 from app.config import get_settings
-from app.domain.memory import canonicalize_memory_records, normalize_memory_text
+from app.domain.memory import canonicalize_memory_records, is_writable_memory_source, normalize_memory_text
 from observability import record_external_io_event
 from observability.runtime_events import (
     ExternalIOObservationEvent,
@@ -77,7 +77,11 @@ _last_memory_readiness_category: str | None = None
 
 
 def classify_memory_initialization_error(exc: BaseException) -> str:
-    """将依赖故障映射为稳定且不含凭据的就绪状态类别。"""
+    """将依赖故障映射为稳定且不含凭据的就绪状态类别。
+
+    Args:
+        exc: 异常实例。
+    """
     text = f"{type(exc).__name__} {exc}".casefold()
     if any(token in text for token in (
         "password authentication failed",
@@ -109,7 +113,14 @@ async def _run_mem0_call(
     timeout: float,
     **kwargs: Any,
 ) -> Any:
-    """在独立外部 IO 超时约束下运行一次同步 mem0 操作。"""
+    """在独立外部 IO 超时约束下运行一次同步 mem0 操作。
+
+    Args:
+        function: 回调函数。
+        timeout: 超时时间（秒）。
+        args: 位置参数。
+        kwargs: 关键字参数。
+    """
     return await asyncio.wait_for(
         asyncio.to_thread(function, *args, **kwargs),
         timeout=timeout,
@@ -117,7 +128,11 @@ async def _run_mem0_call(
 
 
 def _external_error_category(exc: BaseException) -> str:
-    """区分外部依赖超时与其他降级 IO 故障。"""
+    """区分外部依赖超时与其他降级 IO 故障。
+
+    Args:
+        exc: 异常实例。
+    """
     return "external_io_timeout" if isinstance(exc, TimeoutError) else "external_io_error"
 
 
@@ -131,7 +146,17 @@ def _record_mem0_event(
     result_count: int | None = None,
     error: BaseException | None = None,
 ) -> None:
-    """记录 mem0 的安全外部 IO 摘要，不上传记忆正文、用户 ID 或过滤器。"""
+    """记录 mem0 的安全外部 IO 摘要，不上传记忆正文、用户 ID 或过滤器。
+
+    Args:
+        operation: 操作标识。
+        call_id: 调用 ID。
+        status: 状态字符串。
+        started_at: 开始时间。
+        item_count: item 的数量。
+        result_count: result 的数量。
+        error: 异常实例。
+    """
 
     record_external_io_event(
         ExternalIOObservationEvent(
@@ -152,12 +177,20 @@ def _record_mem0_event(
 
 
 def _memory_config_cache_key(config: Optional[dict[str, Any]]) -> str:
-    """为 mem0 配置生成不泄露明文 key 的缓存键。"""
+    """为 mem0 配置生成不泄露明文 key 的缓存键。
+
+    Args:
+        config: 配置字典。
+    """
     if config is None:
         return "disabled"
 
     def scrub(value: Any) -> Any:
-        """递归移除记忆配置中的密钥类字段，只用于生成缓存指纹，不得用于实际 mem0 连接。"""
+        """递归移除记忆配置中的密钥类字段，只用于生成缓存指纹，不得用于实际 mem0 连接。
+
+        Args:
+            value: 值。
+        """
         if isinstance(value, dict):
             result: dict[str, Any] = {}
             for key, item in value.items():
@@ -186,7 +219,11 @@ def _retention_metadata() -> dict:
 
 
 def _retention_class_metadata(retention_class: MemoryRetentionClass) -> dict[str, Any]:
-    """构建渐进清理策略使用的不含正文元数据。"""
+    """构建渐进清理策略使用的不含正文元数据。
+
+    Args:
+        retention_class: 传入的 retention_class 值。
+    """
 
     now = datetime.now(timezone.utc)
     settings = get_settings()
@@ -381,7 +418,13 @@ class AgentMemoryService:
         dry_run: bool = True,
         max_memories: int = 500,
     ) -> dict[str, Any]:
-        """先标记可衰减的非活跃记忆，仅在宽限期后删除。"""
+        """先标记可衰减的非活跃记忆，仅在宽限期后删除。
+
+        Args:
+            user_id: 用户 ID，所有者范围限定。
+            dry_run: 是否仅预演。
+            max_memories: memories 的最大值。
+        """
 
         if not self.is_enabled:
             return {
@@ -459,7 +502,11 @@ class AgentMemoryService:
         }
 
     async def _maybe_run_retention_cleanup(self, user_id: str) -> None:
-        """每个活跃用户每天最多运行一次两阶段清理扫描。"""
+        """每个活跃用户每天最多运行一次两阶段清理扫描。
+
+        Args:
+            user_id: 用户 ID，所有者范围限定。
+        """
 
         retention_store = get_memory_retention_store()
         if retention_store is None or not await retention_store.acquire_daily_sweep(user_id):
@@ -476,7 +523,13 @@ class AgentMemoryService:
         timeout_seconds: float | None = None,
         max_tokens: int | None = None,
     ) -> object | None:
-        """通过请求范围内的 mem0 LLM 运行一次有边界的生命周期规划调用。"""
+        """通过请求范围内的 mem0 LLM 运行一次有边界的生命周期规划调用。
+
+        Args:
+            prompt: 提示词文本。
+            timeout_seconds: 超时秒数。
+            max_tokens: tokens 的最大值。
+        """
         llm = getattr(self._memory, "llm", None)
         generate_response = getattr(llm, "generate_response", None)
         if not callable(generate_response):
@@ -505,7 +558,11 @@ class AgentMemoryService:
             return None
 
     async def _delete_memory_record(self, memory_id: str) -> bool:
-        """删除一条已完成用户归属校验的记录，不再执行完整归属扫描。"""
+        """删除一条已完成用户归属校验的记录，不再执行完整归属扫描。
+
+        Args:
+            memory_id: memory 的 ID。
+        """
         try:
             await _run_mem0_call(
                 self._memory.delete,
@@ -523,7 +580,13 @@ class AgentMemoryService:
         content: str,
         metadata: dict[str, Any] | None = None,
     ) -> bool:
-        """更新一条已完成用户归属校验的记录，不再执行完整归属扫描。"""
+        """更新一条已完成用户归属校验的记录，不再执行完整归属扫描。
+
+        Args:
+            memory_id: memory 的 ID。
+            content: 文本内容。
+            metadata: 元数据字典。
+        """
         try:
             result = await _run_mem0_call(
                 self._memory.update,
@@ -543,7 +606,12 @@ class AgentMemoryService:
         existing: list[dict[str, Any]],
         new_records: list[dict[str, Any]],
     ) -> None:
-        """将后续轮次候选记忆与当前用户既有记忆进行对账。"""
+        """将后续轮次候选记忆与当前用户既有记忆进行对账。
+
+        Args:
+            existing: 已有记录。
+            new_records: 传入的 new_records 值。
+        """
         if not new_records:
             return
         raw_plan = await self._generate_lifecycle_response(
@@ -602,7 +670,13 @@ class AgentMemoryService:
         dry_run: bool = True,
         max_memories: int = 200,
     ) -> dict[str, Any]:
-        """预览或应用限定在当前用户范围内、经 LLM 校验的历史合并计划。"""
+        """预览或应用限定在当前用户范围内、经 LLM 校验的历史合并计划。
+
+        Args:
+            user_id: 用户 ID，所有者范围限定。
+            dry_run: 是否仅预演。
+            max_memories: memories 的最大值。
+        """
         if not self.is_enabled:
             return {
                 "dry_run": dry_run,
@@ -777,10 +851,74 @@ class AgentMemoryService:
         memory_type: str,
         metadata: Optional[dict] = None,
     ) -> Optional[dict]:
-        """不要将助手生成的报告产物重复写入长期记忆。"""
-        _ = (user_id, session_id, content, memory_type, metadata)
-        logger.info("跳过面试报告到长期记忆的自动沉淀")
-        return None
+        """Persist a completed report's weakness summary with explicit provenance.
+
+        Args:
+            user_id: 用户 ID，所有者范围限定。
+            session_id: 面试会话 ID。
+            content: 文本内容。
+            memory_type: 记忆类型。
+            metadata: 元数据字典。
+        """
+        if not self.is_enabled or memory_type != "weakness":
+            return None
+
+        started_at = perf_counter()
+        call_id = new_runtime_event_id("mem0_report_weakness")
+        _record_mem0_event(
+            operation="mem0.add_report_weakness",
+            call_id=call_id,
+            status="started",
+            started_at=started_at,
+        )
+        try:
+            meta = {
+                "project": "agent_interview",
+                "source": "interview_report",
+                "session_id": session_id,
+                "origin_agent_id": "interview-agent",
+                "memory_type": "weakness",
+                "memory_source": "interview_weakness",
+                **_retention_metadata(),
+                **_retention_class_metadata(MemoryRetentionClass.TRANSIENT),
+            }
+            if metadata:
+                meta.update(metadata)
+            meta.update({
+                "source": "interview_report",
+                "session_id": session_id,
+                "memory_type": "weakness",
+                "memory_source": "interview_weakness",
+            })
+            result = await _run_mem0_call(
+                self._memory.add,
+                content,
+                user_id=user_id,
+                agent_id="interview-agent",
+                run_id="interview-report-memory",
+                metadata=meta,
+                infer=False,
+                timeout=get_settings().mem0_add_timeout_seconds,
+            )
+            _record_mem0_event(
+                operation="mem0.add_report_weakness",
+                call_id=call_id,
+                status="completed",
+                started_at=started_at,
+                item_count=1,
+            )
+            return result
+        except Exception as exc:
+            _record_mem0_event(
+                operation="mem0.add_report_weakness",
+                call_id=call_id,
+                status="failed",
+                started_at=started_at,
+                item_count=1,
+                error=exc,
+            )
+            logger.error("面试短板记忆写入失败: %s", type(exc).__name__)
+            return None
 
     async def add_memory(
         self,
@@ -788,9 +926,18 @@ class AgentMemoryService:
         user_id: str,
         content: str,
         memory_type: str | None = None,
+        memory_source: str | None = None,
         metadata: Optional[dict] = None,
     ) -> Optional[dict]:
-        """存储一条用户手写记忆，不要求 mem0 推断或重写。"""
+        """Store a user-authored memory without mem0 inference or rewriting.
+
+        Args:
+            user_id: 用户 ID，所有者范围限定。
+            content: 文本内容。
+            memory_type: 记忆类型。
+            memory_source: 传入的 memory_source 值。
+            metadata: 元数据字典。
+        """
         if not self.is_enabled:
             return None
 
@@ -828,6 +975,8 @@ class AgentMemoryService:
             }
             if memory_type:
                 meta["memory_type"] = memory_type
+            if is_writable_memory_source(memory_source):
+                meta["memory_source"] = memory_source
             if metadata:
                 meta.update(metadata)
 
@@ -899,7 +1048,12 @@ class AgentMemoryService:
         user_id: str,
         memory_id: str,
     ) -> list[dict]:
-        """获取一条属于当前用户的记忆变更历史。"""
+        """获取一条属于当前用户的记忆变更历史。
+
+        Args:
+            user_id: 用户 ID，所有者范围限定。
+            memory_id: memory 的 ID。
+        """
         if not self.is_enabled:
             return []
 
@@ -923,7 +1077,13 @@ class AgentMemoryService:
         memory_id: str,
         content: str,
     ) -> Optional[dict]:
-        """在确认记忆属于当前用户后更新一条记忆。"""
+        """在确认记忆属于当前用户后更新一条记忆。
+
+        Args:
+            user_id: 用户 ID，所有者范围限定。
+            memory_id: memory 的 ID。
+            content: 文本内容。
+        """
         if not self.is_enabled:
             return None
 
@@ -1056,6 +1216,9 @@ async def get_agent_memory_service(api_config: Optional[dict[str, Any]] = None) 
 
     无 api_config 时返回服务端 .env 单例；有前端配置时按配置缓存实例，
     支持不同用户/浏览器使用不同的 mem0 LLM 和 Embedding Key。
+
+    Args:
+        api_config: 前端请求携带的模型通道配置。
     """
     global _agent_memory_service, _last_memory_readiness_category
 

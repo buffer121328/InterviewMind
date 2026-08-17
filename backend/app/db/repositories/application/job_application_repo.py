@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import async_session
 from app.db.models.application import JobApplicationModel, ApplicationEventModel
-from app.schemas.job_application import (
+from app.schemas.jobs.job_application import (
     ApplicationCreateRequest,
     ApplicationUpdateRequest,
     ApplicationListItem,
@@ -38,7 +38,13 @@ class JobApplicationRepo:
         request: ApplicationCreateRequest,
         session: AsyncSession | None = None,
     ) -> ApplicationDetail:
-        """创建投递记录并返回详情；传入 session 时由外层 UnitOfWork 统一提交。"""
+        """创建投递记录并返回详情；传入 session 时由外层 UnitOfWork 统一提交。
+
+        Args:
+            user_id: 用户 ID，所有者范围限定。
+            request: 请求对象。
+            session: 会话数据或数据库会话。
+        """
         now = utc_now()
 
         async def _create(db: AsyncSession, *, owns_session: bool) -> ApplicationDetail:
@@ -87,7 +93,14 @@ class JobApplicationRepo:
         limit: int = 50,
         offset: int = 0,
     ) -> List[ApplicationListItem]:
-        """获取投递记录列表"""
+        """获取投递记录列表
+
+        Args:
+            user_id: 用户 ID，所有者范围限定。
+            status: 状态字符串。
+            limit: 返回数量上限。
+            offset: 偏移量。
+        """
         async with async_session() as db:
             stmt = select(JobApplicationModel).where(JobApplicationModel.user_id == user_id)
             if status:
@@ -101,7 +114,12 @@ class JobApplicationRepo:
         captured_job_id: int,
         user_id: str,
     ) -> Optional[ApplicationDetail]:
-        """按 owner 和岗位库 ID 查找既有投递记录，避免一键导出重复创建。"""
+        """按 owner 和岗位库 ID 查找既有投递记录，避免一键导出重复创建。
+
+        Args:
+            captured_job_id: captured_job 的 ID。
+            user_id: 用户 ID，所有者范围限定。
+        """
         async with async_session() as db:
             row = await db.scalar(
                 select(JobApplicationModel).where(
@@ -116,7 +134,12 @@ class JobApplicationRepo:
         application_id: int,
         user_id: str,
     ) -> Optional[ApplicationDetail]:
-        """获取单个投递记录详情"""
+        """获取单个投递记录详情
+
+        Args:
+            application_id: 岗位申请记录 ID。
+            user_id: 用户 ID，所有者范围限定。
+        """
         async with async_session() as db:
             stmt = (
                 select(JobApplicationModel)
@@ -135,7 +158,13 @@ class JobApplicationRepo:
         user_id: str,
         request: ApplicationUpdateRequest,
     ) -> Optional[ApplicationDetail]:
-        """更新投递记录并返回详情"""
+        """更新投递记录并返回详情
+
+        Args:
+            application_id: 岗位申请记录 ID。
+            user_id: 用户 ID，所有者范围限定。
+            request: 请求对象。
+        """
         async with async_session() as db:
             stmt = select(JobApplicationModel).where(
                 JobApplicationModel.id == application_id,
@@ -176,7 +205,13 @@ class JobApplicationRepo:
         user_id: str,
         resume_id: Optional[int],
     ) -> Optional[ApplicationDetail]:
-        """处理设置关联简历相关后端逻辑。"""
+        """设置岗位申请关联的简历，并返回更新后的申请详情。
+
+        Args:
+            application_id: 申请记录 ID。
+            user_id: 所属用户 ID。
+            resume_id: 关联的简历 ID（None 表示解除关联）。
+        """
         async with async_session() as db:
             row = await db.scalar(
                 select(JobApplicationModel)
@@ -195,7 +230,12 @@ class JobApplicationRepo:
         return await self.get_application(application_id, user_id)
 
     async def delete_application(self, application_id: int, user_id: str) -> bool:
-        """删除投递记录"""
+        """删除投递记录
+
+        Args:
+            application_id: 岗位申请记录 ID。
+            user_id: 用户 ID，所有者范围限定。
+        """
         async with async_session() as db:
             stmt = select(JobApplicationModel).where(
                 JobApplicationModel.id == application_id,
@@ -212,7 +252,12 @@ class JobApplicationRepo:
             return True
 
     async def get_application_count(self, user_id: str, status: Optional[str] = None) -> int:
-        """获取投递记录数量"""
+        """获取投递记录数量
+
+        Args:
+            user_id: 用户 ID，所有者范围限定。
+            status: 状态字符串。
+        """
         async with async_session() as db:
             stmt = select(func.count(JobApplicationModel.id)).where(JobApplicationModel.user_id == user_id)
             if status:
@@ -221,7 +266,11 @@ class JobApplicationRepo:
             return int(result.scalar_one() or 0)
 
     def _row_to_list_item(self, row: JobApplicationModel) -> ApplicationListItem:
-        """将数据库行转换为列表项"""
+        """将数据库行转换为列表项
+
+        Args:
+            row: 数据库行记录。
+        """
         return ApplicationListItem(
             id=row.id,
             company_name=row.company_name,
@@ -240,7 +289,11 @@ class JobApplicationRepo:
         )
 
     def _row_to_detail(self, row: JobApplicationModel) -> ApplicationDetail:
-        """将数据库行转换为详情对象"""
+        """将数据库行转换为详情对象
+
+        Args:
+            row: 数据库行记录。
+        """
         return ApplicationDetail(
             id=row.id,
             user_id=row.user_id,
@@ -266,7 +319,11 @@ class JobApplicationRepo:
         )
 
     def _event_row_to_model(self, row: ApplicationEventModel) -> ApplicationEventRow:
-        """将事件数据库行转换为模型"""
+        """将事件数据库行转换为模型
+
+        Args:
+            row: 数据库行记录。
+        """
         return ApplicationEventRow(
             id=row.id,
             application_id=row.application_id,

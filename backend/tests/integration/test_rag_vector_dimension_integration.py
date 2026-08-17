@@ -15,8 +15,8 @@ import pytest
 
 @pytest.mark.integration
 @pytest.mark.requires_postgres
-def test_real_rag_vector_column_matches_configured_embedding_dimension() -> None:
-    """Read the real pgvector column typmod and compare it with ``EMBEDDING_DIM``."""
+def test_real_rag_vector_column_supports_configured_embedding_dimensions() -> None:
+    """Read the real pgvector schema and verify flexible dimension metadata."""
 
     dsn = os.getenv("TEST_POSTGRES_DSN")
     if not dsn:
@@ -25,6 +25,7 @@ def test_real_rag_vector_column_matches_configured_embedding_dimension() -> None
     psycopg = pytest.importorskip("psycopg")
     from app.db.rag_schema import (
         configured_embedding_dimension,
+        has_rag_vector_dimension_column,
         read_rag_vector_type,
         validate_rag_vector_type,
     )
@@ -32,8 +33,10 @@ def test_real_rag_vector_column_matches_configured_embedding_dimension() -> None
     sync_dsn = dsn.replace("postgresql+asyncpg://", "postgresql://", 1)
     with psycopg.connect(sync_dsn, connect_timeout=10) as connection:
         database_type = read_rag_vector_type(connection)
+        has_dimension_column = has_rag_vector_dimension_column(connection)
 
     assert validate_rag_vector_type(
         database_type,
         expected_dimension=configured_embedding_dimension(),
+        has_dimension_column=has_dimension_column,
     ) == configured_embedding_dimension()

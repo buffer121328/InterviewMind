@@ -15,7 +15,7 @@ from ai.workflows.applications.use_cases import (
     ApplicationUseCaseError,
     application_use_cases,
 )
-from app.schemas.job_application import (
+from app.schemas.jobs.job_application import (
     ApplicationCreateRequest,
     ApplicationDetailResponse,
     ApplicationListResponse,
@@ -47,14 +47,17 @@ async def _call_use_case(action: Callable[[], Awaitable[T]], error_message: str)
     try:
         return await action()
     except ApplicationUseCaseError as exc:
+        # ① 按错误类型映射稳定状态码，未知类型兜底为 400
         status_code = _ERROR_STATUS.get(type(exc), 400)
         raise HTTPException(
             status_code=status_code,
             detail={"error": exc.error, "message": exc.message},
         ) from exc
     except HTTPException:
+        # ② 已是 HTTP 异常则直接透传，避免二次包装
         raise
     except Exception as exc:
+        # ③ 未知异常记录日志并返回 500，不向外暴露内部细节
         logger.error("%s: %s", error_message, exc)
         raise HTTPException(
             status_code=500,
@@ -149,7 +152,13 @@ async def set_application_resume(
     request: ApplicationResumeLinkRequest,
     x_user_id: Optional[str] = Header(None, alias="X-User-ID"),
 ):
-    """处理设置投递简历相关后端逻辑。"""
+    """在 owner 校验下为投递记录设置关联简历链接。
+
+    Args:
+        application_id: 投递记录标识。
+        request: 简历链接设置请求体。
+        x_user_id: x user 标识。
+    """
     return await _call_use_case(
         lambda: application_use_cases.set_application_resume(
             application_id=application_id,

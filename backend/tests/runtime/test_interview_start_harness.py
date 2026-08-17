@@ -150,7 +150,7 @@ async def test_queue_disabled_interview_start_uses_inline_harness_and_keeps_resp
         idempotency_key="same-key",
     )
 
-    assert response.payload == {
+    assert response.body == {
         "task_type": "interview_start",
         "status": "succeeded",
         "result": {"success": True, "first_question": "首题"},

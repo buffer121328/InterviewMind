@@ -8,14 +8,14 @@ from typing import Any
 
 import httpx
 
-from app.schemas.experience_provider import ExperienceDocument
+from app.schemas.interview_experience.experience_provider import ExperienceDocument
 
 
 def _plain_text(value: str) -> str:
     """从外部面经文档提取可供模型和规则解析的纯文本，忽略格式噪声。
 
     Args:
-        value: 取值。
+        value: 原始 HTML 或富文本内容。
     """
     value = re.sub(r"<(script|style)[^>]*>.*?</\1>", "", value or "", flags=re.I | re.S)
     value = re.sub(r"<br\s*/?>|</p>|</div>", "\n", value, flags=re.I)
@@ -31,7 +31,7 @@ class ExportedContentProvider:
         """初始化 `ExportedContentProvider` 的依赖和运行配置；构造阶段不执行业务写入，外部客户端仅在后续方法调用时承担对应的访问边界。
 
         Args:
-            source: 经过类型边界校验的 `source`；其格式和可选值由参数类型及调用流程约束。
+            source: 面经来源标识。
         """
         self.source = source
 
@@ -42,12 +42,12 @@ class ExportedContentProvider:
         max_pages: int,
         exported_items: list[dict[str, Any]],
     ) -> list[ExperienceDocument]:
-        """从配置的面经来源采集文档或题目，受页数、超时和来源访问边界约束。
+        """解析用户显式导入的面经条目，归一化为面经文档。
 
         Args:
-            queries: 经过类型边界校验的 `queries`；其格式和可选值由参数类型及调用流程约束。
-            max_pages: 经过类型边界校验的 `max_pages`；其格式和可选值由参数类型及调用流程约束。
-            exported_items: 经过类型边界校验的 `exported_items`；其格式和可选值由参数类型及调用流程约束。
+            queries: 搜索关键词，用作条目缺省 query 的兜底。
+            max_pages: 保留的页数上限（本适配器不使用）。
+            exported_items: 用户显式导入的面经条目列表。
         """
         del max_pages
         default_query = queries[0] if queries else ""
@@ -83,8 +83,8 @@ class NowcoderProvider:
         """初始化 `NowcoderProvider` 的依赖和运行配置；构造阶段不执行业务写入，外部客户端仅在后续方法调用时承担对应的访问边界。
 
         Args:
-            client: 客户端实例。
-            delay_seconds: 经过类型边界校验的 `delay_seconds`；其格式和可选值由参数类型及调用流程约束。
+            client: 共享的 HTTP 客户端；为 None 时按需自建。
+            delay_seconds: 请求间隔秒数（取非负值）。
         """
         self._client = client
         self.delay_seconds = max(0.0, delay_seconds)
@@ -96,12 +96,12 @@ class NowcoderProvider:
         max_pages: int,
         exported_items: list[dict[str, Any]],
     ) -> list[ExperienceDocument]:
-        """从配置的面经来源采集文档或题目，受页数、超时和来源访问边界约束。
+        """采集牛客面经：有显式导入条目时直接解析，否则搜索并抓取详情。
 
         Args:
-            queries: 经过类型边界校验的 `queries`；其格式和可选值由参数类型及调用流程约束。
-            max_pages: 经过类型边界校验的 `max_pages`；其格式和可选值由参数类型及调用流程约束。
-            exported_items: 经过类型边界校验的 `exported_items`；其格式和可选值由参数类型及调用流程约束。
+            queries: 搜索关键词。
+            max_pages: 搜索的最大页数（上限 3 页）。
+            exported_items: 用户显式导入的面经条目列表。
         """
         if exported_items:
             return await ExportedContentProvider(self.source).collect(
@@ -138,9 +138,9 @@ class NowcoderProvider:
         """在允许的面经来源内检索候选文档；请求经过 URL、页数和超时约束，避免采集能力访问任意站点。
 
         Args:
-            client: 客户端实例。
-            queries: 经过类型边界校验的 `queries`；其格式和可选值由参数类型及调用流程约束。
-            max_pages: 经过类型边界校验的 `max_pages`；其格式和可选值由参数类型及调用流程约束。
+            client: HTTP 客户端。
+            queries: 搜索关键词列表。
+            max_pages: 每个关键词的最大搜索页数。
         """
         records: dict[str, dict[str, Any]] = {}
         for query in queries:
@@ -192,8 +192,8 @@ class NowcoderProvider:
         """读取已筛选来源的面经详情并限制响应大小；失败时返回可忽略的采集错误，不泄露原始响应到日志。
 
         Args:
-            client: 客户端实例。
-            record: 是否把本次检查计入限流窗口；预览检查可关闭记录，实际动作必须记录。
+            client: HTTP 客户端。
+            record: 搜索结果记录（含 kind、source_id、title、query 等）。
         """
         source_id = record["source_id"]
         if record["kind"] == 207:

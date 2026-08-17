@@ -1,19 +1,22 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+    BOSS_DISPLAY_TIME_ZONE,
     captureRunMessage,
     formatDate,
+    normalizeBossTimestamp,
     getCaptureRunJobs,
     mergeAssetRun,
     readStringList,
 } from './bossCenter.ts';
 
-test('formatDate renders compact local time or falls back', () => {
+test('formatDate renders legacy UTC job timestamps in China Standard Time', () => {
     assert.equal(formatDate(undefined), '时间未知');
     assert.equal(formatDate('not-a-date'), 'not-a-date');
-    const formatted = formatDate('2026-08-01T10:30:00Z');
-    assert.notEqual(formatted, '2026-08-01T10:30:00Z');
-    assert.ok(formatted.length > 0);
+    assert.equal(BOSS_DISPLAY_TIME_ZONE, 'Asia/Shanghai');
+    assert.equal(normalizeBossTimestamp('2026-08-15T14:09:00'), '2026-08-15T14:09:00Z');
+    assert.equal(formatDate('2026-08-15T14:09:00'), '08/15 22:09');
+    assert.equal(formatDate('2026-08-15T14:09:00Z'), '08/15 22:09');
 });
 
 test('readStringList reads bounded string arrays and ignores bad records', () => {

@@ -7,13 +7,14 @@ import re
 from types import SimpleNamespace
 
 import pytest
+from langchain_core.exceptions import OutputParserException
 from pydantic import ValidationError
 
 from ai.agents.interview.voice.context import build_voice_history_context
 from ai.prompts.voice import build_interview_voice_system_prompt
 from ai.workflows.analysis.analysis_service import SessionReportAnalysisService
 from app.schemas.llm_outputs import EvidenceChunkOutput, SessionInterviewReportOutput
-from app.schemas.voice import VoiceChatRequest
+from app.schemas.interview.voice import VoiceChatRequest
 
 
 def _report_output() -> SessionInterviewReportOutput:
@@ -181,6 +182,47 @@ async def test_short_report_uses_parallel_reviewers_and_adds_local_trace(monkeyp
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("failure", "expected_reason"),
+    [
+        (TimeoutError(), "model_timeout"),
+        (OutputParserException("invalid structured report"), "output_contract_failure"),
+    ],
+)
+async def test_short_report_degrades_when_narrative_cannot_complete_within_deadline(
+    monkeypatch, failure, expected_reason,
+):
+    """Known report-composition failures preserve deterministic Q&A evidence instead of a blank task failure."""
+    settings = SimpleNamespace(
+        interview_report_qa_char_budget=12_000,
+        interview_report_chunk_size=5,
+        interview_report_task_timeout_seconds=120,
+    )
+    observed_deadlines = []
+
+    async def fail_single_call(_self, *, deadline, **_kwargs):
+        observed_deadlines.append(deadline.deadline_ms)
+        raise failure
+
+    monkeypatch.setattr("ai.workflows.analysis.analysis_service.get_settings", lambda: settings)
+    monkeypatch.setattr(SessionReportAnalysisService, "_generate_single_call", fail_single_call)
+
+    profile, weakness = await SessionReportAnalysisService().generate_session_report(
+        session_id="session-1",
+        resume="resume",
+        job_description="jd",
+        company_info="company",
+        qa_history=_qa_history(2, answer_chars=2),
+    )
+
+    assert observed_deadlines == [120_000]
+    assert profile.generation_mode == "degraded_evidence_only"
+    assert weakness["generation_mode"] == "degraded_evidence_only"
+    assert weakness["degradation_reason"] == expected_reason
+    assert len(weakness["question_evidence"]) == 2
+
+
+@pytest.mark.asyncio
 async def test_checkpoint_write_is_owner_scoped_encrypted_and_event_safe(monkeypatch):
     """Checkpoint writes filter by owner, persist ciphertext, and emit no evidence body."""
     from ai.runtime.agent_runs import service as service_module
@@ -303,7 +345,7 @@ def _wav_header(*, duration_seconds: int, sample_rate: int = 8000) -> bytes:
 def test_voice_request_rejects_malformed_and_over_duration_audio(monkeypatch):
     """Audio is rejected before AgentRun creation when base64 is invalid or WAV duration is excessive."""
     monkeypatch.setattr(
-        "app.schemas.voice.get_settings",
+        "app.schemas.interview.voice.get_settings",
         lambda: SimpleNamespace(voice_audio_max_bytes=8_000_000, voice_audio_max_duration_seconds=120),
     )
     base = {

@@ -5,12 +5,13 @@ import json
 from types import SimpleNamespace
 
 import pytest
+
 from ai.runtime.agent_runs.service import get_task_definition
 from ai.workflows.interview.chat import stream as chat_stream
-from ai.workflows.interview.sessions.checkpoints import interview_turn_checkpoint_thread_id
 from ai.workflows.interview.chat.stream import ChatStreamUseCases
+from ai.workflows.interview.sessions.checkpoints import interview_turn_checkpoint_thread_id
 from app.domain.agent_runs import TASK_TYPE_INTERVIEW_TURN
-from app.schemas.schemas import ChatRequest
+from app.schemas.interview.schemas import ChatRequest
 
 
 def _agent_run_events(chunks):
@@ -321,3 +322,91 @@ async def test_chat_stream_partial_failure_has_one_safe_failed_terminal(monkeypa
     assert "run.completed" not in {event["type"] for event in run_events}
     assert any('"type":"token"' in chunk for chunk in chunks)
     assert lease.released is True
+
+class _FinalTurnGraph:
+    async def astream_events(self, *args, **kwargs):
+        self.config = kwargs.get("config")
+        self.inputs = args[0]
+        yield {
+            "event": "on_chain_end",
+            "metadata": {"langgraph_node": "summary"},
+            "data": {"output": {"question_count": 5, "max_questions": 5}},
+        }
+        yield {
+            "event": "on_chain_end",
+            "metadata": {"langgraph_node": "responder"},
+            "data": {"output": {
+                "messages": [SimpleNamespace(type="ai", content="本轮面试结束")],
+                "current_question_index": 5,
+                "question_count": 5,
+                "max_questions": 5,
+            }},
+        }
+
+
+@pytest.mark.asyncio
+async def test_final_chat_turn_completes_session_before_run_succeeds(monkeypatch):
+    lease = _FakeLease()
+    use_cases = ChatStreamUseCases()
+    use_cases._session_repo = _FakeSessionRepo()
+    fake_run_service = _FakeRunService()
+    use_cases._run_service = fake_run_service
+    fake_graph = _FinalTurnGraph()
+    completions = []
+
+    async def fake_build_interview_graph(_mode):
+        return fake_graph
+
+    async def fake_get_memory_context(**_kwargs):
+        return "", []
+
+    async def fake_handle_interview_complete(**kwargs):
+        completions.append(kwargs)
+
+    monkeypatch.setattr(chat_stream, "build_interview_graph", fake_build_interview_graph)
+    monkeypatch.setattr(chat_stream, "get_memory_context", fake_get_memory_context)
+    monkeypatch.setattr(chat_stream, "get_run_gate", lambda: _FakeGate(lease))
+    monkeypatch.setattr(chat_stream, "handle_interview_complete", fake_handle_interview_complete)
+
+    request = ChatRequest(
+        thread_id="thread-1",
+        message="我的最终回答",
+        mode="mock",
+        resume_context="简历",
+        job_description="JD",
+        max_questions=5,
+    )
+
+    generator = await use_cases.stream_chat(request=request, user_id="user-1")
+    chunks = [chunk async for chunk in generator]
+    decoded = [
+        json.loads(chunk.removeprefix("data: ").strip())
+        for chunk in chunks
+        if chunk.startswith("data: ")
+    ]
+    state_updates = [event for event in decoded if event.get("type") == "state_update"]
+    done_events = [event for event in decoded if event.get("type") == "done"]
+    run_events = _agent_run_events(chunks)
+
+    assert completions == [{
+        "session_id": "thread-1",
+        "api_config": None,
+        "trigger_analysis": True,
+        "user_id": "user-1",
+    }]
+    assert use_cases._session_repo.added[-1]["content"] == "本轮面试结束"
+    assert use_cases._session_repo.updated == [{
+        "session_id": "thread-1",
+        "metadata_updates": {"question_count": 5},
+        "user_id": "user-1",
+    }]
+    assert len(state_updates) == 1
+    assert json.loads(state_updates[0]["content"]) == {
+        "question_count": 5,
+        "max_questions": 5,
+    }
+    assert len(done_events) == 1
+    assert fake_run_service.succeeded == [("run-1", {"thread_id": "thread-1", "question_index": 5})]
+    assert fake_run_service.failed == []
+    assert [event["type"] for event in run_events].count("run.completed") == 1
+    assert "run.failed" not in {event["type"] for event in run_events}

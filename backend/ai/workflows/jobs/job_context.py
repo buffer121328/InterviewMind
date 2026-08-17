@@ -3,7 +3,7 @@
 from typing import Any
 
 from app.db.repositories.jobs.job_capture_repo import get_job_capture_repo
-from app.schemas.job_context import JobContextSnapshot
+from app.schemas.jobs.job_context import JobContextSnapshot
 
 
 class JobContextAccessError(ValueError):
@@ -15,7 +15,12 @@ async def normalize_owned_job_context_snapshot(
     *,
     user_id: str,
 ) -> dict[str, Any] | None:
-    """校验来源岗位 owner，并锁定来源字段且保留工作台编辑内容。"""
+    """校验来源岗位 owner，并锁定来源字段且保留工作台编辑内容。
+
+    Args:
+        snapshot: 快照数据。
+        user_id: 用户 ID，所有者范围限定。
+    """
     if snapshot is None:
         return None
     parsed = snapshot if isinstance(snapshot, JobContextSnapshot) else JobContextSnapshot.model_validate(snapshot)

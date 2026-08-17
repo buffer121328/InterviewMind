@@ -7,13 +7,15 @@ from ai.agents.interview.questions.answer_points import (
     ensure_plan_answer_points,
 )
 from app.db.repositories.session.session_repo import SessionRepo
-from app.schemas.schemas import RollbackRequest
+from app.schemas.interview.schemas import RollbackRequest
 
 
 @dataclass(slots=True)
 class InterviewSessionUseCaseError(Exception):
     """面试会话辅助用例异常。"""
 
+    # 单条消息。
+    # 单条消息。
     message: str
 
 

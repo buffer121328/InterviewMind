@@ -6,7 +6,7 @@ from ai.agents.resume.project_rewriter import rewrite_project
 from ai.runtime.execution.deadlines import TaskDeadline
 from app.config import get_settings
 from app.db.repositories.resume.project_rewrite_repo import get_project_rewrite_repo
-from app.schemas.project_rewrite_schemas import (
+from app.schemas.resume.project_rewrite_schemas import (
     ProjectRewriteDetailResponse,
     ProjectRewriteHistoryItem,
     ProjectRewriteHistoryResponse,
@@ -21,6 +21,8 @@ VALID_REWRITE_MODES = ["star_rewrite", "quantify_results", "jd_customize", "foll
 class ProjectRewriteUseCaseError(Exception):
     """项目经历重写用例异常。"""
 
+    # 单条消息。
+    # 单条消息。
     message: str
 
 

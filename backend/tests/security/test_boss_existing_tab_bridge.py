@@ -69,9 +69,32 @@ def test_build_search_url_reuses_city_and_safe_filters_but_resets_page():
     assert parsed.path == "/web/geek/jobs"
     assert params == {
         "city": ["101280600"],
-        "experience": ["104"],
+        "jobType": ["1901"],
         "query": ["AI Agent / RAG"],
     }
+
+
+@pytest.mark.parametrize(
+    ("experience", "expected_code"),
+    [
+        ("any", None),
+        ("no_experience", "101"),
+        ("experience_unlimited", "101"),
+        ("one_to_three", "104"),
+    ],
+)
+def test_build_search_url_preserves_experience_intent(
+    experience: str, expected_code: str | None
+):
+    """Only the four product choices may reach the BOSS URL, with no stale value reuse."""
+    target = build_boss_search_url(
+        current_url="https://www.zhipin.com/web/geek/jobs?city=101280600&experience=105",
+        query="Agent",
+        city=None,
+        experience=experience,
+    )
+    params = parse_qs(urlparse(target).query)
+    assert params.get("experience") == ([expected_code] if expected_code else None)
 
 
 def test_build_search_url_rejects_blank_query_and_non_numeric_city():
@@ -157,12 +180,17 @@ async def test_search_reuses_recent_connected_tab_without_a_second_dom_read(monk
     monkeypatch.setattr(bridge, "_capture_unlocked", AsyncMock(return_value={
         "kind": "interviewmind-boss-dom-capture-v1",
         "tab_id": "edge-tab-7",
-        "source_page_url": "https://www.zhipin.com/web/geek/jobs?city=101280600&query=agent",
+        "source_page_url": "https://www.zhipin.com/web/geek/jobs?city=101280600&query=agent&jobType=1901",
         "captured_at": "2026-07-30T00:00:00+00:00",
         "page_status": "search_ready",
         "ready_state": "complete",
         "cards": [make_card(1)],
     }))
+    monkeypatch.setattr(
+        bridge,
+        "_enrich_captured_cards_unlocked",
+        AsyncMock(return_value=([make_card(1)], 1, 0)),
+    )
     monkeypatch.setattr(bridge_module.asyncio, "sleep", AsyncMock())
 
     result = await bridge.search_and_capture(query="agent", browser_channel="msedge")
@@ -298,17 +326,19 @@ async def test_search_and_capture_navigates_existing_tab_without_opening_browser
     capture = AsyncMock(return_value={
         "kind": "interviewmind-boss-dom-capture-v1",
         "tab_id": "edge-tab-7",
-        "source_page_url": "https://www.zhipin.com/web/geek/jobs?city=101280600&query=agent",
+        "source_page_url": "https://www.zhipin.com/web/geek/jobs?city=101280600&query=agent&jobType=1901",
         "captured_at": "2026-07-30T00:00:00+00:00",
         "page_status": "search_ready",
         "ready_state": "complete",
         "cards": [make_card(1)],
     })
+    enrich = AsyncMock(return_value=([make_card(1)], 1, 0))
     sleep = AsyncMock()
     monkeypatch.setattr(bridge, "_inspect_unlocked", inspect)
     monkeypatch.setattr(bridge, "_respect_action_spacing", spacing)
     monkeypatch.setattr(bridge, "_navigate_existing_tab", navigate)
     monkeypatch.setattr(bridge, "_capture_unlocked", capture)
+    monkeypatch.setattr(bridge, "_enrich_captured_cards_unlocked", enrich)
     monkeypatch.setattr(bridge_module.asyncio, "sleep", sleep)
 
     result = await bridge.search_and_capture(
@@ -325,6 +355,7 @@ async def test_search_and_capture_navigates_existing_tab_without_opening_browser
     assert capture.await_args.kwargs["expected_tab_id"] == "edge-tab-7"
     assert parse_qs(urlparse(target_url).query) == {
         "city": ["101280600"],
+        "jobType": ["1901"],
         "query": ["agent"],
     }
     sleep.assert_awaited_once_with(5.0)

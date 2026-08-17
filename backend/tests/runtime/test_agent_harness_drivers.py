@@ -215,6 +215,24 @@ async def test_queued_driver_sanitizes_failure() -> None:
 
 
 @pytest.mark.asyncio
+async def test_queued_driver_persists_safe_timeout_summary() -> None:
+    service = _FakeService()
+
+    async def runner(_payload, _context):
+        raise TimeoutError
+
+    await QueuedDriver(
+        catalog=_catalog(runner),
+        service=service,
+        heartbeat_seconds=3600,
+        cancel_poll_seconds=3600,
+    ).run("run-1")
+
+    failure = next(call for call in service.calls if call[0] == "fail")
+    assert failure[2] == "任务执行超时，请稍后重试"
+
+
+@pytest.mark.asyncio
 async def test_queued_driver_cooperatively_cancels_running_adapter() -> None:
     service = _FakeService(cancel_requested=True)
     started = asyncio.Event()
@@ -238,6 +256,7 @@ async def test_queued_driver_cooperatively_cancels_running_adapter() -> None:
 
 @pytest.mark.asyncio
 async def test_inline_agent_run_owner_persists_sanitized_failure(monkeypatch) -> None:
+    from ai.workflows.agent_runs import mutations as agent_run_mutations
     from ai.workflows.agent_runs import use_cases as workflow
 
     failed = []
@@ -261,8 +280,8 @@ async def test_inline_agent_run_owner_persists_sanitized_failure(monkeypatch) ->
     async def execute(*_args, **_kwargs):
         raise RuntimeError("api_key=sk-12345678901234567890")
 
-    monkeypatch.setattr(workflow, "task_queue_enabled", lambda: False)
-    monkeypatch.setattr(workflow, "get_run_gate", lambda: FakeGate())
+    monkeypatch.setattr(agent_run_mutations, "task_queue_enabled", lambda: False)
+    monkeypatch.setattr(agent_run_mutations, "get_run_gate", lambda: FakeGate())
     monkeypatch.setattr(workflow.AgentRunUseCases, "_run_inline_task", execute)
     use_cases = workflow.AgentRunUseCases()
     use_cases._service = FakeService()

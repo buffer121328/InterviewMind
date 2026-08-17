@@ -2,7 +2,7 @@
 
 import re
 
-from app.schemas.experience_provider import ExperienceDocument
+from app.schemas.interview_experience.experience_provider import ExperienceDocument
 
 
 QUESTION_HINTS = ("如何", "为什么", "什么", "怎么", "是否", "介绍", "讲讲", "说说", "聊聊", "区别", "原理")
@@ -20,7 +20,7 @@ def _normalise_line(line: str) -> str:
     """规范化单行文本的空白和标点，便于后续题目解析保持稳定。
 
     Args:
-        line: 经过类型边界校验的 `line`；其格式和可选值由参数类型及调用流程约束。
+        line: 待规范化的单行文本。
     """
     line = re.sub(r"^\s*(?:[-*•]|\d+[.)、]|[一二三四五六七八九十]+[、.])\s*", "", line)
     line = re.sub(r"^(?:面试官|问题|题目|问)\s*[:：]\s*", "", line)
@@ -31,7 +31,7 @@ def _looks_like_question(line: str) -> bool:
     """判断文本是否足以视为面试问题，过滤标题、说明和无效片段。
 
     Args:
-        line: 经过类型边界校验的 `line`；其格式和可选值由参数类型及调用流程约束。
+        line: 规范化后的单行文本。
     """
     if not 5 <= len(line) <= 500:
         return False
@@ -40,10 +40,10 @@ def _looks_like_question(line: str) -> bool:
 
 
 def _target_skill(question: str) -> str | None:
-    """从岗位描述和题目内容提取目标技能，供题库标签和检索过滤使用。
+    """根据关键词从题目文本中匹配目标技能，供题库标签与检索过滤使用。
 
     Args:
-        question: 经过类型边界校验的 `question`；其格式和可选值由参数类型及调用流程约束。
+        question: 待判断技能归属的题目文本。
     """
     lowered = question.lower()
     for skill, keywords in SKILL_KEYWORDS.items():
@@ -56,7 +56,7 @@ def _question_type(question: str) -> str:
     """根据题干和上下文推断题目类型，并回退到安全的默认类型。
 
     Args:
-        question: 经过类型边界校验的 `question`；其格式和可选值由参数类型及调用流程约束。
+        question: 待推断类型的题目文本。
     """
     if any(word in question for word in ("设计", "架构", "高并发", "系统")):
         return "system_design"
@@ -69,7 +69,7 @@ def extract_questions(documents: list[ExperienceDocument]) -> list[dict[str, obj
     """从面经文本提取结构化面试题，过滤无效片段并保留来源和技能元数据。
 
     Args:
-        documents: 经过类型边界校验的 `documents`；其格式和可选值由参数类型及调用流程约束。
+        documents: 已归一化的面经文档列表。
     """
     questions: list[dict[str, object]] = []
     seen: set[str] = set()

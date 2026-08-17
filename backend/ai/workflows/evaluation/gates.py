@@ -7,7 +7,7 @@ from typing import Any
 from app.config import get_settings
 from app.db.models import async_session
 from app.db.unit_of_work import UnitOfWork
-from app.schemas.evaluations import EvaluationGatePolicyCreateRequest
+from app.schemas.evaluation.evaluations import EvaluationGatePolicyCreateRequest
 
 from ai.workflows.evaluation.analytics import (
     _is_unacceptable_regression,
@@ -23,7 +23,12 @@ class GateUseCasesMixin:
     async def create_gate_policy(
         self, *, user_id: str, request: EvaluationGatePolicyCreateRequest
     ) -> dict[str, Any]:
-        """创建 Gate Policy Version。"""
+        """创建 Gate Policy Version。
+
+        Args:
+            user_id: 当前用户标识。
+            request: 门禁策略创建请求。
+        """
 
         self._ensure_center_enabled()
         async with UnitOfWork(async_session) as uow:
@@ -33,7 +38,11 @@ class GateUseCasesMixin:
             return _gate(row)
 
     async def list_gate_policies(self, *, user_id: str) -> dict[str, Any]:
-        """列出 Gate Policy Versions。"""
+        """列出 Gate Policy Versions。
+
+        Args:
+            user_id: 当前用户标识。
+        """
 
         self._ensure_center_enabled()
         async with UnitOfWork(async_session) as uow:
@@ -47,7 +56,13 @@ class GateUseCasesMixin:
         run_id: str,
         policy_id: str | None = None,
     ) -> dict[str, Any]:
-        """检查硬门禁、最低样本量和汇总指标，并追加不可变 Gate Result。"""
+        """检查硬门禁、最低样本量和汇总指标，并追加不可变 Gate Result。
+
+        Args:
+            user_id: 当前用户标识。
+            run_id: 目标评测运行标识。
+            policy_id: 可选的门禁策略标识，缺省使用套件默认策略。
+        """
 
         self._ensure_center_enabled()
         async with UnitOfWork(async_session) as uow:
@@ -128,7 +143,14 @@ class GateUseCasesMixin:
         prompt_version: str,
         run_id: str | None = None,
     ) -> dict[str, Any]:
-        """按 off/warn/enforce 检查 Prompt 版本最近的不可变 Gate Result。"""
+        """按 off/warn/enforce 检查 Prompt 版本最近的不可变 Gate Result。
+
+        Args:
+            user_id: 当前用户标识。
+            prompt_name: Prompt 名称。
+            prompt_version: Prompt 版本号。
+            run_id: 可选的目标评测运行标识。
+        """
 
         mode = get_settings().evaluation_release_gate_mode
         if mode == "off":

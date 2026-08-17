@@ -15,12 +15,16 @@ import {
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { BOSS_HOT_CITIES } from '@/lib/bossCenter';
+import { BOSS_EXPERIENCE_OPTIONS, BOSS_JOB_TYPE_LABEL, BOSS_NO_EXPERIENCE_NOTICE } from '@/lib/bossCaptureFilters';
+import type { BossExperience } from '@/lib/api/jobs';
 
 interface BossSearchCapturePanelProps {
     query: string;
     onQueryChange: (value: string) => void;
     city: string;
     onCityChange: (value: string) => void;
+    experience: BossExperience;
+    onExperienceChange: (value: BossExperience) => void;
     topN: number;
     onTopNChange: (value: number) => void;
     resumeContent: string;
@@ -38,6 +42,8 @@ export function BossSearchCapturePanel({
     onQueryChange,
     city,
     onCityChange,
+    experience,
+    onExperienceChange,
     topN,
     onTopNChange,
     resumeContent,
@@ -75,6 +81,28 @@ export function BossSearchCapturePanel({
                         <Input value={city} readOnly placeholder="复用当前页" className="font-mono" />
                     </label>
                 </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                    <label className="grid gap-2 text-xs text-slate-600">工作经验
+                        <Select value={experience} onValueChange={value => onExperienceChange(value as BossExperience)}>
+                            <SelectTrigger><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                                {BOSS_EXPERIENCE_OPTIONS.map(option => (
+                                    <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </label>
+                    <label className="grid gap-2 text-xs text-slate-600">求职类型
+                        <div className="flex h-10 items-center rounded-md border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700">
+                            {BOSS_JOB_TYPE_LABEL}
+                        </div>
+                    </label>
+                </div>
+                {experience === 'no_experience' && (
+                    <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900">
+                        {BOSS_NO_EXPERIENCE_NOTICE}
+                    </div>
+                )}
                 <label className="grid gap-2 text-xs text-slate-600">结果数量（最多 20）
                     <Input
                         type="number"

@@ -9,7 +9,7 @@ BACKEND_APP = Path(__file__).resolve().parents[1] / "app"
 
 def resume_route_function_nodes(function_names: set[str]) -> dict[str, ast.AsyncFunctionDef]:
     """Return async route functions from the resume route modules."""
-    sources = sorted((BACKEND_APP / "api").glob("resume_*.py"))
+    sources = sorted((BACKEND_APP / "api" / "resume").glob("*.py"))
     found: dict[str, ast.AsyncFunctionDef] = {}
     for source in sources:
         tree = ast.parse(source.read_text())

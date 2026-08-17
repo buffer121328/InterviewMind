@@ -64,7 +64,7 @@ from unittest.mock import AsyncMock
 
 import ai.workflows.applications.use_cases as application_module
 from ai.workflows.applications.use_cases import ApplicationNotFound, ApplicationUseCases
-from app.schemas.job_application import ApplicationDetail, ApplicationResumeLinkRequest
+from app.schemas.jobs.job_application import ApplicationDetail, ApplicationResumeLinkRequest
 
 
 def _application(*, generated_resume_id: int | None = None, custom_resume_id: int | None = None) -> ApplicationDetail:

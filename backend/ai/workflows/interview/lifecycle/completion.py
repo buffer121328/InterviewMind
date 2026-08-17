@@ -10,6 +10,7 @@ import logging
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
 
+from ai.runtime.agent_runs.outbox import dispatch_pending_outbox
 from ai.workflows.agent_runs.queue.submission import enqueue_agent_run
 from ai.runtime.agent_runs.service import AgentRunService, task_queue_enabled
 from ai.runtime.execution.background import create_background_task
@@ -25,7 +26,14 @@ async def handle_interview_complete(
     trigger_analysis: bool = True,
     user_id: str = "default_user",
 ) -> None:
-    """处理面试完成：更新状态、归档问答，并按配置触发报告生成。"""
+    """处理面试完成：更新状态、归档问答，并按配置触发报告生成。
+
+    Args:
+        session_id: 目标会话标识。
+        api_config: 模型 API 配置，可选。
+        trigger_analysis: 是否触发报告分析。
+        user_id: 当前用户标识。
+    """
     try:
         if not session_id:
             logger.warning("[InterviewComplete] session_id 缺失")
@@ -68,7 +76,13 @@ async def queue_or_run_session_reports(
     api_config: dict[str, Any] | None = None,
     user_id: str = "default_user",
 ) -> None:
-    """优先使用可恢复 AgentRun 生成报告；队列不可用或失败时降级本地后台任务。"""
+    """优先使用可恢复 AgentRun 生成报告；队列不可用或失败时降级本地后台任务。
+
+    Args:
+        session_id: 目标会话标识。
+        api_config: 模型 API 配置，可选。
+        user_id: 当前用户标识。
+    """
     queued = False
     try:
         if task_queue_enabled():
@@ -84,7 +98,17 @@ async def queue_or_run_session_reports(
                 retried = await run_service.retry(run.id, user_id)
                 run = retried or run
             if created or run.status in {"queued", "retrying"}:
-                enqueue_agent_run(run.id)
+                dispatched, failed = await dispatch_pending_outbox(
+                    limit=50,
+                    enqueue_fn=enqueue_agent_run,
+                )
+                if failed:
+                    logger.warning(
+                        "[InterviewComplete] 报告任务 Outbox 投递失败: session=%s success=%s failed=%s",
+                        session_id,
+                        dispatched,
+                        failed,
+                    )
             queued = run.status in {"queued", "retrying", "running", "succeeded"}
             logger.info("[InterviewComplete] 已创建报告任务: session=%s run=%s", session_id, run.id)
     except Exception as queue_error:  # noqa: BLE001 - 需要降级到本地后台任务
@@ -106,7 +130,16 @@ async def generate_session_reports(
     report_checkpoint: Mapping[str, Any] | None = None,
     checkpoint_callback: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
 ) -> None:
-    """生成会话相关后端逻辑。"""
+    """触发单场面试报告分析任务（可带报告检查点与回调）。
+
+    Args:
+        session_id: 目标会话标识。
+        api_config: 模型 API 配置，可选。
+        user_id: 当前用户标识。
+        raise_on_error: 失败时是否抛出异常。
+        report_checkpoint: 报告生成检查点，可选。
+        checkpoint_callback: 检查点保存回调，可选。
+    """
     from ai.agents.interview.interview_analysis import trigger_session_report_analysis
 
     optional: dict[str, Any] = {}
@@ -132,7 +165,17 @@ async def process_interview_summary(
     memory_context: str | None = None,
     user_id: str = "default_user",
 ) -> str:
-    """处理进程面试摘要相关后端逻辑。"""
+    """面试结束处理：完成会话并触发分析，返回结束语。
+
+    Args:
+        session_id: 目标会话标识。
+        messages: 会话消息列表。
+        mode: 面试模式。
+        api_config: 模型 API 配置，可选。
+        trigger_analysis: 是否触发分析。
+        memory_context: 记忆上下文，可选。
+        user_id: 当前用户标识。
+    """
     from app.domain.interview_rounds import INTERVIEW_CLOSING_MESSAGE
 
     _ = (messages, mode, memory_context)

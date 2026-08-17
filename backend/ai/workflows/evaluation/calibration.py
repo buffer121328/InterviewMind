@@ -8,7 +8,7 @@ from typing import Any
 from app.config import get_settings
 from app.db.models import async_session
 from app.db.unit_of_work import UnitOfWork
-from app.schemas.evaluations import (
+from app.schemas.evaluation.evaluations import (
     EvaluationCalibrationCreateRequest,
     EvaluationCalibrationSimulateRequest,
 )
@@ -27,7 +27,12 @@ class CalibrationUseCasesMixin:
         user_id: str,
         request: EvaluationCalibrationCreateRequest,
     ) -> dict[str, Any]:
-        """计算并保存不可变 Calibration Version。"""
+        """计算并保存不可变 Calibration Version。
+
+        Args:
+            user_id: 当前用户标识。
+            request: 校准创建请求（评分样本与阈值）。
+        """
 
         self._ensure_center_enabled()
         try:
@@ -54,7 +59,11 @@ class CalibrationUseCasesMixin:
             return _calibration(row)
 
     async def list_calibrations(self, *, user_id: str) -> dict[str, Any]:
-        """列出 Calibration 历史。"""
+        """列出 Calibration 历史。
+
+        Args:
+            user_id: 当前用户标识。
+        """
 
         self._ensure_center_enabled()
         async with UnitOfWork(async_session) as uow:
@@ -68,7 +77,13 @@ class CalibrationUseCasesMixin:
         calibration_id: str,
         request: EvaluationCalibrationSimulateRequest,
     ) -> dict[str, Any]:
-        """回放阈值对假阳性、假阴性和通过率的影响，不写生产配置。"""
+        """回放阈值对假阳性、假阴性和通过率的影响，不写生产配置。
+
+        Args:
+            user_id: 当前用户标识。
+            calibration_id: 目标校准版本标识。
+            request: 阈值模拟请求（scores 与 expected_pass）。
+        """
 
         self._ensure_center_enabled()
         if len(request.scores) != len(request.expected_pass):

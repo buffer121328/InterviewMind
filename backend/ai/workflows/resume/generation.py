@@ -24,7 +24,7 @@ from app.db.repositories.resume.resume_generation_repo import (
 from app.db.repositories.resume.resume_repo import get_resume_repo
 from app.domain.agent_definitions import get_agent_definition
 from app.domain.agent_runs import TASK_TYPE_JOB_ASSETS, TASK_TYPE_RESUME_GENERATION
-from app.schemas.resume_schemas import (
+from app.schemas.resume.resume_schemas import (
     GeneratedResumeItem,
     GeneratedResumesResponse,
     ResumeGenerateInitRequest,
@@ -39,7 +39,7 @@ from observability import agent_observation
 class ResumeGenerationUseCaseError(Exception):
     """简历生成用例异常。"""
 
-    message: str
+    message: str  # 错误信息文本
 
 
 class ResumeGenerationBadRequest(ResumeGenerationUseCaseError):
@@ -75,6 +75,7 @@ class ResumeGenerationUseCases:
         resume_content = request.resume_content
         job_description = request.job_description
         optimization_result = request.optimization_result
+        # 引用已保存优化结果时：读取并校验审阅状态，用已确认内容作为生成输入
         if request.optimization_result_id is not None:
             stored = await get_resume_repo().get_result(request.optimization_result_id, user_id)
             if not stored or stored.get("result_type") != "optimize":
@@ -86,6 +87,7 @@ class ResumeGenerationUseCases:
             resume_content = review.get("resolved_resume") or stored["resume_content"]
             job_description = stored.get("job_description") or request.job_description
             optimization_result = pipeline_to_optimize_result(stored_data).model_dump()
+        # 未落库但需人工审阅的结果必须提供 ID，避免绕过审阅直接生成
         elif request.optimization_result.get("requires_user_review"):
             raise ResumeGenerationBadRequest(message="需要人工审阅的优化结果必须提供 optimization_result_id")
 
@@ -126,7 +128,12 @@ class ResumeGenerationUseCases:
         request: ResumeGenerateSubmitRequest,
         user_id: str,
     ) -> ResumeGenerateSubmitResponse:
-        """提交补充答案并由 SessionDriver 唯一持有 AgentRun lifecycle。"""
+        """提交补充答案，由 SessionDriver 唯一持有 AgentRun 生命周期。
+
+        Args:
+            request: 请求对象。
+            user_id: 用户 ID，所有者范围限定。
+        """
         if not request.api_config:
             raise ResumeGenerationBadRequest(message="请先配置 API Key")
 
@@ -182,6 +189,11 @@ class ResumeGenerationUseCases:
                 )
 
         async def bind_run(run_id: str) -> None:
+            """把后续运行绑定到当前会话的幂等键。
+
+            Args:
+                run_id: 任务运行 ID。
+            """
             await session_store.bind_continuation_run(
                 request.session_id,
                 user_id=user_id,
@@ -190,6 +202,11 @@ class ResumeGenerationUseCases:
             )
 
         async def fail_session(_message: str) -> None:
+            """将会话标记为失败终态。
+
+            Args:
+                _message: 消息参数（未使用）。
+            """
             await session_store.update(
                 request.session_id,
                 user_id=user_id,
@@ -197,6 +214,11 @@ class ResumeGenerationUseCases:
             )
 
         async def cancel_session(_message: str) -> None:
+            """将会话标记为取消终态。
+
+            Args:
+                _message: 消息参数（未使用）。
+            """
             await session_store.update(
                 request.session_id,
                 user_id=user_id,
@@ -204,6 +226,12 @@ class ResumeGenerationUseCases:
             )
 
         async def execute(run_id: str, mark_stage) -> dict:
+            """在观测上下文内提交用户回答并执行简历生成。
+
+            Args:
+                run_id: 任务运行 ID。
+                mark_stage: 传入的 mark_stage 值。
+            """
             async with agent_observation(
                 name="resume-generation",
                 agent_type="resume_generation",
@@ -272,7 +300,13 @@ class ResumeGenerationUseCases:
         session,
         answers: dict[str, str],
     ) -> str:
-        """为一次完整补充答案派生不落库正文的稳定 idempotency key。"""
+        """为一次完整补充答案派生稳定且不落库正文的幂等键。
+
+        Args:
+            session_id: 生成会话标识。
+            session: 生成会话对象，用于取问题列表与简历/JD 内容。
+            answers: 用户提交的问题答案映射。
+        """
 
         normalized_answers = [
             (question, str(answers[question]).strip())
@@ -303,12 +337,20 @@ class ResumeGenerationUseCases:
         user_id: str,
         run_service: AgentRunService,
     ):
-        """校验生成相关后端逻辑并返回 owner-scoped session。"""
+        """校验补充答案的完整性与会话状态，返回当前用户作用域内的会话。
+
+        Args:
+            request: 提交补充答案的请求对象。
+            user_id: 当前用户标识。
+            run_service: AgentRun 服务，用于校验会话关联运行的来源任务类型。
+        """
         session = await session_store.get(request.session_id, user_id=user_id)
         if session is None:
             raise ResumeGenerationNotFound(message="会话不存在或已过期")
+        # ① 状态门禁：会话必须处于待补充输入状态且存在问题列表
         if session.status != "awaiting_input" or not session.questions:
             raise ResumeGenerationConflict(message="该会话当前不接受补充回答")
+        # ② 完整性校验：提交的答案集合必须与服务端问题集合完全一致
         expected = set(session.questions)
         submitted = {
             question
@@ -317,6 +359,7 @@ class ResumeGenerationUseCases:
         }
         if submitted != expected or set(request.answers) != expected:
             raise ResumeGenerationBadRequest(message="请完整回答服务端返回的全部补充问题")
+        # ③ 来源门禁：会话关联的运行任务必须允许继续简历生成
         if session.agent_run_id:
             source_run = await run_service.get(session.agent_run_id, user_id)
             if source_run is None or source_run.task_type not in {

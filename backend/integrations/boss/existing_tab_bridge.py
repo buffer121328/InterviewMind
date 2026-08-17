@@ -39,6 +39,17 @@ _BROWSER_ALIASES = {
     "google-chrome": "chrome",
     "google chrome": "chrome",
 }
+_EXPERIENCE_FILTER_CODES = {
+    # 不限不向 BOSS 写入经验参数；无经验还会在完整 JD 导入后执行本地资格校验。
+    "any": "",
+    # BOSS 当前受控的“经验不限”筛选值；无经验先收窄到该集合，再由后端硬过滤。
+    "no_experience": "101",
+    "experience_unlimited": "101",
+    "one_to_three": "104",
+}
+_JOB_TYPE_FILTER_CODES = {
+    "full_time": "1901",
+}
 _BOSS_TAB_NOT_FOUND = "__NO_BOSS_TAB__"
 _BROWSER_NOT_RUNNING = "__BROWSER_NOT_RUNNING__"
 _BROWSER_WITHOUT_WINDOWS = "__NO_BROWSER_WINDOWS__"
@@ -60,7 +71,14 @@ class BossExistingTabError(RuntimeError):
         status_code: int = 409,
         request_may_have_run: bool = False,
     ) -> None:
-        """保存稳定错误码、脱敏提示和外部动作是否可能已经执行。"""
+        """保存稳定错误码、脱敏提示和外部动作是否可能已经执行。
+
+        Args:
+            code: 错误码或代码。
+            message: 单条消息。
+            status_code: 状态码。
+            request_may_have_run: 请求可能已执行标记。
+        """
         super().__init__(message)
         self.code = code
         self.message = message
@@ -72,8 +90,14 @@ class BossExistingTabError(RuntimeError):
 class BossBrowserTarget:
     """描述一个受支持、可通过 AppleScript 控制的本机浏览器渠道。"""
 
+    # 模型通道名称。
+    # 模型通道名称。
     channel: str
+    # app 名称。
+    # app 的名称。
     app_name: str
+    # 展示标签。
+    # label（str 类型）。
     label: str
 
 
@@ -81,7 +105,11 @@ class BossBrowserTarget:
 class BossTabExecution:
     """保存一次固定标签页脚本执行结果；tab id 仅在后端进程内用于防止读错页。"""
 
+    # tab 的 ID。
+    # tab 的 ID。
     tab_id: str
+    # 结果对象。
+    # 结果对象。
     result: str
 
 
@@ -89,15 +117,35 @@ class BossTabExecution:
 class BossTabStatus:
     """返回现有 BOSS 标签页的有限状态，不暴露页面正文或浏览器凭据。"""
 
+    # success，布尔值类型。
+    # success（bool 类型）。
     success: bool
+    # browser_channel，字符串类型。
+    # 浏览器渠道标识（如 msedge/chrome）。
     browser_channel: str
+    # browser_label，字符串类型。
+    # browser_label（str 类型）。
     browser_label: str
+    # connected，布尔值类型。
+    # connected（bool 类型）。
     connected: bool
+    # current 的 URL。
+    # current_url（str 类型）。
     current_url: str
+    # page 状态。
+    # page_status（str 类型）。
     page_status: str
+    # ready_state，字符串类型。
+    # ready_state（str 类型）。
     ready_state: str
+    # visible_card 的数量。
+    # visible_card 的数量。
     visible_card_count: int
+    # 单条消息。
+    # 单条消息。
     message: str
+    # tab 的 ID。
+    # tab 的 ID。
     tab_id: str = ""
 
     def as_dict(self) -> dict[str, Any]:
@@ -116,7 +164,11 @@ class BossTabStatus:
 
 
 def normalize_existing_tab_browser_channel(value: str | None) -> str:
-    """规范化前端或环境变量提供的浏览器渠道，只允许 Edge 与 Chrome。"""
+    """规范化前端或环境变量提供的浏览器渠道，只允许 Edge 与 Chrome。
+
+    Args:
+        value: 值。
+    """
     raw = str(value or "").strip().lower()
     if not raw:
         raw = str(os.getenv("BOSS_BROWSER_CHANNEL", "msedge")).strip().lower() or "msedge"
@@ -131,14 +183,22 @@ def normalize_existing_tab_browser_channel(value: str | None) -> str:
 
 
 def get_existing_tab_browser_target(value: str | None) -> BossBrowserTarget:
-    """解析白名单浏览器应用名，禁止把请求值直接插入 AppleScript。"""
+    """解析白名单浏览器应用名，禁止把请求值直接插入 AppleScript。
+
+    Args:
+        value: 值。
+    """
     channel = normalize_existing_tab_browser_channel(value)
     app_name, label = _BROWSER_TARGETS[channel]
     return BossBrowserTarget(channel=channel, app_name=app_name, label=label)
 
 
 def normalize_company_size_text(value: object) -> str:
-    """只保留 BOSS 公司标签中的人数规模，避免把行业和融资阶段误显示为人数。"""
+    """只保留 BOSS 公司标签中的人数规模，避免把行业和融资阶段误显示为人数。
+
+    Args:
+        value: 值。
+    """
     normalized = re.sub(r"\s+", " ", str(value or "")).strip()[:200]
     match = _COMPANY_SIZE_RE.search(normalized)
     return match.group(0)[:100] if match else ""
@@ -151,7 +211,14 @@ def _bounded_env_float(
     minimum: float,
     maximum: float,
 ) -> float:
-    """读取有界浮点环境配置，非法值回退默认值。"""
+    """读取有界浮点环境配置，非法值回退默认值。
+
+    Args:
+        name: 名称。
+        default: 默认值。
+        minimum: 最小值。
+        maximum: 最大值。
+    """
     try:
         value = float(os.getenv(name, str(default)))
     except (TypeError, ValueError):
@@ -180,7 +247,11 @@ def boss_existing_tab_action_delay_seconds() -> float:
 
 
 def boss_existing_tab_max_cards(requested: int = 20) -> int:
-    """把单次 DOM 候选卡片读取量限制在 1 到 20。"""
+    """把单次 DOM 候选卡片读取量限制在 1 到 20。
+
+    Args:
+        requested: 传入的 requested 值。
+    """
     try:
         configured = int(os.getenv("BOSS_CAPTURE_MAX_CANDIDATE_CARDS", "20"))
     except (TypeError, ValueError):
@@ -204,8 +275,18 @@ def build_boss_search_url(
     current_url: str,
     query: str,
     city: str | None,
+    experience: str = "any",
+    job_type: str = "full_time",
 ) -> str:
-    """基于当前官方页构造搜索 URL，保留明确允许的筛选项并重置翻页状态。"""
+    """基于当前官方页构造搜索 URL，保留明确允许的筛选项并重置翻页状态。
+
+    Args:
+        current_url: 传入的 current_url 值。
+        query: 查询字符串或对象。
+        city: 城市名称。
+        experience: 经验描述。
+        job_type: 岗位类型。
+    """
     query_value = str(query or "").strip()[:200]
     if not query_value:
         raise BossExistingTabError(
@@ -225,11 +306,26 @@ def build_boss_search_url(
             status_code=400,
         )
 
+    try:
+        experience_code = _EXPERIENCE_FILTER_CODES[experience]
+        job_type_code = _JOB_TYPE_FILTER_CODES[job_type]
+    except KeyError as exc:
+        raise BossExistingTabError(
+            "invalid_search_filter",
+            "仅支持不限、无经验、经验不限、1–3 年和全职岗位筛选。",
+            status_code=400,
+        ) from exc
+
     params: dict[str, str] = {}
     for name in _PRESERVED_SEARCH_PARAMS:
         value = str((current_params.get(name) or [""])[0]).strip()[:100]
         if value:
             params[name] = value
+    params.pop("experience", None)
+    params.pop("jobType", None)
+    if experience_code:
+        params["experience"] = experience_code
+    params["jobType"] = job_type_code
     if city_value:
         params["city"] = city_value
     params["query"] = query_value
@@ -251,7 +347,12 @@ def build_boss_search_url(
 
 
 def boss_search_url_matches_intent(actual_url: str, expected_url: str) -> bool:
-    """确认采集页已经反映目标关键词；目标显式城市存在时也必须一致。"""
+    """确认采集页已经反映目标关键词；目标显式城市存在时也必须一致。
+
+    Args:
+        actual_url: 实际 URL。
+        expected_url: 期望 URL。
+    """
     if not is_allowed_boss_search_url(actual_url) or not is_allowed_boss_search_url(expected_url):
         return False
     actual_params = parse_qs(urlparse(actual_url).query, keep_blank_values=False)
@@ -259,11 +360,21 @@ def boss_search_url_matches_intent(actual_url: str, expected_url: str) -> bool:
     if (actual_params.get("query") or [""])[0] != (expected_params.get("query") or [""])[0]:
         return False
     expected_city = (expected_params.get("city") or [""])[0]
-    return not expected_city or (actual_params.get("city") or [""])[0] == expected_city
+    if expected_city and (actual_params.get("city") or [""])[0] != expected_city:
+        return False
+    for name in ("experience", "jobType"):
+        if (actual_params.get(name) or [""])[0] != (expected_params.get(name) or [""])[0]:
+            return False
+    return True
 
 
 def _select_existing_boss_tab_script(app_name: str, action_body: str) -> str:
-    """构造锁定既有 BOSS 标签页的 JXA；应用名固定，tab id 通过 argv 参数传入。"""
+    """构造锁定既有 BOSS 标签页的 JXA；应用名固定，tab id 通过 argv 参数传入。
+
+    Args:
+        app_name: app 的名称。
+        action_body: 传入的 action_body 值。
+    """
     return f"""
 function isBossURL(value) {{
   const url = String(value || '');
@@ -444,6 +555,48 @@ _CAPTURE_JAVASCRIPT = r"""
 })()
 """.strip()
 
+_DETAIL_JAVASCRIPT = r"""
+(() => {
+  const clean = (value) => String(value || '').replace(/\s+/g, ' ').trim();
+  const url = location.href;
+  const path = location.pathname.replace(/\/+$/, '').toLowerCase();
+  const pageText = clean(document.body ? document.body.innerText : '').slice(0, 6000);
+  const loginMarkers = ['扫码登录', '手机号登录', '密码登录', '登录/注册', '登录后继续'];
+  const securityMarkers = ['安全验证', '请完成验证', '访问异常', '行为验证', '拖动滑块'];
+  let status = 'detail_loading';
+  if (path === '/web/user' || loginMarkers.some(marker => pageText.includes(marker))) status = 'login_required';
+  else if (path.includes('security') || path.includes('verify') || securityMarkers.some(marker => pageText.includes(marker))) status = 'security_check';
+
+  let jobDescription = '';
+  if (status === 'detail_loading') {
+    const selectors = [
+      '.job-sec-text',
+      '.job-detail',
+      '.job-description',
+      '[class*="job-sec-text"]',
+      '[class*="job-detail"]',
+      '[class*="job-description"]',
+      '[class*="job-desc"]',
+    ];
+    for (const selector of selectors) {
+      const element = document.querySelector(selector);
+      const value = clean(element ? (element.innerText || element.textContent) : '');
+      if (value.length >= 8) {
+        jobDescription = value.slice(0, 3000);
+        status = 'detail_ready';
+        break;
+      }
+    }
+  }
+  return JSON.stringify({
+    status,
+    current_url: url,
+    ready_state: document.readyState || '',
+    job_description: jobDescription,
+  });
+})()
+""".strip()
+
 
 _OPEN_CONTACT_JAVASCRIPT = r"""
 (() => {
@@ -482,7 +635,11 @@ _OPEN_CONTACT_JAVASCRIPT = r"""
 
 
 def _build_send_message_javascript(message_text: str) -> str:
-    """构造只向可见聊天编辑器写入有界文案并点击一次发送的固定脚本。"""
+    """构造只向可见聊天编辑器写入有界文案并点击一次发送的固定脚本。
+
+    Args:
+        message_text: message 文本。
+    """
 
     message = json.dumps(message_text)
     return r"""
@@ -530,7 +687,11 @@ def _build_send_message_javascript(message_text: str) -> str:
 
 
 def _build_verify_message_javascript(message_text: str) -> str:
-    """构造发送后置条件检查，只判断可见消息气泡，不读取或返回聊天正文。"""
+    """构造发送后置条件检查，只判断可见消息气泡，不读取或返回聊天正文。
+
+    Args:
+        message_text: message 文本。
+    """
 
     message = json.dumps(message_text)
     return r"""
@@ -561,7 +722,11 @@ class BossExistingTabBridge:
         self._last_action_at: dict[str, float] = {}
 
     def _fresh_cached_status(self, target: BossBrowserTarget) -> BossTabStatus | None:
-        """返回五秒窗口内的同渠道状态，避免连接后立即再次读取同一页面 DOM。"""
+        """返回五秒窗口内的同渠道状态，避免连接后立即再次读取同一页面 DOM。
+
+        Args:
+            target: 目标标识。
+        """
         cached = self._status_cache.get(target.channel)
         if cached and monotonic() - cached[0] < boss_existing_tab_poll_interval_seconds():
             return cached[1]
@@ -574,7 +739,14 @@ class BossExistingTabBridge:
         timeout_seconds: float = 10.0,
         timeout_context: str = "",
     ) -> str:
-        """参数化执行 osascript；超时或权限失败时只返回脱敏诊断。"""
+        """参数化执行 osascript；超时或权限失败时只返回脱敏诊断。
+
+        Args:
+            script: 传入的 script 值。
+            timeout_seconds: 超时秒数。
+            timeout_context: 传入的 timeout_context 值。
+            arguments: 传入的 arguments 值。
+        """
         if sys.platform != "darwin":
             raise BossExistingTabError(
                 "unsupported_platform",
@@ -635,7 +807,11 @@ class BossExistingTabBridge:
 
     @staticmethod
     def _parse_execution_envelope(result: str) -> BossTabExecution:
-        """解析 JXA 最小执行信封，拒绝缺少固定 tab id 的浏览器结果。"""
+        """解析 JXA 最小执行信封，拒绝缺少固定 tab id 的浏览器结果。
+
+        Args:
+            result: 结果对象。
+        """
         try:
             payload = json.loads(result)
         except json.JSONDecodeError as exc:
@@ -666,7 +842,13 @@ class BossExistingTabBridge:
         *,
         expected_tab_id: str = "",
     ) -> BossTabExecution:
-        """在同一既有 BOSS 标签页执行固定 JavaScript，不创建、关闭或反复激活标签页。"""
+        """在同一既有 BOSS 标签页执行固定 JavaScript，不创建、关闭或反复激活标签页。
+
+        Args:
+            target: 目标值。
+            javascript: 传入的 javascript 值。
+            expected_tab_id: expected_tab 的 ID。
+        """
         script = _select_existing_boss_tab_script(
             target.app_name,
             "const javascriptSource = argv[1];\n"
@@ -690,8 +872,17 @@ class BossExistingTabBridge:
         *,
         expected_tab_id: str,
         allow_job_detail: bool = False,
+        activate: bool = True,
     ) -> str:
-        """只导航已锁定的 BOSS 标签页并激活一次，后续轮询不再抢占用户焦点。"""
+        """只导航已锁定的 BOSS 标签页；批量详情读取不反复抢占用户焦点。
+
+        Args:
+            target: 目标值。
+            target_url: 传入的 target_url 值。
+            expected_tab_id: expected_tab 的 ID。
+            allow_job_detail: 传入的 allow_job_detail 值。
+            activate: 传入的 activate 值。
+        """
         allowed = is_allowed_boss_search_url(target_url) or (allow_job_detail and is_allowed_boss_job_url(target_url))
         if not allowed:
             raise BossExistingTabError(
@@ -702,23 +893,30 @@ class BossExistingTabBridge:
         script = _select_existing_boss_tab_script(
             target.app_name,
             "const targetURL = argv[1];\n"
+            "  const shouldActivate = argv[2] === 'true';\n"
             "  selectedTab.url = targetURL;\n"
-            "  selectedWindow.activeTabIndex = selectedTabIndex + 1;\n"
+            "  if (shouldActivate) selectedWindow.activeTabIndex = selectedTabIndex + 1;\n"
             "  return JSON.stringify({tab_id: safeTabID(selectedTab), result: targetURL});",
         )
         result = await self._run_applescript(
             script,
             expected_tab_id,
             target_url,
+            "true" if activate else "false",
             timeout_seconds=20.0,
-            timeout_context="导航并激活已锁定的 BOSS 标签页",
+            timeout_context="导航已锁定的 BOSS 标签页",
         )
         self._raise_for_marker(result, target)
         return self._parse_execution_envelope(result).tab_id
 
     @staticmethod
     def _raise_for_marker(result: str, target: BossBrowserTarget) -> None:
-        """把 AppleScript 稳定标记转换为用户可操作的桥接错误。"""
+        """把 AppleScript 稳定标记转换为用户可操作的桥接错误。
+
+        Args:
+            result: 结果对象。
+            target: 目标标识。
+        """
         if result == _BROWSER_NOT_RUNNING:
             raise BossExistingTabError(
                 "browser_not_running",
@@ -746,7 +944,12 @@ class BossExistingTabBridge:
 
     @staticmethod
     def _status_from_payload(target: BossBrowserTarget, payload: dict[str, Any]) -> BossTabStatus:
-        """把页面脚本返回值收敛为有限公开状态。"""
+        """把页面脚本返回值收敛为有限公开状态。
+
+        Args:
+            target: 目标标识。
+            payload: 载荷字典。
+        """
         current_url = str(payload.get("current_url") or "")[:2048]
         page_status = str(payload.get("page_status") or "boss_page")[:50]
         ready_state = str(payload.get("ready_state") or "")[:30]
@@ -776,7 +979,11 @@ class BossExistingTabBridge:
 
     @staticmethod
     def _action_status(execution: BossTabExecution) -> str:
-        """解析页面动作的最小状态，不接受或向上返回页面正文。"""
+        """解析页面动作的最小状态，不接受或向上返回页面正文。
+
+        Args:
+            execution: 传入的 execution 值。
+        """
 
         try:
             payload = json.loads(execution.result)
@@ -798,7 +1005,12 @@ class BossExistingTabBridge:
         *,
         expected_tab_id: str = "",
     ) -> BossTabStatus:
-        """读取一次有限页面状态并保留内部 tab id；调用方负责渠道锁和五秒缓存。"""
+        """读取一次有限页面状态并保留内部 tab id；调用方负责渠道锁和五秒缓存。
+
+        Args:
+            target: 目标标识。
+            expected_tab_id: expected_tab 的 ID。
+        """
         execution = await self._execute_in_existing_tab(
             target,
             _STATUS_JAVASCRIPT,
@@ -824,7 +1036,11 @@ class BossExistingTabBridge:
         return status
 
     async def inspect(self, browser_channel: str | None = None) -> BossTabStatus:
-        """连接并检查当前 BOSS 标签页；五秒内重复请求复用缓存而不重复读 DOM。"""
+        """连接并检查当前 BOSS 标签页；五秒内重复请求复用缓存而不重复读 DOM。
+
+        Args:
+            browser_channel: 浏览器渠道标识（如 msedge/chrome）。
+        """
         target = get_existing_tab_browser_target(browser_channel)
         async with self._locks[target.channel]:
             cached = self._fresh_cached_status(target)
@@ -833,7 +1049,11 @@ class BossExistingTabBridge:
             return await self._inspect_unlocked(target)
 
     async def _respect_action_spacing(self, target: BossBrowserTarget) -> None:
-        """确保同一浏览器渠道的导航动作之间保留保守间隔。"""
+        """确保同一浏览器渠道的导航动作之间保留保守间隔。
+
+        Args:
+            target: 目标标识。
+        """
         last_action = self._last_action_at.get(target.channel)
         delay = boss_existing_tab_action_delay_seconds()
         if last_action is not None:
@@ -850,7 +1070,13 @@ class BossExistingTabBridge:
         max_cards: int,
         expected_tab_id: str = "",
     ) -> dict[str, Any]:
-        """在已锁定标签页读取最多 20 张候选卡片，并再次做 URL 与字段过滤。"""
+        """在已锁定标签页读取最多 20 张候选卡片，并再次做 URL 与字段过滤。
+
+        Args:
+            target: 目标标识。
+            max_cards: cards 的最大值。
+            expected_tab_id: expected_tab 的 ID。
+        """
         execution = await self._execute_in_existing_tab(
             target,
             _CAPTURE_JAVASCRIPT,
@@ -909,16 +1135,143 @@ class BossExistingTabBridge:
             "cards": cards,
         }
 
+    async def _capture_job_detail_unlocked(
+        self,
+        target: BossBrowserTarget,
+        *,
+        source_url: str,
+        expected_tab_id: str,
+    ) -> dict[str, str]:
+        """读取锁定官方岗位详情页的有限职位介绍，不返回整页文本。
+
+        Args:
+            target: 目标标识。
+            source_url: 来源 URL。
+            expected_tab_id: expected_tab 的 ID。
+        """
+        execution = await self._execute_in_existing_tab(
+            target,
+            _DETAIL_JAVASCRIPT,
+            expected_tab_id=expected_tab_id,
+        )
+        try:
+            payload = json.loads(execution.result)
+        except json.JSONDecodeError as exc:
+            raise BossExistingTabError(
+                "invalid_browser_response",
+                "浏览器返回了无法识别的岗位详情状态。",
+            ) from exc
+        if not isinstance(payload, dict):
+            raise BossExistingTabError(
+                "invalid_browser_response",
+                "浏览器岗位详情状态格式无效。",
+            )
+        detail_status = str(payload.get("status") or "detail_loading")[:80]
+        if detail_status == "login_required":
+            raise BossExistingTabError(
+                "login_required",
+                "读取岗位详情时当前 BOSS 标签页需要登录，请在同一标签页手动完成登录后重试。",
+                status_code=409,
+            )
+        if detail_status == "security_check":
+            raise BossExistingTabError(
+                "security_check_required",
+                "读取岗位详情时 BOSS 要求安全验证，请手动完成后再采集；程序不会绕过验证。",
+                status_code=409,
+            )
+        current_url = str(payload.get("current_url") or "").strip()[:2048]
+        description = str(payload.get("job_description") or "").strip()[:3000]
+        if not boss_job_url_matches_expected(current_url, source_url):
+            detail_status = "detail_unavailable"
+            description = ""
+        if len(description) < 8:
+            detail_status = "detail_unavailable"
+            description = ""
+        return {
+            "status": detail_status,
+            "current_url": current_url,
+            "job_description": description,
+        }
+
+    async def _enrich_captured_cards_unlocked(
+        self,
+        target: BossBrowserTarget,
+        *,
+        cards: list[dict[str, Any]],
+        search_url: str,
+        expected_tab_id: str,
+    ) -> tuple[list[dict[str, Any]], int, int]:
+        """顺序补充详情 JD；普通缺失保留搜索摘要，最后恢复搜索页。
+
+        Args:
+            target: 目标值。
+            cards: 卡片列表。
+            search_url: 传入的 search_url 值。
+            expected_tab_id: expected_tab 的 ID。
+        """
+        enriched_cards = [dict(card) for card in cards]
+        enriched_count = 0
+        fallback_count = 0
+        pinned_tab_id = expected_tab_id
+        for card in enriched_cards:
+            source_url = str(card.get("source_url") or "").strip()[:2048]
+            if not is_allowed_boss_job_url(source_url):
+                fallback_count += 1
+                continue
+            await self._respect_action_spacing(target)
+            pinned_tab_id = await self._navigate_existing_tab(
+                target,
+                source_url,
+                expected_tab_id=pinned_tab_id,
+                allow_job_detail=True,
+                activate=False,
+            )
+            self._last_action_at[target.channel] = monotonic()
+            await asyncio.sleep(boss_existing_tab_poll_interval_seconds())
+            detail = await self._capture_job_detail_unlocked(
+                target,
+                source_url=source_url,
+                expected_tab_id=pinned_tab_id,
+            )
+            if detail["status"] == "detail_ready":
+                card["job_description"] = detail["job_description"]
+                enriched_count += 1
+            else:
+                fallback_count += 1
+
+        await self._respect_action_spacing(target)
+        await self._navigate_existing_tab(
+            target,
+            search_url,
+            expected_tab_id=pinned_tab_id,
+            allow_job_detail=False,
+            activate=True,
+        )
+        self._last_action_at[target.channel] = monotonic()
+        return enriched_cards, enriched_count, fallback_count
+
     async def search_and_capture(
         self,
         *,
         query: str,
         city: str | None = None,
         max_cards: int = 20,
+        experience: str = "any",
+        job_type: str = "full_time",
         browser_channel: str | None = None,
         max_checks: int = 6,
     ) -> dict[str, Any]:
-        """在现有 BOSS 标签页搜索并按至少五秒间隔检查，返回最多 20 张卡片。"""
+        """在现有 BOSS 标签页搜索并按至少五秒间隔检查，返回最多 20 张卡片。
+
+        Args:
+            query: 查询字符串或对象。
+            city: 城市名称。
+            max_cards: cards 的最大值。
+            experience: 经验描述。
+            job_type: 岗位类型。
+            browser_channel: 浏览器渠道标识（如 msedge/chrome）。
+            max_checks: checks 的最大值。
+        """
         target = get_existing_tab_browser_target(browser_channel)
         card_limit = boss_existing_tab_max_cards(max_cards)
         async with self._locks[target.channel]:
@@ -942,6 +1295,8 @@ class BossExistingTabBridge:
                 current_url=initial_status.current_url,
                 query=query,
                 city=city,
+                experience=experience,
+                job_type=job_type,
             )
             pinned_tab_id = await self._navigate_existing_tab(
                 target,
@@ -977,6 +1332,13 @@ class BossExistingTabBridge:
                     and boss_search_url_matches_intent(capture["source_page_url"], target_url)
                     and capture["cards"]
                 ):
+                    cards, detail_enriched_count, detail_fallback_count = await self._enrich_captured_cards_unlocked(
+                        target,
+                        cards=capture["cards"],
+                        search_url=capture["source_page_url"],
+                        expected_tab_id=pinned_tab_id,
+                    )
+                    capture["cards"] = cards
                     self._status_cache[target.channel] = (
                         monotonic(),
                         BossTabStatus(
@@ -997,7 +1359,11 @@ class BossExistingTabBridge:
                         "success": True,
                         "browser_channel": target.channel,
                         "browser_label": target.label,
-                        "message": f"已复用现有 {target.label} 登录页完成搜索和有限字段采集。",
+                        "message": (
+                            f"已复用现有 {target.label} 登录页完成搜索、有限字段采集和岗位详情补充。"
+                        ),
+                        "detail_enriched_count": detail_enriched_count,
+                        "detail_fallback_count": detail_fallback_count,
                         **capture,
                     }
 
@@ -1015,7 +1381,13 @@ class BossExistingTabBridge:
         message_text: str,
         browser_channel: str | None = None,
     ) -> dict[str, Any]:
-        """在锁定的 BOSS 标签页发送一次文案，并要求消息气泡后置条件成立。"""
+        """在锁定的 BOSS 标签页发送一次文案，并要求消息气泡后置条件成立。
+
+        Args:
+            source_url: 来源 URL。
+            message_text: message 文本。
+            browser_channel: 浏览器渠道标识（如 msedge/chrome）。
+        """
 
         message = str(message_text or "").strip()
         if not is_allowed_boss_job_url(source_url):
@@ -1146,7 +1518,12 @@ class BossExistingTabBridge:
         source_url: str,
         browser_channel: str | None = None,
     ) -> dict[str, Any]:
-        """把既有登录 BOSS 标签页导航到已持久化的官方岗位详情页。"""
+        """把既有登录 BOSS 标签页导航到已持久化的官方岗位详情页。
+
+        Args:
+            source_url: 来源 URL。
+            browser_channel: 浏览器渠道标识（如 msedge/chrome）。
+        """
         if not is_allowed_boss_job_url(source_url):
             raise BossExistingTabError(
                 "invalid_job_url",

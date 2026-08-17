@@ -1,6 +1,6 @@
 """把内部简历流水线输出映射为稳定的公开结果。"""
 
-from app.schemas.resume_schemas import ResumeOptimizeResult
+from app.schemas.resume.resume_schemas import ResumeOptimizeResult
 
 
 def pipeline_to_optimize_result(pipeline_output: dict) -> ResumeOptimizeResult:

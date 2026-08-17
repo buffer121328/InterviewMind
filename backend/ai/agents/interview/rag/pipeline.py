@@ -27,18 +27,33 @@ logger = logging.getLogger(__name__)
 
 
 def _dedupe_preserve_order(values: List[str]) -> List[str]:
-    """去重并保留来源优先级顺序。"""
+    """去重并保留来源优先级顺序。
+
+    Args:
+        values: 取值字典。
+    """
     return list(dict.fromkeys(values))
 
 
 def _query_fingerprint(text: str) -> str:
-    """生成不可逆 query 指纹，供 RAG 观测对齐而不暴露原始查询。"""
+    """生成不可逆 query 指纹，供 RAG 观测对齐而不暴露原始查询。
+
+    Args:
+        text: 文本内容。
+    """
 
     return "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def _bounded_int_env(name: str, default: int, minimum: int, maximum: int) -> int:
-    """读取有上下界的整数配置，非法值回退默认值。"""
+    """读取有上下界的整数配置，非法值回退默认值。
+
+    Args:
+        name: 名称。
+        default: 默认值。
+        minimum: 最小值。
+        maximum: 最大值。
+    """
     try:
         value = int(os.getenv(name, str(default)))
     except (TypeError, ValueError):
@@ -48,7 +63,14 @@ def _bounded_int_env(name: str, default: int, minimum: int, maximum: int) -> int
 
 
 def _bounded_float_env(name: str, default: float, minimum: float, maximum: float) -> float:
-    """读取有上下界的浮点配置，非法值回退默认值。"""
+    """读取有上下界的浮点配置，非法值回退默认值。
+
+    Args:
+        name: 名称。
+        default: 默认值。
+        minimum: 最小值。
+        maximum: 最大值。
+    """
     try:
         value = float(os.getenv(name, str(default)))
     except (TypeError, ValueError):
@@ -103,6 +125,13 @@ def build_queries(
     """
     从 JD、简历、短板中提取检索 query
     返回 1-3 个 query
+
+    Args:
+        job_description: 目标岗位 JD。
+        resume: 简历全文。
+        weakness_report: 弱项报告数据。
+        target_skills: 目标技能列表。
+        round_type: 轮次类型。
     """
     queries: List[RetrievalQuery] = []
 
@@ -150,7 +179,11 @@ def build_queries(
 
 
 def _compute_freshness_score(metadata: Dict[str, Any]) -> float:
-    """基于元数据估算新鲜度分（简单启发式）"""
+    """基于元数据估算新鲜度分（简单启发式）
+
+    Args:
+        metadata: 元数据字典。
+    """
     # 如果有 usage_count，使用越多分越低
     usage = metadata.get("usage_count", 0)
     if usage > 10:
@@ -172,6 +205,10 @@ def rerank_evidences(
       WEIGHT_TEXT * text_score +
       WEIGHT_SOURCE_PRIORITY * source_priority +
       WEIGHT_FRESHNESS * freshness
+
+    Args:
+        evidences: 证据列表。
+        max_results: results 的最大值。
     """
     for ev in evidences:
         source_priority = _SOURCE_PRIORITY.get(ev.source_type, 0.5)
@@ -238,6 +275,11 @@ def fact_guard(
 
     Returns:
         {"passed": bool, "issues": [...]}
+
+    Args:
+        evidences: 证据列表。
+        user_id: 用户 ID，所有者范围限定。
+        historical_questions: 历史题目列表。
     """
     issues = []
 
@@ -285,8 +327,15 @@ async def _retrieve_queries(
     queries: List[RetrievalQuery],
     api_config: Optional[dict] = None,
 ) -> List[RagEvidence]:
-    """执行只读混合召回；user_id 与 namespace 由服务端固定注入。"""
-    from ai.rag.embedding_service import generate_embedding
+    """执行只读混合召回；user_id 与 namespace 由服务端固定注入。
+
+    Args:
+        repo: 仓储实例。
+        user_id: 用户 ID，所有者范围限定。
+        queries: 查询列表。
+        api_config: 前端请求携带的模型通道配置。
+    """
+    from ai.rag.embedding_service import generate_embedding, get_embedding_config
 
     all_evidences: List[RagEvidence] = []
 
@@ -297,7 +346,14 @@ async def _retrieve_queries(
         operation: str,
         query_fingerprint: str | None = None,
     ) -> Any:
-        """记录一次 RAG 仓储 IO；只保留调用 ID、指纹、计数、耗时和错误分类。"""
+        """记录一次 RAG 仓储 IO；只保留调用 ID、指纹、计数、耗时和错误分类。
+
+        Args:
+            awaitable: 可等待对象。
+            timeout: 超时时间（秒）。
+            operation: 操作标识。
+            query_fingerprint: 查询指纹。
+        """
         started_at = perf_counter()
         call_id = new_runtime_event_id("rag_io")
         record_external_io_event(
@@ -393,12 +449,14 @@ async def _retrieve_queries(
 
         if VECTOR_ENABLED and q.text and len(q.text.strip()) > 10:
             try:
+                embedding_config = get_embedding_config(api_config)
                 query_embedding = await generate_embedding(q.text[:300], api_config=api_config)
                 vector_results = await timed_database_call(
                     repo.search_by_vector(
                         user_id=user_id,
                         namespace="user_private",
                         query_embedding=query_embedding,
+                        embedding_model=str(embedding_config["model"]),
                         source_types=q.source_types,
                         limit=8,
                         min_score=0.3,
@@ -429,7 +487,14 @@ async def _retrieve_memory_evidences(
     limit: int = 5,
     api_config: Optional[dict] = None,
 ) -> List[RagEvidence]:
-    """将 mem0 只读结果适配为统一证据结构。"""
+    """将 mem0 只读结果适配为统一证据结构。
+
+    Args:
+        user_id: 用户 ID，所有者范围限定。
+        query: 查询字符串或对象。
+        limit: 返回数量上限。
+        api_config: 前端请求携带的模型通道配置。
+    """
     from ai.runtime.middleware.content_safety import contains_prompt_injection
     from ai.tools.memory_tools import search_memory
 
@@ -465,7 +530,12 @@ def _rank_evidence_copies(
     *,
     max_results: int = 15,
 ) -> List[RagEvidence]:
-    """重排副本，避免影子检索修改旧链路的原始分数。"""
+    """重排副本，避免影子检索修改旧链路的原始分数。
+
+    Args:
+        evidences: 证据列表。
+        max_results: results 的最大值。
+    """
     return rerank_evidences([replace(item) for item in evidences], max_results=max_results)
 
 
@@ -474,7 +544,12 @@ def _merge_ranked_evidences(
     *,
     max_results: int = 15,
 ) -> List[RagEvidence]:
-    """合并多个已重排结果，按来源键去重。"""
+    """合并多个已重排结果，按来源键去重。
+
+    Args:
+        evidences: 证据列表。
+        max_results: results 的最大值。
+    """
     best_by_source: Dict[str, RagEvidence] = {}
     for evidence in evidences:
         key = f"{evidence.source_type}:{evidence.source_id}"
@@ -489,7 +564,11 @@ def _merge_ranked_evidences(
 
 
 def _quality_key(quality: Any) -> tuple:
-    """仅在 Agentic 结果严格改善时允许替换旧结果。"""
+    """仅在 Agentic 结果严格改善时允许替换旧结果。
+
+    Args:
+        quality: 质量数据。
+    """
     return (
         int(bool(quality.passed)),
         int(quality.high_score_count),
@@ -512,7 +591,20 @@ def _build_retrieval_trace(
     final_issues: Optional[List[str]] = None,
     agentic_error_type: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """构建不含原始查询和用户内容的检索指标。"""
+    """构建不含原始查询和用户内容的检索指标。
+
+    Args:
+        started_at: 开始时间。
+        evidences: 证据列表。
+        total_candidates: 候选总数。
+        agentic_mode: Agent 模式。
+        triggered: 传入的 triggered 值。
+        adopted: 是否已采纳。
+        rounds: 传入的 rounds 值。
+        initial_issues: 传入的 initial_issues 值。
+        final_issues: 传入的 final_issues 值。
+        agentic_error_type: Agent 错误类型。
+    """
     return {
         "duration_ms": round((perf_counter() - started_at) * 1000, 2),
         "total_candidates": total_candidates,
@@ -529,7 +621,12 @@ def _build_retrieval_trace(
 
 
 def _record_rag_pipeline_started(*, call_id: str, query_fingerprint: str) -> None:
-    """记录 RAG pipeline 开始事件；不包含 query、JD、简历或证据正文。"""
+    """记录 RAG pipeline 开始事件；不包含 query、JD、简历或证据正文。
+
+    Args:
+        call_id: 调用 ID。
+        query_fingerprint: 查询指纹。
+    """
 
     record_external_io_event(
         ExternalIOObservationEvent(
@@ -553,7 +650,17 @@ def _finalize_rag_pipeline_observation(
     strategy: str,
     agentic_error_type: str | None,
 ) -> None:
-    """记录带采用判断的 RAG 终态，并把安全关联字段写回 trace。"""
+    """记录带采用判断的 RAG 终态，并把安全关联字段写回 trace。
+
+    Args:
+        call_id: 调用 ID。
+        query_fingerprint: 查询指纹。
+        trace: 追踪数据。
+        result_count: result 的数量。
+        adopted: 是否已采纳。
+        strategy: 策略标识。
+        agentic_error_type: Agent 错误类型。
+    """
 
     trace.update({
         "retrieval_strategy": strategy,
@@ -605,6 +712,16 @@ async def run_rag_pipeline(
     5. evidence_packer: 组装证据包
     6. fact_guard: 事实检查
     7. 降级处理
+
+    Args:
+        user_id: 用户 ID，所有者范围限定。
+        job_description: 目标岗位 JD。
+        resume: 简历全文。
+        session_id: 面试会话 ID。
+        weakness_report: 弱项报告数据。
+        target_skills: 目标技能列表。
+        round_type: 轮次类型。
+        api_config: 前端请求携带的模型通道配置。
     """
     from app.db.repositories.interview.rag_index_repo import get_rag_index_repo
 

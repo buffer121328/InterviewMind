@@ -183,6 +183,47 @@ async def test_host_service_delegates_search_and_capture(monkeypatch):
         query="Agent",
         city="101280600",
         max_cards=20,
+        experience="any",
+        job_type="full_time",
+        browser_channel=None,
+    )
+
+
+@pytest.mark.asyncio
+async def test_host_service_delegates_no_experience_search_intent(monkeypatch):
+    """The host service forwards the bounded no-experience option without accepting arbitrary filters."""
+    from app.entrypoints.browser_automation_service import app
+
+    monkeypatch.setenv("BROWSER_AUTOMATION_SERVICE_TOKEN", TOKEN)
+    bridge = MagicMock()
+    bridge.search_and_capture = AsyncMock(
+        return_value={"success": True, "cards": [{"job_title": "Agent 工程师"}]}
+    )
+    with patch(
+        "app.entrypoints.browser_automation_service.get_boss_existing_tab_bridge",
+        return_value=bridge,
+    ):
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://test",
+        ) as client:
+            response = await client.post(
+                "/v1/boss/browser-tab/search-and-capture",
+                headers={"Authorization": f"Bearer {TOKEN}"},
+                json={
+                    "query": "Agent",
+                    "experience": "no_experience",
+                    "job_type": "full_time",
+                },
+            )
+
+    assert response.status_code == 200
+    bridge.search_and_capture.assert_awaited_once_with(
+        query="Agent",
+        city=None,
+        max_cards=20,
+        experience="no_experience",
+        job_type="full_time",
         browser_channel=None,
     )
 
@@ -405,7 +446,7 @@ async def test_main_jobs_api_routes_browser_tab_calls_to_host_client(monkeypatch
     """容器主 API 必须经应用层调用宿主机能力，不能直接实例化 Apple 事件桥接。"""
 
     from app.api.jobs import get_boss_browser_tab_status, search_and_capture_current_boss_tab
-    from app.schemas.job_schemas import BossTabCaptureRequest
+    from app.schemas.jobs.job_schemas import BossTabCaptureRequest
 
     use_cases = MagicMock()
     use_cases.get_boss_browser_tab_status = AsyncMock(

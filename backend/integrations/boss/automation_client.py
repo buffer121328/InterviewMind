@@ -23,12 +23,22 @@ class BossAutomationClient:
         *,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
-        """初始化平台客户端；构造阶段不连接宿主机。"""
+        """初始化平台客户端；构造阶段不连接宿主机。
+
+        Args:
+            settings: 配置对象。
+            transport: 传输通道标识。
+        """
 
         self._client = BrowserAutomationClient(settings, transport=transport)
 
     async def _post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
-        """调用宿主机桥接端点并转换为 BOSS 领域异常。"""
+        """调用宿主机桥接端点并转换为 BOSS 领域异常。
+
+        Args:
+            path: 文件路径。
+            payload: 载荷字典。
+        """
 
         try:
             return await self._client.post(path, payload)
@@ -52,7 +62,11 @@ class BossAutomationClient:
             ) from exc
 
     async def browser_tab_status(self, browser_channel: str | None = None) -> dict[str, Any]:
-        """通过宿主机服务检查已打开的 BOSS 标签页，不在主后端直接控制 GUI。"""
+        """通过宿主机服务检查已打开的 BOSS 标签页，不在主后端直接控制 GUI。
+
+        Args:
+            browser_channel: 浏览器渠道标识（如 msedge/chrome）。
+        """
 
         payload: dict[str, Any] = {}
         if browser_channel is not None:
@@ -65,11 +79,27 @@ class BossAutomationClient:
         query: str,
         city: str | None = None,
         max_cards: int = 20,
+        experience: str = "any",
+        job_type: str = "full_time",
         browser_channel: str | None = None,
     ) -> dict[str, Any]:
-        """让宿主机服务复用现有 BOSS 标签页搜索并返回有限岗位卡片。"""
+        """让宿主机服务复用现有 BOSS 标签页搜索并返回有限岗位卡片。
 
-        payload: dict[str, Any] = {"query": query, "max_cards": max_cards}
+        Args:
+            query: 查询字符串或对象。
+            city: 城市名称。
+            max_cards: cards 的最大值。
+            experience: 经验描述。
+            job_type: 岗位类型。
+            browser_channel: 浏览器渠道标识（如 msedge/chrome）。
+        """
+
+        payload: dict[str, Any] = {
+            "query": query,
+            "max_cards": max_cards,
+            "experience": experience,
+            "job_type": job_type,
+        }
         if city is not None:
             payload["city"] = city
         if browser_channel is not None:
@@ -82,7 +112,13 @@ class BossAutomationClient:
         message_text: str,
         browser_channel: str | None = None,
     ) -> dict[str, Any]:
-        """请求宿主机在锁定的 BOSS 标签页发送一次已审批沟通文案。"""
+        """请求宿主机在锁定的 BOSS 标签页发送一次已审批沟通文案。
+
+        Args:
+            source_url: 来源 URL。
+            message_text: message 文本。
+            browser_channel: 浏览器渠道标识（如 msedge/chrome）。
+        """
 
         payload: dict[str, Any] = {
             "source_url": source_url,
@@ -97,7 +133,12 @@ class BossAutomationClient:
         source_url: str,
         browser_channel: str | None = None,
     ) -> dict[str, Any]:
-        """请求宿主机把现有登录标签页导航到已持久化的 BOSS 岗位。"""
+        """请求宿主机把现有登录标签页导航到已持久化的 BOSS 岗位。
+
+        Args:
+            source_url: 来源 URL。
+            browser_channel: 浏览器渠道标识（如 msedge/chrome）。
+        """
 
         payload: dict[str, Any] = {"source_url": source_url}
         if browser_channel is not None:

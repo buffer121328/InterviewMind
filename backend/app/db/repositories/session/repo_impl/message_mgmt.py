@@ -1,7 +1,7 @@
 import logging
 from typing import Optional
 from datetime import datetime
-from app.schemas.session import InterviewSession, MessageItem
+from app.schemas.interview.session import InterviewSession, MessageItem
 from sqlalchemy import select, update
 from app.db.models import async_session, MessageModel, SessionModel
 from .base import BaseService
@@ -30,7 +30,16 @@ class MessageService(BaseService):
         audio_url: Optional[str] = None,
         user_id: Optional[str] = None
     ) -> Optional[InterviewSession]:
-        """向会话添加消息；完成或归档后拒绝继续写入。"""
+        """向会话添加消息；完成或归档后拒绝继续写入。
+
+        Args:
+            session_id: 面试会话 ID。
+            role: 角色标识。
+            content: 文本内容。
+            question_index: 题目下标。
+            audio_url: 音频 URL。
+            user_id: 用户 ID，所有者范围限定。
+        """
         visible_session = await self.mgmt.get_session(session_id, user_id=user_id)
         if visible_session is None:
             return None
@@ -50,7 +59,12 @@ class MessageService(BaseService):
         session_id: str,
         user_id: Optional[str] = None
     ) -> list:
-        """获取并解析会话的 QA 对"""
+        """获取并解析会话的 QA 对
+
+        Args:
+            session_id: 面试会话 ID。
+            user_id: 用户 ID，所有者范围限定。
+        """
         async with async_session() as db:
             if not await self._check_session_access(session_id, user_id):
                 return []

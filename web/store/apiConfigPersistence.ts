@@ -21,6 +21,12 @@ function optionalString(value: unknown): string | undefined {
     return typeof value === 'string' ? value : undefined;
 }
 
+function optionalDimension(value: unknown): number | undefined {
+    return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 16_000
+        ? value
+        : undefined;
+}
+
 function requiredString(value: unknown): string | null {
     return typeof value === 'string' ? value : null;
 }
@@ -126,6 +132,7 @@ function hydrateModel(value: unknown): ModelConfig | null {
         model: model as string,
         pricingKey: optionalString(value.pricingKey),
         integration: optionalString(value.integration),
+        dimensions: optionalDimension(value.dimensions),
         createdAt: createdAt as string,
     };
 }

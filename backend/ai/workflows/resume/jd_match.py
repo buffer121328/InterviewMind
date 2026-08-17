@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from app.db.unit_of_work import UnitOfWork
 from app.db.models import async_session
 from app.db.repositories.resume.jd_analysis_repo import get_jd_analysis_repo
-from app.schemas.jd_schemas import (
+from app.schemas.resume.jd_schemas import (
     JDMatchDetailResponse,
     JDMatchHistoryItem,
     JDMatchHistoryResponse,
@@ -19,6 +19,8 @@ from ai.agents.resume.jd_matcher import match_jd
 class JDMatchUseCaseError(Exception):
     """JD 匹配用例异常。"""
 
+    # 单条消息。
+    # 单条消息。
     message: str
 
 

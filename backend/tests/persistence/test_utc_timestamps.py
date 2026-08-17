@@ -59,3 +59,11 @@ def test_empty_ability_profile_uses_project_utc_clock(monkeypatch):
     profile = ability_service.AbilityAnalysisService()._get_empty_profile()
 
     assert profile.last_updated == "2026-08-04T18:46:00"
+
+
+def test_utc_isoformat_marks_legacy_naive_utc_for_api_clients() -> None:
+    """Naive UTC database values must not be serialized as browser-local timestamps."""
+    from app.clock import utc_isoformat
+
+    assert utc_isoformat(datetime(2026, 8, 15, 16, 43, 41)) == "2026-08-15T16:43:41Z"
+    assert utc_isoformat(datetime(2026, 8, 15, 16, 43, 41, tzinfo=UTC)) == "2026-08-15T16:43:41Z"

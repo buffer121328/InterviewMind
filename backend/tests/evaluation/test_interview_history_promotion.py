@@ -15,7 +15,7 @@ from ai.workflows.evaluation.interview_history import (
     redact_interview_source,
     source_content_hash,
 )
-from app.schemas.evaluations import (
+from app.schemas.evaluation.evaluations import (
     InterviewEvaluationConfirmRequest,
     InterviewEvaluationDraftAnnotation,
     InterviewEvaluationDraftCase,
@@ -812,7 +812,7 @@ async def test_retry_selected_failed_cases_reuses_parent_capability(monkeypatch)
 
     async def fake_queue(**kwargs):
         queued.update(kwargs)
-        return SimpleNamespace(payload={"run_id": "draft-run-retry", "status": "queued"})
+        return SimpleNamespace(body={"run_id": "draft-run-retry", "status": "queued"})
 
     monkeypatch.setattr(use_case_module, "UnitOfWork", FakeUnitOfWork)
     monkeypatch.setattr(use_case_module.agent_run_use_cases, "create_queued_run", fake_queue)
@@ -894,7 +894,7 @@ async def test_retry_rejects_cases_that_did_not_fail(monkeypatch):
 
 @pytest.mark.fast
 def test_evaluation_router_exposes_interview_history_promotion_endpoints():
-    from app.api.evaluations import router
+    from app.api.evaluation.evaluations import router
 
     paths = {route.path for route in router.routes}
     assert "/api/evaluations/interview-history/sources" in paths

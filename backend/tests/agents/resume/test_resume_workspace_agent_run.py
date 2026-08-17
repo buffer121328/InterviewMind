@@ -73,7 +73,7 @@ def _pipeline_result() -> dict:
 
 def test_resume_workspace_schema_accepts_one_resume_and_jd_contract():
     """The request and completed-result schemas expose the three workspace outputs."""
-    from app.schemas.resume_schemas import (
+    from app.schemas.resume.resume_schemas import (
         JDMatchResult,
         ResumeAnalyzeResult,
         ResumeOptimizeResult,
@@ -145,13 +145,13 @@ async def test_resume_workspace_api_forwards_owner_payload_and_header_key(monkey
     """The route delegates only authenticated ownership and request data to the use case."""
     from ai.workflows.agent_runs.use_cases import AgentRunResponse
     from app.api import agent_runs
-    from app.schemas.resume_schemas import ResumeWorkspaceRequest
+    from app.schemas.resume.resume_schemas import ResumeWorkspaceRequest
 
     received = {}
 
     async def create_resume_workspace(**kwargs):
         received.update(kwargs)
-        return AgentRunResponse(payload={"task_type": "resume_workspace", "status": "queued"}, status_code=202)
+        return AgentRunResponse(body={"task_type": "resume_workspace", "status": "queued"}, status_code=202)
 
     monkeypatch.setattr(agent_runs.agent_run_use_cases, "create_resume_workspace", create_resume_workspace)
     response = await agent_runs.create_resume_workspace_run(

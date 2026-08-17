@@ -7,7 +7,7 @@ from hashlib import sha256
 from typing import Any
 
 from app.clock import utc_now
-from app.schemas.candidate_profile import CandidateProfile, DimensionScore
+from app.schemas.interview.candidate_profile import CandidateProfile, DimensionScore
 from app.schemas.llm_outputs import CandidateProfileOutput, DimensionAnalysis, QuestionEvidence
 
 REPORT_CHECKPOINT_VERSION = "analysis.question_evidence.v1"
@@ -30,8 +30,14 @@ _REVIEW_PERSPECTIVES = (
 
 def build_degraded_report(
     qa_history: list[dict[str, Any]],
+    *,
+    degradation_reason: str = "all_reviewers_failed",
 ) -> tuple[CandidateProfile, dict[str, Any]]:
-    """在所有评审器不可用时只基于已持久化问答创建无评分降级报告。"""
+    """在所有评审器不可用时只基于已持久化问答创建无评分降级报告。
+
+    Args:
+        qa_history: 问答历史列表。
+    """
     evidence = normalize_evidence([], qa_history)
     missing_note = "模型评审不可用，未生成能力评分；请补充可验证的背景、行动和结果。"
     evidence = [
@@ -103,7 +109,7 @@ def build_degraded_report(
         ],
         "consensus_method": "deterministic_evidence_fallback",
         "generation_mode": "degraded_evidence_only",
-        "degradation_reason": "all_reviewers_failed",
+        "degradation_reason": degradation_reason,
         "missing_dimensions": list(_PROFILE_DIMENSIONS),
     }
     return profile, weakness_payload
@@ -115,7 +121,13 @@ def normalize_evidence(
     *,
     start_index: int = 0,
 ) -> list[QuestionEvidence]:
-    """按公开题号补齐或规范化证据，禁止把缺失项伪造成模型结论。"""
+    """按公开题号补齐或规范化证据，禁止把缺失项伪造成模型结论。
+
+    Args:
+        evidence: 传入的 evidence 值。
+        qa_history: 问答历史列表。
+        start_index: 传入的 start_index 值。
+    """
     by_id = {item.question_id.upper(): item for item in evidence}
     normalized: list[QuestionEvidence] = []
     for offset, qa in enumerate(qa_history):
@@ -141,7 +153,11 @@ def normalize_evidence(
 
 
 def answer_points_by_question(qa_history: list[dict[str, Any]]) -> dict[str, list[str]]:
-    """按题号建立只供内部评分使用的回答要点索引。"""
+    """按题号建立只供内部评分使用的回答要点索引。
+
+    Args:
+        qa_history: 问答历史列表。
+    """
     return {
         f"Q{index + 1}": [
             str(point) for point in item.get("answer_points", []) if str(point).strip()
@@ -152,7 +168,11 @@ def answer_points_by_question(qa_history: list[dict[str, Any]]) -> dict[str, lis
 
 
 def format_answer_points(qa_history: list[dict[str, Any]]) -> str:
-    """格式化内部评分要点，并注明不得回显。"""
+    """格式化内部评分要点，并注明不得回显。
+
+    Args:
+        qa_history: 问答历史列表。
+    """
     lines = ["【内部回答要点：仅用于评分，不得原样输出】"]
     for index, item in enumerate(qa_history, start=1):
         points = [str(point).strip() for point in item.get("answer_points", []) if str(point).strip()]
@@ -162,7 +182,11 @@ def format_answer_points(qa_history: list[dict[str, Any]]) -> str:
 
 
 def format_qa(qa_history: list[dict[str, Any]]) -> str:
-    """把问答与仅限内部的评分参考转换为受限上下文文本。"""
+    """把问答与仅限内部的评分参考转换为受限上下文文本。
+
+    Args:
+        qa_history: 问答历史列表。
+    """
     blocks: list[str] = []
     for index, item in enumerate(qa_history):
         block = f"Q{index + 1}: {item['question']}\nA{index + 1}: {item['answer']}"
@@ -174,13 +198,23 @@ def format_qa(qa_history: list[dict[str, Any]]) -> str:
 
 
 def message_version(qa_history: list[dict[str, Any]]) -> str:
-    """为已持久化问答计算稳定版本，用于 checkpoint 复用。"""
+    """为已持久化问答计算稳定版本，用于 checkpoint 复用。
+
+    Args:
+        qa_history: 问答历史列表。
+    """
     payload = json.dumps(qa_history, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return sha256(payload.encode("utf-8")).hexdigest()[:24]
 
 
 def chunk_idempotency_key(*, session_id: str, message_version_value: str, chunk_index: int) -> str:
-    """生成带 checkpoint 版本的证据分块幂等键。"""
+    """生成带 checkpoint 版本的证据分块幂等键。
+
+    Args:
+        session_id: 面试会话 ID。
+        message_version_value: 传入的 message_version_value 值。
+        chunk_index: 传入的 chunk_index 值。
+    """
     return f"{session_id}:{message_version_value}:chunk:{chunk_index}:{REPORT_CHECKPOINT_VERSION}"
 
 
@@ -189,9 +223,19 @@ def to_candidate_profile(
     *,
     total_questions: int,
 ) -> CandidateProfile:
-    """把受 schema 约束的模型画像映射为 API 候选人画像。"""
+    """把受 schema 约束的模型画像映射为 API 候选人画像。
+
+    Args:
+        result: 结果对象。
+        total_questions: 传入的 total_questions 值。
+    """
 
     def dimension(value: DimensionAnalysis) -> DimensionScore:
+        """dimension 操作。
+
+        Args:
+            value: 值。
+        """
         return DimensionScore(
             score=value.score,
             evidence=value.evidence,

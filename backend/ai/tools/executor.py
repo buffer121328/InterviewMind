@@ -32,8 +32,8 @@ class ToolExecutionPolicy:
     """定义一次 Agent 运行内工具调用的超时、次数、重试和脱敏策略。"""
 
     timeout_seconds: float = 30.0  # 单次工具调用超时
-    max_calls: int = 20  # 单次运行内工具调用上限
-    max_retries: int = 0  # 可重试次数
+    max_calls: int = 10  # 单次运行内工具调用上限
+    max_retries: int = 1  # 可重试次数
     retry_effects: frozenset[ToolEffect] = frozenset({"none", "read"})  # 仅这些副作用可重试
     redact_results: bool = True  # 是否脱敏工具结果
 
@@ -55,7 +55,7 @@ class ToolApprovalRequired(PermissionError):
             message: 对上层工作流返回的稳定错误语义。
         """
 
-        super().__init__(message)
+        super().__init__(message)       #  调用父类 PermissionError 的构造，把 message 传进去
         self.tool_name = tool_name
 
 

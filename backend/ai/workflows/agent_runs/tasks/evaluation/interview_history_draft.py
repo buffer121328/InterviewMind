@@ -18,7 +18,7 @@ from ai.workflows.evaluation.interview_history import (
 from app.db.models import async_session
 from app.db.repositories.evaluation import EvaluationRepository
 from app.db.unit_of_work import UnitOfWork
-from app.schemas.evaluations import (
+from app.schemas.evaluation.evaluations import (
     InterviewEvaluationDraftAnnotation,
     InterviewEvaluationDraftCase,
     InterviewEvaluationDraftRequest,
@@ -34,7 +34,12 @@ _TASK_TIMEOUT_SECONDS = 180
 
 
 def _safe_model_metadata(config: dict[str, Any], *, fallback_index: int) -> dict[str, Any]:
-    """只返回可审阅的模型身份，不包含 URL、凭据或内部 key。"""
+    """只返回可审阅的模型身份，不包含 URL、凭据或内部 key。
+
+    Args:
+        config: 模型调用配置（可能包含敏感凭据）。
+        fallback_index: 命中的候选回退序号，用于观测标记。
+    """
 
     return {
         "model": str(config.get("model") or "unknown")[:160],
@@ -45,6 +50,11 @@ def _safe_model_metadata(config: dict[str, Any], *, fallback_index: int) -> dict
 
 
 def _draft_prompt(snapshot: Any) -> str:
+    """基于脱敏源快照构造评测草稿提示词。
+
+    Args:
+        snapshot: 面试源快照，含 capability、question、answer 等字段。
+    """
     source = {
         "capability": snapshot.capability,
         "question": snapshot.question,
@@ -74,7 +84,14 @@ async def _draft_annotation(
     user_id: str,
     deadline: TaskDeadline,
 ) -> tuple[InterviewEvaluationDraftAnnotation, dict[str, Any]]:
-    """只在即将尝试候选时水合其模型名凭据，再经统一网关调用。"""
+    """只在即将尝试候选时水合其模型名凭据，再经统一网关调用。
+
+    Args:
+        snapshot: 面试源快照。
+        references: 候选模型引用列表，仅尝试前若干条。
+        user_id: 当前用户 ID，用于获取凭据。
+        deadline: 任务执行截止时间。
+    """
 
     store = get_model_credential_store()
     last_error: Exception | None = None
@@ -122,7 +139,13 @@ async def _draft_annotation(
 async def execute_interview_evaluation_draft(
     payload: dict[str, Any], user_id: str, progress: ProgressCallback
 ) -> dict[str, Any]:
-    """加载、脱敏、逐案例整理并返回 needs-review 草稿；不创建 Dataset。"""
+    """加载、脱敏、逐案例整理并返回 needs-review 草稿；不创建 Dataset。
+
+    Args:
+        payload: 任务入参（含 attempt_ids、capability、api_config 及保留案例）。
+        user_id: 当前用户 ID。
+        progress: 阶段进度回调。
+    """
 
     request = InterviewEvaluationDraftRequest.model_validate(
         {key: value for key, value in payload.items() if not key.startswith("_")}

@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.db.models import EvaluationSuiteModel, async_session
 from app.db.unit_of_work import UnitOfWork
-from app.schemas.evaluations import (
+from app.schemas.evaluation.evaluations import (
     EvaluationDatasetCreateRequest,
     EvaluationDatasetStatusRequest,
     EvaluationSuiteCreateRequest,
@@ -27,7 +27,12 @@ class DatasetUseCasesMixin:
     async def create_dataset(
         self, *, user_id: str, request: EvaluationDatasetCreateRequest
     ) -> dict[str, Any]:
-        """创建加密 Dataset Version。"""
+        """创建加密 Dataset Version。
+
+        Args:
+            user_id: 当前用户标识。
+            request: 数据集创建请求（含名称、版本与案例）。
+        """
 
         self._ensure_center_enabled()
         try:
@@ -42,7 +47,13 @@ class DatasetUseCasesMixin:
     async def list_datasets(
         self, *, user_id: str, limit: int, offset: int
     ) -> dict[str, Any]:
-        """分页返回 Dataset 元数据，不返回案例正文。"""
+        """分页返回 Dataset 元数据，不返回案例正文。
+
+        Args:
+            user_id: 当前用户标识。
+            limit: 分页大小。
+            offset: 分页偏移。
+        """
 
         self._ensure_center_enabled()
         async with UnitOfWork(async_session) as uow:
@@ -57,7 +68,12 @@ class DatasetUseCasesMixin:
             }
 
     async def get_dataset(self, *, user_id: str, dataset_id: str) -> dict[str, Any]:
-        """返回 Dataset Version 和不含明文载荷的案例目录。"""
+        """返回 Dataset Version 和不含明文载荷的案例目录。
+
+        Args:
+            user_id: 当前用户标识。
+            dataset_id: 目标数据集标识。
+        """
 
         self._ensure_center_enabled()
         async with UnitOfWork(async_session) as uow:
@@ -77,7 +93,12 @@ class DatasetUseCasesMixin:
             return payload
 
     async def lock_dataset(self, *, user_id: str, dataset_id: str) -> dict[str, Any]:
-        """锁定 calibrated Dataset Version。"""
+        """锁定 calibrated Dataset Version。
+
+        Args:
+            user_id: 当前用户标识。
+            dataset_id: 目标数据集标识。
+        """
 
         self._ensure_center_enabled()
         async with UnitOfWork(async_session) as uow:
@@ -98,7 +119,13 @@ class DatasetUseCasesMixin:
         dataset_id: str,
         request: EvaluationDatasetStatusRequest,
     ) -> dict[str, Any]:
-        """按单向状态机推进 Dataset Version 生命周期。"""
+        """按单向状态机推进 Dataset Version 生命周期。
+
+        Args:
+            user_id: 当前用户标识。
+            dataset_id: 目标数据集标识。
+            request: 状态更新请求。
+        """
 
         self._ensure_center_enabled()
         async with UnitOfWork(async_session) as uow:
@@ -122,7 +149,13 @@ class DatasetUseCasesMixin:
         user_id: str,
         agent: BuiltinEvaluationAgent,
     ) -> EvaluationSuiteModel:
-        """幂等创建并锁定 owner 专属内置数据集与套件，不覆盖同名手工资产。"""
+        """幂等创建并锁定 owner 专属内置数据集与套件，不覆盖同名手工资产。
+
+        Args:
+            session: 当前数据库会话。
+            user_id: 当前用户标识。
+            agent: 内置评测 Agent 定义（数据集/套件名称与版本）。
+        """
 
         dataset = await self.repository.get_dataset_by_name_version(
             session,

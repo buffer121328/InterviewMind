@@ -4,9 +4,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.api import voice_chat as voice_api
+from app.api.interview import voice as voice_api
 from ai.workflows.interview.voice.use_cases import VoiceInterviewUseCases
-from app.schemas.voice import VoiceCloneRequest, VoiceStartRequest, VoiceStartResponse
+from app.schemas.interview.voice import VoiceCloneRequest, VoiceStartRequest, VoiceStartResponse
 
 
 @pytest.mark.asyncio

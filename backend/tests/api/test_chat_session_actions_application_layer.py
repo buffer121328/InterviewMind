@@ -11,7 +11,7 @@ FORBIDDEN_NAMES = {"session_repo"}
 
 
 def test_chat_session_action_routes_delegate_to_application_layer():
-    tree = ast.parse((BACKEND_APP / "api" / "chat.py").read_text())
+    tree = ast.parse((BACKEND_APP / "api" / "interview" / "chat.py").read_text())
     checked = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.AsyncFunctionDef) and node.name in MIGRATED_FUNCTIONS:
@@ -23,7 +23,7 @@ def test_chat_session_action_routes_delegate_to_application_layer():
 
 
 def test_placeholder_chat_compatibility_routes_are_removed():
-    route_source = (BACKEND_APP / "api" / "chat.py").read_text()
+    route_source = (BACKEND_APP / "api" / "interview" / "chat.py").read_text()
     workflow_source = (
         Path(__file__).resolve().parents[2]
         / "ai"

@@ -11,7 +11,7 @@ from app.db.models import async_session
 from app.db.repositories.application.application_event_repo import application_event_repo
 from app.db.repositories.application.job_application_repo import job_application_repo
 from app.db.repositories.resume.resume_generation_repo import get_generation_repo
-from app.schemas.job_application import (
+from app.schemas.jobs.job_application import (
     ApplicationCreateRequest,
     ApplicationDetailResponse,
     ApplicationListResponse,
@@ -29,8 +29,8 @@ DEFAULT_USER_ID = "default_user"
 class ApplicationUseCaseError(Exception):
     """投递追踪用例异常。"""
 
-    error: str
-    message: str
+    error: str  # 机器可读的错误码（如 NotFound、InternalServerError）
+    message: str  # 面向用户的可读错误信息
 
 
 class ApplicationNotFound(ApplicationUseCaseError):
@@ -59,7 +59,7 @@ class ApplicationUseCases:
         user_id: Optional[str],
         request: ApplicationCreateRequest,
     ) -> ApplicationDetailResponse:
-        """创建 application，在写入前沿用请求的 owner、审批和输入校验边界，并返回调用方可继续处理的结果。
+        """创建投递记录，校验通过后落库并返回详情。
 
         Args:
             user_id: 当前用户标识。
@@ -79,11 +79,11 @@ class ApplicationUseCases:
         limit: int,
         offset: int,
     ) -> ApplicationListResponse:
-        """按 owner、筛选条件和分页参数读取 applications；仅返回当前调用方有权查看的持久化结果。
+        """按当前用户与状态条件分页读取投递记录。
 
         Args:
             user_id: 当前用户标识。
-            status: 经过类型边界校验的 `status`；其格式和可选值由参数类型及调用流程约束。
+            status: 投递状态筛选条件（可选）。
             limit: 返回数量上限。
             offset: 分页偏移量。
         """
@@ -112,7 +112,7 @@ class ApplicationUseCases:
         application_id: int,
         user_id: Optional[str],
     ) -> ApplicationDetailResponse:
-        """读取 application，并通过 owner 校验限制可见范围；资源不存在或状态不合法时返回稳定的业务结果或异常。
+        """按用户归属读取投递记录详情；不存在或无权限时抛出统一异常。
 
         Args:
             application_id: 投递记录标识。
@@ -132,7 +132,13 @@ class ApplicationUseCases:
         user_id: Optional[str],
         request: ApplicationResumeLinkRequest,
     ) -> ApplicationDetailResponse:
-        """处理设置投递简历相关后端逻辑。"""
+        """为投递记录设置关联简历；先校验记录与简历的归属，再写入并返回更新后的投递详情。
+
+        Args:
+            application_id: 投递记录标识。
+            user_id: 当前用户标识。
+            request: 简历关联请求。
+        """
         resolved_user_id = self.resolve_user_id(user_id)
         await self._get_application_or_raise(application_id, resolved_user_id)
         if request.resume_id is not None:
@@ -161,7 +167,12 @@ class ApplicationUseCases:
         application,
         user_id: str,
     ):
-        """附加关联简历相关后端逻辑。"""
+        """为投递记录附加关联简历资产；无关联简历或读取失败时返回空链接。
+
+        Args:
+            application: 投递记录对象。
+            user_id: 当前用户标识。
+        """
         resume_id = application.generated_resume_id or application.custom_resume_id
         if not resume_id:
             return application.model_copy(update={"linked_resume": None})
@@ -184,7 +195,7 @@ class ApplicationUseCases:
         user_id: Optional[str],
         request: ApplicationUpdateRequest,
     ) -> ApplicationDetailResponse:
-        """在 owner 校验下更新 application；只写入允许变更的字段，避免绕过状态机或审批约束。
+        """按用户归属更新投递记录并返回详情。
 
         Args:
             application_id: 投递记录标识。
@@ -206,7 +217,7 @@ class ApplicationUseCases:
         application_id: int,
         user_id: Optional[str],
     ) -> dict[str, object]:
-        """在 owner 校验下删除 application；删除失败或资源不可见时保持幂等的业务错误语义。
+        """按用户归属删除投递记录；删除失败时抛出统一异常。
 
         Args:
             application_id: 投递记录标识。
@@ -231,7 +242,7 @@ class ApplicationUseCases:
         user_id: Optional[str],
         request: EventCreateRequest,
     ) -> dict[str, object]:
-        """在 owner 校验通过后追加投递事件，并沿用用例层的持久化与审计边界；不直接执行外部投递。
+        """校验归属后为投递记录追加一条事件记录（仅持久化，不触发外部投递）。
 
         Args:
             application_id: 投递记录标识。
@@ -253,7 +264,7 @@ class ApplicationUseCases:
         application_id: int,
         user_id: Optional[str],
     ) -> EventListResponse:
-        """按 owner、筛选条件和分页参数读取 application events；仅返回当前调用方有权查看的持久化结果。
+        """按用户归属读取投递记录的事件列表。
 
         Args:
             application_id: 投递记录标识。

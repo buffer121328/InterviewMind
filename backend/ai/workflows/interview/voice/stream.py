@@ -12,14 +12,18 @@ from ai.runtime.harness.drivers import StreamDriver, StreamDriverConflict
 from app.db.repositories.session.session_repo import SessionRepo
 from app.domain.agent_definitions import get_agent_definition
 from app.domain.agent_runs import TASK_TYPE_VOICE_INTERVIEW_TURN
-from app.schemas.voice import VoiceChatRequest
+from app.schemas.interview.voice import VoiceChatRequest
 
 
 @dataclass(slots=True)
 class VoiceStreamUseCaseError(Exception):
     """语音面试流式用例异常。"""
 
+    # 单条消息。
+    # 单条消息。
     message: str
+    # status_code，整数类型。
+    # 状态码。
     status_code: int = 409
 
 
@@ -38,7 +42,12 @@ class VoiceStreamUseCases:
         request: VoiceChatRequest,
         user_id: str,
     ) -> AsyncGenerator[str, None]:
-        """通过统一 StreamDriver 执行语音 SSE 生命周期。"""
+        """通过统一 StreamDriver 执行语音 SSE 生命周期。
+
+        Args:
+            request: 请求对象。
+            user_id: 用户 ID，所有者范围限定。
+        """
 
         session = await self._session_repo.get_session(request.session_id, user_id=user_id)
         if session is None:
@@ -53,7 +62,11 @@ class VoiceStreamUseCases:
         )
 
         async def stream_factory(run_id: str) -> StreamExecution:
-            """构造语音领域 stream；终态始终由 StreamDriver 持久化。"""
+            """构造语音领域 stream；终态始终由 StreamDriver 持久化。
+
+            Args:
+                run_id: 任务运行 ID。
+            """
 
             return StreamExecution(
                 source=process_voice_chat(
@@ -104,7 +117,11 @@ class VoiceStreamUseCases:
 
     @staticmethod
     def _request_fingerprint(request: VoiceChatRequest) -> str:
-        """派生不落库的语音提交标识，避免 object id 造成重复执行。"""
+        """派生不落库的语音提交标识，避免 object id 造成重复执行。
+
+        Args:
+            request: 请求对象。
+        """
 
         source = request.audio_id or request.message or request.audio or "greeting"
         material = f"{request.is_greeting}:{source}".encode()
@@ -112,7 +129,11 @@ class VoiceStreamUseCases:
 
     @staticmethod
     def _encode_run_event(envelope: dict) -> str:
-        """编码保持兼容的语音 lifecycle SSE event。"""
+        """编码保持兼容的语音 lifecycle SSE event。
+
+        Args:
+            envelope: 信封数据。
+        """
 
         return (
             f"data: {json.dumps({'type': 'agent_run_event', 'content': envelope}, ensure_ascii=False)}\n\n"
@@ -120,7 +141,11 @@ class VoiceStreamUseCases:
 
     @staticmethod
     def _encode_error(message: str) -> str:
-        """编码保持兼容的语音错误 SSE event。"""
+        """编码保持兼容的语音错误 SSE event。
+
+        Args:
+            message: 单条消息。
+        """
 
         return (
             f"data: {json.dumps({'type': 'error', 'content': message}, ensure_ascii=False)}\n\n"
@@ -128,7 +153,11 @@ class VoiceStreamUseCases:
 
     @staticmethod
     def _detect_error_event(chunk: str) -> str | None:
-        """把业务 source 已映射的 error frame 收敛为 AgentRun failure。"""
+        """把业务 source 已映射的 error frame 收敛为 AgentRun failure。
+
+        Args:
+            chunk: 分片或 chunk 对象。
+        """
 
         for line in chunk.splitlines():
             if not line.startswith("data: "):

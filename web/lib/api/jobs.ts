@@ -26,11 +26,11 @@ export interface ApiChannelConfig {
 export interface ApiConfig {
     smart?: ApiChannelConfig;
     fast?: ApiChannelConfig;
-    general?: ApiChannelConfig;
-    match_analyst?: ApiChannelConfig;
-    content_writer?: ApiChannelConfig;
-    hr_reviewer?: ApiChannelConfig;
-    reflector?: ApiChannelConfig;
+    general?: ApiChannelConfig | null;
+    match_analyst?: ApiChannelConfig | null;
+    content_writer?: ApiChannelConfig | null;
+    hr_reviewer?: ApiChannelConfig | null;
+    reflector?: ApiChannelConfig | null;
 }
 
 export interface JobListItem {
@@ -58,6 +58,7 @@ export interface JobListResponse {
 
 export interface JobAssetPayload {
     jd_analysis?: Record<string, unknown> | null;
+    preliminary_match_score?: number | null;
     custom_resume_id?: number | null;
     custom_resume_preview?: string | null;
     risk_flags?: string[];
@@ -74,6 +75,11 @@ export interface JobDetailResponse {
     success: boolean;
     job: JobDetail;
     message?: string;
+}
+
+export interface JobJdAnalysisRequest {
+    resume_content: string;
+    api_config: ApiConfig;
 }
 
 export interface CapturedJobSummary {
@@ -114,6 +120,8 @@ export interface BossDomCapturePayload {
 }
 
 export type BossBrowserChannel = 'msedge' | 'chrome';
+export type BossExperience = 'any' | 'no_experience' | 'experience_unlimited' | 'one_to_three';
+export type BossJobType = 'full_time';
 
 export interface BossTabStatusResponse {
     success: boolean;
@@ -134,6 +142,10 @@ export interface BossTabCaptureRequest {
     city?: string;
     /** 单次 DOM 候选卡片读取上限，后端硬限制为 20。 */
     max_cards?: number;
+    /** 工作经验筛选；仅接受产品提供的受控选项。 */
+    experience?: BossExperience;
+    /** 求职类型；当前产品固定为全职。 */
+    job_type?: BossJobType;
     /** 要接管的现有浏览器渠道。 */
     browser_channel?: BossBrowserChannel;
 }
@@ -145,6 +157,8 @@ export interface BossTabCaptureResponse extends BossDomCapturePayload {
     page_status: string;
     ready_state: string;
     message: string;
+    detail_enriched_count?: number;
+    detail_fallback_count?: number;
 }
 
 export interface CaptureRecommendationsRequest {
@@ -158,6 +172,8 @@ export interface CaptureRecommendationsRequest {
     cards: BossDomJobCard[];
     /** 可选城市提示，用于字段补全。 */
     city?: string;
+    /** 本次已应用的受控工作经验筛选；无经验会额外校验完整 JD。 */
+    experience?: BossExperience;
     /** 导入前 N 个岗位，1-20，默认 3。 */
     top_n?: number;
     /** 用户自定义 API 配置。 */
@@ -235,6 +251,14 @@ export async function listJobs(params?: {
  */
 export async function getJobDetail(jobId: number): Promise<JobDetailResponse> {
     return apiRequest<JobDetailResponse>(`/api/jobs/${jobId}`);
+}
+
+/** Explicitly analyzes one persisted job JD; it never starts a browser or creates a resume. */
+export async function analyzeJobJd(jobId: number, req: JobJdAnalysisRequest): Promise<JobDetailResponse> {
+    return apiRequest<JobDetailResponse>(`/api/jobs/${jobId}/jd-analysis`, {
+        method: 'POST',
+        body: JSON.stringify(req),
+    });
 }
 
 /**

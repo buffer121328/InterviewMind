@@ -18,7 +18,7 @@ FORBIDDEN_NAMES = {"SessionRepo", "session_repo"}
 
 
 def test_sessions_routes_delegate_to_application_layer():
-    tree = ast.parse((BACKEND_APP / "api" / "sessions.py").read_text())
+    tree = ast.parse((BACKEND_APP / "api" / "interview" / "sessions.py").read_text())
     modules = [
         node.module
         for node in ast.walk(tree)

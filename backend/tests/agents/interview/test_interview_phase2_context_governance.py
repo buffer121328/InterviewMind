@@ -13,7 +13,7 @@ from ai.agents.interview.planning.context import (
     clear_interview_fact_cache,
 )
 from ai.runtime.execution.deadlines import TaskDeadline
-from app.schemas.interview import EvaluatingOutput
+from app.schemas.interview.interview import EvaluatingOutput
 from app.schemas.llm_outputs import PlanOutput
 
 
@@ -171,8 +171,8 @@ async def test_runtime_truncates_long_answer_but_keeps_current_and_next_question
     runtime = InterviewRuntime(
         {
             "interview_plan": [
-                {"content": "当前题：解释事件循环", "followups": []},
-                {"content": "下一题：说明并发控制"},
+                {"content": "当前题：解释事件循环", "type": "tech", "followups": []},
+                {"content": "下一题：说明并发控制", "type": "tech"},
             ],
             "current_question_index": 0,
             "turn_phase": "feedback",

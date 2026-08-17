@@ -56,7 +56,6 @@ export function buildVoiceStartRequestPayload(sessionId: string, apiConfig: NonN
         max_questions: state.maxQuestions,
         round_type: state.interviewType,
         question_bank_count: state.questionBankCount,
-        experience_questions: state.experienceQuestions.slice(0, state.maxQuestions),
     };
 }
 
@@ -72,9 +71,4 @@ export function setVoiceInterviewProgress(current: number, total?: number): void
         current,
         total: total || state.maxQuestions,
     });
-}
-
-/** Provides the clear pending experience questions store helper; request-scoped configuration and session state stay centralized in Zustand, while backend persistence remains in the API layer. */
-export function clearPendingExperienceQuestions(): void {
-    useInterviewStore.getState().setExperienceQuestions([]);
 }

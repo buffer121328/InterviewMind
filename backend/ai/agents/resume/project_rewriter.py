@@ -17,7 +17,11 @@ logger = logging.getLogger(__name__)
 
 
 def _extract_json_text(response_text: str) -> str:
-    """提取JSON文本相关后端逻辑。"""
+    """从回复文本中提取 JSON。
+
+    Args:
+        response_text: response 文本。
+    """
     cleaned_text = response_text.strip()
 
     if cleaned_text.startswith("```json"):
@@ -37,28 +41,6 @@ def _extract_json_text(response_text: str) -> str:
         return match.group(0).strip()
 
     return cleaned_text
-
-
-def _build_prompt(
-    project_content: str,
-    project_title: str,
-    rewrite_mode: str,
-    job_description: Optional[str] = None,
-) -> str:
-    """构建 `prompt`。
-
-    Args:
-        project_content: 经过类型边界校验的 `project_content`；其格式和可选值由参数类型及调用流程约束。
-        project_title: 经过类型边界校验的 `project_title`；其格式和可选值由参数类型及调用流程约束。
-        rewrite_mode: 经过类型边界校验的 `rewrite_mode`；其格式和可选值由参数类型及调用流程约束。
-        job_description: 经过类型边界校验的 `job_description`；其格式和可选值由参数类型及调用流程约束。
-    """
-    return build_project_rewriter_prompt(
-        project_content=project_content,
-        project_title=project_title,
-        rewrite_mode=rewrite_mode,
-        job_description=job_description,
-    )
 
 
 async def rewrite_project(
@@ -117,7 +99,7 @@ async def rewrite_project(
         for item in assembled.source_audit
     ):
         raise ValueError("目标岗位 JD 未通过上下文安全筛选")
-    prompt = _build_prompt(
+    prompt = build_project_rewriter_prompt(
         assembled.model_context,
         project_title[:200],
         rewrite_mode,

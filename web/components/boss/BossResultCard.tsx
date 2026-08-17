@@ -1,17 +1,49 @@
 'use client';
 
-import { AlertTriangle, ExternalLink, Loader2, MapPin, Trash2 } from 'lucide-react';
+import { useState } from 'react';
 
+import { AlertTriangle, ChevronDown, ChevronUp, ExternalLink, Loader2, MapPin, Trash2 } from 'lucide-react';
+
+import { JobDescriptionContent } from '@/components/boss/JobDescriptionContent';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import type { CapturedJobSummary } from '@/lib/api/jobs';
+import { shouldOfferJobDescriptionExpansion } from '@/lib/bossJobDescriptionPresentation';
+import { displayBossSalaryText } from '@/lib/bossSalaryPresentation';
 
 interface BossResultCardProps {
     job: CapturedJobSummary;
     actionKey: string | null;
     onDeletePending: (job: CapturedJobSummary) => void;
     onOpenExistingBossTab: (jobId: number) => void;
+}
+
+function JobDescriptionBlock({ description }: { description: string }) {
+    const [expanded, setExpanded] = useState(false);
+    const expandable = shouldOfferJobDescriptionExpansion(description);
+
+    return (
+        <div className="rounded-xl border border-slate-200 bg-white p-3">
+            <div className="flex items-center justify-between gap-2">
+                <div className="text-xs font-semibold text-slate-700">职位介绍</div>
+                {expandable && (
+                    <button
+                        type="button"
+                        className="inline-flex items-center gap-1 text-xs font-medium text-teal-700 hover:text-teal-900"
+                        aria-expanded={expanded}
+                        onClick={() => setExpanded(value => !value)}
+                    >
+                        {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                        {expanded ? "收起" : "展开"}
+                    </button>
+                )}
+            </div>
+            <div className={`mt-2 ${expandable && !expanded ? "max-h-32 overflow-hidden" : ""}`}>
+                <JobDescriptionContent description={description} className="text-xs leading-5 text-slate-600" />
+            </div>
+        </div>
+    );
 }
 
 /** Renders one current-import result card with its persisted assets and match score. */
@@ -33,7 +65,7 @@ export function BossResultCard({
                                 {job.company_size_text && <span>· {job.company_size_text}</span>}
                             </div>
                             <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                                <Badge variant="outline">{job.salary_text || "薪资未披露"}</Badge>
+                                <Badge variant="outline">{displayBossSalaryText(job.salary_text) || "薪资未披露"}</Badge>
                                 {job.city && <span className="inline-flex items-center gap-1"><MapPin className="h-3 w-3" />{job.city}</span>}
                                 <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-700">待入库</Badge>
                             </div>
@@ -56,12 +88,7 @@ export function BossResultCard({
                     </div>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                    {job.job_description && (
-                        <div className="rounded-xl border border-slate-200 bg-white p-3">
-                            <div className="text-xs font-semibold text-slate-700">当前卡片可见职位介绍</div>
-                            <p className="mt-2 whitespace-pre-wrap text-xs leading-5 text-slate-600">{job.job_description}</p>
-                        </div>
-                    )}
+                    {job.job_description && <JobDescriptionBlock description={job.job_description} />}
                     <div className="flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
                         <AlertTriangle className="h-4 w-4 shrink-0" />尚未入库：确认无误后点击上方「一键入库」写入岗位库；后续可在模拟面试或简历工作台显式使用，或删除这张卡片。
                     </div>
@@ -82,7 +109,7 @@ export function BossResultCard({
                             {job.company_size_text && <span>· {job.company_size_text}</span>}
                         </div>
                         <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                            <Badge variant="outline">{job.salary_text || "薪资未披露"}</Badge>
+                            <Badge variant="outline">{displayBossSalaryText(job.salary_text) || "薪资未披露"}</Badge>
                             {job.city && <span className="inline-flex items-center gap-1"><MapPin className="h-3 w-3" />{job.city}</span>}
                         </div>
                     </div>
@@ -103,12 +130,7 @@ export function BossResultCard({
                 </div>
             </CardHeader>
             <CardContent className="space-y-4">
-                {job.job_description && (
-                    <div className="rounded-xl border border-slate-200 bg-white p-3">
-                        <div className="text-xs font-semibold text-slate-700">当前卡片可见职位介绍</div>
-                        <p className="mt-2 whitespace-pre-wrap text-xs leading-5 text-slate-600">{job.job_description}</p>
-                    </div>
-                )}
+                {job.job_description && <JobDescriptionBlock description={job.job_description} />}
                 {job.risk_flags.length > 0 && (
                     <div className="flex items-start gap-2 rounded-xl bg-amber-50 p-3 text-xs text-amber-800">
                         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />

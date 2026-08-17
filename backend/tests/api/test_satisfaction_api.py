@@ -13,7 +13,7 @@ from pydantic import ValidationError
 from app.api.deps import get_current_user_id
 from app.db.models.base import get_session
 from app.db.repositories.evaluation.user_feedback_repository import aggregate_feedback
-from app.schemas.satisfaction_schemas import SatisfactionSubmitRequest
+from app.schemas.evaluation.satisfaction_schemas import SatisfactionSubmitRequest
 
 
 @pytest.mark.fast
@@ -247,7 +247,7 @@ async def test_submit_cleans_and_truncates_aspects() -> None:
 def _make_client(session: AsyncMock) -> TestClient:
     """挂载满意度路由,并覆盖会话与用户身份依赖的测试客户端。"""
 
-    from app.api.satisfaction import router
+    from app.api.evaluation.satisfaction import router
 
     app = FastAPI()
     app.include_router(router)
@@ -342,7 +342,7 @@ def test_get_satisfaction_stats_returns_full_aggregation() -> None:
 def test_get_current_user_id_falls_back_to_default_user() -> None:
     """无 X-User-ID 头时身份解析回退 default_user,不视为 401,stats 返回结构。"""
 
-    from app.api.satisfaction import router
+    from app.api.evaluation.satisfaction import router
 
     session = AsyncMock()
     session.add = Mock()
@@ -366,7 +366,7 @@ def test_get_current_user_id_falls_back_to_default_user() -> None:
 def test_satisfaction_router_exposes_submit_and_stats_paths() -> None:
     """闭环 API 必须包含提交与统计入口。"""
 
-    from app.api.satisfaction import router
+    from app.api.evaluation.satisfaction import router
 
     paths = {getattr(route, "path", "") for route in router.routes}
     assert "/api/satisfaction" in paths

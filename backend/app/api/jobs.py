@@ -17,12 +17,13 @@ from ai.workflows.jobs import (
     JobsUseCaseError,
     jobs_use_cases,
 )
-from app.schemas.job_schemas import (
+from app.schemas.jobs.job_schemas import (
     BossTabCaptureRequest,
     BossTabCaptureResponse,
     BossTabStatusResponse,
     BossOpenJobRequest,
     JobDetailResponse,
+    JobJdAnalysisRequest,
     JobImportResponse,
     JobLibraryImportRequest,
     JobListResponse,
@@ -46,19 +47,23 @@ async def _call_use_case(action: Callable[[], Awaitable[T]], error_code: str, er
 
     Args:
         action: 待执行的异步 use-case；异常由本函数统一转换，动作本身的副作用仍由 use-case 负责。
-        error_code: 对外或日志使用的错误语义；必须保持脱敏，不包含凭据和完整输入。
+        error_code: 对外暴露的错误码标识，用于客户端识别错误类型。
         error_message: 对外或日志使用的错误语义；必须保持脱敏，不包含凭据和完整输入。
     """
     try:
         return await action()
     except JobsUseCaseError as exc:
+        # ① 按错误类型映射稳定状态码，未知类型兜底为 400
         raise HTTPException(
             status_code=_ERROR_STATUS.get(type(exc), 400),
+            # ② 参数类错误直接透出消息，其余返回结构化错误体
             detail=exc.message if isinstance(exc, JobBadRequest) else {"error": exc.error, "message": exc.message},
         ) from exc
     except HTTPException:
+        # ③ 已是 HTTP 异常则直接透传，避免二次包装
         raise
     except Exception as exc:
+        # ④ 未知异常记录日志并返回 500，不向外暴露内部细节
         logger.error(
             "[API] %s: error_type=%s",
             error_message,
@@ -77,7 +82,12 @@ async def get_boss_browser_tab_status(
     browser_channel: Optional[Literal["msedge", "chrome"]] = None,
     _user_id: str = Depends(get_current_user_id),
 ):
-    """经宿主机服务检查 Edge/Chrome BOSS 标签页；Docker 主后端不直接访问 GUI。"""
+    """经宿主机服务检查 Edge/Chrome BOSS 标签页；Docker 主后端不直接访问 GUI。
+
+    Args:
+        browser_channel: 指定浏览器渠道；为空时使用默认渠道。
+        _user_id: 当前用户 ID（仅用于鉴权）。
+    """
     return await _call_use_case(
         lambda: jobs_use_cases.get_boss_browser_tab_status(browser_channel=browser_channel),
         "boss_browser_tab_failed",
@@ -90,7 +100,12 @@ async def search_and_capture_current_boss_tab(
     request: BossTabCaptureRequest,
     _user_id: str = Depends(get_current_user_id),
 ):
-    """经宿主机服务复用现有登录标签页搜索和采集，不接收或导出浏览器凭据。"""
+    """经宿主机服务复用现有登录标签页搜索和采集，不接收或导出浏览器凭据。
+
+    Args:
+        request: BOSS 标签页搜索采集请求体。
+        _user_id: 当前用户 ID（仅用于鉴权）。
+    """
     return await _call_use_case(
         lambda: jobs_use_cases.search_and_capture_boss_tab(request=request),
         "boss_browser_tab_failed",
@@ -103,7 +118,12 @@ async def import_cards_to_library(
     request: JobLibraryImportRequest,
     user_id: str = Depends(get_current_user_id),
 ):
-    """把用户确认的待入库卡片确定性写入岗位库，不调度模型或后台资产任务。"""
+    """把用户确认的待入库卡片确定性写入岗位库，不调度模型或后台资产任务。
+
+    Args:
+        request: 岗位入库请求体。
+        user_id: 当前用户 ID（用于 owner 校验）。
+    """
     return await _call_use_case(
         lambda: jobs_use_cases.import_cards_to_library(request=request, user_id=user_id),
         "job_import_failed",
@@ -117,11 +137,37 @@ async def open_job_in_existing_boss_tab(
     request: BossOpenJobRequest,
     user_id: str = Depends(get_current_user_id),
 ):
-    """在已有登录 BOSS 标签页打开岗位详情，不执行投递或发送。"""
+    """在已有登录 BOSS 标签页打开岗位详情，不执行投递或发送。
+
+    Args:
+        job_id: 岗位 ID。
+        request: 打开岗位请求体。
+        user_id: 当前用户 ID（用于 owner 校验）。
+    """
     return await _call_use_case(
         lambda: jobs_use_cases.open_job_in_existing_tab(job_id=job_id, request=request, user_id=user_id),
         "open_job_failed",
         "打开 BOSS 岗位失败",
+    )
+
+
+@router.post("/{job_id}/jd-analysis", response_model=JobDetailResponse)
+async def analyze_job_jd(
+    job_id: int,
+    request: JobJdAnalysisRequest,
+    user_id: str = Depends(get_current_user_id),
+):
+    """显式分析已入库岗位的 JD；不会生成简历、投递或访问浏览器。
+
+    Args:
+        job_id: 岗位 ID。
+        request: JD 分析请求体。
+        user_id: 当前用户 ID（用于 owner 校验）。
+    """
+    return await _call_use_case(
+        lambda: jobs_use_cases.analyze_job_jd(job_id=job_id, request=request, user_id=user_id),
+        "job_jd_analysis_failed",
+        "JD 匹配分析失败",
     )
 
 
@@ -130,7 +176,12 @@ async def get_job(
     job_id: int,
     user_id: str = Depends(get_current_user_id),
 ):
-    """查看已采集岗位详情。"""
+    """查看已采集岗位详情。
+
+    Args:
+        job_id: 岗位 ID。
+        user_id: 当前用户 ID（用于 owner 校验）。
+    """
     return await _call_use_case(
         lambda: jobs_use_cases.get_job(job_id=job_id, user_id=user_id),
         "get_job_failed",
@@ -146,7 +197,15 @@ async def list_jobs(
     offset: int = 0,
     user_id: str = Depends(get_current_user_id),
 ):
-    """岗位列表查询。"""
+    """岗位列表查询，支持按平台、状态过滤和分页。
+
+    Args:
+        platform: 按来源平台过滤。
+        status: 按采集状态过滤。
+        limit: 返回条数上限。
+        offset: 分页偏移量。
+        user_id: 当前用户 ID（用于 owner 校验）。
+    """
     return await _call_use_case(
         lambda: jobs_use_cases.list_jobs(
             user_id=user_id,
@@ -169,7 +228,12 @@ async def delete_job(
     job_id: int,
     user_id: str = Depends(get_current_user_id),
 ):
-    """删除已采集岗位。"""
+    """删除已采集岗位。
+
+    Args:
+        job_id: 岗位 ID。
+        user_id: 当前用户 ID（用于 owner 校验）。
+    """
     return await _call_use_case(
         lambda: jobs_use_cases.delete_job(job_id=job_id, user_id=user_id),
         "delete_failed",

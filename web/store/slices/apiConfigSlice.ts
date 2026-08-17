@@ -1,13 +1,13 @@
 /**
  * API Config Slice - API 配置管理
- * 
+ *
  * 负责 LLM API 模型的配置管理
  */
 
 import { v4 as uuidv4 } from 'uuid';
 import type { ModelConfig, ApiConfig } from '../types';
 import { DEFAULT_API_CONFIG } from '../types';
-import { modelConfigForRequest } from '@/lib/modelCredentialRequest';
+import { modelConfigForRequest, modelPoolConfigForRequest, optionalModelConfigForRequest } from '@/lib/modelCredentialRequest';
 
 type ModelRequestConfig = {
     credential_id: string;
@@ -16,6 +16,7 @@ type ModelRequestConfig = {
     provider?: string;
     integration?: string;
     pricing_key?: string;
+    dimensions?: number;
 };
 
 // ============================================================================
@@ -60,11 +61,11 @@ export interface ApiConfigActions {
     getApiConfigForRequest: () => {
         smart: ModelRequestConfig;
         fast: ModelRequestConfig;
-        general: ModelRequestConfig;
-        match_analyst: ModelRequestConfig;
-        content_writer: ModelRequestConfig;
-        hr_reviewer: ModelRequestConfig;
-        reflector: ModelRequestConfig;
+        general: ModelRequestConfig | null;
+        match_analyst: ModelRequestConfig | null;
+        content_writer: ModelRequestConfig | null;
+        hr_reviewer: ModelRequestConfig | null;
+        reflector: ModelRequestConfig | null;
         mimo: ModelRequestConfig | null;
         rag_embedding: ModelRequestConfig | null;
         mem0_llm: ModelRequestConfig | null;
@@ -103,15 +104,10 @@ export const createApiConfigSlice = (set: SetState, get: GetState): ApiConfigSli
             models: [...apiConfig.models, newModel],
         };
 
-        // 只有文本连接可自动成为核心通道；MiMo 语音连接保持独立。
+        // 只有文本连接可自动成为核心 Smart/Fast 通道；专家通道保持未单独配置，交给 General 回退。
         if (apiConfig.models.length === 0 && newModel.kind !== 'voice') {
             newConfig.smartModelId = newModel.id;
             newConfig.fastModelId = newModel.id;
-            newConfig.generalModelId = newModel.id;
-            newConfig.matchAnalystModelId = newModel.id;
-            newConfig.contentWriterModelId = newModel.id;
-            newConfig.hrReviewerModelId = newModel.id;
-            newConfig.reflectorModelId = newModel.id;
         }
         if (newModel.provider === 'mimo') {
             newConfig.mimoModelId = newModel.id;
@@ -335,7 +331,7 @@ export const createApiConfigSlice = (set: SetState, get: GetState): ApiConfigSli
 
         if (!smartModel || !fastModel) return null;
 
-        // 辅助函数：获取模型配置，如果未设置则回退到 smart
+        // 核心单模型配置；模型池为空时由 getPoolConfig 使用对应核心模型兜底
         /** Provides the get model config store helper; request-scoped configuration and session state stay centralized in Zustand, while backend persistence remains in the API layer. */
         const getModelConfig = (model: ModelConfig | null) => {
             const m = model || smartModel;
@@ -347,22 +343,17 @@ export const createApiConfigSlice = (set: SetState, get: GetState): ApiConfigSli
             const selected = (ids || [])
                 .map(id => get().apiConfig.models.find(model => model.id === id))
                 .filter((model): model is ModelConfig => Boolean(model?.credentialStored));
-            const members = selected.length > 0 ? selected : [fallback];
-            return members.map(model => ({
-                ...getModelConfig(model),
-                name: model.name,
-                weight: 1,
-            }));
+            return modelPoolConfigForRequest(selected, fallback);
         };
 
         return {
             smart: getModelConfig(smartModel),
             fast: getModelConfig(fastModel),
-            general: getModelConfig(generalModel),
-            match_analyst: getModelConfig(matchAnalystModel),
-            content_writer: getModelConfig(contentWriterModel),
-            hr_reviewer: getModelConfig(hrReviewerModel),
-            reflector: getModelConfig(reflectorModel),
+            general: optionalModelConfigForRequest(generalModel),
+            match_analyst: optionalModelConfigForRequest(matchAnalystModel),
+            content_writer: optionalModelConfigForRequest(contentWriterModel),
+            hr_reviewer: optionalModelConfigForRequest(hrReviewerModel),
+            reflector: optionalModelConfigForRequest(reflectorModel),
             mimo: mimoModel ? getModelConfig(mimoModel) : null,
             rag_embedding: ragEmbeddingModel ? getModelConfig(ragEmbeddingModel) : null,
             mem0_llm: mem0LlmModel ? getModelConfig(mem0LlmModel) : null,

@@ -11,7 +11,7 @@ from deepeval import assert_test
 from deepeval.test_case import LLMTestCase
 from deepeval.test_case.llm_test_case import SingleTurnParams
 from deepeval.metrics import GEval
-from app.schemas.interview import (
+from app.schemas.interview.interview import (
     EvaluatingOutput,
     InterviewerAction,
 )

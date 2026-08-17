@@ -7,12 +7,16 @@ from typing import Any, Literal
 from langchain_core.tools import tool
 
 from ai.workflows.jobs import jobs_use_cases
-from app.schemas.job_schemas import BossOpenJobRequest
+from app.schemas.jobs.job_schemas import BossOpenJobRequest
 from app.schemas.tools import attach_tool_contract
 
 
 def _serialize_tool_result(result: Any) -> Any:
-    """把 Pydantic 业务对象转换为工具可序列化结果，不改变业务字段。"""
+    """把 Pydantic 业务对象转换为工具可序列化结果，不改变业务字段。
+
+    Args:
+        result: 结果对象。
+    """
 
     if hasattr(result, "model_dump"):
         return result.model_dump(mode="json")
@@ -24,14 +28,23 @@ def _serialize_tool_result(result: Any) -> Any:
 
 
 def make_job_tools(user_id: str) -> list[Any]:
-    """构造绑定 owner 的岗位打开工具。"""
+    """构造绑定 owner 的岗位打开工具。
+
+    Args:
+        user_id: 用户 ID，所有者范围限定。
+    """
 
     @tool
     async def open_boss_job(
         job_id: int,
         browser_channel: Literal["msedge", "chrome"] | None = None,
     ) -> dict[str, Any]:
-        """经宿主机桥接在现有登录标签页打开官方岗位页，不填写或发送消息。"""
+        """经宿主机桥接在现有登录标签页打开官方岗位页，不填写或发送消息。
+
+        Args:
+            job_id: 岗位 ID。
+            browser_channel: 浏览器渠道标识（如 msedge/chrome）。
+        """
 
         result = await jobs_use_cases.open_job_in_existing_tab(
             job_id=job_id,
