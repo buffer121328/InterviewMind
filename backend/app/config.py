@@ -1,6 +1,7 @@
 """应用统一配置入口。
 
-仅放置服务端运行默认值；本地模型 API Key 存入仅绑定 localhost 的 Redis String Key，不写入代码或配置文件。
+仅放置服务端运行默认值；本地模型 API Key 以 Fernet 密文按 owner 分区存入仅绑定
+localhost 的 Redis String Key，不写入代码或配置文件。
 """
 
 from functools import lru_cache
@@ -55,7 +56,8 @@ class AppSettings(BaseSettings):
     llm_pool_redis_enabled: bool = True
     llm_pool_inflight_ttl_seconds: int = Field(default=600, ge=30, le=3600)
     llm_pool_cursor_ttl_seconds: int = Field(default=86_400, ge=60, le=30 * 24 * 60 * 60)
-    allow_private_model_base_urls: bool = True
+    # SSRF 边界：默认拒绝私网/回环模型 Base URL；仅本地开发（Ollama/vLLM/LM Studio）显式开启。
+    allow_private_model_base_urls: bool = False
     api_config_validation_timeout_seconds: int = Field(default=10, ge=1, le=60)
     redis_url: str = ""
     runtime_data_dir: str = "data"

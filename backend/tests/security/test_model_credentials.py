@@ -2,25 +2,46 @@
 
 from __future__ import annotations
 
+from hashlib import sha256
 from unittest.mock import AsyncMock
 
 import pytest
+from cryptography.fernet import Fernet
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
+from app.security.model_credential_crypto import (
+    ModelCredentialCipher,
+    ModelCredentialCryptoError,
+    build_model_credential_cipher,
+)
 from app.security.model_credential_middleware import ModelCredentialHydrationMiddleware
 from app.security.model_credentials import ModelCredentialStore, ModelCredentialStoreUnavailable
 
 
+def _owner_key(user_id: str, model_name: str) -> str:
+    owner = sha256(user_id.encode()).hexdigest()
+    return f"agent_interview:model_credentials:v1:owner:{owner}:model:{model_name}"
+
+
+def _cipher() -> ModelCredentialCipher:
+    return ModelCredentialCipher(Fernet.generate_key().decode())
+
+
 class _FakeRedis:
-    """Small Redis substitute supporting final String keys plus legacy Hash migration."""
+    """Small Redis substitute supporting String keys plus legacy Hash migration."""
 
     def __init__(self) -> None:
         self.strings: dict[str, str] = {}
         self.hashes: dict[str, dict[str, str]] = {}
         self.ttls: dict[str, int] = {}
+        self.fail_set = False
 
     async def set(self, key: str, value: str, *, ex: int | None = None, nx: bool = False) -> bool | None:
+        if self.fail_set:
+            from redis.exceptions import RedisError
+
+            raise RedisError("simulated write failure")
         if nx and key in self.strings:
             return None
         self.strings[key] = value
@@ -43,6 +64,8 @@ class _FakeRedis:
     async def delete(self, *keys: str) -> int:
         deleted = 0
         for key in keys:
+            if key is None:
+                continue
             deleted += int(key in self.strings or key in self.hashes)
             self.strings.pop(key, None)
             self.hashes.pop(key, None)
@@ -51,28 +74,47 @@ class _FakeRedis:
 
 
 @pytest.mark.asyncio
-async def test_store_uses_model_name_string_key_with_api_key_only() -> None:
+async def test_store_writes_owner_scoped_ciphertext_only() -> None:
     redis = _FakeRedis()
-    store = ModelCredentialStore(redis)  # type: ignore[arg-type]
+    cipher = _cipher()
+    store = ModelCredentialStore(redis, cipher)  # type: ignore[arg-type]
 
     status = await store.put("user-a", "deepseek-v4-flash", "test-secret-value")
 
-    assert redis.strings == {
-        "agent_interview:model_credentials:v1:deepseek-v4-flash": "test-secret-value"
-    }
+    key = _owner_key("user-a", "deepseek-v4-flash")
+    assert set(redis.strings) == {key}
+    assert redis.strings[key] != "test-secret-value"
+    assert redis.strings[key].startswith("v1:")
+    assert cipher.decrypt(redis.strings[key]) == "test-secret-value"
     assert redis.hashes == {}
+    assert redis.ttls[key] == 30 * 24 * 60 * 60
     assert status.model_name == "deepseek-v4-flash"
     assert status.stored is True
     assert status.expires_at is not None
-    assert redis.ttls["agent_interview:model_credentials:v1:deepseek-v4-flash"] == 30 * 24 * 60 * 60
-    assert await store.get("user-b", "deepseek-v4-flash") == "test-secret-value"
+
+
+@pytest.mark.asyncio
+async def test_same_model_name_is_partitioned_by_user() -> None:
+    redis = _FakeRedis()
+    cipher = _cipher()
+    store = ModelCredentialStore(redis, cipher)  # type: ignore[arg-type]
+    await store.put("user-a", "deepseek-v4-flash", "secret-a")
+    await store.put("user-b", "deepseek-v4-flash", "secret-b")
+
+    assert set(redis.strings) == {
+        _owner_key("user-a", "deepseek-v4-flash"),
+        _owner_key("user-b", "deepseek-v4-flash"),
+    }
+    assert await store.get("user-a", "deepseek-v4-flash") == "secret-a"
+    assert await store.get("user-b", "deepseek-v4-flash") == "secret-b"
+    assert cipher.decrypt(redis.strings[_owner_key("user-a", "deepseek-v4-flash")]) == "secret-a"
 
 
 @pytest.mark.asyncio
 async def test_successful_reads_and_status_checks_refresh_sliding_ttl() -> None:
     redis = _FakeRedis()
-    store = ModelCredentialStore(redis, ttl_seconds=120)  # type: ignore[arg-type]
-    key = "agent_interview:model_credentials:v1:deepseek-v4-flash"
+    store = ModelCredentialStore(redis, _cipher(), ttl_seconds=120)  # type: ignore[arg-type]
+    key = _owner_key("user-a", "deepseek-v4-flash")
     await store.put("user-a", "deepseek-v4-flash", "test-secret-value")
 
     redis.ttls.pop(key)
@@ -87,9 +129,9 @@ async def test_successful_reads_and_status_checks_refresh_sliding_ttl() -> None:
 
 
 @pytest.mark.asyncio
-async def test_status_and_delete_use_same_global_model_name_key() -> None:
+async def test_status_and_delete_are_owner_scoped() -> None:
     redis = _FakeRedis()
-    store = ModelCredentialStore(redis)  # type: ignore[arg-type]
+    store = ModelCredentialStore(redis, _cipher())  # type: ignore[arg-type]
     await store.put("user-a", "deepseek-v4-flash", "test-secret-value")
 
     statuses = await store.statuses(
@@ -98,18 +140,38 @@ async def test_status_and_delete_use_same_global_model_name_key() -> None:
     )
 
     assert [(item.model_name, item.stored) for item in statuses] == [
-        ("deepseek-v4-flash", True),
+        ("deepseek-v4-flash", False),
         ("missing-model", False),
     ]
-    assert statuses[0].expires_at is not None
-    assert statuses[1].expires_at is None
-    assert await store.delete("user-b", "deepseek-v4-flash") is True
+    assert statuses[0].expires_at is None
+    assert await store.delete("user-a", "deepseek-v4-flash") is True
     assert redis.strings == {}
 
 
 @pytest.mark.asyncio
-async def test_legacy_uuid_hash_migrates_to_model_name_without_reentry() -> None:
+async def test_legacy_plaintext_key_migrates_to_owner_ciphertext_once() -> None:
     redis = _FakeRedis()
+    cipher = _cipher()
+    legacy_key = "agent_interview:model_credentials:v1:deepseek-v4-flash"
+    redis.strings[legacy_key] = "migrated-secret"
+    store = ModelCredentialStore(redis, cipher)  # type: ignore[arg-type]
+
+    assert await store.get("user-a", "deepseek-v4-flash") == "migrated-secret"
+
+    owner_key = _owner_key("user-a", "deepseek-v4-flash")
+    assert legacy_key not in redis.strings
+    assert cipher.decrypt(redis.strings[owner_key]) == "migrated-secret"
+    # 迁移完成后读取不再依赖旧键。
+    redis.strings.pop(owner_key, None)
+    redis.strings[legacy_key] = "migrated-secret"
+    assert await store.get("user-a", "deepseek-v4-flash") == "migrated-secret"
+    assert legacy_key not in redis.strings
+
+
+@pytest.mark.asyncio
+async def test_legacy_uuid_hash_migrates_to_owner_ciphertext() -> None:
+    redis = _FakeRedis()
+    cipher = _cipher()
     legacy_id = "e8cbbb31-6df1-4ccb-bd08-41a85097f94e"
     legacy_key = f"agent_interview:model_credentials:v1:model:{legacy_id}"
     redis.hashes["agent_interview:model_credentials:v1:channels"] = {"mem0_llm": legacy_id}
@@ -118,20 +180,81 @@ async def test_legacy_uuid_hash_migrates_to_model_name_without_reentry() -> None
         "model": "deepseek-v4-flash",
         "api_key": "migrated-secret",
     }
-    store = ModelCredentialStore(redis)  # type: ignore[arg-type]
+    store = ModelCredentialStore(redis, cipher)  # type: ignore[arg-type]
 
-    assert await store.get(
-        "ignored-user",
-        "deepseek-v4-flash",
-        legacy_id=legacy_id,
-    ) == "migrated-secret"
+    assert await store.get("user-a", "deepseek-v4-flash", legacy_id=legacy_id) == "migrated-secret"
 
-    assert redis.strings == {
-        "agent_interview:model_credentials:v1:deepseek-v4-flash": "migrated-secret"
-    }
-    assert redis.ttls["agent_interview:model_credentials:v1:deepseek-v4-flash"] == 30 * 24 * 60 * 60
+    owner_key = _owner_key("user-a", "deepseek-v4-flash")
+    assert cipher.decrypt(redis.strings[owner_key]) == "migrated-secret"
     assert legacy_key not in redis.hashes
     assert "agent_interview:model_credentials:v1:channels" not in redis.hashes
+    assert redis.ttls[owner_key] == 30 * 24 * 60 * 60
+
+
+@pytest.mark.asyncio
+async def test_migration_write_failure_keeps_legacy_source() -> None:
+    redis = _FakeRedis()
+    store = ModelCredentialStore(redis, _cipher())  # type: ignore[arg-type]
+    legacy_key = "agent_interview:model_credentials:v1:deepseek-v4-flash"
+    redis.strings[legacy_key] = "keep-me-secret"
+    redis.fail_set = True
+
+    with pytest.raises(ModelCredentialStoreUnavailable):
+        await store.get("user-a", "deepseek-v4-flash")
+
+    # 源值保留，未写入任何新键；恢复后可再次迁移。
+    assert redis.strings == {legacy_key: "keep-me-secret"}
+    redis.fail_set = False
+    assert await store.get("user-a", "deepseek-v4-flash") == "keep-me-secret"
+    assert legacy_key not in redis.strings
+
+
+@pytest.mark.asyncio
+async def test_undecryptable_value_fails_safe_without_leaking_secret() -> None:
+    redis = _FakeRedis()
+    store = ModelCredentialStore(redis, _cipher())  # type: ignore[arg-type]
+    key = _owner_key("user-a", "deepseek-v4-flash")
+    redis.strings[key] = _cipher().encrypt("fixture-sk-1234567890abcdef")
+
+    with pytest.raises(ModelCredentialStoreUnavailable) as excinfo:
+        await store.get("user-a", "deepseek-v4-flash")
+
+    assert "fixture-sk-1234567890abcdef" not in str(excinfo.value)
+
+
+@pytest.mark.asyncio
+async def test_logs_never_contain_fixture_api_key(caplog) -> None:
+    redis = _FakeRedis()
+    store = ModelCredentialStore(redis, _cipher())  # type: ignore[arg-type]
+    fixture = "fixture-sk-log-1234567890"
+    await store.put("user-a", "deepseek-v4-flash", fixture)
+    await store.get("user-a", "deepseek-v4-flash")
+
+    legacy_key = "agent_interview:model_credentials:v1:other-model"
+    redis.strings[legacy_key] = fixture
+    redis.fail_set = True
+    with pytest.raises(ModelCredentialStoreUnavailable):
+        await store.get("user-a", "other-model")
+
+    assert fixture not in caplog.text
+
+
+def test_cipher_decrypts_previous_generation_within_rotation_window() -> None:
+    old_key = Fernet.generate_key().decode()
+    new_key = Fernet.generate_key().decode()
+    envelope = ModelCredentialCipher(old_key).encrypt("rotation-secret")
+
+    rotated = ModelCredentialCipher(new_key, old_key)
+    assert rotated.decrypt(envelope) == "rotation-secret"
+    assert rotated.encrypt("rotation-secret") != envelope
+
+
+def test_cipher_fails_closed_without_current_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("MODEL_CREDENTIAL_ENCRYPTION_KEY", raising=False)
+    monkeypatch.delenv("MODEL_CREDENTIAL_ENCRYPTION_PREVIOUS_KEY", raising=False)
+
+    with pytest.raises(ModelCredentialCryptoError):
+        build_model_credential_cipher()
 
 
 def test_middleware_hydrates_credential_reference_before_route(monkeypatch: pytest.MonkeyPatch) -> None:
