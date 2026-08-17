@@ -37,12 +37,14 @@ from ai.runtime.context.assembler import (
 from ai.runtime.execution.deadlines import TaskDeadline
 from ai.tools.executor import ToolExecutionGuard
 from app.config import get_settings
-from app.schemas.interview import (
+from app.schemas.interview.interview import (
     EvaluatingOutput,
     InterviewerAction,
     InterviewPhase,
 )
 from observability import agent_observation
+
+from .questions.plan import is_technical_question, technical_follow_up_budget
 
 logger = logging.getLogger(__name__)
 
@@ -63,9 +65,14 @@ class InterviewRuntime:
         self,
         state: Dict[str, Any],
         llm_invoker: Callable[..., Awaitable[Any]],
-        tool_executor: Optional[Callable[..., Awaitable[Dict]]] = None
+        tool_executor: Optional[Callable[..., Awaitable[Dict]]] = None,
+        api_config: Optional[Dict[str, Any]] = None,
     ):
-        """初始化面试运行时相关状态。"""
+        """初始化面试运行时相关状态。
+
+        api_config 仅来自请求级运行时上下文（InterviewRuntimeContext），
+        不进入 state 或 checkpoint。
+        """
         self.state = state
         self.llm_invoker = llm_invoker
         self.tool_executor = tool_executor
@@ -75,6 +82,8 @@ class InterviewRuntime:
         self.current_idx: int = state.get("current_question_index", 0)
         self.follow_up_count: int = state.get("follow_up_count", 0)
         self.max_follow_ups: int = state.get("max_follow_ups", 2)
+        self.total_follow_up_count: int = int(state.get("total_follow_up_count", 0) or 0)
+        self.max_total_follow_ups: int = technical_follow_up_budget(self.plan)
         self.turn_phase: str = state.get("turn_phase", "opening")
         self.round_index: int = state.get("round_index", 1)
         self.round_type: str = state.get("round_type", "tech_initial")
@@ -110,7 +119,7 @@ class InterviewRuntime:
             user_id=str(self.state.get("user_id") or "interview-user"),
             session_id=self.state.get("session_id"),
             run_id=self.state.get("run_id"),
-            api_config=self.state.get("api_config") or {},
+            api_config=api_config or {},
             permissions=frozenset({
                 "question_bank.search",
                 "candidate.profile.read",
@@ -196,6 +205,42 @@ class InterviewRuntime:
         self.phase = InterviewPhase.EVALUATING
         return await self._handle_evaluating()
 
+    def _is_current_question_technical(self) -> bool:
+        """当前主问题是否具备技术追问资格。"""
+        if self.current_idx < 0 or self.current_idx >= len(self.plan):
+            return False
+        current = self.plan[self.current_idx]
+        return isinstance(current, dict) and is_technical_question(current)
+
+    def _follow_up_block_reason(self) -> str | None:
+        """返回阻止当前题追问的确定性原因；无阻止条件时返回 ``None``。"""
+        if not self._is_current_question_technical():
+            return "当前主问题不是技术题"
+        if self.follow_up_count >= self.max_follow_ups:
+            return "当前技术题追问次数已达上限"
+        if self.total_follow_up_count >= self.max_total_follow_ups:
+            return "本轮技术追问预算已耗尽"
+        return None
+
+    def _advance_or_end_after_follow_up_block(self, reason: str) -> Dict[str, Any]:
+        """在追问不可用时保持主问题节奏并进入下一步。"""
+        next_q = self._get_next_question()
+        forced_output = EvaluatingOutput(
+            evaluation_notes=reason,
+            action=InterviewerAction.ADVANCE if next_q else InterviewerAction.END_ROUND,
+            content=next_q or "本轮面试到此结束，感谢你的参与！",
+            follow_up_count=self.follow_up_count,
+        )
+        self._add_trace(
+            step="evaluating",
+            phase=InterviewPhase.EVALUATING.value,
+            status="completed",
+            output_summary=f"forced_action={forced_output.action}, reason={reason}",
+        )
+        if next_q:
+            return self._handle_advance_action(forced_output)
+        return self._handle_end_round_action(forced_output)
+
     async def _handle_evaluating(self) -> Dict[str, Any]:
         """evaluating 状态：评估回答 + 决策下一步动作"""
 
@@ -205,7 +250,8 @@ class InterviewRuntime:
 
         logger.info(
             f"[Runtime] evaluating: idx={self.current_idx}/{len(self.plan)}, "
-            f"follow_up={self.follow_up_count}/{self.max_follow_ups}"
+            f"follow_up={self.follow_up_count}/{self.max_follow_ups}, "
+            f"total_follow_up={self.total_follow_up_count}/{self.max_total_follow_ups}"
         )
         self._add_trace(
             step="evaluating",
@@ -214,23 +260,10 @@ class InterviewRuntime:
             input_summary=f"idx={self.current_idx}, follow_up={self.follow_up_count}, tool_rounds={self.tool_round_count}",
         )
 
-        if self.follow_up_count >= self.max_follow_ups:
-            logger.info("[Runtime] 当前题追问次数已达上限，跳过模型决策并强制推进")
-            forced_output = EvaluatingOutput(
-                evaluation_notes="当前题追问次数已达上限",
-                action=InterviewerAction.ADVANCE if next_q else InterviewerAction.END_ROUND,
-                content=next_q or "本轮面试到此结束，感谢你的参与！",
-                follow_up_count=self.follow_up_count,
-            )
-            self._add_trace(
-                step="evaluating",
-                phase=InterviewPhase.EVALUATING.value,
-                status="completed",
-                output_summary=f"forced_action={forced_output.action}",
-            )
-            if next_q:
-                return self._handle_advance_action(forced_output)
-            return self._handle_end_round_action(forced_output)
+        follow_up_block_reason = self._follow_up_block_reason()
+        if follow_up_block_reason:
+            logger.info("[Runtime] %s，跳过模型决策并强制推进", follow_up_block_reason)
+            return self._advance_or_end_after_follow_up_block(follow_up_block_reason)
 
         # 构建评估 prompt（注入工具结果）
         tool_context = self._format_tool_results()
@@ -298,26 +331,36 @@ class InterviewRuntime:
             return self._handle_advance_action(output)
 
     def _handle_follow_up_action(self, output: EvaluatingOutput) -> Dict[str, Any]:
-        """处理追问动作"""
+        """处理技术追问动作，并在运行时再次执行全部配额约束。"""
+        follow_up_block_reason = self._follow_up_block_reason()
+        if follow_up_block_reason:
+            logger.info("[Runtime] 忽略模型追问决策：%s", follow_up_block_reason)
+            return self._advance_or_end_after_follow_up_block(follow_up_block_reason)
+
         new_count = self.follow_up_count + 1
-
-        if new_count > self.max_follow_ups:
-            # 已达最大追问次数，强制进入下一题
-            logger.info(f"[Runtime] 追问次数已达上限 {self.max_follow_ups}，强制进入下一题")
-            return self._handle_advance_action(output)
-
+        new_total_count = self.total_follow_up_count + 1
         self.phase = InterviewPhase.FOLLOW_UP
-        logger.info(f"[Runtime] 追问 #{new_count}: {output.content[:50]}...")
+        logger.info(
+            "[Runtime] 技术追问 #%s（本轮 %s/%s）: %s...",
+            new_count,
+            new_total_count,
+            self.max_total_follow_ups,
+            output.content[:50],
+        )
         self._add_trace(
             step="decision",
             phase=InterviewPhase.FOLLOW_UP.value,
             status="completed",
-            output_summary=f"follow_up#{new_count}: {output.content[:120]}",
+            output_summary=(
+                f"follow_up#{new_count}, total={new_total_count}/{self.max_total_follow_ups}: "
+                f"{output.content[:120]}"
+            ),
         )
 
         return self._with_trace({
             "messages": [{"role": "assistant", "content": output.content}],
             "follow_up_count": new_count,
+            "total_follow_up_count": new_total_count,
             "current_sub_question": output.content,
             "turn_phase": "feedback",
             "current_question_index": self.current_idx,  # 保持当前题
@@ -385,27 +428,20 @@ class InterviewRuntime:
     # ------------------------------------------------------------------
 
     def _handle_fallback(self, user_answer: str, current_q: str, next_q: str) -> Dict[str, Any]:
-        """LLM 调用失败时的兜底：未达追问上限则默认追问，否则默认进入下一题。
+        """评估模型不可用时直接推进，避免兜底追问拖慢面试。
 
         Args:
             user_answer: 候选人本轮回答。
             current_q: 当前题目文本。
             next_q: 下一题文本（用于默认推进）。
         """
-        if self.follow_up_count < self.max_follow_ups:
-            return self._handle_follow_up_action(EvaluatingOutput(
-                evaluation_notes="[自动] LLM 调用失败，默认追问",
-                action=InterviewerAction.FOLLOW_UP,
-                content="能否再详细说说？",
-                follow_up_count=self.follow_up_count
-            ))
-        else:
-            return self._handle_advance_action(EvaluatingOutput(
-                evaluation_notes="[自动] LLM 调用失败，默认进入下一题",
-                action=InterviewerAction.ADVANCE,
-                content=next_q if next_q else "让我们进入下一题。",
-                follow_up_count=self.follow_up_count
-            ))
+        _ = user_answer, current_q
+        return self._handle_advance_action(EvaluatingOutput(
+            evaluation_notes="[自动] LLM 调用失败，进入下一题",
+            action=InterviewerAction.ADVANCE,
+            content=next_q if next_q else "让我们进入下一题。",
+            follow_up_count=self.follow_up_count,
+        ))
 
     def _default_response(self, content: str) -> Dict[str, Any]:
         """生成不依赖模型的安全兜底回复，并附带 trace。
@@ -499,6 +535,12 @@ class InterviewRuntime:
             "next_question": next_q or "已是最后一题",
             "follow_up_count": self.follow_up_count,
             "max_follow_ups": self.max_follow_ups,
+            "current_question_is_technical": self._is_current_question_technical(),
+            "total_follow_up_count": self.total_follow_up_count,
+            "max_total_follow_ups": self.max_total_follow_ups,
+            "remaining_total_follow_ups": max(
+                0, self.max_total_follow_ups - self.total_follow_up_count
+            ),
         }
         assembler = ContextAssembler(
             agent_name="interview",

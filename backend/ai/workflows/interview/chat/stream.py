@@ -7,12 +7,14 @@ import logging
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 
-from ai.agents.interview.interview_graph import build_interview_graph
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+
+from ai.agents.interview.interview_graph import InterviewRuntimeContext, build_interview_graph
+from ai.agents.interview.questions.plan import is_technical_question
 from ai.runtime.agent_runs.service import AgentRunService
+from ai.runtime.execution.gate import get_run_gate
 from ai.runtime.harness.contracts import StreamExecution
 from ai.runtime.harness.drivers import StreamDriver, StreamDriverConflict
-from ai.runtime.execution.gate import get_run_gate
-from ai.workflows.interview.sessions.checkpoints import interview_turn_checkpoint_thread_id
 from ai.workflows.interview.chat.events import (
     ChatStreamEventEmitter,
     detect_error_event,
@@ -23,16 +25,41 @@ from ai.workflows.interview.chat.events import (
 )
 from ai.workflows.interview.chat.memory import get_memory_context, write_memory_background
 from ai.workflows.interview.chat.response_content import extract_latest_assistant_content
+from ai.workflows.interview.lifecycle.completion import handle_interview_complete
+from ai.workflows.interview.sessions.checkpoints import interview_turn_checkpoint_thread_id
 from app.db.repositories.session.session_repo import SessionRepo
 from app.domain.agent_definitions import get_agent_definition
 from app.domain.agent_runs import TASK_TYPE_INTERVIEW_TURN
 from app.domain.interview_rounds import resolve_max_questions
-from app.schemas.schemas import ChatRequest, ChatStreamResponse
+from app.schemas.interview.schemas import ChatRequest, ChatStreamResponse
 from app.security.security import safe_error_message
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from observability import langgraph_langfuse_scope, with_langgraph_langfuse_config
 
 logger = logging.getLogger(__name__)
+
+
+def _count_issued_technical_follow_ups(messages, interview_plan: list[dict]) -> int:
+    """从已持久化用户回答恢复本轮已发出的技术追问数。
+
+    第一条用户回答对应主问题本身；同一题后续每条用户回答说明系统曾发出一条追问。
+    """
+    user_answer_counts: dict[int, int] = {}
+    for message in messages:
+        if getattr(message, "role", None) != "user":
+            continue
+        question_index = getattr(message, "question_index", 0) or 0
+        if not isinstance(question_index, int) or question_index < 0:
+            continue
+        user_answer_counts[question_index] = user_answer_counts.get(question_index, 0) + 1
+
+    total = 0
+    for question_index, answer_count in user_answer_counts.items():
+        if question_index >= len(interview_plan):
+            continue
+        question = interview_plan[question_index]
+        if isinstance(question, dict) and is_technical_question(question):
+            total += max(0, answer_count - 1)
+    return total
 
 
 @dataclass(slots=True)
@@ -113,6 +140,9 @@ class ChatStreamUseCases:
             for msg in session.messages
             if msg.role == "user" and (msg.question_index or 0) == current_question_index
         )
+        total_follow_up_count = _count_issued_technical_follow_ups(
+            session.messages, interview_plan
+        )
         metadata = getattr(session, "metadata", None)
         round_index = getattr(metadata, "round_index", None) or 1
         round_type = getattr(metadata, "round_type", None)
@@ -138,9 +168,9 @@ class ChatStreamUseCases:
             "question_count": current_question_index,
             "current_question_index": current_question_index,
             "follow_up_count": same_question_answer_count,
+            "total_follow_up_count": total_follow_up_count,
             "max_follow_ups": 2,
             "turn_phase": "feedback",
-            "api_config": api_config,
             "round_index": round_index,
             "round_type": round_type,
             "memory_context": memory_context,
@@ -185,6 +215,7 @@ class ChatStreamUseCases:
                     manage_lifecycle=False,
                     result_holder=result_holder,
                     emit_plan=False,
+                    api_config=api_config,
                 ),
                 result=lambda: {
                     "thread_id": request.thread_id,
@@ -243,6 +274,7 @@ class ChatStreamUseCases:
         manage_lifecycle: bool = True,
         result_holder: dict[str, int] | None = None,
         emit_plan: bool = True,
+        api_config: dict | None = None,
     ) -> AsyncGenerator[str, None]:
         """生成流式响应事件，并把业务状态变化转换为前端可重放的 SSE 结构。
 
@@ -255,6 +287,7 @@ class ChatStreamUseCases:
             user_id: 当前用户标识。
             lease: 经过类型边界校验的 `lease`；其格式和可选值由参数类型及调用流程约束。
             run_id: 运行标识。
+            api_config: 请求级模型配置；仅作为 runtime context 传入图，不进入 state/checkpoint。
         """
         ai_response_content = ""
         final_question_index = inputs.get("current_question_index", 0)
@@ -263,6 +296,7 @@ class ChatStreamUseCases:
         emitted_response_nodes: set[str] = set()
         plan = execution_plan()
         response_persisted = False
+        completion_requested = False
 
         try:
             if emit_plan:
@@ -301,11 +335,18 @@ class ChatStreamUseCases:
                     yield event
 
             with langgraph_langfuse_scope("callbacks" in config):
-                async for event in graph.astream_events(inputs, config=config, version="v2"):
+                async for event in graph.astream_events(
+                    inputs,
+                    config=config,
+                    context=InterviewRuntimeContext(api_config=api_config),
+                    version="v2",
+                ):
                     kind = event["event"]
                     if kind == "on_chain_end":
                         output = event["data"].get("output")
                         node_name = event.get("metadata", {}).get("langgraph_node", "")
+                        if node_name == "summary":
+                            completion_requested = True
                         if node_name in {"responder", "summary"} and node_name not in emitted_response_nodes:
                             content = extract_latest_assistant_content(output)
                             if content:
@@ -334,7 +375,7 @@ class ChatStreamUseCases:
                                 ai_response_content += visible_content
                                 response = ChatStreamResponse(type="token", content=visible_content)
                                 yield f"data: {response.model_dump_json()}\n\n"
-                        if output and isinstance(output, dict):
+                        if node_name == "responder" and output and isinstance(output, dict):
                             if "current_question_index" in output:
                                 final_question_index = output["current_question_index"]
                             if "question_count" in output:
@@ -379,7 +420,15 @@ class ChatStreamUseCases:
                     ai_response_content,
                     inputs,
                     user_id,
-                    inputs.get("api_config"),
+                    api_config,
+                )
+
+            if completion_requested:
+                await handle_interview_complete(
+                    session_id=thread_id,
+                    api_config=api_config,
+                    trigger_analysis=True,
+                    user_id=user_id,
                 )
 
             for step_id in ("analyze_answer", "generate_response", "update_progress"):

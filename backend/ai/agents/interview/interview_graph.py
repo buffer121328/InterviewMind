@@ -38,7 +38,8 @@ session_3 (HR面, active)     → 读取前两轮累积画像
 import logging
 import operator
 import uuid
-from typing import Annotated, List, Literal, Optional, TypedDict
+from dataclasses import dataclass
+from typing import Annotated, Any, List, Literal, Mapping, Optional, TypedDict
 from weakref import WeakSet
 
 from langchain_core.messages import AIMessage, BaseMessage
@@ -46,8 +47,10 @@ from pydantic import BaseModel, Field
 
 try:
     from langgraph.graph import END, StateGraph
+    from langgraph.runtime import Runtime
 except ModuleNotFoundError:  # pragma: no cover - 测试环境可无 langgraph
     StateGraph = None  # type: ignore[assignment]
+    Runtime = None  # type: ignore[assignment]
     END = "__end__"
 
 from ai.memory.memory import get_checkpointer
@@ -101,12 +104,22 @@ class PlanOutput(BaseModel):
 
 
 
+@dataclass(frozen=True, slots=True)
+class InterviewRuntimeContext:
+    """不进入 checkpoint 的可信请求上下文；水合后的模型凭据只存在于此。"""
+
+    api_config: Optional[Mapping[str, Any]] = None
+
+
 class InterviewState(TypedDict):
     """数据对象，承载 `InterviewState` 的结构化字段和跨模块契约；只表达数据，不在构造或序列化时执行外部调用。
     面试状态定义 - 统一的状态结构
 
     用户隔离: user_id 字段从 API 层传入，贯穿整个流程，确保数据隔离。
     运行追踪: run_id 字段在每次图执行时生成，用于审计和调试。
+
+    安全边界: 模型配置与凭据不进入本 state——由 `InterviewRuntimeContext`
+    按请求传入，避免随 checkpoint 持久化。
     """
 
     # 消息历史
@@ -126,11 +139,11 @@ class InterviewState(TypedDict):
     current_question_index: int
     max_questions: int
     question_bank_count: int
-    experience_questions: List[dict]
 
     # 统计信息
     question_count: int  # 已完成的问题数（不含追问）
     follow_up_count: int  # 当前主线问题的追问次数
+    total_follow_up_count: int  # 本轮已发出的技术追问总数
 
     # 阶段控制
     turn_phase: Literal["opening", "feedback"]
@@ -138,9 +151,6 @@ class InterviewState(TypedDict):
     # 追问控制
     current_sub_question: Optional[str]
     max_follow_ups: int
-
-    # 用户 API 配置（可选）
-    api_config: Optional[dict]
 
     # 轮次信息
     round_index: int
@@ -156,7 +166,7 @@ class InterviewState(TypedDict):
 # 节点函数
 # ============================================================================
 
-async def node_planner(state: InterviewState):
+async def node_planner(state: InterviewState, runtime: Runtime[InterviewRuntimeContext]):
     """
     规划节点：生成面试题目
     使用统一的 interview_planner 模块
@@ -177,7 +187,7 @@ async def node_planner(state: InterviewState):
     company_info = state.get("company_info", "")
     max_q = state.get("max_questions", 5)
     session_id = state.get("session_id")
-    api_config = state.get("api_config") or {}
+    api_config = dict(runtime.context.api_config or {})
     user_id = state.get("user_id", "default_user")  # 从 state 读取 user_id
     run_id = state.get("run_id", str(uuid.uuid4()))  # 从 state 读取 run_id
 
@@ -242,8 +252,12 @@ async def node_planner(state: InterviewState):
         except Exception as e:
             logger.error(f"获取轮次信息失败: {e}")
 
-    # 明确选中的面经与题库题优先，题库题同时受轮次题型与优先级约束。
-    from .questions.plan import merge_question_plan, prepare_candidates
+    # 题库题受轮次题型与优先级约束，并优先于模型生成题。
+    from .questions.plan import (
+        is_introduction_question,
+        merge_question_plan,
+        prepare_question_bank_candidates,
+    )
     bank_items = []
     bank_count = min(max(int(state.get("question_bank_count", 0) or 0), 0), max_q)
     if bank_count:
@@ -259,11 +273,8 @@ async def node_planner(state: InterviewState):
             )
         except Exception as e:
             logger.warning(f"抽取个人题库失败，将由 planner 补足: {e}")
-    candidates = prepare_candidates(
-        state.get("experience_questions", []),
-        bank_items,
-        max_q,
-    )
+    candidates = prepare_question_bank_candidates(bank_items, max_q)
+    known_intro_question = any(is_introduction_question(item) for item in candidates)
     remaining_questions = max_q - len(candidates)
 
     # 仅在仍需模型生成题目时检索上下文。
@@ -298,6 +309,7 @@ async def node_planner(state: InterviewState):
             round_index=round_index,
             previous_profile=previous_profile,
             previous_questions=previous_questions,
+            known_intro_question=known_intro_question,
             output_format="full",
             session_id=session_id,
             save_to_db=False,
@@ -309,7 +321,7 @@ async def node_planner(state: InterviewState):
             owner_id=user_id,
             cache_scope=cache_scope,
         )
-    interview_plan = merge_question_plan(candidates, generated_plan, max_q)
+    interview_plan = merge_question_plan(candidates, generated_plan, max_q, round_type=round_type)
     if session_id:
         from app.db.repositories.session.session_repo import SessionRepo
 
@@ -322,6 +334,7 @@ async def node_planner(state: InterviewState):
         "current_question_index": 0,
         "question_count": 0,
         "follow_up_count": 0,
+        "total_follow_up_count": 0,
         "turn_phase": "opening",
         "current_sub_question": None,
         "max_follow_ups": 2,
@@ -334,7 +347,7 @@ async def node_planner(state: InterviewState):
 interview_tools = [search_question_bank, get_candidate_profile, get_interview_history, search_memory]
 
 
-async def node_responder(state: InterviewState):
+async def node_responder(state: InterviewState, runtime: Runtime[InterviewRuntimeContext]):
     """
     回复节点：使用 InterviewRuntime 状态机替代 ReAct agent。
 
@@ -351,7 +364,7 @@ async def node_responder(state: InterviewState):
 
     from .interview_runtime import InterviewRuntime
 
-    api_config = state.get("api_config")
+    api_config = dict(runtime.context.api_config or {})
 
     # 构建 LLM 调用器：封装 invoke_structured，自动注入 api_config
     async def llm_invoker(
@@ -389,6 +402,7 @@ async def node_responder(state: InterviewState):
         state=dict(state),
         llm_invoker=llm_invoker,
         tool_executor=tool_executor,
+        api_config=api_config,
     )
 
     # 执行状态机主循环
@@ -409,31 +423,25 @@ async def node_responder(state: InterviewState):
     }
 
 async def node_summary(state: InterviewState):
-    """
-    完成节点：持久化会话完成状态并触发统一 Markdown 报告任务。
+    """返回完成信号，不在 Graph 内抢先持久化 Session 终态。
 
-    候选人可见结束语已经由 responder 以固定文案输出；此节点不再追加
-    一段文字总结，避免面试问答末尾出现两份互相重复的反馈。
+    候选人可见结束语由 responder 输出；拥有消息、进度与 StreamDriver 生命周期的
+    workflow 会在消费完 Graph 事件后统一完成 Session、归档问答并触发报告。
     """
-    from ai.workflows.interview.lifecycle.completion import handle_interview_complete
-
     session_id = state.get("session_id")
-    api_config = state.get("api_config")
     user_id = state.get("user_id", "default_user")
     run_id = state.get("run_id", "unknown")
 
-    logger.info(f"[Summary] run_id={run_id} user_id={user_id} session={session_id} 开始完成会话")
-    await handle_interview_complete(
-        session_id=session_id,
-        api_config=api_config,
-        trigger_analysis=True,
-        user_id=user_id,
+    logger.info(
+        "[Summary] run_id=%s user_id=%s session=%s 已产生完成信号",
+        run_id,
+        user_id,
+        session_id,
     )
-
     return {
         "messages": [],
         "question_count": state.get("question_count"),
-        "max_questions": state.get("max_questions")
+        "max_questions": state.get("max_questions"),
     }
 
 
@@ -482,7 +490,7 @@ async def build_interview_graph(mode: str = "mock"):
     if StateGraph is None:
         raise ModuleNotFoundError("langgraph is required to build interview graph")
 
-    workflow = StateGraph(InterviewState)
+    workflow = StateGraph(InterviewState, context_schema=InterviewRuntimeContext)
 
     # 添加节点
     workflow.add_node("planner", node_planner)

@@ -2,17 +2,17 @@
 
 import logging
 import uuid
-from datetime import datetime
 from dataclasses import dataclass
+from datetime import datetime
 
-from app.db.repositories.session.session_repo import SessionRepo
-from app.schemas.schemas import InterviewStartRequest
 from ai.agents.interview.interview_context import build_interview_context
-from ai.agents.interview.interview_graph import build_interview_graph
-from ai.workflows.interview.chat.response_content import extract_latest_assistant_content
+from ai.agents.interview.interview_graph import InterviewRuntimeContext, build_interview_graph
 from ai.runtime.safety.errors import classify_error_message
-from app.security.security import safe_error_message
+from ai.workflows.interview.chat.response_content import extract_latest_assistant_content
+from app.db.repositories.session.session_repo import SessionRepo
 from app.domain.interview_session_titles import build_interview_session_title
+from app.schemas.interview.schemas import InterviewStartRequest
+from app.security.security import safe_error_message
 from observability import langgraph_langfuse_scope, with_langgraph_langfuse_config
 
 logger = logging.getLogger(__name__)
@@ -88,7 +88,6 @@ class InterviewStartUseCases:
                 max_questions=request.max_questions,
                 round_type=request.round_type,
                 question_bank_count=request.question_bank_count,
-                experience_questions=request.experience_questions,
                 session_metadata=session.metadata if session else None,
                 api_config=api_config,
             )
@@ -102,7 +101,6 @@ class InterviewStartUseCases:
                 "interview_plan": [],
                 "current_question_index": 0,
                 "question_count": 0,
-                "api_config": api_config,
             }
 
             current_r_idx = inputs["round_index"]
@@ -126,7 +124,12 @@ class InterviewStartUseCases:
                 },
             )
             with langgraph_langfuse_scope("callbacks" in graph_config):
-                async for event in graph.astream_events(inputs, config=graph_config, version="v2"):
+                async for event in graph.astream_events(
+                    inputs,
+                    config=graph_config,
+                    context=InterviewRuntimeContext(api_config=api_config),
+                    version="v2",
+                ):
                     if (
                         event["event"] == "on_chain_end"
                         and event.get("metadata", {}).get("langgraph_node") == "responder"

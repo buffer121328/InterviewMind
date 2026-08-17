@@ -6,15 +6,15 @@ from collections.abc import Awaitable, Callable
 
 from fastapi import HTTPException
 
-from app.clock import utc_now
-from app.db.repositories.session.session_repo import SessionRepo
 from ai.agents.interview.interview_context import build_interview_context
-from ai.agents.interview.interview_graph import build_interview_graph
+from ai.agents.interview.interview_graph import InterviewRuntimeContext, build_interview_graph
 from ai.workflows.interview.chat.response_content import extract_latest_assistant_content
 from ai.workflows.jobs.job_context import (
     JobContextAccessError,
     normalize_owned_job_context_snapshot,
 )
+from app.clock import utc_now
+from app.db.repositories.session.session_repo import SessionRepo
 from app.domain.interview_rounds import resolve_max_questions, resolve_round_type
 from app.domain.interview_session_titles import build_interview_session_title
 from observability import langgraph_langfuse_scope, with_langgraph_langfuse_config
@@ -24,7 +24,13 @@ _Progress = Callable[[str], Awaitable[None]] | None
 
 
 async def execute_interview_start(payload: dict, user_id: str, progress: _Progress = None) -> dict:
-    """创建/恢复会话并运行图谱；调用方负责持久化任务状态。"""
+    """创建/恢复会话并运行图谱；调用方负责持久化任务状态。
+
+    Args:
+        payload: 任务载荷，含 `thread_id`、`mode`、`api_config` 等字段。
+        user_id: 用户标识。
+        progress: 进度回调，用于上报任务阶段。
+    """
     request = payload
     session_repo = SessionRepo()
     session_created = False
@@ -67,7 +73,6 @@ async def execute_interview_start(payload: dict, user_id: str, progress: _Progre
             max_questions=requested_max_questions,
             round_type=requested_round_type,
             question_bank_count=request.get("question_bank_count", 0),
-            experience_questions=request.get("experience_questions", []),
             session_metadata=session.metadata if session else None,
             api_config=request.get("api_config"),
         )
@@ -75,8 +80,9 @@ async def execute_interview_start(payload: dict, user_id: str, progress: _Progre
             "messages": [], **context.graph_fields(),
             "mode": request["mode"], "session_id": thread_id, "user_id": user_id,
             "run_id": request.get("_agent_run_id") or str(uuid.uuid4()), "interview_plan": [], "current_question_index": 0,
-            "question_count": 0, "api_config": request.get("api_config"),
+            "question_count": 0,
         }
+        api_config = request.get("api_config")
 
         title = build_interview_session_title(
             started_at=utc_now(),
@@ -99,7 +105,12 @@ async def execute_interview_start(payload: dict, user_id: str, progress: _Progre
             },
         )
         with langgraph_langfuse_scope("callbacks" in config):
-            async for event in graph.astream_events(inputs, config=config, version="v2"):
+            async for event in graph.astream_events(
+                inputs,
+                config=config,
+                context=InterviewRuntimeContext(api_config=api_config),
+                version="v2",
+            ):
                 if (
                     event["event"] == "on_chain_end"
                     and event.get("metadata", {}).get("langgraph_node") == "responder"
