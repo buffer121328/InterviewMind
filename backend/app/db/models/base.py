@@ -60,14 +60,10 @@ async def init_db():
         # create_all 不会修改已存在列的 vector(n) typmod，因此必须显式拦截维度漂移。
         await validate_rag_vector_connection(conn)
 
-        # 创建 HNSW 向量索引（需要 pgvector 扩展和表已存在）
-        await conn.execute(text("""
-            CREATE INDEX IF NOT EXISTS idx_rag_chunks_embedding_hnsw
-            ON rag_chunks USING hnsw (embedding vector_cosine_ops)
-            WHERE embedding_status = 'completed' AND is_active = TRUE
-        """))
+        # 向量 HNSW 索引结构由 Alembic 迁移（动态维度表达式索引）唯一负责，
+        # 开发启动不得重建迁移 16 已淘汰的旧单维度索引。
 
-        # 创建 pg_trgm GIN 索引（用于模糊文本检索）
+        # 创建 pg_trgm GIN 索引（用于模糊文本检索；与 ORM 基线迁移定义一致）
         await conn.execute(text("""
             CREATE INDEX IF NOT EXISTS idx_rag_chunks_content_trgm
             ON rag_chunks USING gin (content gin_trgm_ops)
@@ -79,4 +75,4 @@ async def init_db():
             ON rag_chunks USING gin (metadata)
         """))
 
-    logger.info("✓ SQLAlchemy ORM 表结构已同步 (含 pgvector / pg_trgm / HNSW 索引)")
+    logger.info("✓ SQLAlchemy ORM 表结构已同步 (向量索引由迁移维护)")
