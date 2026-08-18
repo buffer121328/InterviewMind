@@ -39,6 +39,7 @@ export interface SessionMetadata {
     company_profile?: Record<string, unknown> | null;
 }
 
+    interview_plan?: Array<Record<string, unknown>>;
 export interface InterviewSession {
     session_id: string;
     title: string;

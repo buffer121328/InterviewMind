@@ -258,6 +258,23 @@ class SessionRepo:
         return await self.message.get_session_conversations(session_id, user_id)
 
     # --- 画像管理 (ProfileService) ---
+    async def replace_current_question(
+        self,
+        session_id: str,
+        question_index: int,
+        content: str,
+        plan: list[dict],
+        user_id: Optional[str] = None,
+    ) -> bool:
+        """在 owner 和活动状态校验后原子替换当前计划题与 assistant 消息。"""
+        return await self.message.replace_current_question(
+            session_id=session_id,
+            question_index=question_index,
+            content=content,
+            plan=plan,
+            user_id=user_id,
+        )
+
 
     async def save_profile(
         self,

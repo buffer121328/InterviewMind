@@ -28,6 +28,7 @@ export interface SessionMetadata {
     company_profile?: Record<string, unknown> | null;
 }
 
+    interview_plan?: Array<Record<string, unknown>>;
 export interface Message {
     role: 'user' | "assistant" | 'system';
     content: string;
@@ -235,4 +236,46 @@ export async function createNextRound(
         console.error('创建下一轮失败:', error);
         return null;
     }
+}
+
+
+export interface RegeneratedQuestionResponse {
+    success: boolean;
+    question_index: number;
+    question: {
+        id: number;
+        topic: string;
+        content: string;
+        type: string;
+        answer_points?: string[];
+        hint?: string;
+        [key: string]: unknown;
+    };
+}
+
+/** 让后端基于当前题目和用户可选原因生成一条替代题。 */
+export async function regenerateSessionQuestion(
+    sessionId: string,
+    questionIndex: number,
+    reason: string,
+    apiConfig?: unknown,
+): Promise<RegeneratedQuestionResponse> {
+    const response = await fetch(`${API_BASE_URL}/api/sessions/${sessionId}/questions/${questionIndex}/regenerate`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-User-ID': getUserId(),
+        },
+        body: JSON.stringify({
+            question_index: questionIndex,
+            reason: reason.trim() || null,
+            api_config: apiConfig ?? null,
+        }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+        const detail = data?.detail;
+        throw new Error(typeof detail === 'string' ? detail : detail?.message || data?.message || '重新生成题目失败');
+    }
+    return data as RegeneratedQuestionResponse;
 }

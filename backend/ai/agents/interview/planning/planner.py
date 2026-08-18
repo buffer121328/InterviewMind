@@ -108,7 +108,7 @@ ROUND_DEFAULT_QUESTIONS: Dict[str, List[Dict[str, Any]]] = {
         {"topic": "岗位匹配", "content": "如果入职后前三个月要交付一个关键结果，你会如何开展工作？", "type": "behavior"},
     ],
     "tech_deep": [
-        {"topic": "架构全景", "content": "请选择上一轮提到的一个核心项目，画出主要组件和数据流，并说明最关键的架构约束。", "type": "system_design"},
+        {"topic": "架构取舍", "content": "请选一个你熟悉的项目，口头介绍它最关键的技术取舍，以及这个取舍带来的一个风险。", "type": "system_design"},
         {"topic": "技术难点", "content": "这个项目中最难解决的技术问题是什么，你用哪些证据确认真正的根因？", "type": "tech"},
         {"topic": "方案权衡", "content": "针对该难点你比较过哪些方案，最终方案在复杂度、成本和风险上做了什么取舍？", "type": "tech"},
         {"topic": "性能瓶颈", "content": "如果该系统响应变慢，你会用哪些指标和工具定位 CPU、内存、网络或存储瓶颈？", "type": "tech"},

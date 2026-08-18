@@ -17,7 +17,7 @@ interface InterviewChatStreamProps {
     messagesEndRef: RefObject<HTMLDivElement | null>;
     onScroll: UIEventHandler<HTMLDivElement>;
     onEditMessage: (index: number, content: string) => void | Promise<void>;
-    onRegenerateMessage: (index: number) => void | Promise<void>;
+    onRegenerateMessage: (index: number, reason: string) => void | Promise<void>;
 }
 
 /** Renders the scrollable interview transcript and its loading/thinking states. */
@@ -49,7 +49,9 @@ export function InterviewChatStream({
                         content={message.content}
                         timestamp={message.timestamp}
                         onEdit={message.role === "user" ? (content) => onEditMessage(index, content) : undefined}
-                        onRegenerate={message.role === "assistant" && index !== 0 ? () => onRegenerateMessage(index) : undefined}
+                        onRegenerate={message.role === "assistant" && index === messages.map((item, messageIndex) => item.role === "assistant" ? messageIndex : -1).at(-1)
+                            ? (reason) => onRegenerateMessage(index, reason)
+                            : undefined}
                     />
                 ))}
 

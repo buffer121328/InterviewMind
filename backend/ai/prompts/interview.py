@@ -28,11 +28,12 @@ PLANNER_PROMPT = prompt_template(
 
 【规划规则】
 1. 题目必须与岗位、本轮侧重点和候选人已有经历相关；不得假定候选人拥有输入中未出现的经历。
-2. 每道主问题只考察一个核心能力，避免把多个独立问题堆在一句话中。
-3. 题目之间应有梯度且不得重复历史已问问题；确需复测时必须改变角度并在 reason 中说明。
+2. 每道主问题只考察一个核心能力，避免把多个独立问题堆在一句话中；题目应适合候选人在几分钟内口头回答。
+3. 后续轮次是独立的口头面试。上一轮内容只能用于选择侧重点和避免重复，不得要求候选人先复述上一轮题目、回答、项目过程或“刚才”的内容。
+4. 题目之间应有梯度且不得重复历史已问问题；确需复测时必须改变角度并在 reason 中说明。
 4. sources 只引用真实提供的来源；没有来源时使用空数组，fallback_reason 说明为何使用通用题。
 5. id 从 1 连续编号，type 只能是 intro、tech、behavior 或 system_design。
-6. content 只写候选人可见的问题，不要在问题正文提前给答案、提示或评价。
+6. content 只写候选人可见的问题，不要在问题正文提前给答案、提示或评价；不得要求绘制完整组件图、数据流图、流程图或提交书面材料作为作答前置条件，系统设计题改为口头说明思路、取舍和关键约束。
 7. answer_points 是内部辅导数据，每题提供 2-4 条简洁中文要点；只保留必要技术专有名词原文，不得编造候选人经历。
 
 【输出结构】
@@ -40,6 +41,31 @@ PLANNER_PROMPT = prompt_template(
 
 {STRICT_JSON_RULES}"""
 )
+
+REGENERATE_QUESTION_PROMPT = prompt_template(
+    f"""你是一位专业、友好的口头面试官。请为第 {{round_index}} 轮面试，把当前这道不合适的问题替换成一条新的主问题。
+
+{UNTRUSTED_INPUT_RULES}
+{EVIDENCE_RULES}
+{CONCISE_CHINESE_RULES}
+
+【当前轮次】{{round_type}}
+【候选人可选反馈】{{reason}}
+【当前问题】{{current_question}}
+【本轮已有问题（用于去重）】{{existing_questions}}
+【岗位与简历参考】{{context}}
+
+【要求】
+1. 只输出一条问题，聚焦一个核心能力，适合现场用几分钟口头回答。
+2. 每轮面试独立可理解；不得要求复述上一轮、依赖上一轮对话，也不得出现“刚才/上一题中你画的图”等前置表达。
+3. 系统设计或项目题只要求口头说明思路、取舍、风险或关键约束，不得要求必须画完整架构图、数据流图或提交文档。
+4. 不得复刻当前问题或本轮已有问题；不输出分析过程、Markdown 或候选人可见的答案。
+5. answer_points 提供 2-4 条内部中文回答要点。
+
+输出结构：{{output_schema}}
+{STRICT_JSON_RULES}"""
+)
+
 
 HINTS_PROMPT = prompt_template(
     f"""你是面试辅导专家。请为每道问题生成一条可执行的回答提示。
@@ -153,6 +179,30 @@ def build_planner_prompt(
         max_questions=max_questions,
         planning_context=planning_context or "未提供",
         json_format=json_format,
+    )
+
+
+def build_regenerate_question_prompt(
+    *,
+    round_index: int,
+    round_type: str,
+    reason: str,
+    current_question: str,
+    existing_questions: str,
+    context: str,
+) -> str:
+    """构造单题重新生成提示词；用户原因仅作为本次模型输入。"""
+    return render_prompt(
+        REGENERATE_QUESTION_PROMPT,
+        prompt_name="interview.question_regeneration",
+        prompt_version="1",
+        round_index=round_index,
+        round_type=round_type,
+        reason=reason or "未提供，换一种更容易口头回答的问法。",
+        current_question=current_question,
+        existing_questions=existing_questions,
+        context=context or "未提供",
+        output_schema='{"topic":"考察主题","content":"具体问题","answer_points":["回答结构要点"],"type":"intro/tech/behavior/system_design","target_skill":null,"reason":"提问依据"}',
     )
 
 

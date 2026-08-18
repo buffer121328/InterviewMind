@@ -12,7 +12,7 @@ interface ChatMessageProps {
     isStreaming?: boolean; // 是否正在流式传输
     onEdit?: (content: string) => void;
     onCancelEdit?: () => void;
-    onRegenerate?: () => void; // AI消息重新生成回调
+    onRegenerate?: (reason: string) => void | Promise<void>; // AI消息重新生成回调
 }
 
 import { motion } from "framer-motion";
@@ -20,6 +20,7 @@ import { motion } from "framer-motion";
 import { Bot, Copy, Pencil, Check, X, RefreshCw, Mic } from 'lucide-react';
 import { Button } from './ui/button';
 import { Textarea } from './ui/textarea';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
 
 /** Encapsulates chat message; returns typed data or state and keeps side effects within the owning module boundary. */
 export function ChatMessage({ role, content, isStreaming, onEdit, onCancelEdit, onRegenerate }: ChatMessageProps) {
@@ -27,6 +28,9 @@ export function ChatMessage({ role, content, isStreaming, onEdit, onCancelEdit, 
     const [isCopied, setIsCopied] = useState(false);
     const [isEditing, setIsEditing] = useState(false);
     const [editedContent, setEditedContent] = useState(content);
+    const [isRegenerateDialogOpen, setIsRegenerateDialogOpen] = useState(false);
+    const [regenerateReason, setRegenerateReason] = useState('');
+    const [isRegenerating, setIsRegenerating] = useState(false);
 
     /** Handles copy; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleCopy = async () => {
@@ -50,6 +54,19 @@ export function ChatMessage({ role, content, isStreaming, onEdit, onCancelEdit, 
         if (editedContent.trim()) {
             onEdit?.(editedContent.trim());
             setIsEditing(false);
+        }
+    };
+
+    /** Submits optional feedback for replacing the current interview question. */
+    const handleConfirmRegenerate = async () => {
+        if (!onRegenerate || isRegenerating) return;
+        setIsRegenerating(true);
+        try {
+            await onRegenerate(regenerateReason.trim());
+            setIsRegenerateDialogOpen(false);
+            setRegenerateReason('');
+        } finally {
+            setIsRegenerating(false);
         }
     };
 
@@ -213,8 +230,8 @@ export function ChatMessage({ role, content, isStreaming, onEdit, onCancelEdit, 
                                         variant="ghost"
                                         size="icon"
                                         className="h-6 w-6 text-gray-400 hover:text-orange-600 hover:bg-orange-50"
-                                        onClick={onRegenerate}
-                                        title="重新生成"
+                                        onClick={() => setIsRegenerateDialogOpen(true)}
+                                        title="重新生成题目"
                                     >
                                         <RefreshCw className="h-3.5 w-3.5" />
                                     </Button>
@@ -224,6 +241,29 @@ export function ChatMessage({ role, content, isStreaming, onEdit, onCancelEdit, 
                     </>
                 )}
             </div>
+            <Dialog open={isRegenerateDialogOpen} onOpenChange={setIsRegenerateDialogOpen}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>重新生成这道题</DialogTitle>
+                        <DialogDescription>
+                            可以告诉面试官哪里不合适，也可以留空，系统会换一个更适合口头回答的问法。
+                        </DialogDescription>
+                    </DialogHeader>
+                    <Textarea
+                        value={regenerateReason}
+                        onChange={(event) => setRegenerateReason(event.target.value)}
+                        placeholder="例如：题目范围太大，希望更聚焦项目中的一个技术取舍"
+                        maxLength={500}
+                        disabled={isRegenerating}
+                    />
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setIsRegenerateDialogOpen(false)} disabled={isRegenerating}>取消</Button>
+                        <Button onClick={() => void handleConfirmRegenerate()} disabled={isRegenerating}>
+                            {isRegenerating ? '生成中...' : '重新生成'}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </motion.div >
     );
 }

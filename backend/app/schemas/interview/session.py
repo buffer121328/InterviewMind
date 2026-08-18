@@ -16,6 +16,7 @@ from app.clock import utc_now
 class MessageItem(BaseModel):
     """单条消息模型"""
     role: Literal["user", "assistant", "system"] = Field(..., description="消息角色")
+from app.schemas.schemas import ApiConfig
     content: str = Field(..., description="消息内容")
     timestamp: str = Field(default_factory=lambda: utc_now().isoformat(), description="消息时间戳")
     question_index: int = Field(default=0, description="对应的问题序号")
@@ -108,6 +109,22 @@ class SessionListResponse(BaseModel):
 
 
 class SessionDetailResponse(BaseModel):
+class RegenerateQuestionRequest(BaseModel):
+    """当前题目重新生成请求。"""
+
+    question_index: int = Field(..., ge=0, description="当前题目索引（从 0 开始）")
+    reason: Optional[str] = Field(default=None, max_length=500, description="用户可选的重新生成原因")
+    api_config: Optional[ApiConfig] = Field(default=None, description="请求级模型配置")
+
+
+class RegenerateQuestionResponse(BaseModel):
+    """当前题目重新生成响应。"""
+
+    success: bool = Field(..., description="是否成功")
+    question_index: int = Field(..., description="题目索引")
+    question: Dict[str, Any] = Field(..., description="替换后的题目")
+
+
     """会话详情响应"""
     success: bool = Field(..., description="是否成功")
     session: InterviewSession = Field(..., description="会话详情")

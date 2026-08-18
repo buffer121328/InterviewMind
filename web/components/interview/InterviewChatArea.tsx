@@ -15,7 +15,7 @@ interface InterviewChatAreaProps {
     messagesEndRef: RefObject<HTMLDivElement | null>;
     onScroll: UIEventHandler<HTMLDivElement>;
     onEditMessage: (index: number, content: string) => void | Promise<void>;
-    onRegenerateMessage: (index: number) => void | Promise<void>;
+    onRegenerateMessage: (index: number, reason: string) => void | Promise<void>;
     children: ReactNode;
 }
 

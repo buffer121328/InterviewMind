@@ -12,6 +12,7 @@ MIGRATED_FUNCTIONS = {
     "update_session",
     "delete_session",
     "add_message_to_session",
+    "regenerate_question",
     "create_next_round",
 }
 FORBIDDEN_NAMES = {"SessionRepo", "session_repo"}

@@ -6,6 +6,7 @@ import uuid
 from app.domain.interview_rounds import resolve_max_questions, resolve_round_type
 from app.db.repositories.session.session_repo import SessionRepo
 from app.schemas.interview.session import SessionCreateRequest, SessionUpdateRequest
+from ai.workflows.interview.questions.regeneration import QuestionRegenerationError, regenerate_question
 
 
 @dataclass(slots=True)
@@ -139,6 +140,48 @@ class SessionManagementUseCases:
         return session
 
     async def create_next_round(self, *, session_id: str, max_questions: int | None, user_id: str, round_type: str | None = None):
+    async def regenerate_question(
+        self,
+        *,
+        session_id: str,
+        question_index: int,
+        reason: str | None,
+        api_config: dict | None,
+        user_id: str,
+    ) -> dict:
+        """在当前活动会话中替换尚未回答的主问题，不改变轮次进度。"""
+        session = await self._session_repo.get_session(session_id, user_id=user_id)
+        if session is None:
+            raise SessionManagementNotFound(message=f"会话 {session_id} 不存在或无权访问")
+        if session.metadata.status != "active":
+            raise SessionManagementBadRequest(message="面试已完成，不能重新生成题目")
+        if question_index != session.metadata.question_count:
+            raise SessionManagementBadRequest(message="只能重新生成当前待回答题目")
+        try:
+            replacement = await regenerate_question(
+                session=session,
+                question_index=question_index,
+                reason=reason,
+                api_config=api_config,
+            )
+        except QuestionRegenerationError as exc:
+            raise SessionManagementBadRequest(message=str(exc)) from exc
+        except Exception as exc:
+            raise SessionManagementPersistenceError(message="题目重新生成失败，请稍后重试") from exc
+
+        plan = [dict(item) for item in session.metadata.interview_plan]
+        replacement["id"] = question_index + 1
+        plan[question_index] = replacement
+        if not await self._session_repo.replace_current_question(
+            session_id=session_id,
+            question_index=question_index,
+            content=replacement["content"],
+            plan=plan,
+            user_id=user_id,
+        ):
+            raise SessionManagementPersistenceError(message="新题目保存失败，请稍后重试")
+        return replacement
+
         """创建 next round，在写入前沿用请求的 owner、审批和输入校验边界，并返回调用方可继续处理的结果。
 
         Args:

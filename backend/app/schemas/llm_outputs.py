@@ -46,6 +46,17 @@ class InterviewQuestionItem(BaseModel):
         ]
 
 
+class RegeneratedInterviewQuestion(BaseModel):
+    """重新生成的单道面试问题。"""
+
+    topic: str = Field(description="考察主题")
+    content: str = Field(description="适合口头回答的具体问题")
+    answer_points: List[str] = Field(default_factory=list, max_length=5, description="内部回答要点")
+    type: str = Field(description="题目类型：intro, tech, behavior, system_design")
+    target_skill: Optional[str] = Field(default=None, description="目标技能")
+    reason: Optional[str] = Field(default=None, description="提问依据")
+
+
 class PlanOutput(BaseModel):
     """面试规划输出"""
     questions: List[InterviewQuestionItem] = Field(description="面试问题列表")

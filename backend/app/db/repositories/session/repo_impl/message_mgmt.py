@@ -54,6 +54,40 @@ class MessageService(BaseService):
 
             return await self.mgmt.get_session(session_id, user_id=user_id)
 
+    async def replace_current_question(
+        self,
+        session_id: str,
+        question_index: int,
+        content: str,
+        plan: list[dict],
+        user_id: Optional[str] = None,
+    ) -> bool:
+        """原子替换当前计划题与对应 assistant 消息，失败时不留下半更新状态。"""
+        visible_session = await self.mgmt.get_session(session_id, user_id=user_id)
+        if visible_session is None or visible_session.metadata.status != "active":
+            return False
+        async with async_session() as db:
+            timestamp = utc_now()
+            message_result = await db.execute(
+                update(MessageModel)
+                .where(
+                    MessageModel.session_id == session_id,
+                    MessageModel.role == "assistant",
+                    MessageModel.question_index == question_index,
+                )
+                .values(content=content, timestamp=timestamp)
+            )
+            if not message_result.rowcount:
+                await db.rollback()
+                return False
+            await db.execute(
+                update(SessionModel)
+                .where(SessionModel.session_id == session_id)
+                .values(interview_plan=plan, updated_at=timestamp)
+            )
+            await db.commit()
+            return True
+
     async def get_session_conversations(
         self,
         session_id: str,

@@ -33,6 +33,7 @@ import { RunCenter } from "@/components/RunCenter";
 import { PromptManagementPage } from "@/components/PromptManagementPage";
 import { EvaluationCenter } from "@/components/evaluations/EvaluationCenter";
 import { WorkspaceShell } from "@/components/WorkspaceShell";
+import { regenerateSessionQuestion } from "@/lib/api/sessions";
 
 // 定义视图类型，包含 'landing'
 type ViewType = MainView;
@@ -122,6 +123,7 @@ export default function InterviewPage() {
     getMimoModel,
   } = useInterviewStore();
 
+    getApiConfigForRequest,
   const completedQuestionCount = interviewProgress?.current ?? currentSession?.metadata.question_count ?? 0;
   const completedQuestionLimit = interviewProgress?.total ?? currentSession?.metadata.max_questions ?? maxQuestions;
   const isInterviewCompleted = isInterviewFinished(
@@ -223,31 +225,37 @@ export default function InterviewPage() {
     await sendMessage(newContent);
   };
 
-  /** Handles regenerate message; updates local UI state first and delegates server mutations through the approved API boundary. */
-  const handleRegenerateMessage = async (aiMessageIndex: number) => {
-    if (isInterviewCompleted || isStreaming) return;
+  /** Replaces only the current unanswered question and keeps the original question on failure. */
+  const handleRegenerateMessage = async (aiMessageIndex: number, reason: string) => {
+    if (isInterviewCompleted || isStreaming || !currentSession) return;
+    if (messages[aiMessageIndex]?.role !== 'assistant') return;
 
-    // 特殊处理：如果是第一条消息（AI开场白），则重新开始面试流程
-    if (aiMessageIndex === 0) {
-      await rollbackChat(0);
-      if (resume) {
-        await startInterview();
-      }
-      return;
-    }
-
-    // 找到对应的用户消息（AI消息的前一条应该是用户消息）
-    const userMessageIndex = aiMessageIndex - 1;
-    if (userMessageIndex < 0 || messages[userMessageIndex].role !== 'user') {
-      console.error('无法找到对应的用户消息');
-      return;
-    }
-
-    const userMessage = messages[userMessageIndex];
-    // 回退到用户消息之前的状态
-    await rollbackChat(userMessageIndex);
-    // 重新发送原有的用户消息
-    await sendMessage(userMessage.content);
+    const questionIndex = completedQuestionCount;
+    try {
+      const result = await regenerateSessionQuestion(
+        currentSession.session_id,
+        questionIndex,
+        reason,
+        getApiConfigForRequest(),
+      );
+      const nextMessages = [...messages];
+      nextMessages[aiMessageIndex] = {
+        ...nextMessages[aiMessageIndex],
+        content: result.question.content,
+        timestamp: new Date().toISOString(),
+      };
+      const currentPlan = currentSession.metadata.interview_plan || [];
+      const nextPlan = [...currentPlan];
+      nextPlan[questionIndex] = result.question;
+      useInterviewStore.setState({
+        messages: nextMessages,
+        currentSession: {
+          ...currentSession,
+          metadata: { ...currentSession.metadata, interview_plan: nextPlan },
+        },
+      });
+      toast.success('已换一题，可以继续回答');
+    } catch (error) {
   };
 
   /** Encapsulates scroll to bottom; returns typed data or state and keeps side effects within the owning module boundary. */

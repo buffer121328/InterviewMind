@@ -21,6 +21,8 @@ from app.schemas.interview.session import (
     SessionUpdateRequest,
     SessionListResponse,
     SessionDetailResponse,
+    RegenerateQuestionRequest,
+    RegenerateQuestionResponse,
 )
 
 logger = logging.getLogger(__name__)
@@ -202,6 +204,36 @@ async def add_message_to_session(
     except Exception as exc:
         logger.error("添加消息失败: %s", exc)
         raise _internal_error("添加消息失败") from exc
+
+
+@router.post("/{session_id}/questions/{question_index}/regenerate", response_model=RegenerateQuestionResponse)
+async def regenerate_question(
+    session_id: str,
+    question_index: int,
+    request: RegenerateQuestionRequest,
+    user_id: str = Depends(get_current_user_id),
+):
+    """基于用户可选原因重新生成当前待回答题目。"""
+    if request.question_index != question_index:
+        raise HTTPException(status_code=400, detail={"error": "BadRequest", "message": "题目索引不一致"})
+    try:
+        question = await session_management_use_cases.regenerate_question(
+            session_id=session_id,
+            question_index=question_index,
+            reason=request.reason,
+            api_config=request.api_config.model_dump() if request.api_config else None,
+            user_id=user_id,
+        )
+        return RegenerateQuestionResponse(success=True, question_index=question_index, question=question)
+    except SessionManagementNotFound as exc:
+        raise _not_found(exc.message) from exc
+    except SessionManagementBadRequest as exc:
+        raise HTTPException(status_code=400, detail={"error": "BadRequest", "message": exc.message}) from exc
+    except SessionManagementPersistenceError as exc:
+        raise _internal_error(exc.message) from exc
+    except Exception as exc:
+        logger.error("重新生成面试题失败: %s", exc)
+        raise _internal_error("题目重新生成失败，请稍后重试") from exc
 
 
 @router.post("/{session_id}/next-round", response_model=SessionDetailResponse)
