@@ -54,8 +54,12 @@ async def test_audio_turn_uses_asr_text_then_emits_text_audio_done(monkeypatch):
         async def get_interview_plan(self, *_args, **_kwargs):
             return [{"content": "请介绍项目"}, {"content": "请说明架构"}]
 
-        async def update_session_question_count(self, _session_id, index):
-            calls.append(("progress", index))
+        async def get_interview_stable_context(self, *_args, **_kwargs):
+            return None
+
+        async def commit_interview_turn(self, **kwargs):
+            calls.append(("commit", kwargs["question_count"]))
+            return {"committed": True, "idempotent": False}
 
     async def transcribe(audio, *_args, **_kwargs):
         calls.append(("asr", audio))
@@ -103,11 +107,12 @@ async def test_audio_turn_uses_asr_text_then_emits_text_audio_done(monkeypatch):
     frames = [frame async for frame in voice_interview.node_responder(state)]
     event_types = [_event_type(frame) for frame in frames]
 
-    assert calls[:3] == [
-        ("asr", "YWJj"),
-        ("chat", "ASR 专业术语"),
-        ("tts", "请继续说明技术取舍。"),
-    ]
+    assert calls[0] == ("asr", "YWJj")
+    assert calls[1][0] == "chat"
+    assert "ASR 专业术语" in calls[1][1]
+    assert ("commit", 0) in calls
+    assert ("tts", "请继续说明技术取舍。") in calls
+    assert calls.index(("commit", 0)) < calls.index(("tts", "请继续说明技术取舍。"))
     assert event_types.index("text") < event_types.index("audio") < event_types.index("done")
 
 

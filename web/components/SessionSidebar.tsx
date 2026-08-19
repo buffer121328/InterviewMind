@@ -161,6 +161,8 @@ export function SessionSidebar({
     const assignedModels = new Set([
         apiConfig.smartModelId,
         apiConfig.fastModelId,
+        apiConfig.technicalDepthModelId,
+        apiConfig.communicationModelId,
         apiConfig.generalModelId,
         apiConfig.matchAnalystModelId,
         apiConfig.contentWriterModelId,

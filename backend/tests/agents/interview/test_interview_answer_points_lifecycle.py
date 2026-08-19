@@ -78,6 +78,8 @@ def test_scoring_qa_history_contains_answer_points_but_public_history_does_not()
         answer_points_by_question={"Q1": scoring_history[0]["answer_points"]},
     )
     assert "说明高效数据结构" in reviewer_contexts["technical_depth"]
+    for perspective in ("communication", "job_fit", "factual_risk"):
+        assert "说明高效数据结构" not in reviewer_contexts[perspective]
 
 
 def test_structured_report_does_not_expose_internal_answer_points():

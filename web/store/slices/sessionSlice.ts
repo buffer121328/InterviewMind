@@ -131,15 +131,15 @@ export const createSessionSlice = (set: SetState, get: GetState): SessionSlice =
 
     deleteSession: async (sessionId: string) => {
         try {
-            // 首先尝试从前端 IndexedDB 删除音频（即使后端失败也清理本地）
+            const success = await deleteSessionApi(sessionId);
+            if (!success) throw new Error('删除会话失败');
+
+            // Only remove browser-stored audio after the owner-scoped backend delete succeeds.
             try {
                 await deleteSessionAudios(sessionId);
             } catch (e) {
                 console.warn('[SessionSlice] 清理本地音频失败:', e);
             }
-
-            const success = await deleteSessionApi(sessionId);
-            if (!success) throw new Error('删除会话失败');
 
             const { currentSession, sessions, sessionsTotal } = get();
             const isCurrentSession = currentSession?.session_id === sessionId;

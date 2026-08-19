@@ -11,11 +11,16 @@ from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
 
 from ai.runtime.agent_runs.outbox import dispatch_pending_outbox
-from ai.workflows.agent_runs.queue.submission import enqueue_agent_run
 from ai.runtime.agent_runs.service import AgentRunService, task_queue_enabled
 from ai.runtime.execution.background import create_background_task
+from ai.workflows.agent_runs.queue.submission import enqueue_agent_run
 from app.db.repositories.session.session_repo import SessionRepo
 from app.domain.agent_runs import TASK_TYPE_INTERVIEW_REPORT
+from app.domain.interview_report_modes import (
+    build_authoritative_report_source_version,
+    normalize_report_mode,
+    scope_report_idempotency_key,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +88,37 @@ async def queue_or_run_session_reports(
         api_config: 模型 API 配置，可选。
         user_id: 当前用户标识。
     """
+    session_repo = SessionRepo()
+    session = await session_repo.get_session(
+        session_id,
+        include_resume_content=True,
+        user_id=user_id,
+    )
+    if session is None:
+        logger.warning("[InterviewComplete] 跳过不存在或无权会话的报告任务: session=%s", session_id)
+        return
+    report_mode = normalize_report_mode(getattr(session.metadata, "report_mode", None))
+    report_source_version = build_authoritative_report_source_version(session)
+    await session_repo.update_session(
+        session_id=session_id,
+        metadata_updates={
+            "report_mode": report_mode.value,
+            "report_source_version": report_source_version,
+        },
+        user_id=user_id,
+    )
+    report_payload = {
+        "session_id": session_id,
+        "api_config": api_config,
+        "report_mode": report_mode.value,
+        "report_source_version": report_source_version,
+    }
+    report_idempotency_key = scope_report_idempotency_key(
+        "auto-report",
+        session_id=session_id,
+        report_mode=report_mode,
+        source_version=report_source_version,
+    )
     queued = False
     try:
         if task_queue_enabled():
@@ -90,8 +126,8 @@ async def queue_or_run_session_reports(
             run, created = await run_service.create_or_get(
                 user_id=user_id,
                 task_type=TASK_TYPE_INTERVIEW_REPORT,
-                payload={"session_id": session_id, "api_config": api_config},
-                idempotency_key=f"auto-report:{session_id}",
+                payload=report_payload,
+                idempotency_key=report_idempotency_key,
                 session_id=session_id,
             )
             if run.status in {"failed", "cancelled"}:
@@ -116,7 +152,13 @@ async def queue_or_run_session_reports(
 
     if not queued:
         create_background_task(
-            generate_session_reports(session_id, api_config, user_id=user_id),
+            generate_session_reports(
+                session_id,
+                api_config,
+                user_id=user_id,
+                report_mode=report_mode.value,
+                report_source_version=report_source_version,
+            ),
             name=f"interview-reports:{session_id}",
         )
 
@@ -129,6 +171,8 @@ async def generate_session_reports(
     raise_on_error: bool = False,
     report_checkpoint: Mapping[str, Any] | None = None,
     checkpoint_callback: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
+    report_mode: str = "deep",
+    report_source_version: str | None = None,
 ) -> None:
     """触发单场面试报告分析任务（可带报告检查点与回调）。
 
@@ -147,6 +191,9 @@ async def generate_session_reports(
         optional["report_checkpoint"] = report_checkpoint
     if checkpoint_callback is not None:
         optional["checkpoint_callback"] = checkpoint_callback
+    if report_mode != "deep" or report_source_version is not None:
+        optional["report_mode"] = report_mode
+        optional["report_source_version"] = report_source_version
     await trigger_session_report_analysis(
         session_id,
         api_config,

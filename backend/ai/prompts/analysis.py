@@ -122,8 +122,7 @@ MULTI_REVIEWER_CONSENSUS_PROMPT = prompt_template(
 {CONCISE_CHINESE_RULES}
 
 【评估类型】{{mode_name}}
-【原始只读上下文】
-{{review_context}}
+{{consensus_context_section}}
 
 【独立评审结果】
 {{reviewer_outputs}}
@@ -215,18 +214,25 @@ def build_multi_reviewer_consensus_prompt(*, mode: str, review_context: str, rev
             "短板、优势和推荐必须口径一致并引用 [Qn]。"
         )
         mode_name = "单场面试复盘"
+        consensus_context_section = (
+            "【输入边界】本次仅提供四位独立评审的结构化结论；"
+            "不得假设、补充或追问原始 QA、简历、JD、公司信息、逐题证据或内部回答要点。"
+        )
+        prompt_version = "2"
     else:
         instruction = (
             "数值维度已由本地时间加权算法确定，不得改写；只输出综合评价、优势、短板、"
             "recommendation 和 0-1 confidence。"
         )
         mode_name = "跨场综合能力画像"
+        consensus_context_section = f"【原始只读上下文】\n{review_context}"
+        prompt_version = "1"
     return render_prompt(
         MULTI_REVIEWER_CONSENSUS_PROMPT,
         prompt_name=f"analysis.multi_reviewer_consensus.{mode}",
-        prompt_version="1",
+        prompt_version=prompt_version,
         mode_name=mode_name,
-        review_context=review_context,
+        consensus_context_section=consensus_context_section,
         reviewer_outputs=reviewer_outputs,
         consensus_instruction=instruction,
     )

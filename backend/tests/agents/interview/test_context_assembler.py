@@ -133,6 +133,9 @@ def test_model_event_fields_never_include_source_content():
     event_fields = result.model_event_fields()
 
     assert event_fields["source_breakdown"] == {"resume": len("candidate-private-resume")}
+    assert event_fields["source_token_breakdown"]["resume"] > 0
+    assert event_fields["source_raw_breakdown"] == {"resume": len("candidate-private-resume")}
+    assert event_fields["source_raw_token_breakdown"]["resume"] > 0
     assert "candidate-private-resume" not in str(event_fields)
 
 

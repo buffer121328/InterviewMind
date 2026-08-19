@@ -2,7 +2,7 @@
 
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from ai.prompts.management_catalog import is_retired_managed_prompt
@@ -10,6 +10,7 @@ from app.schemas.langfuse_prompts import (
     PromptBuiltinSyncResponse,
     PromptChatMessage,
     PromptCreateRequest,
+    PromptManagementTagResponse,
     PromptMetadataResponse,
     PromptPreviewResponse,
     PromptType,
@@ -50,6 +51,9 @@ class PromptListPage:
     # 每页数量。
     # 返回数量上限。
     limit: int
+    # 当前可管理提示词可用的完整功能标签集合。
+    # 可用功能标签。
+    available_management_tags: list[PromptManagementTagResponse] = field(default_factory=list)
 
 
 class LangfusePromptManagementService:
@@ -82,7 +86,17 @@ class LangfusePromptManagementService:
             raise PromptManagementRetiredPrompt()
 
 
-    def list_prompts(self, *, page: int, limit: int, label: str | None = None) -> PromptListPage:
+    def list_prompts(
+        self,
+        *,
+        page: int,
+        limit: int,
+        label: str | None = None,
+        management_tag: str | None = None,
+        management_domain: str | None = None,
+        management_responsibility: str | None = None,
+        management_stage: str | None = None,
+    ) -> PromptListPage:
         """分页列出提示词元数据，并在本地过滤已退役的内置名称。
 
         远端分页总数包含历史已退役记录，不能直接透传给 UI；因此以固定
@@ -92,6 +106,10 @@ class LangfusePromptManagementService:
             page: 页码（从 1 开始）。
             limit: 每页数量。
             label: 按标签过滤；None 表示不过滤。
+            management_tag: 按后端功能标签过滤；None 表示不过滤。
+            management_domain: 按业务领域标签过滤；None 表示不过滤。
+            management_responsibility: 按工作职责标签过滤；None 表示不过滤。
+            management_stage: 按处理阶段标签过滤；None 表示不过滤。
         """
         try:
             client = self._client()
@@ -116,12 +134,48 @@ class LangfusePromptManagementService:
                     break
                 remote_page += 1
 
+            available_tags_by_key = {
+                tag.key: PromptManagementTagResponse(
+                    key=tag.key,
+                    label=tag.label,
+                    category=tag.category,
+                )
+                for item in items
+                for tag in item.management_tags
+            }
+            category_order = {"业务领域": 0, "工作职责": 1, "处理阶段": 2}
+            available_management_tags = sorted(
+                available_tags_by_key.values(),
+                key=lambda tag: (category_order[tag.category], tag.label, tag.key),
+            )
+            management_filters = (
+                ("业务领域", management_domain),
+                ("工作职责", management_responsibility),
+                ("处理阶段", management_stage),
+            )
+            filtered_items = [
+                item
+                for item in items
+                if (
+                    management_tag is None
+                    or any(tag.key == management_tag for tag in item.management_tags)
+                )
+                and all(
+                    selected_tag is None
+                    or any(
+                        tag.key == selected_tag and tag.category == category
+                        for tag in item.management_tags
+                    )
+                    for category, selected_tag in management_filters
+                )
+            ]
             start = (page - 1) * limit
             return PromptListPage(
-                items=items[start:start + limit],
-                total=len(items),
+                items=filtered_items[start:start + limit],
+                total=len(filtered_items),
                 page=page,
                 limit=limit,
+                available_management_tags=available_management_tags,
             )
         except PromptManagementUnavailable:
             raise
@@ -308,6 +362,10 @@ class LangfusePromptManagementService:
             display_name=presentation.display_name,
             functional_group=presentation.functional_group,
             is_builtin=presentation.is_builtin,
+            management_tags=[
+                PromptManagementTagResponse(key=tag.key, label=tag.label, category=tag.category)
+                for tag in presentation.management_tags
+            ],
             type=LangfusePromptManagementService._prompt_type(value),
             versions=[int(item) for item in getattr(value, "versions", [])],
             labels=[str(item) for item in getattr(value, "labels", [])],
@@ -341,6 +399,10 @@ class LangfusePromptManagementService:
             display_name=presentation.display_name,
             functional_group=presentation.functional_group,
             is_builtin=presentation.is_builtin,
+            management_tags=[
+                PromptManagementTagResponse(key=tag.key, label=tag.label, category=tag.category)
+                for tag in presentation.management_tags
+            ],
             type=prompt_type,
             version=int(getattr(source, "version")),
             labels=[str(item) for item in getattr(source, "labels", [])],

@@ -1,8 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+    buildCallHealthChart,
     buildModelCallTrendChart,
     formatMetricRate,
+    formatModelTrendLabel,
+    formatPromptCacheHitRate,
+    formatPromptCacheStatus,
     getTaskHealthPresentation,
     hasModelCallTrendSamples,
     hasPerformanceTrendSamples,
@@ -126,6 +130,27 @@ test('builds the actionable overview cards without implementation-only cache met
     assert.equal(cards.at(-1)?.[1], '150');
 });
 
+test('explains unsupported and unreported prompt-cache samples without inventing misses', () => {
+    const base = {
+        sample_event_count: 1, total_matching_events: 1, run_count: 1, run_success_rate: 1,
+        logical_call_count: 1, physical_request_count: 1, call_amplification: 1,
+        p50_model_duration_ms: 100, p95_model_duration_ms: 100,
+        input_tokens: 120, output_tokens: 30, total_tokens: 150,
+        cache_read_tokens: 0, cache_hit_rate: null,
+        retry_rate: 0, fallback_rate: 0, timeout_rate: 0,
+        authoritative_context_sample_count: 0, authoritative_truncation_rate: null,
+        overflow_strategy_counts: {}, definitions: {},
+    };
+
+    const unsupported = { ...base, cache_status_counts: { unsupported: 6, unreported: 4 } };
+    assert.equal(formatPromptCacheHitRate(unsupported), '当前模型不支持');
+    assert.equal(formatPromptCacheStatus(unsupported), '命中 0 · 未命中 0 · 不支持 6 · 未上报 4');
+
+    const supported = { ...base, cache_hit_rate: 0.25, cache_status_counts: { hit: 1, miss: 3 } };
+    assert.equal(formatPromptCacheHitRate(supported), '25.0%');
+    assert.equal(formatPromptCacheStatus(supported), '命中 1 · 未命中 3 · 不支持 0 · 未上报 0');
+});
+
 
 test('turns safe named-model aggregates into readable chart series without dropping the other-model bucket', () => {
     const chart = buildModelCallTrendChart([
@@ -153,11 +178,59 @@ test('turns safe named-model aggregates into readable chart series without dropp
         p95_model_duration_ms: null, input_tokens: 0, output_tokens: 0, total_tokens: null,
     }]), true);
     assert.deepEqual(chart.series, [
-        { key: 'model_0', label: 'doubao-seed-1-6-250615 · volcengine' },
+        { key: 'model_0', label: 'volcengine·doubao-seed-1-6-250615' },
         { key: 'model_1', label: '其他模型' },
     ]);
     assert.deepEqual(chart.data, [
         { date: '2026-08-16', model_0: 6, model_1: 1 },
         { date: '2026-08-17', model_0: 2, model_1: 0 },
+    ]);
+});
+
+test('prefers the volcengine channel for Doubao embedding models with combined providers', () => {
+    assert.equal(
+        formatModelTrendLabel('doubao-embedding-vision', 'openai_compatible,volcengine'),
+        'volcengine·doubao-embedding-vision',
+    );
+});
+
+test('merges the same compact model channel label into one trend series', () => {
+    const chart = buildModelCallTrendChart([
+        {
+            date: '2026-08-17', model_name: 'deepseek-v4-flash', model_provider: 'deepseek',
+            logical_call_count: 2, physical_request_count: 2, retry_count: 0, fallback_count: 0, timeout_count: 0,
+            p95_model_duration_ms: 120, input_tokens: 10, output_tokens: 4, total_tokens: 14,
+        },
+        {
+            date: '2026-08-17', model_name: 'deepseek-v4-flash', model_provider: 'openai_compatible',
+            logical_call_count: 3, physical_request_count: 3, retry_count: 0, fallback_count: 0, timeout_count: 0,
+            p95_model_duration_ms: 120, input_tokens: 12, output_tokens: 5, total_tokens: 17,
+        },
+        {
+            date: '2026-08-17', model_name: 'deepseek-v4-flash', model_provider: 'volcengine',
+            logical_call_count: 4, physical_request_count: 4, retry_count: 1, fallback_count: 0, timeout_count: 0,
+            p95_model_duration_ms: 130, input_tokens: 13, output_tokens: 6, total_tokens: 19,
+        },
+    ]);
+
+    assert.deepEqual(chart.series.map(series => series.label), ['方舟·ds-v4-flash', 'ds·ds-v4-flash']);
+    const arkKey = chart.series.find(series => series.label === '方舟·ds-v4-flash')?.key;
+    const dsKey = chart.series.find(series => series.label === 'ds·ds-v4-flash')?.key;
+    assert.ok(arkKey);
+    assert.ok(dsKey);
+    assert.equal(chart.data[0][arkKey], 4);
+    assert.equal(chart.data[0][dsKey], 5);
+});
+
+test('builds an actionable call-health chart only when daily samples exist', () => {
+    assert.equal(buildCallHealthChart([]), null);
+    assert.deepEqual(buildCallHealthChart([{
+        date: '2026-08-17', logical_call_count: 5, physical_request_count: 7,
+        retry_count: 2, fallback_count: 1, timeout_count: 3,
+        p95_model_duration_ms: 210, input_tokens: 10, output_tokens: 4, total_tokens: 14,
+    }]), [
+        { name: '重试', count: 2 },
+        { name: '备用模型', count: 1 },
+        { name: '超时', count: 3 },
     ]);
 });

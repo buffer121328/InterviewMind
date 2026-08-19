@@ -6,6 +6,7 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 PromptType = Literal["text", "chat"]  # 提示词类型：文本/聊天
+PromptManagementTagCategory = Literal["业务领域", "工作职责", "处理阶段"]
 _PROMPT_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")  # 提示词名称：字母/数字开头，可含 . _ -，最长 128
 _LABEL_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")  # 标签：字母/数字开头，可含 . _ -，最长 64
 _VARIABLE_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")  # 预览变量名：字母/下划线开头，可含数字与下划线，最长 64
@@ -172,6 +173,14 @@ class PromptPreviewRequest(BaseModel):
         return self
 
 
+class PromptManagementTagResponse(BaseModel):
+    """提示词管理中由后端注册表定义的功能标签。"""
+
+    key: str = Field(description="稳定筛选标识")
+    label: str = Field(description="中文展示名称")
+    category: PromptManagementTagCategory = Field(description="标签分类")
+
+
 class PromptVersionResponse(BaseModel):
     """提示词某个版本的完整响应。"""
 
@@ -179,6 +188,7 @@ class PromptVersionResponse(BaseModel):
     display_name: str = Field(description="展示名称")
     functional_group: str = Field(description="功能分组")
     is_builtin: bool = Field(description="是否为内置提示词")
+    management_tags: list[PromptManagementTagResponse] = Field(default_factory=list, description="后端功能标签")
     type: PromptType = Field(description="提示词类型：text/chat")
     version: int = Field(description="版本号")
     labels: list[str] = Field(default_factory=list, description="标签列表")
@@ -192,6 +202,7 @@ class PromptMetadataResponse(BaseModel):
     display_name: str = Field(description="展示名称")
     functional_group: str = Field(description="功能分组")
     is_builtin: bool = Field(description="是否为内置提示词")
+    management_tags: list[PromptManagementTagResponse] = Field(default_factory=list, description="后端功能标签")
     type: PromptType = Field(description="提示词类型：text/chat")
     versions: list[int] = Field(default_factory=list, description="已有版本号列表")
     labels: list[str] = Field(default_factory=list, description="标签列表")
@@ -205,6 +216,10 @@ class PromptListResponse(BaseModel):
     total: int = Field(ge=0, description="总数量")
     page: int = Field(description="当前页码")
     limit: int = Field(description="每页条数")
+    available_management_tags: list[PromptManagementTagResponse] = Field(
+        default_factory=list,
+        description="当前可管理提示词的完整功能标签集合",
+    )
 
 
 class PromptPreviewResponse(PromptVersionResponse):

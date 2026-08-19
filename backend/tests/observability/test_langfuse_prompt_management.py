@@ -107,15 +107,118 @@ def test_service_lists_metadata_without_prompt_content(configured_client):
         "display_name": "resume-summary",
         "functional_group": "自定义提示词",
         "is_builtin": False,
+        "management_tags": [
+            {"key": "domain-custom-prompt", "label": "自定义提示词", "category": "业务领域"},
+        ],
         "type": "text",
         "versions": [1, 2],
         "labels": ["production"],
         "last_updated_at": None,
     }
+    assert [tag.model_dump() for tag in result.available_management_tags] == [
+        {"key": "domain-custom-prompt", "label": "自定义提示词", "category": "业务领域"},
+    ]
     assert configured_client.api.prompts.list_calls == [
         {"page": 1, "limit": 100, "label": "production"}
     ]
+
+
+def test_service_filters_by_backend_functional_tag_and_keeps_all_tag_options(configured_client):
+    """Functional tag filtering precedes pagination and keeps selector options complete."""
+    configured_client.api.prompts.production_names = {
+        "analysis.multi_reviewer.technical_depth",
+        "analysis.multi_reviewer.communication",
+        "analysis.session_report",
+    }
+
+    result = LangfusePromptManagementService().list_prompts(
+        page=1,
+        limit=10,
+        management_tag="role-technical-expert",
+    )
+
+    assert [item.name for item in result.items] == ["analysis.multi_reviewer.technical_depth"]
     assert result.total == 1
+    assert [tag.model_dump() for tag in result.items[0].management_tags] == [
+        {"key": "domain-ability-analysis", "label": "能力分析", "category": "业务领域"},
+        {"key": "role-expert-review", "label": "评审专家", "category": "工作职责"},
+        {"key": "role-technical-expert", "label": "技术专家", "category": "工作职责"},
+        {"key": "stage-evaluation", "label": "评估", "category": "处理阶段"},
+    ]
+    assert {"domain-ability-analysis", "role-expert-review", "role-technical-expert", "role-communication-expert", "stage-evaluation"}.issubset(
+        {tag.key for tag in result.available_management_tags}
+    )
+
+    no_match = LangfusePromptManagementService().list_prompts(
+        page=1,
+        limit=10,
+        management_tag="role-unknown-expert",
+    )
+    assert no_match.items == []
+    assert no_match.total == 0
+    assert no_match.available_management_tags == result.available_management_tags
+
+
+def test_service_combines_independent_management_tag_dimensions(configured_client):
+    """Three categorical filters use AND semantics before pagination."""
+    configured_client.api.prompts.production_names = {
+        "analysis.multi_reviewer.technical_depth",
+        "analysis.multi_reviewer.communication",
+        "analysis.multi_reviewer.job_fit",
+        "analysis.multi_reviewer.factual_risk",
+        "analysis.multi_reviewer_consensus.session_report",
+    }
+    service = LangfusePromptManagementService()
+
+    evaluation_reviewers = service.list_prompts(
+        page=1,
+        limit=10,
+        management_domain="domain-ability-analysis",
+        management_responsibility="role-expert-review",
+        management_stage="stage-evaluation",
+    )
+
+    assert {item.name for item in evaluation_reviewers.items} == {
+        "analysis.multi_reviewer.technical_depth",
+        "analysis.multi_reviewer.communication",
+        "analysis.multi_reviewer.job_fit",
+        "analysis.multi_reviewer.factual_risk",
+    }
+    assert evaluation_reviewers.total == 4
+
+    technical_only = service.list_prompts(
+        page=1,
+        limit=10,
+        management_domain="domain-ability-analysis",
+        management_responsibility="role-technical-expert",
+        management_stage="stage-evaluation",
+    )
+    assert [item.name for item in technical_only.items] == [
+        "analysis.multi_reviewer.technical_depth"
+    ]
+
+    without_stage = service.list_prompts(
+        page=1,
+        limit=10,
+        management_domain="domain-ability-analysis",
+        management_responsibility="role-expert-review",
+    )
+    assert {item.name for item in without_stage.items} == configured_client.api.prompts.production_names
+
+    wrong_category = service.list_prompts(
+        page=1,
+        limit=10,
+        management_stage="role-technical-expert",
+    )
+    unknown_domain = service.list_prompts(
+        page=1,
+        limit=10,
+        management_domain="domain-unknown",
+    )
+    assert wrong_category.items == []
+    assert wrong_category.total == 0
+    assert unknown_domain.items == []
+    assert unknown_domain.total == 0
 
 
 def test_service_hides_retired_job_greeting_prompts_and_keeps_custom_prompts(configured_client):
@@ -218,6 +321,9 @@ def test_service_maps_sdk_prompt_client_without_a_type_attribute(configured_clie
         "display_name": "resume-summary",
         "functional_group": "自定义提示词",
         "is_builtin": False,
+        "management_tags": [
+            {"key": "domain-custom-prompt", "label": "自定义提示词", "category": "业务领域"},
+        ],
         "type": "text",
         "version": 3,
         "labels": ["staging"],
@@ -281,7 +387,7 @@ def test_all_registered_prompts_have_chinese_presentation_and_content():
         latest_builtin_managed_prompts,
         prompt_presentation,
     )
-    from ai.prompts.registry import prompt_registry
+    from ai.prompts.registry import PROMPT_MANAGEMENT_TAG_CATEGORIES, prompt_registry
 
     prompts = {prompt.name: prompt for prompt in latest_builtin_managed_prompts()}
     assert set(prompts) == set(prompt_registry.names())
@@ -295,6 +401,29 @@ def test_all_registered_prompts_have_chinese_presentation_and_content():
         }
         assert re.search(r"[\u4e00-\u9fff]", presentation.display_name)
         assert re.search(r"[\u4e00-\u9fff]", str(prompts[name].prompt))
+        assert {tag.category for tag in presentation.management_tags} == set(
+            PROMPT_MANAGEMENT_TAG_CATEGORIES
+        )
+
+
+def test_registered_prompt_tags_cover_review_and_resume_generation_roles():
+    """Registry tags represent backend work across domains instead of a narrow reviewer subset."""
+    from ai.prompts.management_catalog import prompt_presentation
+
+    technical = prompt_presentation("analysis.multi_reviewer.technical_depth")
+    fact_check = prompt_presentation("resume.fact_check")
+
+    assert {tag.key for tag in technical.management_tags} == {
+        "domain-ability-analysis",
+        "role-expert-review",
+        "role-technical-expert",
+        "stage-evaluation",
+    }
+    assert {tag.key for tag in fact_check.management_tags} == {
+        "domain-resume-generation",
+        "role-fact-check",
+        "stage-review",
+    }
 
 
 def test_historical_prompt_names_keep_chinese_groups_and_builtin_label():
@@ -338,12 +467,32 @@ def test_preview_requires_one_safe_selector():
 
 def test_router_lists_langfuse_cloud_prompts(monkeypatch):
     """Prompt management returns bounded metadata from the configured Langfuse project."""
+    calls: list[tuple[int, int, str | None, str | None, str | None, str | None, str | None]] = []
+
     class FakeService:
         """Provide the bounded cloud list contract without a live network."""
 
-        def list_prompts(self, *, page, limit, label):
+        def list_prompts(
+            self,
+            *,
+            page,
+            limit,
+            label,
+            management_tag,
+            management_domain,
+            management_responsibility,
+            management_stage,
+        ):
             """Return one cloud metadata page for router verification."""
-            assert (page, limit, label) == (1, 20, None)
+            calls.append((
+                page,
+                limit,
+                label,
+                management_tag,
+                management_domain,
+                management_responsibility,
+                management_stage,
+            ))
             return PromptListPage(items=[], total=0, page=page, limit=limit)
 
     monkeypatch.setattr("app.api.langfuse_prompts._service", lambda: FakeService())
@@ -351,9 +500,42 @@ def test_router_lists_langfuse_cloud_prompts(monkeypatch):
     app.include_router(router)
 
     response = TestClient(app).get("/api/langfuse/prompts")
+    filtered_response = TestClient(app).get(
+        "/api/langfuse/prompts",
+        params={"management_tag": "role-technical-expert"},
+    )
+    combined_response = TestClient(app).get(
+        "/api/langfuse/prompts",
+        params={
+            "management_domain": "domain-ability-analysis",
+            "management_responsibility": "role-expert-review",
+            "management_stage": "stage-evaluation",
+        },
+    )
 
     assert response.status_code == 200
-    assert response.json() == {"items": [], "total": 0, "page": 1, "limit": 20}
+    assert filtered_response.status_code == 200
+    assert combined_response.status_code == 200
+    assert response.json() == {
+        "items": [],
+        "total": 0,
+        "page": 1,
+        "limit": 20,
+        "available_management_tags": [],
+    }
+    assert calls == [
+        (1, 20, None, None, None, None, None),
+        (1, 20, None, "role-technical-expert", None, None, None),
+        (
+            1,
+            20,
+            None,
+            None,
+            "domain-ability-analysis",
+            "role-expert-review",
+            "stage-evaluation",
+        ),
+    ]
 
 
 def test_router_rejects_retired_job_greeting_management_actions(monkeypatch):

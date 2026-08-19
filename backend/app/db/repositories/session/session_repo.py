@@ -4,17 +4,15 @@
 """
 
 import logging
-from typing import List, Optional, Dict, Any
+from typing import Any, Dict, List, Optional
 
-from app.schemas.interview.session import (
-    InterviewSession,
-    SessionListItem
-)
-from app.db.repositories.session.repo_impl.session_mgmt import SessionManagementService
-from app.db.repositories.session.repo_impl.session_advanced import SessionAdvancedService
+from app.db.repositories.session.repo_impl.interview_plan import InterviewPlanService
 from app.db.repositories.session.repo_impl.message_mgmt import MessageService
 from app.db.repositories.session.repo_impl.profile_mgmt import ProfileService
-from app.db.repositories.session.repo_impl.interview_plan import InterviewPlanService
+from app.db.repositories.session.repo_impl.session_advanced import SessionAdvancedService
+from app.db.repositories.session.repo_impl.session_mgmt import SessionManagementService
+from app.domain.interview_report_modes import InterviewReportMode
+from app.schemas.interview.session import InterviewSession, SessionListItem
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +46,7 @@ class SessionRepo:
         job_context_snapshot: Optional[Dict[str, Any]] = None,
         max_questions: int | None = None,
         round_type: str = "tech_initial",
+        report_mode: InterviewReportMode | str | None = None,
         user_id: str = "default_user"
     ) -> InterviewSession:
         """创建 session，在写入前沿用请求的 owner、审批和输入校验边界，并返回调用方可继续处理的结果。
@@ -78,6 +77,7 @@ class SessionRepo:
             job_context_snapshot=job_context_snapshot,
             max_questions=max_questions,
             round_type=round_type,
+            report_mode=report_mode,
             user_id=user_id
         )
 
@@ -218,6 +218,16 @@ class SessionRepo:
         """
         return await self.advanced.rollback_session(session_id, index, user_id)
 
+    async def get_interview_stable_context(
+        self, session_id: str, user_id: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
+        """Read the owner-scoped stable prompt snapshot without exposing it in API DTOs."""
+        return await self.mgmt.get_interview_stable_context(session_id, user_id)
+
+    async def commit_interview_turn(self, **kwargs: Any) -> Dict[str, Any]:
+        """Commit a completed interview turn, messages, progress, and state atomically."""
+        return await self.mgmt.commit_interview_turn(**kwargs)
+
     # --- 消息管理 (MessageService) ---
 
     async def add_message(
@@ -248,16 +258,6 @@ class SessionRepo:
             user_id=user_id
         )
 
-    async def get_session_conversations(self, session_id: str, user_id: Optional[str] = None) -> List[Dict[str, str]]:
-        """读取 session conversations，并通过 owner 校验限制可见范围；资源不存在或状态不合法时返回稳定的业务结果或异常。
-
-        Args:
-            session_id: 会话标识。
-            user_id: 当前用户标识。
-        """
-        return await self.message.get_session_conversations(session_id, user_id)
-
-    # --- 画像管理 (ProfileService) ---
     async def replace_current_question(
         self,
         session_id: str,
@@ -275,6 +275,16 @@ class SessionRepo:
             user_id=user_id,
         )
 
+    async def get_session_conversations(self, session_id: str, user_id: Optional[str] = None) -> List[Dict[str, str]]:
+        """读取 session conversations，并通过 owner 校验限制可见范围；资源不存在或状态不合法时返回稳定的业务结果或异常。
+
+        Args:
+            session_id: 会话标识。
+            user_id: 当前用户标识。
+        """
+        return await self.message.get_session_conversations(session_id, user_id)
+
+    # --- 画像管理 (ProfileService) ---
 
     async def save_profile(
         self,

@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, BookOpen, Check, CloudUpload, Code2, Eye, FilePlus2, FolderOpen, Loader2, Pencil, Rocket, Search, ShieldCheck, Sparkles } from 'lucide-react';
+import { ArrowLeft, BookOpen, Check, CloudUpload, Code2, Eye, FilePlus2, FolderOpen, Loader2, Pencil, Rocket, Search, ShieldCheck, Sparkles, Tag } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import rehypeHighlight from 'rehype-highlight';
 import 'highlight.js/styles/atom-one-dark.css';
@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { createPromptVersion, getPrompt, listPrompts, previewPrompt, promotePromptToProduction, PromptManagementError, syncBuiltinPrompts, type PromptBody, type PromptChatMessage, type PromptMetadata, type PromptPreviewResponse, type PromptVersion } from '@/lib/api/prompts';
 import { getPromptDisplayName, getPromptFunctionalGroup, getPromptLabelDisplayName } from '@/lib/promptCatalog';
+import { getPromptManagementTagsForCategory, getVisiblePromptManagementTags, type PromptManagementTag } from '@/lib/promptManagementTags';
 import { PaginationControls } from '@/components/PaginationControls';
 import { DEFAULT_PAGE_SIZE } from '@/lib/pagination';
 
@@ -103,7 +104,13 @@ function PromptGroupBadge({ name, functionalGroup }: { name: string; functionalG
     return <span className={cn(badge, 'border-violet-200 bg-violet-50 text-violet-700')}><FolderOpen className="mr-1 inline h-3 w-3" />{getPromptFunctionalGroup(name, functionalGroup)}</span>;
 }
 
-/** Renders the prompt registry with group filtering, Markdown preview, and immutable version actions. */
+/** Displays backend-owned specialist roles without repeating the functional-group badge. */
+function PromptManagementTags({ name, functionalGroup, tags }: { name: string; functionalGroup?: string; tags?: PromptManagementTag[] }) {
+    const group = getPromptFunctionalGroup(name, functionalGroup);
+    return <>{getVisiblePromptManagementTags(tags, group).map(tag => <span className={cn(badge, tag.category === '处理阶段' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : tag.category === '工作职责' ? 'border-cyan-200 bg-cyan-50 text-cyan-800' : 'border-sky-200 bg-sky-50 text-sky-800')} key={tag.key}><Tag className="mr-1 inline h-3 w-3" />{tag.label}</span>)}</>;
+}
+
+/** Renders the prompt registry with backend-driven functional-tag filtering and immutable version actions. */
 export function PromptManagementPage() {
     const [items, setItems] = useState<PromptMetadata[]>([]);
     const [total, setTotal] = useState(0);
@@ -124,7 +131,10 @@ export function PromptManagementPage() {
     const [preview, setPreview] = useState<PromptPreviewResponse | null>(null);
     const [variables, setVariables] = useState<Record<string, string>>({});
     const [search, setSearch] = useState('');
-    const [groupFilter, setGroupFilter] = useState('all');
+    const [domainFilter, setDomainFilter] = useState('');
+    const [responsibilityFilter, setResponsibilityFilter] = useState('');
+    const [stageFilter, setStageFilter] = useState('');
+    const [availableManagementTags, setAvailableManagementTags] = useState<PromptManagementTag[]>([]);
     const [acting, setActing] = useState(false);
     const [syncing, setSyncing] = useState(false);
     const [evaluationRunId, setEvaluationRunId] = useState('');
@@ -133,15 +143,20 @@ export function PromptManagementPage() {
         setLoading(true);
         setError(null);
         try {
-            const response = await listPrompts(page, DEFAULT_PAGE_SIZE);
+            const response = await listPrompts(page, DEFAULT_PAGE_SIZE, {
+                domain: domainFilter,
+                responsibility: responsibilityFilter,
+                stage: stageFilter,
+            });
             setItems(response.items);
             setTotal(response.total);
+            setAvailableManagementTags(response.available_management_tags ?? []);
         } catch (cause) {
             setError(cause instanceof PromptManagementError ? cause : new PromptManagementError('暂时无法加载提示词'));
         } finally {
             setLoading(false);
         }
-    }, [page]);
+    }, [domainFilter, page, responsibilityFilter, stageFilter]);
 
     useEffect(() => {
         // Defer the initial fetch so the effect subscribes to the network boundary rather than synchronously cascading render state.
@@ -149,20 +164,32 @@ export function PromptManagementPage() {
         return () => window.clearTimeout(timer);
     }, [load]);
 
-    const groupOptions = useMemo(() => {
-        const groups = new Set(items.map(item => getPromptFunctionalGroup(item.name, item.functional_group)));
-        return [...groups].sort((left, right) => left.localeCompare(right, 'zh-CN'));
-    }, [items]);
-
     const filteredItems = useMemo(() => {
         const query = search.trim().toLowerCase();
         return items.filter(item => {
-            const matchesGroup = groupFilter === 'all' || getPromptFunctionalGroup(item.name, item.functional_group) === groupFilter;
             const displayName = getPromptDisplayName(item.name, item.display_name).toLowerCase();
-            const matchesSearch = !query || item.name.toLowerCase().includes(query) || displayName.includes(query) || item.labels.some(label => getPromptLabelDisplayName(label).toLowerCase().includes(query));
-            return matchesGroup && matchesSearch;
+            const matchesSearch = !query
+                || item.name.toLowerCase().includes(query)
+                || displayName.includes(query)
+                || item.labels.some(label => getPromptLabelDisplayName(label).toLowerCase().includes(query))
+                || (item.management_tags ?? []).some(tag => tag.label.toLowerCase().includes(query));
+            return matchesSearch;
         });
-    }, [groupFilter, items, search]);
+    }, [items, search]);
+
+    const domainOptions = useMemo(
+        () => getPromptManagementTagsForCategory(availableManagementTags, '业务领域'),
+        [availableManagementTags],
+    );
+    const responsibilityOptions = useMemo(
+        () => getPromptManagementTagsForCategory(availableManagementTags, '工作职责'),
+        [availableManagementTags],
+    );
+    const stageOptions = useMemo(
+        () => getPromptManagementTagsForCategory(availableManagementTags, '处理阶段'),
+        [availableManagementTags],
+    );
+    const hasManagementFilters = Boolean(domainFilter || responsibilityFilter || stageFilter);
 
     /** Selects a prompt and initializes its local editor copy without mutating the immutable server record. */
     const selectPrompt = (prompt: PromptVersion) => {
@@ -321,7 +348,7 @@ export function PromptManagementPage() {
                                     <div>
                                         <p className="text-xs font-medium text-teal-700">{selected.type === 'chat' ? '对话提示词' : '文本提示词'} · 版本 {selected.version}</p>
                                         <h2 className="mt-2 text-2xl font-semibold tracking-tight">{getPromptDisplayName(selected.name, selected.display_name)}</h2>
-                                        <div className="mt-3 flex flex-wrap gap-2"><PromptGroupBadge name={selected.name} functionalGroup={selected.functional_group} />{selected.is_builtin && !selected.labels.includes('builtin') && <PromptLabel label="builtin" />}{selected.labels.map(label => <PromptLabel key={label} label={label} />)}</div>
+                                        <div className="mt-3 flex flex-wrap gap-2"><PromptGroupBadge name={selected.name} functionalGroup={selected.functional_group} /><PromptManagementTags name={selected.name} functionalGroup={selected.functional_group} tags={selected.management_tags} />{selected.is_builtin && !selected.labels.includes('builtin') && <PromptLabel label="builtin" />}{selected.labels.map(label => <PromptLabel key={label} label={label} />)}</div>
                                     </div>
                                     <Button disabled={acting || selected.version === 0 || selected.labels.includes('production')} onClick={() => void promote()}><Rocket />{selected.labels.includes('production') ? '已是生产版本' : selected.version === 0 ? '内置版本' : '发布为生产版本'}</Button>
                                 </div>
@@ -345,9 +372,9 @@ export function PromptManagementPage() {
                                 </div>
                             </div>
                             <div className="surface-panel p-6">
-                                <div className="flex items-center gap-2"><FolderOpen className="h-5 w-5 text-violet-700" /><h3 className="font-semibold">功能分组</h3></div>
-                                <p className="mt-2 text-sm leading-6 text-slate-500">分组来自后端提示词注册表，按功能自动归类，无需手动维护。</p>
-                                <div className="mt-4"><PromptGroupBadge name={selected.name} functionalGroup={selected.functional_group} /></div>
+                                <div className="flex items-center gap-2"><Tag className="h-5 w-5 text-cyan-700" /><h3 className="font-semibold">功能标签</h3></div>
+                                <p className="mt-2 text-sm leading-6 text-slate-500">标签由后端提示词注册表按功能与专家职责自动归类，无需手动维护。</p>
+                                <div className="mt-4 flex flex-wrap gap-2"><PromptGroupBadge name={selected.name} functionalGroup={selected.functional_group} /><PromptManagementTags name={selected.name} functionalGroup={selected.functional_group} tags={selected.management_tags} /></div>
                             </div>
                             <div className="surface-panel p-6">
                                 <div className="flex items-center gap-2"><Eye className="h-5 w-5 text-teal-700" /><h3 className="font-semibold">安全变量预览</h3></div>
@@ -384,12 +411,16 @@ export function PromptManagementPage() {
                 </div>}
                 <div className="surface-panel overflow-hidden">
                     <div className="flex flex-col gap-3 border-b border-slate-100 bg-slate-50 p-4 sm:flex-row sm:items-center">
-                        <div className="relative min-w-0 flex-1"><Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" /><Input className="pl-9" value={search} onChange={event => { setSearch(event.target.value); setPage(1); }} placeholder="搜索提示词名称或标签" aria-label="搜索提示词" /></div>
-                        <div className="flex items-center gap-2"><FolderOpen className="h-4 w-4 text-violet-600" /><select className="h-9 min-w-44 rounded-md border border-input bg-white px-3 text-sm" value={groupFilter} onChange={event => { setGroupFilter(event.target.value); setPage(1); }} aria-label="按功能分组筛选"><option value="all">全部功能</option>{groupOptions.map(group => <option key={group} value={group}>{group}</option>)}</select></div>
+                        <div className="relative min-w-0 flex-1"><Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" /><Input className="pl-9" value={search} onChange={event => { setSearch(event.target.value); setPage(1); }} placeholder="搜索提示词、职责或生命周期标签" aria-label="搜索提示词" /></div>
+                        <div className="grid gap-2 sm:grid-cols-3">
+                            <label className="flex min-w-0 items-center gap-2 text-sm text-slate-600"><Tag className="h-4 w-4 shrink-0 text-cyan-700" /><span className="sr-only">业务领域</span><select className="h-9 min-w-0 flex-1 rounded-md border border-input bg-white px-3 text-sm" value={domainFilter} onChange={event => { setDomainFilter(event.target.value); setPage(1); }} aria-label="按业务领域筛选"><option value="">全部业务领域</option>{domainOptions.map(tag => <option key={tag.key} value={tag.key}>{tag.label}</option>)}</select></label>
+                            <label className="flex min-w-0 items-center gap-2 text-sm text-slate-600"><Tag className="h-4 w-4 shrink-0 text-cyan-700" /><span className="sr-only">工作职责</span><select className="h-9 min-w-0 flex-1 rounded-md border border-input bg-white px-3 text-sm" value={responsibilityFilter} onChange={event => { setResponsibilityFilter(event.target.value); setPage(1); }} aria-label="按工作职责筛选"><option value="">全部工作职责</option>{responsibilityOptions.map(tag => <option key={tag.key} value={tag.key}>{tag.label}</option>)}</select></label>
+                            <label className="flex min-w-0 items-center gap-2 text-sm text-slate-600"><Tag className="h-4 w-4 shrink-0 text-cyan-700" /><span className="sr-only">处理阶段</span><select className="h-9 min-w-0 flex-1 rounded-md border border-input bg-white px-3 text-sm" value={stageFilter} onChange={event => { setStageFilter(event.target.value); setPage(1); }} aria-label="按处理阶段筛选"><option value="">全部处理阶段</option>{stageOptions.map(tag => <option key={tag.key} value={tag.key}>{tag.label}</option>)}</select></label>
+                        </div>
                     </div>
                     {error && <div className="border-b border-amber-100 bg-amber-50 px-5 py-3 text-sm text-amber-800">{error.message}<button className="ml-3 font-medium underline" onClick={() => void load()} type="button">重试</button></div>}
-                    <div className="hidden grid-cols-[minmax(0,1fr)_auto_auto] gap-3 border-b border-slate-100 bg-slate-50 px-5 py-3 text-xs font-semibold tracking-wide text-slate-500 sm:grid"><span>提示词</span><span>版本</span><span>功能 / 状态</span></div>
-                    {loading ? <div className="flex justify-center p-12"><Loader2 className="animate-spin text-teal-700" /></div> : filteredItems.length === 0 ? <div className="p-10 text-center"><BookOpen className="mx-auto h-8 w-8 text-slate-300" /><p className="mt-3 text-sm text-slate-500">{items.length === 0 ? '当前 Langfuse 项目尚无提示词。可同步后端内置模板并自动标记为生产版本。' : '当前筛选条件下没有匹配的提示词。'}</p>{items.length === 0 && <Button className="mt-5" disabled={syncing} onClick={() => void syncBuiltins()}>{syncing ? <Loader2 className="animate-spin" /> : <CloudUpload />}同步内置提示词</Button>}</div> : filteredItems.map(item => <button className="grid w-full grid-cols-1 gap-3 border-b border-slate-100 px-5 py-4 text-left transition-colors hover:bg-teal-50/40 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center" key={item.name} onClick={() => void openPrompt(item, { version: Math.max(...item.versions) })}><span><span className="block font-medium text-slate-900">{getPromptDisplayName(item.name, item.display_name)}</span><span className="mt-1 block text-xs text-slate-500">{item.type === 'chat' ? '对话提示词' : '文本提示词'} · {getPromptFunctionalGroup(item.name, item.functional_group)}</span></span><span className="text-sm text-slate-600">版本 {Math.max(...item.versions)}</span><span className="flex flex-wrap justify-start gap-1 sm:justify-end"><PromptGroupBadge name={item.name} functionalGroup={item.functional_group} />{item.is_builtin && !item.labels.includes('builtin') && <PromptLabel label="builtin" />}{item.labels.map(label => <PromptLabel key={label} label={label} />)}</span></button>)}
+                    <div className="hidden grid-cols-[minmax(0,1fr)_auto_auto] gap-3 border-b border-slate-100 bg-slate-50 px-5 py-3 text-xs font-semibold tracking-wide text-slate-500 sm:grid"><span>提示词</span><span>版本</span><span>功能 / 标签</span></div>
+                    {loading ? <div className="flex justify-center p-12"><Loader2 className="animate-spin text-teal-700" /></div> : filteredItems.length === 0 ? <div className="p-10 text-center"><BookOpen className="mx-auto h-8 w-8 text-slate-300" /><p className="mt-3 text-sm text-slate-500">{items.length === 0 ? hasManagementFilters ? '当前组合筛选条件下没有可管理的提示词。' : '当前 Langfuse 项目尚无提示词。可同步后端内置模板并自动标记为生产版本。' : '当前搜索条件下没有匹配的提示词。'}</p>{items.length === 0 && !hasManagementFilters && <Button className="mt-5" disabled={syncing} onClick={() => void syncBuiltins()}>{syncing ? <Loader2 className="animate-spin" /> : <CloudUpload />}同步内置提示词</Button>}</div> : filteredItems.map(item => <button className="grid w-full grid-cols-1 gap-3 border-b border-slate-100 px-5 py-4 text-left transition-colors hover:bg-teal-50/40 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center" key={item.name} onClick={() => void openPrompt(item, { version: Math.max(...item.versions) })}><span><span className="block font-medium text-slate-900">{getPromptDisplayName(item.name, item.display_name)}</span><span className="mt-1 block text-xs text-slate-500">{item.type === 'chat' ? '对话提示词' : '文本提示词'} · {getPromptFunctionalGroup(item.name, item.functional_group)}</span></span><span className="text-sm text-slate-600">版本 {Math.max(...item.versions)}</span><span className="flex flex-wrap justify-start gap-1 sm:justify-end"><PromptGroupBadge name={item.name} functionalGroup={item.functional_group} /><PromptManagementTags name={item.name} functionalGroup={item.functional_group} tags={item.management_tags} />{item.is_builtin && !item.labels.includes('builtin') && <PromptLabel label="builtin" />}{item.labels.map(label => <PromptLabel key={label} label={label} />)}</span></button>)}
                 </div>
                 <PaginationControls
                     className="mt-5"

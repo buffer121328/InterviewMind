@@ -93,6 +93,8 @@ async def score_job_cards_by_match(
             api_config,
             channel="fast",
             deadline=deadline or TaskDeadline(float(get_settings().llm_task_timeout_seconds)),
+            max_tokens=get_settings().job_card_scoring_max_tokens,
+            preferred_provider="volcengine",
             call_metadata=call_metadata,
         )
         response_text = response.content if hasattr(response, "content") else str(response)

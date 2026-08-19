@@ -32,13 +32,13 @@ from observability import (
     estimate_model_cost,
     extract_token_usage,
     filter_model_call_metadata,
-    get_langchain_callbacks,
     infer_model_integration,
     measure_model_input,
     model_call_metadata_scope,
     provider_observability_metadata,
     record_model_event,
 )
+
 # ============================================================================
 # 动态 LLM 创建（支持用户自定义配置）
 # ============================================================================
@@ -100,9 +100,10 @@ def create_llm_from_config(
     }
     metadata = _llm_metadata(config)
     selected_integration = str(integration or metadata.get("model_integration") or infer_model_integration(model, base_url, provider))
-    callbacks = list(get_langchain_callbacks())
-    if extra_callbacks:
-        callbacks.extend(extra_callbacks)
+    # Do not attach Langfuse's raw LangChain callback: serialized client kwargs
+    # can contain provider API keys. Only application-owned callbacks may observe
+    # the invocation, and they record bounded, redacted metrics.
+    callbacks = list(extra_callbacks or [])
     common_options: dict[str, Any] = {
         "temperature": temperature,
         "max_tokens": max_tokens or settings.llm_max_tokens,
@@ -325,24 +326,44 @@ class ModelGateway:
         channel: str = "smart",
         *,
         temperature: float = 0.7,
+        max_tokens: int | None = None,
+        preferred_provider: str | None = None,
     ) -> list[BaseChatModel]:
         """读取 chat candidates，并保持调用方的错误和生命周期边界；资源不存在或状态不合法时返回稳定的业务结果或异常。
 
         Args:
             api_config: api 配置。
             channel: 经过类型边界校验的 `channel`；其格式和可选值由参数类型及调用流程约束。
+            max_tokens: 可选的单次输出 Token 上限；省略时使用全局默认值。
+            preferred_provider: 可选的候选提供商偏好；只重排已有候选，不新增调用目标。
         """
+        if max_tokens is not None and max_tokens < 1:
+            raise ValueError("max_tokens must be positive")
         if not api_config:
             raise ValueError("未检测到 API 配置。请在设置中配置您的大模型 API 后再使用本功能。")
         configs, reserved_identity = self._candidate_configs(api_config, channel)
         if not configs:
             configs = [_resolve_channel_config(api_config, channel)]
             configs, reserved_identity = self.scheduler.reserve_order(f"channel:{channel}", configs)
+        normalized_preferred_provider = str(preferred_provider or "").strip().lower()
+        if normalized_preferred_provider:
+            configs = sorted(
+                configs,
+                key=lambda config: (
+                    provider_observability_metadata(config).get("model_provider")
+                    != normalized_preferred_provider
+                ),
+            )
+            preferred_identity = _identity(configs[0])
+            if reserved_identity and reserved_identity != preferred_identity:
+                self.scheduler.finish(reserved_identity)
+                self.scheduler.start(preferred_identity)
+                reserved_identity = preferred_identity
 
         candidates: list[BaseChatModel] = []
         candidate_count = len(configs)
         for candidate_index, config in enumerate(configs, start=1):
-            output_token_limit = get_settings().llm_max_tokens
+            output_token_limit = max_tokens if max_tokens is not None else get_settings().llm_max_tokens
             llm = create_llm_from_config(
                 api_key=config["api_key"],
                 base_url=config["base_url"],
@@ -567,10 +588,17 @@ async def invoke_text(
     *,
     timeout: float | None = None,
     deadline: TaskDeadline | None = None,
+    max_tokens: int | None = None,
+    preferred_provider: str | None = None,
     call_metadata: dict[str, Any] | None = None,
 ):
     """普通文本统一 fallback；显式或上下文 deadline 会跨候选持续递减。"""
-    candidates = model_gateway.get_chat_candidates(api_config, channel)
+    candidates = model_gateway.get_chat_candidates(
+        api_config,
+        channel,
+        max_tokens=max_tokens,
+        preferred_provider=preferred_provider,
+    )
     settings = get_settings()
     request_timeout = timeout or settings.llm_request_timeout_seconds
     task_deadline = deadline or get_current_task_deadline()

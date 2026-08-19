@@ -7,6 +7,7 @@
 import asyncio
 import json
 import logging
+from hashlib import sha256
 from typing import Any, AsyncGenerator, Dict, List, Literal, Optional, TypedDict
 
 from ai.llm.mimo import MIMO_BASE_URL, mimo_voice_gateway
@@ -17,11 +18,21 @@ from ai.prompts.voice import (
     get_opening_message as _get_opening_message,
 )
 from ai.runtime.execution.deadlines import TaskDeadline, TaskDeadlineExceeded
+from ai.agents.interview.turn_context import (
+    advance_turn_state,
+    build_stable_context,
+    build_turn_state,
+    stable_context_from_payload,
+)
 from app.config import get_settings
 from app.db.repositories.session.session_repo import SessionRepo
+from app.domain.interview_round_strategy import (
+    ROUND_STRATEGY_VERSION,
+    round_question_type_distribution,
+)
 from observability import agent_observation
 
-from .context import build_voice_history_context
+from .context import build_voice_history_context, build_voice_turn_messages
 from .progress import calculate_interview_progress
 from .tts import generate_greeting_audio
 from .utils import normalize_voice_transcript
@@ -174,7 +185,9 @@ async def node_planner(
     if session_id:
         try:
             service = SessionRepo()
-            session = await service.get_session(session_id, user_id=user_id)
+            session = await service.get_session(
+            session_id, include_resume_content=True, user_id=user_id
+        )
             if session and session.metadata:
                 # 获取轮次信息
                 round_index = getattr(session.metadata, 'round_index', 1) or 1
@@ -223,10 +236,17 @@ async def node_planner(
                 user_id,
                 bank_count,
                 round_type=round_type,
+                plan_max_questions=max_questions,
             )
         except Exception as exc:
             logger.warning(f"[Voice] 抽取个人题库失败，将由 planner 补足: {exc}")
-    candidates = prepare_question_bank_candidates(bank_items, max_questions)
+    candidates = prepare_question_bank_candidates(
+        bank_items,
+        max_questions,
+        round_type=round_type,
+        selection_limit=bank_count,
+        enforce_strategy=True,
+    )
     known_intro_question = any(is_introduction_question(item) for item in candidates)
     remaining = max_questions - len(candidates)
     generated = []
@@ -249,12 +269,18 @@ async def node_planner(
             owner_id=user_id,
             cache_scope=cache_scope,
         )
-    interview_plan = merge_question_plan(candidates, generated, max_questions, round_type=round_type)
+    interview_plan = merge_question_plan(
+        candidates,
+        generated,
+        max_questions,
+        round_type=round_type,
+        enforce_strategy=True,
+    )
     if session_id:
         await SessionRepo().save_interview_plan(session_id, interview_plan)
 
     # 构建 system_prompt
-    system_prompt = _build_system_prompt(interview_plan)
+    system_prompt = _build_system_prompt(interview_plan, round_type=round_type)
 
     # 获取开场白文本（根据轮次调整）
     first_question = interview_plan[0].get("content") if interview_plan else None
@@ -266,7 +292,9 @@ async def node_planner(
         "opening_message": opening_message,
         "current_phase": "greeting",
         "round_index": round_index,
-        "round_type": round_type
+        "round_type": round_type,
+        "round_strategy_version": ROUND_STRATEGY_VERSION,
+        "round_question_type_distribution": round_question_type_distribution(interview_plan),
     }
 
 
@@ -376,7 +404,9 @@ async def node_responder(state: VoiceInterviewState) -> AsyncGenerator[str, None
 
         # 1. 获取面试计划和进度
         service = SessionRepo()
-        session = await service.get_session(session_id, user_id=user_id)
+        session = await service.get_session(
+            session_id, include_resume_content=True, user_id=user_id
+        )
         if not session:
             yield f"data: {json.dumps({'type': 'error', 'message': '会话不存在或无权访问'}, ensure_ascii=False)}\n\n"
             return
@@ -394,35 +424,65 @@ async def node_responder(state: VoiceInterviewState) -> AsyncGenerator[str, None
         follow_up_count = progress["follow_up_count"]
         last_q_text = progress["last_q_text"]
 
-        # 【持久化用户消息】使用准确的当前题目索引
         user_content = text_message if text_message else "[语音]"
-        await save_message_async(session_id, "user", user_content, question_index=current_q_idx, audio_url=audio_id, user_id=user_id)
+        stable_payload = await service.get_interview_stable_context(
+            session_id, user_id=user_id
+        )
+        if stable_payload:
+            stable_context = stable_context_from_payload(stable_payload)
+        else:
+            stable_context = build_stable_context(
+                resume_context=getattr(session.metadata, "resume_content", ""),
+                job_description=getattr(session.metadata, "job_description", ""),
+                company_info=getattr(session.metadata, "company_info", ""),
+                interview_plan=interview_plan,
+                round_index=getattr(session.metadata, "round_index", 1) or 1,
+                round_type=getattr(session.metadata, "round_type", "tech_initial"),
+                memory_context="",
+                rubric={"evaluation": ["事实依据", "表达清晰度"]},
+                prompt_version="interview-voice.v1",
+                round_strategy_version=ROUND_STRATEGY_VERSION,
+            )
+        persisted_turn_state = getattr(session.metadata, "turn_state", None) or {}
+        turn_state = dict(persisted_turn_state or build_turn_state(
+            current_question_index=current_q_idx,
+            current_question_id=(
+                str(interview_plan[current_q_idx].get("id") or current_q_idx + 1)
+                if 0 <= current_q_idx < len(interview_plan) else None
+            ),
+            stable_prefix_fingerprint=stable_context.fingerprint,
+            round_strategy_version=getattr(session.metadata, "round_strategy_version", None)
+            or ROUND_STRATEGY_VERSION,
+            follow_up_count=follow_up_count,
+        ))
+        expected_turn_state_version = int(turn_state.get("state_version") or 0)
 
         # 2. 重新生成针对当前进度的 System Prompt
         system_prompt = _build_system_prompt(
             interview_plan,
             current_q_idx,
             follow_up_count,
-            last_q_text
+            last_q_text,
+            round_type=getattr(session.metadata, "round_type", "voice_default"),
         )
 
         logger.info(f"[Voice] 对话节点开始: session={session_id}, 进度=题{current_q_idx+1}/追问{follow_up_count}")
 
-        # 历史只保留近期文本与更早滚动摘要；audio URL、内部 ID 和非文本内容不进入模型。
+        # Keep only the minimum rolling transcript for speech continuity;
+        # plan/resume/JD and frozen context remain in the shared stable prefix.
         history_context = build_voice_history_context(history)
-        messages = []
-        if system_prompt:
-            messages.append({
-                "role": "system",
-                "content": system_prompt,
-            })
-        if history_context.model_context:
-            messages.append({
-                "role": "system",
-                "content": "【已预算化对话历史】\n" + history_context.model_context,
-            })
-
-        messages.append({"role": "user", "content": text_message})
+        current_question = (
+            str(interview_plan[current_q_idx].get("content") or last_q_text or "")
+            if 0 <= current_q_idx < len(interview_plan) else str(last_q_text or "")
+        )
+        messages, _suffix = build_voice_turn_messages(
+            stable_context=stable_context,
+            system_prompt=system_prompt,
+            history_context=history_context.model_context,
+            current_question=current_question,
+            current_answer=user_content,
+            turn_state=turn_state,
+        )
         logger.info("[Voice] 发送 MiMo 文本请求: session=%s, msgs_len=%s", session_id, len(messages))
         text_response = await _voice_attempt(mimo_voice_gateway.chat_text(messages, api_key, base_url), deadline=deadline)
 
@@ -439,6 +499,47 @@ async def node_responder(state: VoiceInterviewState) -> AsyncGenerator[str, None
         if is_complete:
             from app.domain.interview_rounds import INTERVIEW_CLOSING_MESSAGE
             text_response = INTERVIEW_CLOSING_MESSAGE
+
+        next_follow_up_count = int(new_progress.get("follow_up_count") or 0)
+        if is_complete:
+            last_action, last_transition = "end_round", "evaluating->completed"
+        elif new_q_idx > current_q_idx:
+            last_action, last_transition = "advance", "evaluating->asking"
+        else:
+            last_action, last_transition = "follow_up", "evaluating->follow_up"
+        next_question_id = (
+            str(interview_plan[new_q_idx].get("id") or new_q_idx + 1)
+            if 0 <= new_q_idx < len(interview_plan) else None
+        )
+        next_turn_state = advance_turn_state(
+            turn_state,
+            current_question_index=new_q_idx,
+            current_question_id=next_question_id,
+            follow_up_count=next_follow_up_count,
+            total_follow_up_count=int(turn_state.get("total_follow_up_count") or 0)
+            + (1 if last_action == "follow_up" else 0),
+            last_action=last_action,
+            last_transition=last_transition,
+            current_sub_question=None,
+            source_message_refs=turn_state.get("source_message_refs") or [],
+        )
+        voice_run_id = state.get("run_id") or (
+            f"voice:{session_id}:{current_q_idx}:"
+            f"{sha256(user_content.encode('utf-8')).hexdigest()[:16]}"
+        )
+        await service.commit_interview_turn(
+            session_id=session_id,
+            user_id=user_id,
+            user_content=user_content,
+            assistant_content=text_response,
+            user_question_index=current_q_idx,
+            assistant_question_index=new_q_idx,
+            question_count=new_q_idx,
+            turn_state=next_turn_state,
+            expected_turn_state_version=expected_turn_state_version,
+            run_id=voice_run_id,
+            audio_url=audio_id,
+        )
 
         yield f"data: {json.dumps({'type': 'text', 'content': text_response}, ensure_ascii=False)}\n\n"
         audio_data = await _voice_attempt(mimo_voice_gateway.synthesize(text_response, api_key, base_url), deadline=deadline)
@@ -464,10 +565,6 @@ async def node_responder(state: VoiceInterviewState) -> AsyncGenerator[str, None
         # 2. 发送完成信号
         yield f"data: {json.dumps({'type': 'done', 'text': text_response}, ensure_ascii=False)}\n\n"
 
-        # 3. 同步持久化进度（question_count 存储 0-based 索引，用于标识当前进展题号）
-        await service.update_session_question_count(session_id, new_q_idx)
-        # 注意：user 消息已经在开头存过了，这里只存 assistant
-        await save_message_async(session_id, "assistant", text_response, question_index=new_q_idx, user_id=user_id)
 
     except Exception as exc:
         logger.error("[Voice] 对话节点失败: %s", type(exc).__name__)

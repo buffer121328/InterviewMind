@@ -70,6 +70,10 @@ async def list_prompts(
     page: Annotated[int, Query(ge=1, le=10_000)] = 1,
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     label: Annotated[str | None, Query(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")] = None,
+    management_tag: Annotated[str | None, Query(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")] = None,
+    management_domain: Annotated[str | None, Query(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")] = None,
+    management_responsibility: Annotated[str | None, Query(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")] = None,
+    management_stage: Annotated[str | None, Query(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")] = None,
 ) -> PromptListResponse:
     """分页列出 Langfuse 提示词。
 
@@ -78,16 +82,31 @@ async def list_prompts(
         page: 页码（从 1 开始）。
         limit: 每页条数。
         label: 按标签过滤；'latest' 为保留值禁止使用。
+        management_tag: 按后端功能标签过滤（兼容旧客户端）。
+        management_domain: 按业务领域标签过滤。
+        management_responsibility: 按工作职责标签过滤。
+        management_stage: 按处理阶段标签过滤。
     """
     # 防止客户端用保留标签 latest 冒充最新版本查询
     if label == "latest":
         raise HTTPException(status_code=422, detail="label cannot be 'latest'")
-    result = await _remote(lambda: _service().list_prompts(page=page, limit=limit, label=label))
+    result = await _remote(
+        lambda: _service().list_prompts(
+            page=page,
+            limit=limit,
+            label=label,
+            management_tag=management_tag,
+            management_domain=management_domain,
+            management_responsibility=management_responsibility,
+            management_stage=management_stage,
+        )
+    )
     return PromptListResponse(
         items=result.items,
         total=result.total,
         page=result.page,
         limit=result.limit,
+        available_management_tags=result.available_management_tags,
     )
 
 

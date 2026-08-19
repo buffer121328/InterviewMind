@@ -13,7 +13,19 @@ _service = ArtifactService()
 
 def _response(artifact) -> ArtifactResponse:
     """处理响应相关后端逻辑。"""
-    return ArtifactResponse(id=artifact.id, source_type=artifact.source_type, source_id=artifact.source_id, title=artifact.title, format=artifact.format, mime_type=artifact.mime_type, size_bytes=artifact.size_bytes, created_at=artifact.created_at.isoformat(), download_url=f"/api/artifacts/{artifact.id}/download")
+    return ArtifactResponse(
+        id=artifact.id,
+        source_type=artifact.source_type,
+        source_id=artifact.source_id,
+        title=artifact.title,
+        format=artifact.format,
+        mime_type=artifact.mime_type,
+        size_bytes=artifact.size_bytes,
+        created_at=artifact.created_at.isoformat(),
+        download_url=f"/api/artifacts/{artifact.id}/download",
+        artifact_mode=artifact.artifact_mode,
+        report_source_version=artifact.report_source_version,
+    )
 
 
 @router.post("/export", response_model=ArtifactResponse, status_code=201)

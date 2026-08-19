@@ -62,7 +62,7 @@ async def execute_interview_start(payload: dict, user_id: str, progress: _Progre
                 company_info=request.get("company_info", "未知"),
                 source_job_id=job_context_snapshot["source_job_id"] if job_context_snapshot else None,
                 job_context_snapshot=job_context_snapshot, max_questions=requested_max_questions,
-                round_type=requested_round_type, user_id=user_id,
+                round_type=requested_round_type, report_mode=request.get("report_mode", "deep"), user_id=user_id,
             )
             session_created = True
         context = await build_interview_context(

@@ -43,11 +43,11 @@ def test_worker_script_passes_explicit_shutdown_timeout() -> None:
 
 def test_compose_worker_grace_period_exceeds_dramatiq_timeout() -> None:
     block = _compose_worker_block()
-    assert "stop_grace_period: 330s" in block
+    assert "stop_grace_period: 720s" in block
 
     values = _env_template_values()
     timeout_ms = int(values["AGENT_RUN_WORKER_SHUTDOWN_TIMEOUT_MS"])
-    grace_seconds = 330
+    grace_seconds = 720
     assert grace_seconds * 1000 > timeout_ms
     # 额外进程清理缓冲至少 30s。
     assert (grace_seconds * 1000 - timeout_ms) >= 30_000

@@ -1,6 +1,7 @@
 """面试题目规划与追问预算的纯函数测试。"""
 
 from ai.agents.interview.questions.plan import (
+    INTRODUCTION_ROUND_TYPES as QUESTION_PLAN_INTRODUCTION_ROUND_TYPES,
     is_introduction_question,
     is_technical_question,
     merge_question_plan,
@@ -8,6 +9,15 @@ from ai.agents.interview.questions.plan import (
     prepare_question_bank_candidates,
     technical_follow_up_budget,
 )
+
+from ai.agents.interview.planning.planner import (
+    INTRODUCTION_ROUND_TYPES as PLANNER_INTRODUCTION_ROUND_TYPES,
+)
+
+
+def test_interview_planner_imports_shared_introduction_round_types() -> None:
+    assert PLANNER_INTRODUCTION_ROUND_TYPES == QUESTION_PLAN_INTRODUCTION_ROUND_TYPES
+    assert "tech_initial" in PLANNER_INTRODUCTION_ROUND_TYPES
 
 
 def test_candidates_prioritize_experience_and_keep_bank_id():
@@ -88,14 +98,12 @@ def test_is_technical_question_supports_tech_and_system_design() -> None:
     assert is_technical_question(None) is False
 
 
-def test_technical_follow_up_budget_is_half_of_technical_questions_with_minimum_one() -> None:
+def test_technical_follow_up_budget_is_twenty_percent_of_all_main_questions() -> None:
     plan = [
-        {"type": "intro"},
-        {"type": "tech"},
-        {"type": "system_design"},
-        {"type": "tech"},
-        {"type": "tech"},
+        *[{"type": "tech"} for _ in range(6)],
+        *[{"type": "behavior"} for _ in range(14)],
     ]
 
-    assert technical_follow_up_budget(plan) == 2
-    assert technical_follow_up_budget([{"type": "behavior"}]) == 0
+    assert technical_follow_up_budget(plan) == 4
+    assert technical_follow_up_budget(plan[:3]) == 0
+    assert technical_follow_up_budget([{"type": "behavior"} for _ in range(5)]) == 1

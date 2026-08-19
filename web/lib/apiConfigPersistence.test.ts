@@ -15,11 +15,13 @@ const DEFAULT_API_CONFIG: ApiConfig = {
     fastModelId: '',
     reasoningPoolModelIds: [],
     fastPoolModelIds: [],
-    generalModelId: '',
+    technicalDepthModelId: '',
+    communicationModelId: '',
     matchAnalystModelId: '',
-    contentWriterModelId: '',
-    hrReviewerModelId: '',
     reflectorModelId: '',
+    hrReviewerModelId: '',
+    generalModelId: '',
+    contentWriterModelId: '',
     mimoModelId: '',
     ragEmbeddingModelId: '',
     mem0LlmModelId: '',
@@ -44,6 +46,8 @@ const apiConfig: ApiConfig = {
     ],
     smartModelId: 'model-1',
     fastModelId: 'model-1',
+    technicalDepthModelId: 'model-1',
+    communicationModelId: 'model-1',
 };
 
 test('persistent API config retains routing but omits plaintext API keys', () => {
@@ -94,6 +98,8 @@ test('rehydration restores non-sensitive settings with empty in-memory keys', ()
     assert.equal(hydrated.models[0].credentialStored, true);
     assert.equal(hydrated.models[0].baseUrl, 'https://example.test/v1');
     assert.equal(hydrated.smartModelId, 'model-1');
+    assert.equal(hydrated.technicalDepthModelId, 'model-1');
+    assert.equal(hydrated.communicationModelId, 'model-1');
 });
 
 test('embedding dimensions survive credential-safe persistence and rehydration', () => {

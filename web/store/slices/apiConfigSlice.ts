@@ -37,21 +37,26 @@ export interface ApiConfigActions {
     toggleFastPoolModel: (id: string) => boolean;
     getSmartModel: () => ModelConfig | null;
     getFastModel: () => ModelConfig | null;
+    // 面试报告专家模型
+    setTechnicalDepthModel: (id: string) => boolean;
+    setCommunicationModel: (id: string) => boolean;
+    setMatchAnalystModel: (id: string) => boolean;
+    setReflectorModel: (id: string) => boolean;
+    setHrReviewerModel: (id: string) => boolean;
+    getTechnicalDepthModel: () => ModelConfig | null;
+    getCommunicationModel: () => ModelConfig | null;
+    getMatchAnalystModel: () => ModelConfig | null;
+    getReflectorModel: () => ModelConfig | null;
+    getHrReviewerModel: () => ModelConfig | null;
     // 简历工具专家模型
     setGeneralModel: (id: string) => boolean;
-    setMatchAnalystModel: (id: string) => boolean;
     setContentWriterModel: (id: string) => boolean;
-    setHrReviewerModel: (id: string) => boolean;
-    setReflectorModel: (id: string) => boolean;
     setMimoModel: (id: string) => boolean;
     setRagEmbeddingModel: (id: string) => boolean;
     setMem0LlmModel: (id: string) => boolean;
     setMem0EmbedderModel: (id: string) => boolean;
     getGeneralModel: () => ModelConfig | null;
-    getMatchAnalystModel: () => ModelConfig | null;
     getContentWriterModel: () => ModelConfig | null;
-    getHrReviewerModel: () => ModelConfig | null;
-    getReflectorModel: () => ModelConfig | null;
     getMimoModel: () => ModelConfig | null;
     getRagEmbeddingModel: () => ModelConfig | null;
     getMem0LlmModel: () => ModelConfig | null;
@@ -61,6 +66,8 @@ export interface ApiConfigActions {
     getApiConfigForRequest: () => {
         smart: ModelRequestConfig;
         fast: ModelRequestConfig;
+        technical_depth: ModelRequestConfig | null;
+        communication: ModelRequestConfig | null;
         general: ModelRequestConfig | null;
         match_analyst: ModelRequestConfig | null;
         content_writer: ModelRequestConfig | null;
@@ -138,11 +145,13 @@ export const createApiConfigSlice = (set: SetState, get: GetState): ApiConfigSli
             fastModelId: apiConfig.fastModelId === id ? '' : apiConfig.fastModelId,
             reasoningPoolModelIds: (apiConfig.reasoningPoolModelIds || []).filter(modelId => modelId !== id),
             fastPoolModelIds: (apiConfig.fastPoolModelIds || []).filter(modelId => modelId !== id),
-            generalModelId: apiConfig.generalModelId === id ? '' : apiConfig.generalModelId,
+            technicalDepthModelId: apiConfig.technicalDepthModelId === id ? '' : apiConfig.technicalDepthModelId,
+            communicationModelId: apiConfig.communicationModelId === id ? '' : apiConfig.communicationModelId,
             matchAnalystModelId: apiConfig.matchAnalystModelId === id ? '' : apiConfig.matchAnalystModelId,
-            contentWriterModelId: apiConfig.contentWriterModelId === id ? '' : apiConfig.contentWriterModelId,
-            hrReviewerModelId: apiConfig.hrReviewerModelId === id ? '' : apiConfig.hrReviewerModelId,
             reflectorModelId: apiConfig.reflectorModelId === id ? '' : apiConfig.reflectorModelId,
+            hrReviewerModelId: apiConfig.hrReviewerModelId === id ? '' : apiConfig.hrReviewerModelId,
+            generalModelId: apiConfig.generalModelId === id ? '' : apiConfig.generalModelId,
+            contentWriterModelId: apiConfig.contentWriterModelId === id ? '' : apiConfig.contentWriterModelId,
             mimoModelId: apiConfig.mimoModelId === id ? '' : apiConfig.mimoModelId,
             ragEmbeddingModelId: apiConfig.ragEmbeddingModelId === id ? '' : apiConfig.ragEmbeddingModelId,
             mem0LlmModelId: apiConfig.mem0LlmModelId === id ? '' : apiConfig.mem0LlmModelId,
@@ -189,11 +198,18 @@ export const createApiConfigSlice = (set: SetState, get: GetState): ApiConfigSli
         return true;
     },
 
-    // 简历工具专家模型 setters
-    setGeneralModel: (id) => {
+    // 面试报告专家模型 setters
+    setTechnicalDepthModel: (id) => {
         const { apiConfig } = get();
         if (id && !apiConfig.models.find(m => m.id === id)) return false;
-        set({ apiConfig: { ...apiConfig, generalModelId: id } });
+        set({ apiConfig: { ...apiConfig, technicalDepthModelId: id } });
+        return true;
+    },
+
+    setCommunicationModel: (id) => {
+        const { apiConfig } = get();
+        if (id && !apiConfig.models.find(m => m.id === id)) return false;
+        set({ apiConfig: { ...apiConfig, communicationModelId: id } });
         return true;
     },
 
@@ -204,10 +220,10 @@ export const createApiConfigSlice = (set: SetState, get: GetState): ApiConfigSli
         return true;
     },
 
-    setContentWriterModel: (id) => {
+    setReflectorModel: (id) => {
         const { apiConfig } = get();
         if (id && !apiConfig.models.find(m => m.id === id)) return false;
-        set({ apiConfig: { ...apiConfig, contentWriterModelId: id } });
+        set({ apiConfig: { ...apiConfig, reflectorModelId: id } });
         return true;
     },
 
@@ -218,10 +234,18 @@ export const createApiConfigSlice = (set: SetState, get: GetState): ApiConfigSli
         return true;
     },
 
-    setReflectorModel: (id) => {
+    // 简历工具专家模型 setters
+    setGeneralModel: (id) => {
         const { apiConfig } = get();
         if (id && !apiConfig.models.find(m => m.id === id)) return false;
-        set({ apiConfig: { ...apiConfig, reflectorModelId: id } });
+        set({ apiConfig: { ...apiConfig, generalModelId: id } });
+        return true;
+    },
+
+    setContentWriterModel: (id) => {
+        const { apiConfig } = get();
+        if (id && !apiConfig.models.find(m => m.id === id)) return false;
+        set({ apiConfig: { ...apiConfig, contentWriterModelId: id } });
         return true;
     },
 
@@ -264,9 +288,14 @@ export const createApiConfigSlice = (set: SetState, get: GetState): ApiConfigSli
         return apiConfig.models.find(m => m.id === apiConfig.fastModelId) || null;
     },
 
-    getGeneralModel: () => {
+    getTechnicalDepthModel: () => {
         const { apiConfig } = get();
-        return apiConfig.models.find(m => m.id === apiConfig.generalModelId) || null;
+        return apiConfig.models.find(m => m.id === apiConfig.technicalDepthModelId) || null;
+    },
+
+    getCommunicationModel: () => {
+        const { apiConfig } = get();
+        return apiConfig.models.find(m => m.id === apiConfig.communicationModelId) || null;
     },
 
     getMatchAnalystModel: () => {
@@ -274,9 +303,9 @@ export const createApiConfigSlice = (set: SetState, get: GetState): ApiConfigSli
         return apiConfig.models.find(m => m.id === apiConfig.matchAnalystModelId) || null;
     },
 
-    getContentWriterModel: () => {
+    getReflectorModel: () => {
         const { apiConfig } = get();
-        return apiConfig.models.find(m => m.id === apiConfig.contentWriterModelId) || null;
+        return apiConfig.models.find(m => m.id === apiConfig.reflectorModelId) || null;
     },
 
     getHrReviewerModel: () => {
@@ -284,9 +313,14 @@ export const createApiConfigSlice = (set: SetState, get: GetState): ApiConfigSli
         return apiConfig.models.find(m => m.id === apiConfig.hrReviewerModelId) || null;
     },
 
-    getReflectorModel: () => {
+    getGeneralModel: () => {
         const { apiConfig } = get();
-        return apiConfig.models.find(m => m.id === apiConfig.reflectorModelId) || null;
+        return apiConfig.models.find(m => m.id === apiConfig.generalModelId) || null;
+    },
+
+    getContentWriterModel: () => {
+        const { apiConfig } = get();
+        return apiConfig.models.find(m => m.id === apiConfig.contentWriterModelId) || null;
     },
 
     getMimoModel: () => {
@@ -319,6 +353,8 @@ export const createApiConfigSlice = (set: SetState, get: GetState): ApiConfigSli
     getApiConfigForRequest: () => {
         const smartModel = get().getSmartModel();
         const fastModel = get().getFastModel();
+        const technicalDepthModel = get().getTechnicalDepthModel();
+        const communicationModel = get().getCommunicationModel();
         const generalModel = get().getGeneralModel();
         const matchAnalystModel = get().getMatchAnalystModel();
         const contentWriterModel = get().getContentWriterModel();
@@ -349,6 +385,8 @@ export const createApiConfigSlice = (set: SetState, get: GetState): ApiConfigSli
         return {
             smart: getModelConfig(smartModel),
             fast: getModelConfig(fastModel),
+            technical_depth: optionalModelConfigForRequest(technicalDepthModel),
+            communication: optionalModelConfigForRequest(communicationModel),
             general: optionalModelConfigForRequest(generalModel),
             match_analyst: optionalModelConfigForRequest(matchAnalystModel),
             content_writer: optionalModelConfigForRequest(contentWriterModel),

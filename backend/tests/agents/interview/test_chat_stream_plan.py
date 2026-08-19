@@ -27,16 +27,14 @@ class _Graph:
                 "question_count": 2,
                 "max_questions": 5,
                 "current_question_index": 2,
+                "turn_state": {"state_version": 1},
             }},
         }
 
 
 class _Repo:
-    async def add_message(self, **_kwargs):
-        return None
-
-    async def update_session(self, **_kwargs):
-        return None
+    async def commit_interview_turn(self, **_kwargs):
+        return {"committed": True, "idempotent": False}
 
 
 class _Lease:
@@ -97,23 +95,18 @@ async def test_event_generator_emits_execution_plan(monkeypatch):
 class _CompletingRepo:
     def __init__(self):
         self.completed = False
-        self.messages = []
         self.operations = []
 
-    async def add_message(self, **kwargs):
+    async def commit_interview_turn(self, **kwargs):
         if self.completed:
-            raise ValueError("面试已完成，不能继续提交回答")
-        item = (kwargs["role"], kwargs["content"])
-        self.messages.append(item)
-        self.operations.append(("message", *item))
-        return None
-
-    async def update_session(self, **kwargs):
-        if self.completed:
-            raise AssertionError("最终进度不得在 completed 之后写入")
-        question_count = kwargs["metadata_updates"]["question_count"]
-        self.operations.append(("progress", question_count))
-        return None
+            raise AssertionError("completed 之后不得写入面试回合")
+        self.operations.append((
+            "turn",
+            kwargs["user_content"],
+            kwargs["assistant_content"],
+            kwargs["question_count"],
+        ))
+        return {"committed": True, "idempotent": False}
 
 
 class _CompletingGraph:
@@ -132,6 +125,7 @@ class _CompletingGraph:
                 "question_count": 5,
                 "max_questions": 5,
                 "current_question_index": 5,
+                "turn_state": {"state_version": 1},
             }},
         }
 
@@ -176,9 +170,7 @@ async def test_final_response_and_progress_are_saved_before_session_completion(m
     ]
 
     assert repo.operations == [
-        ("message", "user", "我的最终回答"),
-        ("message", "assistant", "本轮面试结束"),
-        ("progress", 5),
+        ("turn", "我的最终回答", "本轮面试结束", 5),
         ("complete",),
     ]
     assert state_updates == [{"question_count": 5, "max_questions": 5}]

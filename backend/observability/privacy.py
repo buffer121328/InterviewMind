@@ -50,6 +50,17 @@ _SECRET_TRACE_FIELDS = {
     "secret",
     "token",
 }
+_SECRET_TRACE_FIELD_PATTERN = re.compile(
+    r"(?:^|[_-])(?:api[_-]?key|apikey|authorization|cookie|credentials?|password|secret|token)(?:$|[_-])",
+    re.IGNORECASE,
+)
+
+
+def _is_secret_trace_field(value: str) -> bool:
+    """Recognize provider-specific credential keys such as ``openai_api_key``."""
+
+    normalized = value.casefold()
+    return normalized in _SECRET_TRACE_FIELDS or bool(_SECRET_TRACE_FIELD_PATTERN.search(normalized))
 
 
 def trace_fingerprint(value: str) -> str:
@@ -63,7 +74,7 @@ def _safe_mapping_key(value: Any, index: int) -> str:
 
     raw_key = str(value)
     normalized = raw_key.casefold()
-    if normalized in _SECRET_TRACE_FIELDS:
+    if _is_secret_trace_field(normalized):
         return raw_key[:80]
     if (
         re.fullmatch(r"[A-Za-z][A-Za-z0-9_.-]{0,79}", raw_key)
@@ -80,9 +91,7 @@ def sanitize_trace_payload(value: Any, *, field_name: str = "") -> Any:
     if value is None or isinstance(value, (bool, int, float)):
         return value
     if isinstance(value, str):
-        if normalized in _SECRET_TRACE_FIELDS or normalized.endswith(
-            ("_token", "_secret", "_password")
-        ):
+        if _is_secret_trace_field(normalized):
             return REDACTED
         if normalized == "trace_id":
             return redact_secret_text(value)[:160]

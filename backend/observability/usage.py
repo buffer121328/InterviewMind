@@ -36,17 +36,36 @@ def _normalize_token_usage(usage: Any) -> dict[str, int | None]:
     total_tokens = _read_usage_value(usage, "total_tokens", "totalTokens")
     if total_tokens is None and input_tokens is not None and output_tokens is not None:
         total_tokens = input_tokens + output_tokens
+    prompt_cache_hit_tokens = _read_usage_value(
+        usage,
+        "prompt_cache_hit_tokens",
+        "cache_hit_tokens",
+        "input_token_details.cache_read",
+    )
+    prompt_cache_miss_tokens = _read_usage_value(
+        usage,
+        "prompt_cache_miss_tokens",
+        "cache_miss_tokens",
+    )
+    cache_read_tokens = prompt_cache_hit_tokens
+    if cache_read_tokens is None:
+        cache_read_tokens = _read_usage_value(
+            usage,
+            "cache_read_tokens",
+            "cached_tokens",
+        )
+    if cache_read_tokens is None and prompt_cache_miss_tokens is not None:
+        # DeepSeek reports both counters today, but treating a provider-reported
+        # miss counter as zero read tokens keeps the adapter safe if a client
+        # drops the explicit zero-valued hit field.
+        cache_read_tokens = 0
     return {
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
         "total_tokens": total_tokens,
-        "cache_read_tokens": _read_usage_value(
-            usage,
-            "cache_read_tokens",
-            "cached_tokens",
-            "prompt_cache_hit_tokens",
-            "cache_hit_tokens",
-        ),
+        "cache_read_tokens": cache_read_tokens,
+        "prompt_cache_hit_tokens": prompt_cache_hit_tokens,
+        "prompt_cache_miss_tokens": prompt_cache_miss_tokens,
         "reasoning_tokens": _read_usage_value(
             usage,
             "reasoning_tokens",
@@ -65,28 +84,44 @@ def _merge_usage_result(usage: Any) -> dict[str, int | None]:
         "output_tokens": None,
         "total_tokens": None,
         "cache_read_tokens": None,
+        "prompt_cache_hit_tokens": None,
+        "prompt_cache_miss_tokens": None,
         "reasoning_tokens": None,
     }
 
 
+def _merge_usage_sources(usages: Sequence[Any]) -> dict[str, int | None]:
+    """逐字段合并 LangChain 与 provider 原始 usage，避免扩展计数被覆盖。"""
+    merged = _merge_usage_result(None)
+    for usage in usages:
+        current = _normalize_token_usage(usage)
+        for key, value in current.items():
+            if merged.get(key) is None and value is not None:
+                merged[key] = value
+    if merged.get("prompt_cache_hit_tokens") is not None:
+        merged["cache_read_tokens"] = merged["prompt_cache_hit_tokens"]
+    return merged
+
+
 def extract_token_usage(value: Any) -> dict[str, int | None]:
     """从 LangChain/OpenAI 响应提取 token 数量，不读取或上报响应正文。"""
+    usages: list[Any] = []
     usage = getattr(value, "usage_metadata", None)
     if isinstance(usage, Mapping):
-        return _merge_usage_result(usage)
+        usages.append(usage)
     response_metadata = getattr(value, "response_metadata", None)
     if isinstance(response_metadata, Mapping):
         token_usage = response_metadata.get("token_usage") or response_metadata.get("usage")
         if isinstance(token_usage, Mapping):
-            return _merge_usage_result(token_usage)
+            usages.append(token_usage)
     raw_usage = getattr(value, "usage", None)
     if raw_usage is not None:
-        return _merge_usage_result(raw_usage)
+        usages.append(raw_usage)
     llm_output = getattr(value, "llm_output", None)
     if isinstance(llm_output, Mapping):
         token_usage = llm_output.get("token_usage") or llm_output.get("usage")
         if isinstance(token_usage, Mapping):
-            return _merge_usage_result(token_usage)
+            usages.append(token_usage)
     generations = getattr(value, "generations", None)
     if generations:
         try:
@@ -94,15 +129,15 @@ def extract_token_usage(value: Any) -> dict[str, int | None]:
             message = getattr(first, "message", None)
             usage = getattr(message, "usage_metadata", None)
             if isinstance(usage, Mapping):
-                return _merge_usage_result(usage)
+                usages.append(usage)
             metadata = getattr(message, "response_metadata", None)
             if isinstance(metadata, Mapping):
                 token_usage = metadata.get("token_usage") or metadata.get("usage")
                 if isinstance(token_usage, Mapping):
-                    return _merge_usage_result(token_usage)
+                    usages.append(token_usage)
         except (IndexError, TypeError):
             pass
-    return _merge_usage_result(None)
+    return _merge_usage_sources(usages)
 
 
 def _message_role(value: Any) -> str | None:

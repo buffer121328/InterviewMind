@@ -55,6 +55,7 @@ export function buildVoiceStartRequestPayload(sessionId: string, apiConfig: NonN
             : null,
         max_questions: state.maxQuestions,
         round_type: state.interviewType,
+        report_mode: state.reportMode,
         question_bank_count: state.questionBankCount,
     };
 }

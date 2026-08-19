@@ -69,6 +69,100 @@ def test_api_config_accepts_fast_and_reasoning_pools():
     assert config.fast_pool[0].name == "Flash A"
 
 
+def test_api_config_accepts_independent_report_reviewer_channels():
+    config = ApiConfig.model_validate(
+        {
+            "smart": _channel("smart-model"),
+            "fast": _channel("fast-model"),
+            "technical_depth": _channel("technical-model"),
+            "communication": _channel("communication-model"),
+        }
+    )
+
+    assert config.technical_depth is not None
+    assert config.technical_depth.model == "technical-model"
+    assert config.communication is not None
+    assert config.communication.model == "communication-model"
+
+
+def test_chat_candidates_accept_explicit_output_budget_without_changing_default(monkeypatch, local_model_pool):
+    """Per-call output limits override only the call that supplies them."""
+    monkeypatch.setenv("LLM_MAX_TOKENS", "4096")
+    get_settings.cache_clear()
+    captured: list[int] = []
+    gateway = llms.ModelGateway()
+
+    def fake_create_llm_from_config(**config):
+        captured.append(config["max_tokens"])
+        return type("FakeLLM", (), {"model_name": config["model"]})()
+
+    monkeypatch.setattr(llms, "create_llm_from_config", fake_create_llm_from_config)
+    api_config = {
+        "smart": _channel("smart-model"),
+        "fast": _channel("fast-model"),
+    }
+
+    gateway.get_chat_candidates(api_config, "fast", max_tokens=3000)
+    assert captured and set(captured) == {3000}
+
+    captured.clear()
+    gateway.get_chat_candidates(api_config, "fast")
+    assert captured and set(captured) == {4096}
+    get_settings.cache_clear()
+
+
+def test_chat_candidates_prefer_requested_provider_without_removing_fallbacks(monkeypatch, local_model_pool):
+    """A task may promote a configured provider while retaining every fallback candidate."""
+    gateway = llms.ModelGateway()
+    monkeypatch.setattr(
+        llms,
+        "create_llm_from_config",
+        lambda **config: type("FakeLLM", (), {"model_name": config["model"]})(),
+    )
+    api_config = {
+        "smart": {**_channel("smart-fallback"), "provider": "deepseek"},
+        "fast": {**_channel("fast-primary"), "provider": "deepseek"},
+        "reasoning_pool": [{**_channel("doubao-priority"), "provider": "volcengine"}],
+    }
+
+    from ai.llm.model_pool import _identity
+
+    released: list[str] = []
+    reserved: list[str] = []
+    monkeypatch.setattr(
+        gateway.scheduler,
+        "reserve_order",
+        lambda _pool, configs: (list(configs), _identity(configs[0])),
+    )
+    monkeypatch.setattr(gateway.scheduler, "order", lambda _pool, configs: list(configs))
+    monkeypatch.setattr(gateway.scheduler, "finish", released.append)
+    monkeypatch.setattr(gateway.scheduler, "start", reserved.append)
+
+    preferred = gateway.get_chat_candidates(
+        api_config,
+        "fast",
+        preferred_provider="volcengine",
+    )
+    assert [candidate.model_name for candidate in preferred] == [
+        "doubao-priority",
+        "fast-primary",
+        "smart-fallback",
+    ]
+    assert released == [_identity(api_config["fast"])]
+    assert reserved == [_identity(api_config["reasoning_pool"][0])]
+
+    unavailable = gateway.get_chat_candidates(
+        api_config,
+        "fast",
+        preferred_provider="openai",
+    )
+    assert [candidate.model_name for candidate in unavailable] == [
+        "fast-primary",
+        "doubao-priority",
+        "smart-fallback",
+    ]
+
+
 def test_weighted_pool_rotates_primary_candidate(monkeypatch, local_model_pool):
     gateway = llms.ModelGateway()
     monkeypatch.setattr(
@@ -204,6 +298,48 @@ def test_unconfigured_resume_expert_starts_with_general(local_model_pool):
         "reasoning-fallback",
         "smart-legacy",
         "fast-fallback",
+        "fast-legacy",
+    ]
+
+
+def test_report_reviewer_chain_prefers_direct_channel_then_general_and_core(local_model_pool):
+    gateway = llms.ModelGateway()
+    candidates, _ = gateway._candidate_configs(
+        {
+            "smart": _channel("smart-legacy"),
+            "fast": _channel("fast-legacy"),
+            "technical_depth": _channel("technical-primary"),
+            "general": _channel("general-fallback"),
+            "reasoning_pool": [_channel("reasoning-fallback")],
+            "fast_pool": [_channel("fast-fallback")],
+        },
+        "technical_depth",
+    )
+
+    assert _models(candidates) == [
+        "technical-primary",
+        "general-fallback",
+        "reasoning-fallback",
+        "smart-legacy",
+        "fast-fallback",
+        "fast-legacy",
+    ]
+
+
+def test_unconfigured_report_reviewer_uses_general_without_treating_it_as_reviewer(local_model_pool):
+    gateway = llms.ModelGateway()
+    candidates, _ = gateway._candidate_configs(
+        {
+            "smart": _channel("smart-legacy"),
+            "fast": _channel("fast-legacy"),
+            "general": _channel("general-fallback"),
+        },
+        "communication",
+    )
+
+    assert _models(candidates) == [
+        "general-fallback",
+        "smart-legacy",
         "fast-legacy",
     ]
 

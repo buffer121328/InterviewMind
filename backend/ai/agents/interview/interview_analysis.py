@@ -9,6 +9,11 @@ from collections.abc import Awaitable, Callable, Mapping
 from typing import Any, Dict, List, Optional
 
 from app.clock import utc_now
+from app.domain.interview_report_modes import (
+    InterviewReportMode,
+    normalize_report_mode,
+    normalize_report_source_version,
+)
 
 from .questions.answer_points import ensure_plan_answer_points, normalize_answer_points
 
@@ -109,6 +114,8 @@ async def trigger_session_report_analysis(
     raise_on_error: bool = False,
     report_checkpoint: Mapping[str, Any] | None = None,
     checkpoint_callback: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
+    report_mode: InterviewReportMode | str | None = None,
+    report_source_version: str | None = None,
 ) -> None:
     """处理会话报告分析相关后端逻辑。"""
     try:
@@ -142,6 +149,76 @@ async def trigger_session_report_analysis(
         qa_history = build_scoring_qa_history(session.messages, normalized_plan)
         if not qa_history:
             raise ValueError("该面试还没有可用于生成报告的有效问答")
+
+        normalized_report_mode = normalize_report_mode(report_mode)
+        normalized_source_version = normalize_report_source_version(
+            report_source_version or getattr(session.metadata, "report_source_version", None)
+        )
+        if normalized_report_mode is InterviewReportMode.STANDARD:
+            from ai.runtime.execution.deadlines import TaskDeadline
+            from ai.workflows.interview.reports.standard import StandardInterviewReportService
+            from app.config import get_settings
+            from app.files.artifact_service import ArtifactService
+
+            standard_report = await StandardInterviewReportService().generate(
+                title=session.title,
+                mode=session.metadata.mode,
+                round_index=session.metadata.round_index,
+                max_questions=session.metadata.max_questions,
+                resume=session.metadata.resume_content or "",
+                job_description=session.metadata.job_description or "",
+                company_info=session.metadata.company_info or "未知",
+                qa_history=qa_history,
+                report_source_version=normalized_source_version,
+                api_config=api_config,
+                deadline=TaskDeadline(get_settings().interview_report_task_timeout_seconds),
+            )
+            artifact = await ArtifactService().persist_interview_report_pdf(
+                user_id=user_id,
+                session_id=session_id,
+                title=f"{session.title}-标准面试报告",
+                markdown=standard_report.markdown,
+                report_source_version=normalized_source_version,
+            )
+            previous_refs = list(getattr(session.metadata, "turn_checkpoint_refs", None) or [])
+            previous_refs = [
+                item
+                for item in previous_refs
+                if not (
+                    isinstance(item, dict)
+                    and item.get("kind") == "standard_report_evaluation"
+                    and item.get("report_source_version") == normalized_source_version
+                )
+            ]
+            previous_refs.append(
+                {
+                    "kind": "standard_report_evaluation",
+                    "report_mode": InterviewReportMode.STANDARD.value,
+                    "report_source_version": normalized_source_version,
+                    "evaluation_digest": standard_report.evaluation_digest,
+                    "qa_count": standard_report.source_coverage["qa_count"],
+                    "derived_ir_count": standard_report.source_coverage["derived_ir_count"],
+                    "generation_mode": standard_report.generation_mode,
+                    "degradation_reason": standard_report.degradation_reason or None,
+                    "artifact_id": artifact.id,
+                }
+            )
+            await session_repo.update_session(
+                session_id=session_id,
+                metadata_updates={
+                    "report_mode": InterviewReportMode.STANDARD.value,
+                    "report_source_version": normalized_source_version,
+                    "turn_checkpoint_refs": previous_refs,
+                },
+                user_id=user_id,
+            )
+            logger.info(
+                "[SessionReportAnalysis] 标准报告 PDF 已生成: session=%s user=%s artifact=%s",
+                session_id,
+                user_id,
+                artifact.id,
+            )
+            return
 
         profile, weakness_report = await get_session_report_analysis_service().generate_session_report(
             session_id=session_id,

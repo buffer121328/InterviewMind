@@ -147,3 +147,42 @@ def test_export_route_sanitizes_storage_failures(monkeypatch):
     assert response.status_code == 503
     assert response.json()["detail"] == "导出存储暂不可用，请稍后重试"
     assert "/app/" not in response.text
+
+
+def test_standard_report_pdf_embeds_cjk_font_and_renders_multpage_body_with_poppler(tmp_path: Path):
+    """The report PDF is self-contained: text extracts and an independent renderer sees Chinese body text."""
+    import shutil
+    import subprocess
+
+    markdown = """# 中文面试报告
+
+## 结论
+
+- 候选人能够说明缓存容量、淘汰策略和一致性边界。
+
+## 改进建议
+
+""" + ("请继续补充量化指标、故障恢复和压测结果，形成可验证的完整回答。" * 180)
+
+    pdf_bytes = ArtifactService._resume_pdf_bytes(markdown)
+    document = fitz.open(stream=pdf_bytes, filetype="pdf")
+    try:
+        extracted = "".join(page.get_text() for page in document)
+        assert document.page_count >= 2
+        assert "中文面试报告" in extracted
+        assert any("reportcjk" in str(font).lower() for page in document for font in page.get_fonts(full=True))
+    finally:
+        document.close()
+
+    pdf_path = tmp_path / "standard-report.pdf"
+    pdf_path.write_bytes(pdf_bytes)
+    assert shutil.which("pdftotext"), "backend image must provide Poppler for independent PDF verification"
+    assert shutil.which("pdftoppm"), "backend image must provide Poppler for independent PDF verification"
+    text_path = tmp_path / "standard-report.txt"
+    subprocess.run(["pdftotext", "-enc", "UTF-8", str(pdf_path), str(text_path)], check=True)
+    assert "中文面试报告" in text_path.read_text(encoding="utf-8")
+    image_prefix = tmp_path / "standard-report-page"
+    subprocess.run(["pdftoppm", "-f", "1", "-l", "1", "-png", str(pdf_path), str(image_prefix)], check=True)
+    rendered = tmp_path / "standard-report-page-1.png"
+    assert rendered.is_file()
+    assert rendered.stat().st_size > 10_000

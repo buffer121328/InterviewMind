@@ -17,6 +17,7 @@ from app.db.models.interview import (
     QuestionBankItemModel,
 )
 from app.db.repositories.interview.archive_mapper import extract_candidate_question
+from app.domain.interview_round_strategy import select_question_bank_candidates
 from app.domain.question_bank import normalize_question_key, question_types_for_round
 
 logger = logging.getLogger(__name__)
@@ -98,7 +99,14 @@ class QuestionBankRepo:
                 usage_count=0, created_at=now, updated_at=now,
             )
             db.add(obj)
-            await db.commit()
+            try:
+                await db.commit()
+            except IntegrityError:
+                await db.rollback()
+                existing_id = (await db.execute(stmt)).scalar_one_or_none()
+                if existing_id is not None:
+                    return int(existing_id), False
+                raise
             await db.refresh(obj)
             return int(obj.id), True
 
@@ -245,6 +253,7 @@ class QuestionBankRepo:
         limit: int,
         *,
         round_type: str = "tech_initial",
+        plan_max_questions: int | None = None,
     ) -> List[Dict[str, Any]]:
         """Select owner-visible questions compatible with the round and priority order."""
         if limit <= 0:
@@ -274,7 +283,12 @@ class QuestionBankRepo:
             rows = (await db.execute(stmt)).scalars().all()
             items = [self._row_to_dict(row) for row in rows]
             await self._attach_followups(db, items)
-            return items
+            return select_question_bank_candidates(
+                items,
+                round_type=round_type,
+                plan_max_questions=plan_max_questions or limit,
+                selection_limit=limit,
+            )
 
     async def normalized_question_keys(
         self,

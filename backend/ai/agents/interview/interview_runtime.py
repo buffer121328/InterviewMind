@@ -26,17 +26,20 @@ import inspect
 import json
 import logging
 from datetime import datetime, timezone
+from collections.abc import Mapping
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
+from langchain_core.messages import HumanMessage, SystemMessage
+
 from ai.runtime.context import AgentContext
-from ai.runtime.context.assembler import (
-    AssembledContext,
-    ContextAssembler,
-    ContextSource,
-)
 from ai.runtime.execution.deadlines import TaskDeadline
 from ai.tools.executor import ToolExecutionGuard
 from app.config import get_settings
+from app.domain.interview_round_strategy import (
+    ROUND_STRATEGY_VERSION,
+    allows_technical_follow_ups,
+    round_question_type_distribution,
+)
 from app.schemas.interview.interview import (
     EvaluatingOutput,
     InterviewerAction,
@@ -45,6 +48,15 @@ from app.schemas.interview.interview import (
 from observability import agent_observation
 
 from .questions.plan import is_technical_question, technical_follow_up_budget
+from .turn_context import (
+    DynamicInterviewSuffix,
+    StableInterviewContext,
+    advance_turn_state,
+    build_dynamic_suffix,
+    build_stable_context,
+    build_turn_state,
+    stable_context_from_payload,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +79,7 @@ class InterviewRuntime:
         llm_invoker: Callable[..., Awaitable[Any]],
         tool_executor: Optional[Callable[..., Awaitable[Dict]]] = None,
         api_config: Optional[Dict[str, Any]] = None,
+        stable_context: Optional[Mapping[str, Any]] = None,
     ):
         """初始化面试运行时相关状态。
 
@@ -87,8 +100,47 @@ class InterviewRuntime:
         self.turn_phase: str = state.get("turn_phase", "opening")
         self.round_index: int = state.get("round_index", 1)
         self.round_type: str = state.get("round_type", "tech_initial")
+        self.round_strategy_version: str = str(
+            state.get("round_strategy_version")
+            or (self.plan[0].get("round_strategy_version") if self.plan and isinstance(self.plan[0], dict) else "")
+            or ROUND_STRATEGY_VERSION
+        )
+        self.round_question_type_distribution = round_question_type_distribution(self.plan)
         self.messages: List = state.get("messages", [])
         self.memory_context: str = state.get("memory_context", "")
+        self._stable_context: StableInterviewContext = (
+            stable_context_from_payload(stable_context)
+            if isinstance(stable_context, Mapping)
+            else build_stable_context(
+                resume_context=str(state.get("resume_context") or ""),
+                job_description=str(state.get("job_description") or ""),
+                company_info=str(state.get("company_info") or ""),
+                interview_plan=self.plan,
+                round_index=self.round_index,
+                round_type=self.round_type,
+                memory_context=self.memory_context,
+                rubric={
+                    "evaluation": ["事实依据", "技术准确性", "表达清晰度"],
+                    "follow_up_policy": "仅在轮次策略允许且技术主问题存在未验证缺口时追问",
+                },
+                prompt_version="interview-evaluating.v1",
+                round_strategy_version=self.round_strategy_version,
+            )
+        )
+        self._has_persisted_turn_state = bool(state.get("turn_state"))
+        self.turn_state: Dict[str, Any] = dict(state.get("turn_state") or build_turn_state(
+            current_question_index=self.current_idx,
+            current_question_id=self._question_id_for_index(self.current_idx),
+            stable_prefix_fingerprint=self._stable_context.fingerprint,
+            round_strategy_version=self.round_strategy_version,
+            follow_up_count=self.follow_up_count,
+            total_follow_up_count=self.total_follow_up_count,
+            max_follow_ups=self.max_follow_ups,
+            max_total_follow_ups=self.max_total_follow_ups,
+        ))
+        self._last_action = str(self.turn_state.get("last_action") or "")
+        self._last_transition = str(self.turn_state.get("last_transition") or "")
+        self._evaluation_summary = ""
         self.trace: List[Dict[str, Any]] = list(state.get("trace", []))
         self.max_tool_rounds: int = 1
         self.tool_round_count: int = 0
@@ -214,6 +266,8 @@ class InterviewRuntime:
 
     def _follow_up_block_reason(self) -> str | None:
         """返回阻止当前题追问的确定性原因；无阻止条件时返回 ``None``。"""
+        if not allows_technical_follow_ups(self.round_type):
+            return "当前轮次禁止技术追问"
         if not self._is_current_question_technical():
             return "当前主问题不是技术题"
         if self.follow_up_count >= self.max_follow_ups:
@@ -261,7 +315,12 @@ class InterviewRuntime:
         )
 
         follow_up_block_reason = self._follow_up_block_reason()
-        if follow_up_block_reason:
+        # A depleted round-level follow-up budget does not make answer
+        # evaluation unnecessary. Keep the evaluator available to advance or
+        # end based on the answer, while the post-decision guard still blocks
+        # any attempted follow-up. Other guards make a follow-up impossible for
+        # the current main question and can safely advance without a model call.
+        if follow_up_block_reason and follow_up_block_reason != "本轮技术追问预算已耗尽":
             logger.info("[Runtime] %s，跳过模型决策并强制推进", follow_up_block_reason)
             return self._advance_or_end_after_follow_up_block(follow_up_block_reason)
 
@@ -312,6 +371,7 @@ class InterviewRuntime:
                 return self._handle_fallback(user_answer, current_q, next_q)
 
         logger.info(f"[Runtime] evaluating 决策: action={output.action}")
+        self._evaluation_summary = str(output.evaluation_notes or "")
         self._add_trace(
             step="evaluating",
             phase=InterviewPhase.EVALUATING.value,
@@ -332,6 +392,7 @@ class InterviewRuntime:
 
     def _handle_follow_up_action(self, output: EvaluatingOutput) -> Dict[str, Any]:
         """处理技术追问动作，并在运行时再次执行全部配额约束。"""
+        self._evaluation_summary = str(output.evaluation_notes or self._evaluation_summary)
         follow_up_block_reason = self._follow_up_block_reason()
         if follow_up_block_reason:
             logger.info("[Runtime] 忽略模型追问决策：%s", follow_up_block_reason)
@@ -339,6 +400,11 @@ class InterviewRuntime:
 
         new_count = self.follow_up_count + 1
         new_total_count = self.total_follow_up_count + 1
+        self.follow_up_count = new_count
+        self.total_follow_up_count = new_total_count
+        self.state["current_sub_question"] = output.content
+        self._last_action = InterviewerAction.FOLLOW_UP.value
+        self._last_transition = "evaluating->follow_up"
         self.phase = InterviewPhase.FOLLOW_UP
         logger.info(
             "[Runtime] 技术追问 #%s（本轮 %s/%s）: %s...",
@@ -368,14 +434,20 @@ class InterviewRuntime:
 
     def _handle_advance_action(self, output: EvaluatingOutput) -> Dict[str, Any]:
         """处理进入下一题动作"""
+        self._evaluation_summary = str(output.evaluation_notes or self._evaluation_summary)
         next_idx = self.current_idx + 1
 
         if next_idx >= len(self.plan):
             # 所有题目已问完
             return self._handle_end_round_action(output)
 
+        self.current_idx = next_idx
+        self.follow_up_count = 0
+        self.state["current_sub_question"] = None
+        self._last_action = InterviewerAction.ADVANCE.value
+        self._last_transition = "evaluating->asking"
         self.phase = InterviewPhase.ADVANCING
-        next_q = self._get_next_question()
+        next_q = self._get_current_question()
         message = self._build_advance_message(next_q)
         logger.info(f"[Runtime] 进入第 {next_idx + 1} 题: {next_q[:50] if next_q else 'N/A'}...")
         self._add_trace(
@@ -402,6 +474,14 @@ class InterviewRuntime:
         """
         from app.domain.interview_rounds import INTERVIEW_CLOSING_MESSAGE
 
+        self._evaluation_summary = str(
+            getattr(output, "evaluation_notes", "") or self._evaluation_summary
+        )
+        self.current_idx = len(self.plan)
+        self.follow_up_count = 0
+        self.state["current_sub_question"] = None
+        self._last_action = InterviewerAction.END_ROUND.value
+        self._last_transition = "evaluating->completed"
         self.phase = InterviewPhase.END_ROUND
         logger.info(f"[Runtime] 本轮面试结束, round={self.round_index}")
 
@@ -508,115 +588,83 @@ class InterviewRuntime:
         next_q: str,
         tool_context: str,
         allow_tool_request: bool = False,
-    ) -> tuple[str, AssembledContext]:
-        """构建评估阶段提示词，并按 token 预算组装多来源上下文。
+    ) -> tuple[str, dict[str, Any]]:
+        """Build a deterministic stable prefix followed by the current-turn suffix.
 
-        Args:
-            user_answer: 候选人本轮回答。
-            current_q: 当前题目文本。
-            next_q: 下一题文本（最后一题为空）。
-            tool_context: 已执行工具结果的格式化文本。
-            allow_tool_request: 是否允许模型在本轮请求工具。
+        The prefix is finalized after planning and is cache-eligible.  The
+        answer, current state, and tool results remain in the dynamic suffix so
+        mutable turn data cannot invalidate or leak through prefix metadata.
         """
         from ai.prompts.interview import build_evaluating_prompt
 
-        from .planning.planner import ROUND_STRATEGIES
-
-        strategy = ROUND_STRATEGIES.get(self.round_type, ROUND_STRATEGIES["tech_initial"])
         state_context = {
             "round_index": self.round_index,
             "round_type": self.round_type,
-            "strategy_focus": strategy["focus"],
+            "round_strategy_version": self.round_strategy_version,
+            "round_question_type_distribution": self.round_question_type_distribution,
             "current_question_index": self.current_idx,
             "total_questions": len(self.plan),
-            "current_question": current_q,
-            "answer_points": self._get_current_answer_points(),
-            "answer_points_policy": "仅用于内部覆盖度与缺口判断，不得原样输出给候选人",
             "next_question": next_q or "已是最后一题",
-            "follow_up_count": self.follow_up_count,
-            "max_follow_ups": self.max_follow_ups,
             "current_question_is_technical": self._is_current_question_technical(),
-            "total_follow_up_count": self.total_follow_up_count,
-            "max_total_follow_ups": self.max_total_follow_ups,
             "remaining_total_follow_ups": max(
                 0, self.max_total_follow_ups - self.total_follow_up_count
             ),
         }
-        assembler = ContextAssembler(
-            agent_name="interview",
-            total_model_chars=6000,
-            source_budgets={
-                "runtime_state": 1600,
-                "answer": 2600,
-                "history": 900,
-                "tool_results": 1100,
-                "memory": 700,
+        suffix: DynamicInterviewSuffix = build_dynamic_suffix(
+            current_question=current_q,
+            current_answer=user_answer,
+            turn_state={**self.turn_state, **state_context},
+            tool_results={
+                "tool_summary": tool_context,
+                "historical_followups": self._format_historical_followups(),
             },
-            cache_version="2026-07-29.phase2.runtime.v1",
         )
-        assembled = assembler.assemble([
-            ContextSource(
-                name="runtime_state",
-                content=state_context,
-                required=True,
-                trusted=True,
-                priority=100,
-                max_chars=1600,
-            ),
-            ContextSource(
-                name="answer",
-                content=user_answer,
-                required=True,
-                priority=90,
-                max_chars=2600,
-                truncation_strategy="head_tail",
-            ),
-            ContextSource(
-                name="history",
-                content=self._format_historical_followups(),
-                priority=60,
-                max_chars=900,
-                truncation_strategy="head_tail",
-            ),
-            ContextSource(
-                name="tool_results",
-                content=tool_context,
-                trusted=True,
-                priority=50,
-                max_chars=1100,
-                truncation_strategy="head_tail",
-            ),
-            ContextSource(
-                name="memory",
-                content=self.memory_context,
-                priority=40,
-                max_chars=700,
-                truncation_strategy="head_tail",
-            ),
-        ])
-        prompt = build_evaluating_prompt(
+        instructions = build_evaluating_prompt(
             tool_instruction=self._build_tool_instruction(allow_tool_request),
-            runtime_context=assembled.model_context,
+            runtime_context="稳定上下文与本轮动态上下文由后续消息提供；以这些内容为准。",
         )
-        return prompt, assembled
+        prompt = [
+            SystemMessage(content=instructions),
+            SystemMessage(content=self._stable_context.as_system_message()),
+            HumanMessage(content=suffix.as_user_message()),
+        ]
+        call_metadata = {
+            **self._stable_context.model_event_fields(),
+            **suffix.model_event_fields(),
+            "prompt_cache_eligible": True,
+            "round_strategy_version": self.round_strategy_version,
+            "round_question_type_distribution": self.round_question_type_distribution,
+            "source_breakdown": {
+                "stable_prefix": len(self._stable_context.canonical),
+                "dynamic_suffix": len(suffix.as_user_message()),
+            },
+            "truncated_sources": (),
+            "prompt_cache_stable_message_index": 1,
+        }
+        return prompt, call_metadata
 
     async def _invoke_evaluating_model(
         self,
-        prompt: str,
-        assembled_context: AssembledContext,
+        prompt: Any,
+        call_metadata: dict[str, Any],
     ) -> EvaluatingOutput:
         """用结构化输出调用评估模型，返回 EvaluatingOutput。
 
         Args:
             prompt: 组装后的评估提示词。
-            assembled_context: 组装上下文，用于生成模型调用元数据。
+            call_metadata: 不含来源正文的安全模型调用元数据。
         """
+        call_metadata = {
+            **call_metadata,
+            "round_strategy_version": self.round_strategy_version,
+            "round_question_type_distribution": self.round_question_type_distribution,
+        }
         if self._invoker_accepts_context:
             return await self.llm_invoker(
                 prompt,
                 EvaluatingOutput,
                 deadline=self.task_deadline,
-                call_metadata=assembled_context.model_event_fields(),
+                call_metadata=call_metadata,
             )
         # 仅为现有测试/外部适配器保留；生产图调用器接受 deadline 与 metadata。
         return await self.llm_invoker(prompt, EvaluatingOutput)
@@ -824,8 +872,50 @@ class InterviewRuntime:
 - 工具只用于补充参考，不要把工具结果原样念给候选人"""
 
     def _with_trace(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """为返回结果附带 trace。"""
-        return {**payload, "trace": list(self.trace)}
+        """Attach trace plus one versioned state transition for atomic persistence."""
+        transition = {
+            "current_question_index": self.current_idx,
+            "current_question_id": self._question_id_for_index(self.current_idx),
+            "follow_up_count": self.follow_up_count,
+            "total_follow_up_count": self.total_follow_up_count,
+            "last_action": self._last_action,
+            "last_transition": self._last_transition,
+            "current_sub_question": self.state.get("current_sub_question"),
+            "source_message_refs": self.turn_state.get("source_message_refs") or [],
+        }
+        if self._has_persisted_turn_state:
+            self.turn_state = advance_turn_state(self.turn_state, **transition)
+        else:
+            self.turn_state = build_turn_state(
+                stable_prefix_fingerprint=self._stable_context.fingerprint,
+                round_strategy_version=self.round_strategy_version,
+                max_follow_ups=self.max_follow_ups,
+                max_total_follow_ups=self.max_total_follow_ups,
+                source_message_version=0,
+                state_version=1,
+                **transition,
+            )
+        if self._evaluation_summary:
+            self.turn_state["evidence_summaries"] = [
+                *self.turn_state.get("evidence_summaries", []),
+                {
+                    "summary": self._evaluation_summary,
+                    "source_refs": ["pending:current_turn"],
+                },
+            ]
+        return {
+            **payload,
+            "total_follow_up_count": self.total_follow_up_count,
+            "turn_state": dict(self.turn_state),
+            "trace": list(self.trace),
+        }
+
+    def _question_id_for_index(self, index: int) -> str | None:
+        """Return the authoritative planned-question identifier for a state index."""
+        if 0 <= index < len(self.plan) and isinstance(self.plan[index], dict):
+            value = self.plan[index].get("id")
+            return str(value) if value is not None else str(index + 1)
+        return None
 
     def _add_trace(
         self,

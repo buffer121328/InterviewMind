@@ -453,6 +453,16 @@ class _ModelPoolCallback(BaseCallbackHandler):
         if success:
             usage = extract_token_usage(response)
             event.update(usage)
+            if event.get("prompt_cache_status") != "unsupported":
+                cache_read_tokens = usage.get("cache_read_tokens")
+                if cache_read_tokens is None:
+                    event["prompt_cache_status"] = "unreported"
+                elif int(cache_read_tokens) > 0:
+                    event["prompt_cache_status"] = "hit"
+                    event["cache_hit"] = True
+                else:
+                    event["prompt_cache_status"] = "miss"
+                    event["cache_hit"] = False
             event.update(estimate_model_cost(
                 pricing_key=self.provider_metadata.get("pricing_key"),
                 model_name=self.model_name,

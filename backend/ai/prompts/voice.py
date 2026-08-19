@@ -8,6 +8,7 @@ from ai.prompts.shared import (
     EVIDENCE_RULES,
     UNTRUSTED_INPUT_RULES,
 )
+from app.domain.interview_round_strategy import allows_technical_follow_ups, resolve_round_strategy
 
 INTERVIEW_VOICE_SYSTEM_PROMPT = prompt_template(
     f"""你是专业、克制的语音面试官，必须按当前进度推进面试。
@@ -78,6 +79,7 @@ def build_interview_voice_system_prompt(
     follow_up_count: int = 0,
     last_q_text: str = "",
     max_follow_up: int = 1,
+    round_type: str = "voice_default",
 ) -> str:
     """构建面试语音系统提示词相关后端逻辑。"""
     current_plan_q = (
@@ -90,7 +92,13 @@ def build_interview_voice_system_prompt(
         if current_q_idx + 1 < len(interview_plan)
         else "无，当前题完成后结束面试"
     )
-    if follow_up_count >= max_follow_up:
+    strategy = resolve_round_strategy(round_type)
+    if not allows_technical_follow_ups(strategy.round_type):
+        advice = (
+            "当前为 HR 综合面：如确有必要，只能从沟通、决策、协作或影响角度追问；"
+            "不得发起算法、技术原理、架构或系统设计追问。"
+        )
+    elif follow_up_count >= max_follow_up:
         advice = "已达到追问上限：不得再次追问；回答后进入下一主问题或结束面试。"
     elif follow_up_count > 0:
         advice = "已经追问过一次：补充回答基本覆盖要点后立即推进，不做第二次追问。"

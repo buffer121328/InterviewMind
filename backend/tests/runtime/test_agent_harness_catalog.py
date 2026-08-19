@@ -112,6 +112,7 @@ def test_production_definitions_expose_explicit_harness_and_execution_policy() -
     assert definitions["interview_start"].evaluation_enabled is True
     assert definitions["interview_start"].graph_reference_mode == "required"
     assert definitions["job_assets"].run_gate_policy == "worker_limit"
+    assert definitions["interview_report"].run_gate_policy == "worker_limit"
     assert definitions["interview_turn"].adapter_key == "interview_turn"
     assert definitions["interview_turn"].run_gate_policy == "global"
     assert definitions["voice_interview_turn"].adapter_key == "voice_interview_turn"

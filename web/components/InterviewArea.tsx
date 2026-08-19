@@ -12,6 +12,7 @@ import { API_BASE_URL } from "@/lib/api/config";
 import { QUESTION_COUNT_OPTIONS, defaultQuestionsForRoundIndex } from "@/lib/interview/questionDefaults";
 import { hasSatisfactionAsked, markSatisfactionAsked, satisfactionAskKey } from "@/lib/api/satisfaction";
 import { SatisfactionDialog } from "./satisfaction/SatisfactionDialog";
+import { shouldPromptForInterviewSatisfaction } from "@/lib/interview/satisfactionPrompt";
 
 interface InterviewAreaProps {
     children: ReactNode;
@@ -37,16 +38,41 @@ export function InterviewArea({ children }: InterviewAreaProps) {
     const [nextRoundQuestionOverride, setNextRoundQuestionOverride] = useState<number | null>(null);
     const [satisfactionOpen, setSatisfactionOpen] = useState(false);
 
-    // 面试完成且该会话尚未询问过满意度时，弹出反馈弹窗；提交后标记、不再弹出，"稍后再说"不标记
+    const satisfactionSessionId = currentSession?.session_id;
+    const satisfactionKey = satisfactionSessionId
+        ? satisfactionAskKey('interview', satisfactionSessionId)
+        : null;
+
+    // 每一轮完成的文字或语音面试都独立询问一次；关闭后只对当前会话去重。
     /* eslint-disable react-hooks/set-state-in-effect */
     useEffect(() => {
-        if (currentSession?.metadata.mode === 'voice' && currentSession.metadata.status === 'completed') {
-            if (!hasSatisfactionAsked(satisfactionAskKey('interview', currentSession.session_id))) {
-                setSatisfactionOpen(true);
-            }
+        if (!satisfactionKey) {
+            setSatisfactionOpen(false);
+            return;
         }
-    }, [currentSession]);
+        setSatisfactionOpen(shouldPromptForInterviewSatisfaction(
+            currentSession,
+            hasSatisfactionAsked(satisfactionKey),
+        ));
+    }, [currentSession, satisfactionKey]);
     /* eslint-enable react-hooks/set-state-in-effect */
+
+    function handleSatisfactionOpenChange(open: boolean) {
+        setSatisfactionOpen(open);
+        if (!open && satisfactionKey) {
+            markSatisfactionAsked(satisfactionKey);
+        }
+    }
+
+    const satisfactionDialog = satisfactionSessionId ? (
+        <SatisfactionDialog
+            key={satisfactionSessionId}
+            open={satisfactionOpen}
+            onOpenChange={handleSatisfactionOpenChange}
+            agentType="interview"
+            refKey={satisfactionSessionId}
+        />
+    ) : null;
 
     // 1. 如果处于语音模式
     if (isVoiceMode) {
@@ -263,16 +289,10 @@ export function InterviewArea({ children }: InterviewAreaProps) {
                     />
                 )}
 
-                <SatisfactionDialog
-                    open={satisfactionOpen}
-                    onOpenChange={setSatisfactionOpen}
-                    agentType="interview"
-                    refKey={currentSession.session_id}
-                    onSubmitted={() => markSatisfactionAsked(satisfactionAskKey('interview', currentSession.session_id))}
-                />
+                {satisfactionDialog}
             </div>
         );
     }
 
-    return <>{children}</>;
+    return <>{children}{satisfactionDialog}</>;
 }

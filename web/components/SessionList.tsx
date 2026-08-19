@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
 import { groupInterviewSeries, type InterviewSeriesGroup } from '@/lib/interviewSeries';
+import { shouldOpenSessionDeleteConfirmation } from '@/lib/sessionDeleteInteraction';
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -221,6 +222,14 @@ function SessionItem({ session, isActive, onSelect, onDelete, onEdit, onTogglePi
         setIsDeleteDialogOpen(true);
     };
 
+    /** Opens the protected deletion confirmation from a deliberate right-click. */
+    const handleContextMenu = (e: React.MouseEvent) => {
+        if (!shouldOpenSessionDeleteConfirmation(e.button)) return;
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDeleteDialogOpen(true);
+    };
+
     /** Handles view details; updates local UI state first and delegates server mutations through the approved API boundary. */
     const handleViewDetails = (e: React.MouseEvent) => {
         e.stopPropagation();
@@ -236,6 +245,7 @@ function SessionItem({ session, isActive, onSelect, onDelete, onEdit, onTogglePi
     return (
         <div
             onClick={onSelect}
+            onContextMenu={handleContextMenu}
             className={cn(
                 "group flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer transition-all text-sm w-full",
                 nested && "py-2 pl-2 text-xs",
@@ -369,7 +379,7 @@ function SessionItem({ session, isActive, onSelect, onDelete, onEdit, onTogglePi
                     <AlertDialogHeader>
                         <AlertDialogTitle>删除此会话？</AlertDialogTitle>
                         <AlertDialogDescription>
-                            这条会话将被永久删除，不可恢复及撤销
+                            这条会话的回答、单轮画像、报告和会话文件将被永久删除，且不可恢复。
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>

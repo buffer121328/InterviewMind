@@ -1,7 +1,16 @@
 """将题库/面经候选题转换并合入面试计划。"""
 
-from math import ceil
+from math import floor
 from typing import Any, Iterable, Mapping
+
+from app.domain.interview_round_strategy import (
+    ROUND_STRATEGY_VERSION,
+    repair_round_plan,
+    select_question_bank_candidates,
+)
+from app.domain.interview_round_strategy import (
+    is_technical_question as _strategy_is_technical_question,
+)
 
 from .answer_points import ensure_question_answer_points
 
@@ -111,32 +120,39 @@ def is_introduction_question(question: object) -> bool:
 def prepare_question_bank_candidates(
     question_bank_items: Iterable[dict[str, Any]],
     max_questions: int,
+    *,
+    round_type: str = "tech_initial",
+    selection_limit: int | None = None,
+    enforce_strategy: bool = False,
 ) -> list[dict[str, Any]]:
-    """将已按优先级筛选的题库题转为规划器候选题。
+    """Convert ordered question-bank items and optionally enforce round quotas.
 
-    Args:
-        question_bank_items: 题库查询结果。
-        max_questions: 计划题目数。
+    Compatibility callers retain the historical conversion-only behavior. The
+    interview start flows opt into ``enforce_strategy`` before planning so a
+    user-configured question-bank quota cannot bypass the shared policy.
     """
 
-    return prepare_candidates((), question_bank_items, max_questions)
+    limit = max_questions if selection_limit is None else min(max_questions, selection_limit)
+    candidates = prepare_candidates((), question_bank_items, limit)
+    if not enforce_strategy:
+        return candidates
+    selected = select_question_bank_candidates(
+        candidates,
+        round_type=round_type,
+        plan_max_questions=max_questions,
+        selection_limit=limit,
+    )
+    return [ensure_question_answer_points(item) for item in selected]
 
 
-def merge_question_plan(
+def _legacy_merge_question_plan(
     candidates: list[dict[str, Any]],
     generated: list[dict[str, Any]],
     max_questions: int,
     *,
-    round_type: str = "tech_initial",
+    round_type: str,
 ) -> list[dict[str, Any]]:
-    """候选题优先合并、去重并为首轮限制一题自我介绍。
-
-    Args:
-        candidates: 题库或面经候选题。
-        generated: 规划器生成的候选题。
-        max_questions: 计划题目数。
-        round_type: 当前轮次类型。
-    """
+    """Preserve established merge ordering for non-governed compatibility callers."""
 
     merged: list[dict[str, Any]] = []
     seen: set[str] = set()
@@ -160,6 +176,39 @@ def merge_question_plan(
     return merged
 
 
+def merge_question_plan(
+    candidates: list[dict[str, Any]],
+    generated: list[dict[str, Any]],
+    max_questions: int,
+    *,
+    round_type: str = "tech_initial",
+    enforce_strategy: bool = False,
+) -> list[dict[str, Any]]:
+    """Merge plans, with explicit opt-in to deterministic strategy repair.
+
+    Existing programmatic callers retain the legacy de-duplication contract;
+    real interview-start workflows pass ``enforce_strategy=True`` and receive
+    quota repairs and local safe fill-ins.
+    """
+
+    legacy = _legacy_merge_question_plan(
+        candidates,
+        generated,
+        max_questions,
+        round_type=round_type,
+    )
+    if not enforce_strategy:
+        return legacy
+    merged = repair_round_plan(
+        legacy,
+        round_type=round_type,
+        max_questions=max_questions,
+    )
+    for item in merged:
+        item.setdefault("round_strategy_version", ROUND_STRATEGY_VERSION)
+    return [ensure_question_answer_points(item) for item in merged]
+
+
 def is_technical_question(question: object) -> bool:
     """判断题目是否属于技术题。
 
@@ -172,21 +221,18 @@ def is_technical_question(question: object) -> bool:
 
     if not isinstance(question, dict):
         return False
-    question_type = question.get("type") or question.get("question_type")
-    return isinstance(question_type, str) and question_type.strip().lower() in _TECHNICAL_QUESTION_TYPES
+    return _strategy_is_technical_question(question)
 
 
 def technical_follow_up_budget(plan: Iterable[dict[str, Any]] | None) -> int:
-    """按技术题数量计算本轮最多技术追问数。
+    """按全部主问题数计算本轮最多技术追问数。
 
-    技术题预算取技术题数量的一半向上取整；存在技术题时至少允许一次
-    追问，空计划或纯非技术计划预算为 0。
+    追问预算固定为主问题总数的 20% 向下取整。调用方仍会在运行时
+    限制只有技术主问题可追问；不足五道主问题时不保留最低一次追问。
 
     Args:
         plan: 计划数据。
     """
 
-    technical_count = sum(1 for question in (plan or ()) if is_technical_question(question))
-    if technical_count == 0:
-        return 0
-    return max(1, ceil(technical_count / 2))
+    total_main_questions = sum(1 for _ in (plan or ()))
+    return floor(total_main_questions * 0.2)

@@ -6,7 +6,7 @@ import re
 from dataclasses import dataclass
 from typing import Literal
 
-from ai.prompts.registry import prompt_registry
+from ai.prompts.registry import PromptManagementTag, prompt_management_tags, prompt_registry
 
 # 匹配 LangChain 单花括号变量，转换为 Mustache 双花括号。
 _LANGCHAIN_VARIABLE = re.compile(r"(?<!{){([A-Za-z_][A-Za-z0-9_]*)}(?!})")
@@ -40,7 +40,6 @@ _KNOWN_HISTORICAL_PRESENTATIONS = {
     "analysis.candidate_profile": ("单场能力画像", "能力分析"),
     "analysis.weakness_report": ("短板报告", "能力分析"),
 }
-
 
 @dataclass(frozen=True, slots=True)
 class BuiltinManagedPrompt:
@@ -76,6 +75,9 @@ class PromptPresentation:
     # 是否内置提示词。
     # 是否builtin。
     is_builtin: bool
+    # 后端功能标签，由 Prompt 注册表定义。
+    # management 标签。
+    management_tags: tuple[PromptManagementTag, ...]
 
 
 def _builtin_functional_group(name: str) -> str:
@@ -125,17 +127,21 @@ def prompt_presentation(name: str) -> PromptPresentation:
                 display_name=historical[0],
                 functional_group=historical[1],
                 is_builtin=True,
+                management_tags=prompt_management_tags("domain-ability-analysis"),
             )
         return PromptPresentation(
             display_name=name,
             functional_group="自定义提示词",
             is_builtin=False,
+            management_tags=prompt_management_tags("domain-custom-prompt"),
         )
     spec = prompt_registry.get(name, versions[-1])
+    functional_group = _builtin_functional_group(name)
     return PromptPresentation(
         display_name=spec.description or "未命名内置提示词",
-        functional_group=_builtin_functional_group(name),
+        functional_group=functional_group,
         is_builtin=True,
+        management_tags=spec.management_tags,
     )
 
 

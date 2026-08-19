@@ -31,6 +31,7 @@ class _FakeSessionRepo:
     def __init__(self):
         self.added = []
         self.updated = []
+        self.commits = []
         self.session = SimpleNamespace(
             messages=[SimpleNamespace(role="assistant", content="上一题", question_index=0)],
             metadata=SimpleNamespace(),
@@ -41,6 +42,22 @@ class _FakeSessionRepo:
 
     async def get_interview_plan(self, *_args, **_kwargs):
         return [{"content": "上一题"}]
+
+    async def get_interview_stable_context(self, *_args, **_kwargs):
+        return {"fingerprint": "stable-prefix"}
+
+    async def commit_interview_turn(self, **kwargs):
+        self.commits.append(kwargs)
+        self.added.extend([
+            {"content": kwargs["user_content"], "role": "user"},
+            {"content": kwargs["assistant_content"], "role": "assistant"},
+        ])
+        self.updated.append({
+            "session_id": kwargs["session_id"],
+            "metadata_updates": {"question_count": kwargs["question_count"]},
+            "user_id": kwargs["user_id"],
+        })
+        return {"committed": False, "idempotent": False}
 
     async def add_message(self, **kwargs):
         self.added.append(kwargs)

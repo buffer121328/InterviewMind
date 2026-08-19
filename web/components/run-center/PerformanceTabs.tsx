@@ -1,17 +1,21 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Area, AreaChart, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { AlertTriangle, CheckCircle2, ChevronDown, ExternalLink, Info, RefreshCw, ShieldCheck, TimerReset } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { PaginationControls } from '@/components/PaginationControls';
 import { getAgentPerformanceOverview, getAgentRunTraceLink, listAgentTaskHealth } from '@/lib/api/agentRuns';
-import type { AgentPerformanceOverview, AgentTaskHealth } from '@/lib/api/agentRunTypes';
+import type { AgentModelPerformanceTrendPoint, AgentPerformanceOverview, AgentPerformanceTrendPoint, AgentTaskHealth } from '@/lib/api/agentRunTypes';
 import { DEFAULT_PAGE_SIZE } from '@/lib/pagination';
 import { parseAgentRunTimestamp, RUN_CENTER_TIME_ZONE } from '@/lib/agentRunPresentation';
 import {
+    buildCallHealthChart,
     buildModelCallTrendChart,
+    formatModelTrendLabel,
+    formatPromptCacheHitRate,
+    formatPromptCacheStatus,
     getTaskHealthPresentation,
     hasModelCallTrendSamples,
     hasPerformanceTrendSamples,
@@ -30,6 +34,8 @@ interface PerformanceViewProps {
 const CHART_COLORS = ['#14b8a6', '#6366f1', '#f43f5e', '#f59e0b', '#38bdf8', '#f97316', '#94a3b8'];
 const ALL_MODELS_VALUE = '__all_models__';
 const TASK_PAGE_SIZE = DEFAULT_PAGE_SIZE;
+const EMPTY_PERFORMANCE_TREND: AgentPerformanceTrendPoint[] = [];
+const EMPTY_MODEL_TREND: AgentModelPerformanceTrendPoint[] = [];
 
 /** Opens an owner-validated Langfuse link without synthesizing URLs in the browser. */
 async function openTrace(runId: string) {
@@ -63,11 +69,12 @@ export function PerformanceOverviewTab({ days }: PerformanceViewProps) {
     useEffect(() => { queueMicrotask(() => void load()); }, [load]);
 
     const cards = useMemo(() => value ? performanceCards(value) : [], [value]);
-    const trend = value?.daily_trend || [];
-    const modelTrend = value?.model_daily_trend;
-    const modelTrendChart = useMemo(() => buildModelCallTrendChart(modelTrend || []), [modelTrend]);
+    const trend = value?.daily_trend ?? EMPTY_PERFORMANCE_TREND;
+    const modelTrend = value?.model_daily_trend ?? EMPTY_MODEL_TREND;
+    const modelTrendChart = useMemo(() => buildModelCallTrendChart(modelTrend), [modelTrend]);
     const hasTrend = hasPerformanceTrendSamples(trend);
     const hasModelTrend = hasModelCallTrendSamples(modelTrend);
+    const callHealthChart = useMemo(() => buildCallHealthChart(trend), [trend]);
     const modelOptions = value?.available_models || [];
     const changeModel = (nextValue: string) => {
         setValue(null);
@@ -92,7 +99,7 @@ export function PerformanceOverviewTab({ days }: PerformanceViewProps) {
                         <SelectContent>
                             <SelectItem value={ALL_MODELS_VALUE}>全部模型</SelectItem>
                             {modelOptions.map((model) => <SelectItem key={model.model_name} value={model.model_name}>
-                                {model.model_provider ? `${model.model_name} · ${model.model_provider}` : model.model_name}
+                                {formatModelTrendLabel(model.model_name, model.model_provider)}
                             </SelectItem>)}
                         </SelectContent>
                     </Select>}
@@ -120,11 +127,11 @@ export function PerformanceOverviewTab({ days }: PerformanceViewProps) {
             </ChartPanel>
             <ChartPanel title="稳定性趋势" description="按天查看 P95 响应时延、重试、备用模型和超时；延迟与次数分别使用左右坐标轴。">
                 {hasTrend ? <ResponsiveContainer width="100%" height={270}>
-                    <LineChart data={trend} margin={{ top: 10, right: 8, left: -18, bottom: 0 }}>
+                    <LineChart data={trend} margin={{ top: 10, right: 14, left: 12, bottom: 0 }}>
                         <CartesianGrid vertical={false} stroke="#e2e8f0" strokeDasharray="3 3" />
                         <XAxis dataKey="date" tickFormatter={formatTrendDay} axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 11 }} />
-                        <YAxis yAxisId="latency" tickFormatter={(value) => `${value}ms`} axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 11 }} />
-                        <YAxis yAxisId="count" orientation="right" allowDecimals={false} axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 11 }} />
+                        <YAxis yAxisId="latency" width={58} tickFormatter={(value) => `${value}ms`} axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 11 }} />
+                        <YAxis yAxisId="count" orientation="right" width={30} allowDecimals={false} axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 11 }} />
                         <Tooltip contentStyle={tooltipStyle} labelFormatter={(label) => `日期：${formatTrendDay(String(label))}`} />
                         <Legend wrapperStyle={{ fontSize: 12 }} />
                         <Line yAxisId="latency" type="monotone" dataKey="p95_model_duration_ms" name="P95 响应" stroke="#6366f1" strokeWidth={2.5} connectNulls={false} dot={{ r: 3 }} activeDot={{ r: 5 }} />
@@ -158,7 +165,7 @@ export function PerformanceOverviewTab({ days }: PerformanceViewProps) {
                         <XAxis dataKey="date" tickFormatter={formatTrendDay} axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 11 }} />
                         <YAxis allowDecimals={false} axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 11 }} />
                         <Tooltip contentStyle={tooltipStyle} labelFormatter={(label) => `日期：${formatTrendDay(String(label))}`} />
-                        <Legend wrapperStyle={{ fontSize: 12 }} />
+                        <Legend align="right" verticalAlign="top" height={64} wrapperStyle={{ fontSize: 12, lineHeight: '20px', paddingLeft: 20 }} />
                         {modelTrendChart.series.map((series, index) => <Line key={series.key} type="monotone" dataKey={series.key} name={series.label} stroke={CHART_COLORS[index % CHART_COLORS.length]} strokeWidth={2.5} dot={{ r: 3 }} activeDot={{ r: 5 }} />)}
                     </LineChart>
                 </ResponsiveContainer> : <ChartEmpty text="当前窗口尚无带模型名的调用记录。" />}
@@ -167,10 +174,18 @@ export function PerformanceOverviewTab({ days }: PerformanceViewProps) {
 
         <div className="grid gap-4 lg:grid-cols-2">
             <ChartPanel title="调用效率" description="模型用量和重试口径基于安全聚合，不读取模型输入或输出正文。">
-                <dl className="grid grid-cols-2 gap-3 text-sm"><Metric label="逻辑调用" value={value.logical_call_count} /><Metric label="实际请求" value={value.physical_request_count} /><Metric label="输入 Token" value={value.input_tokens} /><Metric label="输出 Token" value={value.output_tokens} /><Metric label="总 Token" value={value.total_tokens ?? '暂无样本'} /><Metric label="缓存读取 Token" value={value.cache_read_tokens} /><Metric label="Retry 率" value={value.retry_rate == null ? '暂无样本' : `${(value.retry_rate * 100).toFixed(1)}%`} /></dl>
+                <dl className="grid grid-cols-2 gap-3 text-sm"><Metric label="逻辑调用" value={value.logical_call_count} /><Metric label="实际请求" value={value.physical_request_count} /><Metric label="输入 Token" value={value.input_tokens} /><Metric label="输出 Token" value={value.output_tokens} /><Metric label="总 Token" value={value.total_tokens ?? '暂无样本'} /><Metric label="缓存命中率" value={formatPromptCacheHitRate(value)} /><Metric label="缓存状态" value={formatPromptCacheStatus(value)} /><Metric label="Retry 率" value={value.retry_rate == null ? '暂无样本' : `${(value.retry_rate * 100).toFixed(1)}%`} /></dl>
             </ChartPanel>
-            <ChartPanel title="上下文完整性" description={`权威上下文样本 ${value.authoritative_context_sample_count}；没有样本时不会显示“零风险”。`}>
-                {Object.entries(value.overflow_strategy_counts).length > 0 ? <div className="grid gap-2 text-sm">{Object.entries(value.overflow_strategy_counts).map(([name, count]) => <div key={name} className="flex justify-between rounded-xl bg-slate-50 px-3 py-2.5"><span className="text-slate-600">{name}</span><strong className="text-slate-900">{count}</strong></div>)}</div> : <ChartEmpty text="当前窗口未记录上下文保护策略。" />}
+            <ChartPanel title="调用异常与恢复" description="汇总当前窗口的重试、备用模型与超时次数；仅在有按日调用样本时展示。">
+                {callHealthChart ? <ResponsiveContainer width="100%" height={224}>
+                    <BarChart data={callHealthChart} layout="vertical" margin={{ top: 4, right: 18, left: 8, bottom: 0 }}>
+                        <CartesianGrid horizontal={false} stroke="#e2e8f0" strokeDasharray="3 3" />
+                        <XAxis type="number" allowDecimals={false} axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 11 }} />
+                        <YAxis type="category" dataKey="name" width={66} axisLine={false} tickLine={false} tick={{ fill: '#475569', fontSize: 12 }} />
+                        <Tooltip contentStyle={tooltipStyle} formatter={(count) => [`${count} 次`, '次数']} />
+                        <Bar dataKey="count" name="次数" fill="#6366f1" radius={[0, 8, 8, 0]} barSize={24} />
+                    </BarChart>
+                </ResponsiveContainer> : <ChartEmpty text="当前窗口尚无可按日汇总的调用健康记录。" />}
             </ChartPanel>
         </div>
         <p className="px-1 text-xs text-slate-500">口径：逻辑调用 = 首个主候选的 attempt 1；实际请求 = 每一次 Provider started 请求。样本事件 {value.sample_event_count}。</p>
@@ -338,8 +353,6 @@ function TaskHealthCard({ health }: { health: AgentTaskHealth }) {
                     <DiagnosticTag label={`业务：${presentation.businessCategory}`} />
                     <DiagnosticTag label={`阶段：${presentation.stageLabel}`} />
                     {presentation.primaryIssueLabel && <DiagnosticTag label={`主要原因：${presentation.primaryIssueLabel}`} emphasis={presentation.severity === 'danger'} />}
-                    {health.model_name && <DiagnosticTag label={`模型：${health.model_name}`} />}
-                    {health.model_provider && <DiagnosticTag label={`服务商：${health.model_provider}`} />}
                     {presentation.diagnostics.length > 0 ? presentation.diagnostics.map(diagnostic => <DiagnosticTag key={diagnostic} label={diagnostic} emphasis={presentation.severity === 'danger'} />) : <DiagnosticTag label="未记录影响结果的模型异常" />}
                 </div>
                 <dl className="mt-4 grid gap-2 text-xs text-slate-500 sm:grid-cols-2">

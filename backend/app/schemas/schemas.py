@@ -48,12 +48,15 @@ class ApiConfig(BaseModel):
         default_factory=list,
         description="快速模型池；为空时兼容回退到 fast 单模型",
     )
+    # 面试报告专家通道（可选，专属通道未配置时先回退到 general）
+    technical_depth: Optional[ModelChannelConfig] = Field(default=None, description="技术深度评审专属通道；未配置时回退到 general")
+    communication: Optional[ModelChannelConfig] = Field(default=None, description="沟通评审专属通道；未配置时回退到 general")
+    match_analyst: Optional[ModelChannelConfig] = Field(default=None, description="岗位匹配评审专属通道；未配置时回退到 general")
+    reflector: Optional[ModelChannelConfig] = Field(default=None, description="事实风险评审专属通道；未配置时回退到 general")
+    hr_reviewer: Optional[ModelChannelConfig] = Field(default=None, description="报告叙事汇总专属通道；未配置时回退到 general")
     # 简历工具专家通道（可选，专属通道未配置时先回退到 general）
     general: Optional[ModelChannelConfig] = Field(default=None, description="简历专家通用/主持人通道；不参与 Smart/Fast 核心回退")
-    match_analyst: Optional[ModelChannelConfig] = Field(default=None, description="匹配分析师专属通道；未配置时回退到 general")
     content_writer: Optional[ModelChannelConfig] = Field(default=None, description="内容优化师专属通道；未配置时回退到 general")
-    hr_reviewer: Optional[ModelChannelConfig] = Field(default=None, description="HR 审核官专属通道；未配置时回退到 general")
-    reflector: Optional[ModelChannelConfig] = Field(default=None, description="质量审核专属通道；未配置时回退到 general")
     mimo: Optional[ModelChannelConfig] = Field(default=None, description="MiMo ASR/文本/TTS 拆分语音通道")
     # 检索/记忆通道（可选，未配置时回退到服务端 .env）
     rag_embedding: Optional[ModelChannelConfig] = Field(default=None, description="RAG 向量检索 Embedding 通道")

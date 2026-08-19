@@ -5,6 +5,12 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from ai.agents.interview.turn_context import (
+    DynamicInterviewSuffix,
+    StableInterviewContext,
+    build_dynamic_suffix,
+)
+
 from ai.runtime.context.assembler import (
     AssembledContext,
     ContextAssembler,
@@ -72,3 +78,38 @@ def build_voice_history_context(history: list[dict[str, Any]]) -> AssembledConte
             truncation_strategy="tail",
         ),
     ])
+
+
+def build_voice_turn_messages(
+    *,
+    stable_context: StableInterviewContext,
+    system_prompt: str,
+    history_context: str,
+    current_question: str,
+    current_answer: str,
+    turn_state: Mapping[str, Any] | None,
+) -> tuple[list[dict[str, str]], DynamicInterviewSuffix]:
+    """Build voice input using the text-turn stable-prefix/dynamic-suffix contract.
+
+    The rolling speech transcript stays bounded and is deliberately placed in
+    the dynamic suffix.  Only the finalized session snapshot is stable enough
+    to be eligible for provider prompt caching.
+    """
+    suffix = build_dynamic_suffix(
+        current_question=current_question,
+        current_answer=current_answer,
+        turn_state=turn_state,
+        tool_results={"recent_voice_history": history_context} if history_context else {},
+    )
+    messages: list[dict[str, str]] = [
+        {"role": "system", "content": stable_context.as_system_message()},
+    ]
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    if history_context:
+        messages.append({
+            "role": "system",
+            "content": "【最近语音连续性上下文】\n" + history_context,
+        })
+    messages.append({"role": "user", "content": suffix.as_user_message()})
+    return messages, suffix

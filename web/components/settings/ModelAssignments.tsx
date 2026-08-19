@@ -9,7 +9,6 @@ import {
     Gauge,
     Network,
     ShieldCheck,
-    Users,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { ApiConfig, ModelConfig } from '@/store/useInterviewStore';
@@ -20,6 +19,8 @@ interface ModelAssignmentsProps {
     onSetFastModel: (id: string) => boolean;
     onToggleReasoningPoolModel: (id: string) => boolean;
     onToggleFastPoolModel: (id: string) => boolean;
+    onSetTechnicalDepthModel: (id: string) => boolean;
+    onSetCommunicationModel: (id: string) => boolean;
     onSetGeneralModel: (id: string) => boolean;
     onSetMatchAnalystModel: (id: string) => boolean;
     onSetContentWriterModel: (id: string) => boolean;
@@ -159,7 +160,7 @@ export function ModelAssignments(props: ModelAssignmentsProps) {
             <Section
                 icon={Gauge}
                 title="核心执行与模型池"
-                description="Smart 负责复杂任务与报告；Fast 负责高频问答。Reasoning/Fast Pool 只服务核心通道，General 不参与这里的回退。"
+                description="Smart/Fast 是核心单模型通道；Reasoning/Fast Pool 优先承接对应任务，池为空或成员失败时回退到核心单模型。"
             >
                 <div className="grid gap-5 md:grid-cols-2">
                     <ModelSelect label="Smart 通道" description="复杂推理、面试规划与报告生成。" value={config.smartModelId} models={primaryModels} onChange={props.onSetSmartModel} required />
@@ -172,16 +173,31 @@ export function ModelAssignments(props: ModelAssignmentsProps) {
             </Section>
 
             <Section
-                icon={Users}
+                icon={ShieldCheck}
+                title="面试报告专家通道（4 个评审 + 1 个汇总）"
+                description="五个阶段都可以独立选择模型。留空时才按 General → Reasoning/Fast Pool → Smart/Fast 核心通道回退。"
+            >
+                <div className="grid gap-5 md:grid-cols-2">
+                    <ModelSelect label="技术深度评审" description="评估技术原理深度、方案取舍和问题拆解；通常约 4k–8k 输入 token，通道名：Technical Depth。" value={config.technicalDepthModelId} models={primaryModels} onChange={props.onSetTechnicalDepthModel} emptyLabel="未单独配置（使用 General）" />
+                    <ModelSelect label="沟通评审" description="评估表达结构、清晰度和协作沟通；通常约 2k–5k 输入 token，通道名：Communication。" value={config.communicationModelId} models={primaryModels} onChange={props.onSetCommunicationModel} emptyLabel="未单独配置（使用 General）" />
+                    <ModelSelect label="岗位匹配评审" description="根据 JD、简历和面试证据判断岗位匹配度；通常约 4k–8k 输入 token，通道名：Match Analyst。简历工作区的 JD 匹配实际使用 Smart。" value={config.matchAnalystModelId} models={primaryModels} onChange={props.onSetMatchAnalystModel} emptyLabel="未单独配置（使用 General）" />
+                    <ModelSelect label="事实风险评审" description="检查面试回答与简历事实的一致性、夸大和失真风险；通常约 3k–6k 输入 token，通道名：Reflector。简历事实核验也复用此配置。" value={config.reflectorModelId} models={primaryModels} onChange={props.onSetReflectorModel} emptyLabel="未单独配置（使用 General）" />
+                    <ModelSelect label="报告叙事汇总" description="汇总四个 reviewer 的结论并生成最终面试报告；通常约 7k–12k 输入 token，通道名：HR Reviewer。" value={config.hrReviewerModelId} models={primaryModels} onChange={props.onSetHrReviewerModel} emptyLabel="未单独配置（使用 General）" />
+                </div>
+                <div className="rounded-xl border border-amber-100 bg-amber-50/70 px-4 py-3">
+                    <div className="text-xs font-semibold text-amber-900">回退规则</div>
+                    <p className="mt-1 text-xs leading-5 text-amber-800">五个阶段未单独配置时使用 General；General 也未配置时才进入核心通道兜底。General 是回退角色，不是第五个 reviewer。输入 token 会随简历、JD 和题量变化，以上仅用于选模型容量。</p>
+                </div>
+            </Section>
+
+            <Section
+                icon={FileText}
                 title="简历专家通道"
-                description="为多 Agent 简历工作流分配独立模型。专家未单独配置时先使用 General；General 未配置时再回退到核心模型链。"
+                description="简历区只展示 General 与 Content Writer；JD 匹配实际走 Smart，事实核验复用面试报告的 Reflector。"
             >
                 <div className="grid gap-5 md:grid-cols-2">
                     <ModelSelect label="通用 / 主持人" description="简历分析、流程主持与结果汇总；也是其他专家未单独配置时的默认模型。" value={config.generalModelId} models={primaryModels} onChange={props.onSetGeneralModel} emptyLabel="未配置（专家请求将回退到核心链）" />
-                    <ModelSelect label="JD 匹配分析师" description="岗位要求拆解、关键词和差距分析；留空时使用 General。" value={config.matchAnalystModelId} models={primaryModels} onChange={props.onSetMatchAnalystModel} emptyLabel="未单独配置（使用 General）" />
-                    <ModelSelect label="内容优化师" description="项目经历改写和定向优化建议；留空时使用 General。" value={config.contentWriterModelId} models={primaryModels} onChange={props.onSetContentWriterModel} emptyLabel="未单独配置（使用 General）" />
-                    <ModelSelect label="HR 审核官" description="招聘筛选视角、风险和真实性边界；留空时使用 General。" value={config.hrReviewerModelId} models={primaryModels} onChange={props.onSetHrReviewerModel} emptyLabel="未单独配置（使用 General）" />
-                    <ModelSelect label="质量审核" description="检查结构、完整性与多 Agent 结果一致性；留空时使用 General。" value={config.reflectorModelId} models={primaryModels} onChange={props.onSetReflectorModel} emptyLabel="未单独配置（使用 General）" />
+                    <ModelSelect label="内容优化师" description="简历流程：改写项目经历、生成定向优化建议和候选版本；留空时使用 General。" value={config.contentWriterModelId} models={primaryModels} onChange={props.onSetContentWriterModel} emptyLabel="未单独配置（使用 General）" />
                 </div>
             </Section>
 

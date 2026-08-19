@@ -34,6 +34,7 @@ import { PromptManagementPage } from "@/components/PromptManagementPage";
 import { EvaluationCenter } from "@/components/evaluations/EvaluationCenter";
 import { WorkspaceShell } from "@/components/WorkspaceShell";
 import { regenerateSessionQuestion } from "@/lib/api/sessions";
+import { shouldSubmitInterviewAnswer } from "@/lib/interviewAnswerSubmission";
 
 // 定义视图类型，包含 'landing'
 type ViewType = MainView;
@@ -94,6 +95,7 @@ export default function InterviewPage() {
     maxQuestions,
     interviewType,
     questionBankCount,
+    reportMode,
     currentSession,
     showAbilityProfile,
     apiConfig, // 订阅 apiConfig 以便配置更新时自动刷新
@@ -111,6 +113,7 @@ export default function InterviewPage() {
     setMaxQuestions,
     setInterviewType,
     setQuestionBankCount,
+    setReportMode,
     uploadResume,
     startInterview,
     sendMessage,
@@ -121,9 +124,9 @@ export default function InterviewPage() {
     clearApiError,
     setVoiceMode,
     getMimoModel,
+    getApiConfigForRequest,
   } = useInterviewStore();
 
-    getApiConfigForRequest,
   const completedQuestionCount = interviewProgress?.current ?? currentSession?.metadata.question_count ?? 0;
   const completedQuestionLimit = interviewProgress?.total ?? currentSession?.metadata.max_questions ?? maxQuestions;
   const isInterviewCompleted = isInterviewFinished(
@@ -180,10 +183,10 @@ export default function InterviewPage() {
   }, [getMimoModel]);
 
   /** Handles start interview; updates local UI state first and delegates server mutations through the approved API boundary. */
-  const handleStartInterview = async (mode: 'text' | 'voice' = 'text', options?: { interviewType: 'tech_initial' | 'tech_deep' | 'hr_comprehensive'; maxQuestions: number }) => {
+  const handleStartInterview = async (mode: 'text' | 'voice' = 'text', options?: { interviewType: 'tech_initial' | 'tech_deep' | 'hr_comprehensive'; maxQuestions: number; reportMode: 'standard' | 'deep' }) => {
     try {
       if (options) {
-        useInterviewStore.setState({ interviewType: options.interviewType, maxQuestions: options.maxQuestions });
+        useInterviewStore.setState({ interviewType: options.interviewType, maxQuestions: options.maxQuestions, reportMode: options.reportMode });
       }
       if (mode === 'voice') {
         // 语音模式：仅进行本地状态初始化，不触发文字版后端
@@ -209,9 +212,9 @@ export default function InterviewPage() {
 
   /** Handles key down; updates local UI state first and delegates server mutations through the approved API boundary. */
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
+    if (shouldSubmitInterviewAnswer(e)) {
       e.preventDefault();
-      handleSend();
+      void handleSend();
     }
   };
 
@@ -256,6 +259,9 @@ export default function InterviewPage() {
       });
       toast.success('已换一题，可以继续回答');
     } catch (error) {
+      toast.error((error as Error).message || '重新生成题目失败，请稍后重试');
+      throw error;
+    }
   };
 
   /** Encapsulates scroll to bottom; returns typed data or state and keeps side effects within the owning module boundary. */
@@ -701,7 +707,7 @@ export default function InterviewPage() {
           <InterviewAbilityProfileView onBack={() => setStoreShowAbilityProfile(false)} />
         ) : showSetup ? (
           // 面试配置页 (New Session / Setup)
-          <div className="flex-1 flex flex-col items-center justify-start sm:justify-center p-6 animate-in fade-in duration-500 relative bg-gray-50/30 overflow-y-auto min-h-0">
+          <div className="relative flex min-h-0 flex-1 flex-col items-center justify-start overflow-y-auto bg-gray-50/30 p-6 pb-10 animate-in fade-in duration-500">
             {/* 背景装饰 */}
             <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-teal-50/50 via-white to-white pointer-events-none" />
 
@@ -726,6 +732,8 @@ export default function InterviewPage() {
                 onInterviewTypeChange={setInterviewType}
                 questionBankCount={questionBankCount}
                 onQuestionBankCountChange={setQuestionBankCount}
+                reportMode={reportMode}
+                onReportModeChange={setReportMode}
                 isLoading={isLoading}
                 hasApiConfig={hasApiConfig}
                 onStartInterview={handleStartInterview}

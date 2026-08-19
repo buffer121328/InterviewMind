@@ -66,6 +66,27 @@ def _qa_history(count: int, *, answer_chars: int = 80) -> list[dict[str, str]]:
     ]
 
 
+def test_report_context_keeps_twenty_thousand_qa_chars_and_answer_points() -> None:
+    """Second-round direct reports retain bounded scoring context without summarization."""
+    service = SessionReportAnalysisService()
+    qa_text = "开头证据" + ("中" * 20_100) + "结尾证据\n内部评分参考（不得在公开汇总中原样输出）: 指标量化"
+
+    context = service._assemble_report_context(
+        resume="候选人简历",
+        job_description="岗位 JD",
+        company_info="公司信息",
+        qa_text=qa_text,
+        include_qa=True,
+    )
+
+    qa_audit = next(item for item in context.source_audit if item["name"] == "qa_history")
+    assert qa_audit["included_chars"] == 20_000
+    assert qa_audit["truncated"] is True
+    assert "开头证据" in context.model_context
+    assert "指标量化" in context.model_context
+    assert "…[truncated]…" in context.model_context
+
+
 @pytest.mark.asyncio
 async def test_long_report_checkpoints_each_evidence_chunk_and_reuses_it_on_retry(monkeypatch):
     """Final-summary retry skips completed evidence chunks and keeps one evidence item per question."""
@@ -359,3 +380,32 @@ def test_voice_request_rejects_malformed_and_over_duration_audio(monkeypatch):
     encoded = base64.b64encode(_wav_header(duration_seconds=121)).decode()
     with pytest.raises(ValidationError, match="单次录音不能超过 120 秒"):
         VoiceChatRequest(audio=encoded, **base)
+
+
+def test_report_context_includes_full_current_resume_within_configured_budget(monkeypatch) -> None:
+    """Deep reports retain the complete current resume instead of clipping it at 4,000 chars."""
+    settings = SimpleNamespace(
+        interview_report_context_total_chars=40_000,
+        interview_report_resume_char_budget=10_000,
+    )
+    monkeypatch.setattr("ai.workflows.analysis.analysis_service.get_settings", lambda: settings)
+    resume = "简历经历" * 1_365  # 5,460 characters, matching the latest HR session source size.
+
+    context = SessionReportAnalysisService._assemble_report_context(
+        resume=resume,
+        job_description="岗位 JD",
+        company_info="公司信息",
+        qa_text="Q1 候选人回答" * 100,
+        include_qa=True,
+    )
+
+    resume_audit = next(item for item in context.source_audit if item["name"] == "resume")
+    assert resume_audit["selected_chars"] == len(resume)
+    assert resume_audit["included_chars"] == len(resume)
+    assert resume_audit["truncated"] is False
+    assert "resume" not in context.truncated_sources
+    event_fields = context.model_event_fields()
+    assert event_fields["source_breakdown"]["resume"] == len(resume)
+    assert event_fields["source_raw_breakdown"]["resume"] == len(resume)
+    assert event_fields["source_raw_token_breakdown"]["resume"] >= event_fields["source_token_breakdown"]["resume"]
+    assert resume not in str(event_fields)

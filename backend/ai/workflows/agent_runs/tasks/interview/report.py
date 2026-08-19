@@ -1,6 +1,7 @@
 """面试报告 AgentRun 业务任务。"""
 
 from ai.workflows.agent_runs.contracts import ProgressCallback
+from app.domain.interview_report_modes import normalize_report_mode, normalize_report_source_version
 from observability import agent_observation
 
 
@@ -15,6 +16,8 @@ async def execute_interview_report(payload: dict, user_id: str, progress: Progre
 
     session_id = payload["session_id"]
     api_config = payload.get("api_config")
+    report_mode = normalize_report_mode(payload.get("report_mode"))
+    report_source_version = normalize_report_source_version(payload.get("report_source_version"))
     run_id = str(payload.get("_agent_run_id") or "")
     async with agent_observation(
         name="interview-report",
@@ -22,7 +25,11 @@ async def execute_interview_report(payload: dict, user_id: str, progress: Progre
         user_id=user_id,
         session_id=session_id,
         run_id=run_id or None,
-        input_payload={"session_id": session_id},
+        input_payload={
+            "session_id": session_id,
+            "report_mode": report_mode.value,
+            "report_source_version": report_source_version,
+        },
     ) as observation:
         await progress("loading_session")
         session_repo = SessionRepo()
@@ -61,20 +68,29 @@ async def execute_interview_report(payload: dict, user_id: str, progress: Progre
             raise_on_error=True,
             report_checkpoint=report_checkpoint,
             checkpoint_callback=checkpoint_callback,
+            report_mode=report_mode.value,
+            report_source_version=report_source_version,
         )
         await progress("saving_report")
-        profile = await session_repo.get_profile(session_id, user_id=user_id)
-        weakness = await get_weakness_report_repo().get_report_by_session(
-            session_id,
-            user_id=user_id,
-        )
+        profile = None
+        weakness = None
+        if report_mode.value == "deep":
+            profile = await session_repo.get_profile(session_id, user_id=user_id)
+            weakness = await get_weakness_report_repo().get_report_by_session(
+                session_id,
+                user_id=user_id,
+            )
         result = {
             "success": True,
             "session_id": session_id,
+            "report_mode": report_mode.value,
+            "report_source_version": report_source_version,
             "profile": profile,
             "weakness": weakness,
         }
         observation.set_output({
+            "report_mode": report_mode.value,
+            "report_source_version": report_source_version,
             "has_profile": bool(profile),
             "has_weakness": bool(weakness),
         })

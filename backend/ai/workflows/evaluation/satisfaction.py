@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ai.workflows.evaluation.satisfaction_journal import append_satisfaction_daily_log
 from app.db.repositories.evaluation.user_feedback_repository import stats, submit
 from app.schemas.evaluation.satisfaction_schemas import (
     SatisfactionStatsResponse,
@@ -49,6 +50,8 @@ class SatisfactionUseCases:
             dissatisfied_aspects=dissatisfied_aspects,
             comment=comment,
         )
+        if created:
+            await append_satisfaction_daily_log(record)
         return SatisfactionSubmitResponse(id=record.id, created=created)
 
     async def stats(self, session: AsyncSession) -> SatisfactionStatsResponse:

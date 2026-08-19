@@ -4,13 +4,17 @@
 """
 
 import asyncio
+import json
 import logging
+import re
 from hashlib import sha256
 from time import perf_counter
-from typing import Any, Optional, Type, TypeVar
+from typing import Any, Mapping, Optional, Type, TypeVar
 
+from langchain_core.exceptions import OutputParserException
+from langchain_core.messages import AIMessage, HumanMessage
 from langchain_openai import ChatOpenAI
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from ai.llm import llms
 from ai.runtime.execution.deadlines import (
@@ -18,8 +22,13 @@ from ai.runtime.execution.deadlines import (
     TaskDeadlineExceeded,
     get_current_task_deadline,
 )
-from ai.runtime.safety.errors import classify_exception
+from ai.runtime.models.prompt_cache import (
+    is_prompt_cache_control_rejection,
+    prepare_stable_prompt_cache,
+)
+from ai.runtime.safety.errors import FailureType, classify_exception
 from app.config import get_settings
+from app.security.security import redact_secret_text, redact_secrets
 from observability import (
     filter_model_call_metadata,
     measure_model_input,
@@ -30,6 +39,22 @@ from observability import (
 logger = logging.getLogger(__name__)
 
 T = TypeVar('T', bound=BaseModel)
+
+_REPAIRABLE_STRUCTURED_FAILURES = frozenset({
+    FailureType.JSON_PARSE_ERROR,
+    FailureType.SCHEMA_VALIDATION_ERROR,
+})
+_FAST_FAILOVER_FAILURES = frozenset({
+    FailureType.NETWORK_ERROR,
+    FailureType.TIMEOUT,
+    FailureType.PROVIDER_REJECTION,
+})
+_STRUCTURED_REPAIR_TIMEOUT_SECONDS = 70.0
+_STRUCTURED_REPAIR_MINIMUM_SECONDS = 2.0
+_REPAIR_SECRET_FIELD_PATTERN = re.compile(
+    r'(["\']?(?:api[_-]?key|apikey|authorization|token|secret|password)["\']?\s*:\s*["\']?)([^,}\s"\']+)',
+    re.IGNORECASE,
+)
 
 
 def _resolve_deadline(deadline: TaskDeadline | None) -> TaskDeadline | None:
@@ -77,6 +102,7 @@ def _record_attempt_failure(
     settings = get_settings()
     classified = classify_exception(error)
     identity = getattr(current_llm, "_model_pool_identity", "") or ""
+    response_received = bool(_redacted_failed_model_output(error))
     payload = {
         **runtime_metadata,
         **measure_model_input(
@@ -95,11 +121,199 @@ def _record_attempt_failure(
         "error_category": classified.category.value,
         "error_code": classified.code,
         "failure_type": classified.failure_type.value,
+        "response_received": response_received,
+        "validation_fields": _safe_validation_fields(error),
+        "usage_status": "unavailable",
         "timeout_scope": "model" if classified.failure_type.value == "timeout" else None,
         "duration_ms": duration_ms,
         "model_duration_ms": duration_ms,
         "total_duration_ms": duration_ms,
     }
+    record_model_event(**payload)
+
+
+def _redacted_failed_model_output(error: BaseException) -> str:
+    """提取失败输出并仅脱敏凭据，供同候选修复请求在内存中重放。"""
+    raw_output = next(
+        (
+            value
+            for attr in ("llm_output", "output", "raw_output")
+            if isinstance((value := getattr(error, attr, None)), str) and value.strip()
+        ),
+        "",
+    )
+    if not raw_output:
+        return ""
+    try:
+        parsed = json.loads(raw_output)
+    except (TypeError, ValueError):
+        redacted = redact_secret_text(raw_output)
+        return _REPAIR_SECRET_FIELD_PATTERN.sub(r"\1***REDACTED***", redacted)
+    return json.dumps(redact_secrets(parsed), ensure_ascii=False, separators=(",", ":"))
+
+
+def _raw_structured_output_text(raw: object) -> str:
+    """Extract one model response from raw structured output without persisting it."""
+
+    content = getattr(raw, "content", raw)
+    if isinstance(content, str):
+        return content
+    if isinstance(content, (list, tuple, dict)):
+        try:
+            return json.dumps(content, ensure_ascii=False, separators=(",", ":"))
+        except (TypeError, ValueError):
+            return str(content)
+    return str(content or "")
+
+
+def _safe_validation_fields(error: BaseException | None) -> list[str]:
+    """Return field paths only, never rejected values or provider error text."""
+
+    seen: set[int] = set()
+    pending: list[BaseException] = [error] if error is not None else []
+    fields: list[str] = []
+    while pending:
+        current = pending.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        existing = getattr(current, "_safe_validation_fields", None)
+        if isinstance(existing, (list, tuple)):
+            fields.extend(str(item) for item in existing)
+        if isinstance(current, ValidationError):
+            for item in current.errors():
+                location = item.get("loc") or ()
+                path = ".".join(
+                    str(part) for part in location
+                    if isinstance(part, str) and part and len(str(part)) <= 64
+                )
+                if path:
+                    fields.append(path)
+        for related in (getattr(current, "__cause__", None), getattr(current, "__context__", None)):
+            if isinstance(related, BaseException):
+                pending.append(related)
+    return list(dict.fromkeys(fields))[:16]
+
+
+def _structured_output_error(
+    message: str,
+    *,
+    raw: object,
+    validation_error: ValidationError | None = None,
+) -> OutputParserException:
+    """Keep a returned invalid response in memory for exactly one repair request."""
+
+    error = OutputParserException(message, llm_output=_raw_structured_output_text(raw) or None)
+    if validation_error is not None:
+        setattr(error, "_safe_validation_fields", _safe_validation_fields(validation_error))
+        raise error from validation_error
+    return error
+
+
+def _unwrap_structured_result(result: object, output_model: Type[T]) -> T:
+    """Return parsed structured output or preserve the raw failed response for one repair attempt."""
+
+    if not isinstance(result, Mapping) or "parsed" not in result:
+        return result  # type: ignore[return-value]
+    parsed = result.get("parsed")
+    if isinstance(parsed, output_model):
+        return parsed
+    if parsed is not None:
+        try:
+            return output_model.model_validate(parsed)
+        except ValidationError as exc:
+            raise _structured_output_error(
+                "structured output validation failed",
+                raw=result.get("raw"),
+                validation_error=exc,
+            )
+    parsing_error = result.get("parsing_error")
+    error = _structured_output_error(
+        "structured output parsing failed",
+        raw=result.get("raw"),
+    )
+    if isinstance(parsing_error, ValidationError):
+        setattr(error, "_safe_validation_fields", _safe_validation_fields(parsing_error))
+    raise error from parsing_error if isinstance(parsing_error, BaseException) else None
+
+
+def _build_structured_repair_messages(
+    *,
+    input_value: object,
+    output_model: Type[T],
+    error: BaseException,
+    classified_failure: FailureType,
+) -> list[object] | None:
+    """以原始输入、失败输出和修复指令重建同候选聊天上下文。"""
+    failed_output = _redacted_failed_model_output(error)
+    if not failed_output:
+        return None
+    if isinstance(input_value, (list, tuple)):
+        messages = list(input_value)
+    else:
+        messages = [HumanMessage(content=str(input_value))]
+    schema = json.dumps(output_model.model_json_schema(), ensure_ascii=False, separators=(",", ":"))
+    messages.extend((
+        AIMessage(content=failed_output),
+        HumanMessage(
+            content=(
+                "The preceding assistant response failed structured validation. "
+                "Repair it using the original context above. Return ONLY valid JSON matching the JSON Schema below. "
+                "Do not add prose, markdown, explanations, or unsupported facts.\n\n"
+                f"JSON Schema:\n{schema}\n\n"
+                f"Validation failure category: {classified_failure.value}"
+            )
+        ),
+    ))
+    return messages
+
+
+def _record_structured_repair_event(
+    *,
+    event_type: str,
+    repair_input: object,
+    current_llm: object,
+    channel: str,
+    candidate_count: int,
+    candidate_index: int,
+    duration_ms: int | None = None,
+    error: BaseException | None = None,
+    runtime_metadata: dict[str, Any],
+    audit_metadata: dict[str, Any],
+) -> None:
+    """记录不携带修复提示或模型输出正文的结构化修复观测事件。"""
+    settings = get_settings()
+    payload: dict[str, Any] = {
+        **runtime_metadata,
+        **measure_model_input(repair_input, chars_per_token=settings.llm_estimated_chars_per_token),
+        **audit_metadata,
+        "event_type": event_type,
+        "channel": channel,
+        "model_name": getattr(current_llm, "model_name", None) or getattr(current_llm, "model", None),
+        "candidate_count": candidate_count,
+        "candidate_index": candidate_index + 1,
+        "fallback_index": candidate_index,
+        "repair_attempt": 1,
+        "repair_outcome": event_type.rsplit(".", 1)[-1],
+        "repair_timeout_seconds": _STRUCTURED_REPAIR_TIMEOUT_SECONDS,
+        "response_received": True,
+        "validation_fields": _safe_validation_fields(error),
+        "usage_status": "unavailable" if error is not None else None,
+    }
+    if duration_ms is not None:
+        payload.update({
+            "duration_ms": duration_ms,
+            "model_duration_ms": duration_ms,
+            "total_duration_ms": duration_ms,
+        })
+    if error is not None:
+        classified = classify_exception(error)
+        payload.update({
+            "error_type": type(error).__name__,
+            "error_category": classified.category.value,
+            "error_code": classified.code,
+            "failure_type": classified.failure_type.value,
+        })
     record_model_event(**payload)
 
 
@@ -111,6 +325,7 @@ async def _invoke_with_fallback(
     max_retries: int,
     *,
     temperature: float = 0.7,
+    max_tokens: int | None = None,
     deadline: TaskDeadline | None = None,
     call_metadata: dict[str, Any] | None = None,
 ) -> T:
@@ -129,12 +344,17 @@ async def _invoke_with_fallback(
     settings = get_settings()
     attempt_timeout = settings.llm_request_timeout_seconds
     task_deadline = _resolve_deadline(deadline)
+    # ``max_retries`` remains source-compatible, but structured calls no longer
+    # resend the original prompt to a candidate. A returned invalid response may
+    # use the dedicated repair branch once instead.
+    effective_max_retries = 0
     last_error: Optional[Exception] = None
     audit_metadata = filter_model_call_metadata(call_metadata)
     candidates = llms.model_gateway.get_chat_candidates(
         api_config,
         channel,
         temperature=temperature,
+        max_tokens=max_tokens,
     )
     for candidate_index, current_llm in enumerate(candidates):
         # DeepSeek 兼容端点支持 JSON 输出（`json_object`），
@@ -142,8 +362,10 @@ async def _invoke_with_fallback(
         # OpenAI 兼容提供方都可用；保留本地模式校验，
         # 同时通过更通用的 JSON 模式引导生成。
         structured_options = llms.structured_output_options(current_llm)
-        structured_llm = current_llm.with_structured_output(output_model, **structured_options)
-        attempts = max_retries + 1 if candidate_index == 0 else 1
+        structured_llm = current_llm.with_structured_output(output_model, include_raw=True, **structured_options)
+        # A returned invalid structured response may receive one repair request below.
+        # Never resend the original full context to the same candidate.
+        attempts = 1
         for attempt in range(attempts):
             effective_timeout = float(attempt_timeout)
             if task_deadline is not None:
@@ -165,7 +387,7 @@ async def _invoke_with_fallback(
                         "candidate_index": candidate_index + 1,
                         "fallback_index": candidate_index,
                         "attempt": attempt + 1,
-                        "max_retries": max_retries,
+                        "max_retries": effective_max_retries,
                         "deadline_ms": task_deadline.deadline_ms,
                         "deadline_remaining_ms": task_deadline.remaining_ms,
                         "failure_type": "timeout",
@@ -176,7 +398,7 @@ async def _invoke_with_fallback(
                     break
             runtime_metadata = {
                 "attempt": attempt + 1,
-                "max_retries": max_retries,
+                "max_retries": effective_max_retries,
                 "deadline_ms": task_deadline.deadline_ms if task_deadline else None,
                 "deadline_remaining_ms": task_deadline.remaining_ms if task_deadline else None,
                 "queue_wait_ms": 0,
@@ -184,16 +406,25 @@ async def _invoke_with_fallback(
                 "structured_output_method": structured_options["method"],
                 "structured_output_strict": structured_options.get("strict", False),
             }
+            prepared_cache = prepare_stable_prompt_cache(
+                input_value,
+                llm=current_llm,
+                metadata=audit_metadata,
+            )
             metadata = {
                 **runtime_metadata,
                 **audit_metadata,
+                **prepared_cache.event_fields,
             }
             started_at = perf_counter()
             try:
                 with model_call_metadata_scope(**metadata):
-                    result = await asyncio.wait_for(
-                        structured_llm.ainvoke(input_value),
-                        timeout=effective_timeout,
+                    result = _unwrap_structured_result(
+                        await asyncio.wait_for(
+                            structured_llm.ainvoke(prepared_cache.value),
+                            timeout=effective_timeout,
+                        ),
+                        output_model,
                     )
                 llms.model_gateway.record_chat_success(current_llm)
                 logger.debug("结构化输出成功: candidate=%s attempt=%s", candidate_index + 1, attempt + 1)
@@ -213,6 +444,26 @@ async def _invoke_with_fallback(
                 )
                 raise
             except Exception as exc:
+                if prepared_cache.applied and is_prompt_cache_control_rejection(exc):
+                    fallback_metadata = {
+                        **runtime_metadata,
+                        **audit_metadata,
+                        **prepared_cache.event_fields,
+                        "prompt_cache_status": "unsupported",
+                    }
+                    try:
+                        with model_call_metadata_scope(**fallback_metadata):
+                            result = _unwrap_structured_result(
+                                await asyncio.wait_for(
+                                    structured_llm.ainvoke(input_value),
+                                    timeout=effective_timeout,
+                                ),
+                                output_model,
+                            )
+                        llms.model_gateway.record_chat_success(current_llm)
+                        return result
+                    except Exception as retry_exc:
+                        exc = retry_exc
                 last_error = exc
                 classified = classify_exception(exc)
                 duration_ms = max(0, int((perf_counter() - started_at) * 1000))
@@ -227,9 +478,92 @@ async def _invoke_with_fallback(
                     runtime_metadata=runtime_metadata,
                     audit_metadata=audit_metadata,
                 )
-                if attempt + 1 < attempts and classified.retryable:
-                    logger.warning("结构化输出重试: candidate=%s attempt=%s", candidate_index + 1, attempt + 1)
-                    continue
+                repair_messages = (
+                    _build_structured_repair_messages(
+                        input_value=input_value,
+                        output_model=output_model,
+                        error=exc,
+                        classified_failure=classified.failure_type,
+                    )
+                    if classified.failure_type in _REPAIRABLE_STRUCTURED_FAILURES
+                    else None
+                )
+                if repair_messages is not None:
+                    repair_timeout = _STRUCTURED_REPAIR_TIMEOUT_SECONDS
+                    if task_deadline is not None:
+                        repair_timeout = task_deadline.timeout_for_next_attempt(
+                            _STRUCTURED_REPAIR_TIMEOUT_SECONDS,
+                            minimum_required=_STRUCTURED_REPAIR_MINIMUM_SECONDS,
+                        )
+                    if repair_timeout > 0:
+                        repair_metadata = {
+                            **runtime_metadata,
+                            "repair": True,
+                            "repair_timeout_seconds": repair_timeout,
+                        }
+                        _record_structured_repair_event(
+                            event_type="llm.request.repair.started",
+                            repair_input=repair_messages,
+                            current_llm=current_llm,
+                            channel=channel,
+                            candidate_count=len(candidates),
+                            candidate_index=candidate_index,
+                            runtime_metadata=repair_metadata,
+                            audit_metadata=audit_metadata,
+                        )
+                        repair_started_at = perf_counter()
+                        try:
+                            with model_call_metadata_scope(**repair_metadata):
+                                result = _unwrap_structured_result(
+                                    await asyncio.wait_for(
+                                        structured_llm.ainvoke(repair_messages),
+                                        timeout=repair_timeout,
+                                    ),
+                                    output_model,
+                                )
+                            repair_duration_ms = max(0, int((perf_counter() - repair_started_at) * 1000))
+                            _record_structured_repair_event(
+                                event_type="llm.request.repair.completed",
+                                repair_input=repair_messages,
+                                current_llm=current_llm,
+                                channel=channel,
+                                candidate_count=len(candidates),
+                                candidate_index=candidate_index,
+                                duration_ms=repair_duration_ms,
+                                runtime_metadata=repair_metadata,
+                                audit_metadata=audit_metadata,
+                            )
+                            llms.model_gateway.record_chat_success(current_llm)
+                            return result
+                        except asyncio.CancelledError:
+                            raise
+                        except Exception as repair_error:
+                            last_error = repair_error
+                            repair_duration_ms = max(0, int((perf_counter() - repair_started_at) * 1000))
+                            _record_structured_repair_event(
+                                event_type="llm.request.repair.failed",
+                                repair_input=repair_messages,
+                                current_llm=current_llm,
+                                channel=channel,
+                                candidate_count=len(candidates),
+                                candidate_index=candidate_index,
+                                duration_ms=repair_duration_ms,
+                                error=repair_error,
+                                runtime_metadata=repair_metadata,
+                                audit_metadata=audit_metadata,
+                            )
+                    break
+                has_fallback_candidate = candidate_index + 1 < len(candidates)
+                if (
+                    has_fallback_candidate
+                    and classified.failure_type in _FAST_FAILOVER_FAILURES
+                ):
+                    logger.warning(
+                        "结构化输出通道失败，跳过同通道重试并切换备用通道: candidate=%s failure=%s",
+                        candidate_index + 1,
+                        classified.failure_type.value,
+                    )
+                    break
                 break
         llms.model_gateway.record_chat_failure(current_llm)
         if isinstance(last_error, TaskDeadlineExceeded):
@@ -267,21 +601,23 @@ async def invoke_structured(
     output_model: Type[T],
     api_config: Optional[dict] = None,
     channel: str = "smart",
-    max_retries: int = 2,
+    max_retries: int = 0,
     temperature: float = 0.7,
+    max_tokens: int | None = None,
     deadline: TaskDeadline | None = None,
     call_metadata: dict[str, Any] | None = None,
 ) -> T:
     """
-    统一的 LLM 结构化调用，自动重试
+    统一的 LLM 结构化调用，候选内仅一次原始请求并允许一次格式修复
 
     Args:
         prompt: 用户 prompt
         output_model: Pydantic 输出模型类
         api_config: API 配置
         channel: LLM 通道 (smart/fast/general 等)
-        max_retries: 最大重试次数
+        max_retries: 兼容参数；结构化调用不会重复原始请求。
         temperature: 温度参数
+        max_tokens: 单次输出 Token 上限。
 
     Returns:
         output_model 的实例
@@ -301,6 +637,7 @@ async def invoke_structured(
         channel,
         max_retries,
         temperature=temperature,
+        max_tokens=max_tokens,
         deadline=deadline,
         call_metadata=call_metadata,
     )
@@ -311,7 +648,8 @@ async def invoke_structured_with_messages(
     output_model: Type[T],
     api_config: Optional[dict] = None,
     channel: str = "smart",
-    max_retries: int = 2,
+    max_retries: int = 0,
+    max_tokens: int | None = None,
     deadline: TaskDeadline | None = None,
     call_metadata: dict[str, Any] | None = None,
 ) -> T:
@@ -323,7 +661,8 @@ async def invoke_structured_with_messages(
         output_model: Pydantic 输出模型类
         api_config: API 配置
         channel: LLM 通道
-        max_retries: 最大重试次数
+        max_retries: 兼容参数；结构化调用不会重复原始请求。
+        max_tokens: 单次输出 Token 上限。
 
     Returns:
         output_model 的实例
@@ -337,6 +676,7 @@ async def invoke_structured_with_messages(
         api_config,
         channel,
         max_retries,
+        max_tokens=max_tokens,
         deadline=deadline,
         call_metadata=call_metadata,
     )

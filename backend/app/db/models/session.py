@@ -4,9 +4,11 @@
 """
 
 from datetime import datetime
-from sqlalchemy import String, Text, Integer, Boolean, ForeignKey, DateTime, Index
+
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+
 from .base import Base
 
 
@@ -36,6 +38,15 @@ class SessionModel(Base):
     series_id: Mapped[str | None] = mapped_column(String, nullable=True)
     round_index: Mapped[int] = mapped_column(Integer, default=1)
     round_type: Mapped[str] = mapped_column(String, default="tech_initial")
+    report_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="deep")
+    report_source_version: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    stable_context_version: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    stable_context_fingerprint: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    stable_context: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    round_strategy_version: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    turn_state_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    turn_state: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    turn_checkpoint_refs: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     parent_session_id: Mapped[str | None] = mapped_column(
         String, ForeignKey("sessions.session_id"), nullable=True
     )

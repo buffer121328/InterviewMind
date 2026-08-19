@@ -1,11 +1,17 @@
 import { buildApiUrl, getUserId } from './config';
+import { buildPromptListPath, type PromptManagementFilters } from '../promptManagementList';
+import type { PromptManagementTag } from '../promptManagementTags';
+
+export { buildPromptListPath } from '../promptManagementList';
+export type { PromptManagementFilters } from '../promptManagementList';
+export type { PromptManagementTag } from '../promptManagementTags';
 
 export type PromptType = 'text' | 'chat';
 export type PromptBody = string | PromptChatMessage[];
 export interface PromptChatMessage { role: 'system' | 'developer' | 'user' | 'assistant' | 'tool'; content: string; }
-export interface PromptPresentation { name: string; display_name: string; functional_group: string; is_builtin: boolean; }
+export interface PromptPresentation { name: string; display_name: string; functional_group: string; is_builtin: boolean; management_tags?: PromptManagementTag[]; }
 export interface PromptMetadata extends PromptPresentation { type: PromptType; versions: number[]; labels: string[]; last_updated_at?: string | null; }
-export interface PromptListResponse { items: PromptMetadata[]; total: number; page: number; limit: number; }
+export interface PromptListResponse { items: PromptMetadata[]; total: number; page: number; limit: number; available_management_tags?: PromptManagementTag[]; }
 export interface PromptVersion extends PromptPresentation { type: PromptType; version: number; labels: string[]; prompt: PromptBody; }
 export interface PromptPreviewResponse extends PromptVersion { compiled_prompt: PromptBody; unresolved_variables: string[]; }
 export interface PromptCreateRequest { name: string; type: PromptType; prompt: PromptBody; labels?: string[]; commit_message?: string; }
@@ -25,8 +31,8 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     }
     return response.json() as Promise<T>;
 }
-/** Loads one bounded page of prompt metadata. */
-export function listPrompts(page = 1, limit = 20): Promise<PromptListResponse> { return request(`/api/langfuse/prompts?page=${page}&limit=${limit}`); }
+/** Loads one bounded page of prompt metadata with composable taxonomy filters. */
+export function listPrompts(page = 1, limit = 20, filters: PromptManagementFilters = {}): Promise<PromptListResponse> { return request(buildPromptListPath(page, limit, filters)); }
 /** Fetches exactly one version or label. */
 export function getPrompt(name: string, selector: { version: number } | { label: string }): Promise<PromptVersion> {
     const query = new URLSearchParams({ name });

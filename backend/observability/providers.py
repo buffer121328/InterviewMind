@@ -137,16 +137,16 @@ def estimate_model_cost(
     key_candidates = [str(item).lower() for item in (pricing_key, model_name) if item]
     price = next((registry[key] for key in key_candidates if key in registry), None)
     if not price:
-        return {"usage_status": "available", "cost_status": "unpriced"}
+        return {"usage_status": "confirmed", "cost_status": "unpriced"}
     currency = str(price.get("currency") or "CNY").upper()
     try:
         input_per_1m = float(price.get("input_per_1m", 0) or 0)
         output_per_1m = float(price.get("output_per_1m", 0) or 0)
     except (TypeError, ValueError):
-        return {"usage_status": "available", "cost_status": "unpriced"}
+        return {"usage_status": "confirmed", "cost_status": "unpriced"}
     estimated = (input_tokens * input_per_1m + output_tokens * output_per_1m) / 1_000_000
     result: dict[str, Any] = {
-        "usage_status": "available",
+        "usage_status": "confirmed",
         "cost_status": "estimated",
         "cost_currency": currency,
         "cost_source": "local_pricelist",

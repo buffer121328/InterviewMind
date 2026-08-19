@@ -18,10 +18,14 @@ class AppSettings(BaseSettings):
 
     model_config = SettingsConfigDict(extra="ignore")
 
-    llm_request_timeout_seconds: int = Field(default=45, ge=1, le=600)
-    llm_task_timeout_seconds: int = Field(default=90, ge=1, le=1800)
+    llm_request_timeout_seconds: int = Field(default=70, ge=1, le=600)
+    llm_task_timeout_seconds: int = Field(default=150, ge=1, le=1800)
     llm_min_attempt_timeout_seconds: float = Field(default=2.0, ge=0.0, le=60.0)
     llm_max_tokens: int = Field(default=8000, ge=1)
+    interactive_interview_max_output_tokens: int = Field(default=1200, ge=128, le=8_000)
+    interview_standard_report_max_output_tokens: int = Field(default=3500, ge=512, le=10_000)
+    interview_deep_report_max_output_tokens: int = Field(default=4000, ge=512, le=10_000)
+    job_card_scoring_max_tokens: int = Field(default=3000, ge=128, le=10_000)
     llm_estimated_chars_per_token: float = Field(default=4.0, ge=0.1, le=20.0)
     task_deadline_enabled: bool = True
     agent_context_budget_flags: dict[str, bool] = Field(default_factory=lambda: {
@@ -31,14 +35,17 @@ class AppSettings(BaseSettings):
         "job_assets": True,
         "voice_interview": True,
     })
-    interview_plan_timeout_seconds: float = Field(default=20.0, ge=1.0, le=120.0)
-    interactive_interview_task_timeout_seconds: float = Field(default=60.0, ge=5.0, le=300.0)
-    voice_interview_task_timeout_seconds: float = Field(default=45.0, ge=5.0, le=300.0)
-    voice_interview_node_timeout_seconds: float = Field(default=15.0, ge=1.0, le=120.0)
+    interview_plan_timeout_seconds: float = Field(default=90.0, ge=1.0, le=120.0)
+    interactive_interview_task_timeout_seconds: float = Field(default=150.0, ge=5.0, le=300.0)
+    voice_interview_task_timeout_seconds: float = Field(default=120.0, ge=5.0, le=300.0)
+    voice_interview_node_timeout_seconds: float = Field(default=70.0, ge=1.0, le=120.0)
     interactive_min_remaining_attempt_seconds: float = Field(default=3.0, ge=0.0, le=30.0)
-    interview_report_qa_char_budget: int = Field(default=12_000, ge=2_000, le=100_000)
+    interview_report_qa_char_budget: int = Field(default=20_000, ge=2_000, le=100_000)
+    # Deep reports keep complete resumes whenever they fit the bounded report context.
+    interview_report_context_total_chars: int = Field(default=40_000, ge=10_000, le=100_000)
+    interview_report_resume_char_budget: int = Field(default=10_000, ge=4_000, le=100_000)
     interview_report_chunk_size: int = Field(default=5, ge=2, le=10)
-    interview_report_task_timeout_seconds: int = Field(default=180, ge=10, le=1800)
+    interview_report_task_timeout_seconds: int = Field(default=600, ge=10, le=1800)
     resume_workspace_task_timeout_seconds: int = Field(default=240, ge=30, le=1800)
     resume_generation_task_timeout_seconds: int = Field(default=240, ge=30, le=1800)
     job_assets_task_timeout_seconds: int = Field(default=240, ge=30, le=1800)

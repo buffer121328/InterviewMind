@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 from ai.runtime.agent_runs.performance import (
     performance_overview,
     query_performance,
+    query_run_budget,
     query_task_health,
     serialize_model_metric_event,
 )
@@ -175,13 +176,13 @@ async def create_interview_report_run(
     Args:
         request: 面试报告生成请求体。
         user_id: 当前用户 ID。
-        idempotency_key: 幂等键；缺省时按会话加随机 UUID 生成。
+        idempotency_key: 可选客户端幂等键；服务端会追加模式和来源版本隔离维度。
     """
     try:
         result = await agent_run_use_cases.create_interview_report(
             payload=request.model_dump(),
             user_id=user_id,
-            idempotency_key=idempotency_key or f"report:{request.session_id}:{uuid.uuid4()}",
+            idempotency_key=idempotency_key,
         )
         return _response(result.body, result.status_code)
     except AgentRunUseCaseError as exc:
@@ -435,6 +436,17 @@ async def get_agent_run(run_id: str, user_id: str = Depends(get_current_user_id)
         return await agent_run_use_cases.get_run(run_id=run_id, user_id=user_id)
     except AgentRunUseCaseError as exc:
         _raise_use_case_error(exc)
+
+
+@router.get("/{run_id}/budget")
+async def get_agent_run_budget(run_id: str, user_id: str = Depends(get_current_user_id)):
+    """返回当前用户单个 AgentRun 的安全 token/耗时/阶段预算快照。"""
+
+    snapshot = await query_run_budget(user_id=user_id, run_id=run_id)
+    if snapshot is None:
+        # 对不存在和跨 owner 运行使用同一响应，避免侧信道泄露任务信息。
+        raise HTTPException(status_code=404, detail="任务不存在或无权访问")
+    return snapshot
 
 
 @router.get("/{run_id}/trace-link")

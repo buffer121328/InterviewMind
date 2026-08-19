@@ -14,6 +14,12 @@ from ai.llm.llm_utils import clean_json_response, invoke_structured
 from ai.runtime.context.assembler import ContextAssembler, ContextSource
 from ai.runtime.execution.deadlines import TaskDeadline
 from app.config import get_settings
+from app.domain.interview_round_strategy import (
+    ROUND_STRATEGIES as ROUND_STRATEGY_DEFINITIONS,
+)
+from app.domain.interview_round_strategy import (
+    repair_round_plan,
+)
 from app.domain.interview_rounds import (
     MAX_QUESTIONS,
     SYSTEM_FALLBACK_QUESTION_SOURCE_TYPE,
@@ -35,49 +41,14 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 
 ROUND_STRATEGIES = {
-    "tech_initial": {
-        "name": "综合面",
-        "focus": "基础专业能力、项目概述、行为面试题、综合素质初评",
-        "requirements": """
-    1. 第 1 道为自我介绍题；同一轮不得再生成自我介绍题。
-    2. 重点考察简历中提到的核心技能和专业知识，覆盖广度而非深度。
-    3. 至少包含 1 道行为面试题（如：团队合作、解决冲突的经历）。
-    4. 题目难度适中，建立基础素质基线。
-    5. 每道题应该是独立的、具体的问题，不要一道题包含过多子问题。"""
-    },
-    "tech_deep": {
-        "name": "技术面",
-        "focus": "深挖简历项目细节、系统设计能力、技术原理追问、案例分析",
-        "requirements": """
-    1. 不需要自我介绍，直接进入专业深度问题。
-    2. 【重要】基于简历中的具体项目或工作经历进行深挖，不要出全新的宏大开放题。
-    3. 从简历已有内容延伸，逐步深入到专业原理、系统设计和复杂度层面。
-    4. 可以包含 1 道中等规模的案例分析或方案设计题。
-    5. 重点验证项目细节的真实性和技术深度的界限。
-    6. 每道题聚焦单一知识点或能力维度，避免一道题问太多内容。"""
-    },
-    "hr_comprehensive": {
-        "name": "HR面",
-        "focus": "职业规划、软技能、文化匹配度、薪资期望、综合素质终评",
-        "requirements": """
-    1. 可以包含 1 道综合性案例题（考察全局分析和方案设计能力）。
-    2. 至少包含 2 道行为面试题（考察领导力、抗压能力、职业规划等）。
-    3. 考察候选人的沟通表达、价值观和文化匹配度。
-    4. 可以出开放性问题，考察候选人的思维广度和深度。
-    5. 关注候选人的职业发展规划和成长潜力。"""
-    },
-    # 语音面试专用：简化版，不区分轮次
-    "voice_default": {
-        "name": "语音面试",
-        "focus": "全面考察候选人能力",
-        "requirements": """
-    1. 自我介绍/职业规划
-    2. 技术深度（针对简历中的项目经验）
-    3. 问题解决能力
-    4. 团队协作与沟通
-    5. 岗位匹配度"""
+    round_type: {
+        "name": strategy.name,
+        "focus": strategy.focus,
+        "requirements": strategy.requirements,
     }
+    for round_type, strategy in ROUND_STRATEGY_DEFINITIONS.items()
 }
+
 
 
 # ============================================================================
@@ -463,6 +434,12 @@ async def generate_interview_plan(
             previous_questions=previous_questions,
             has_existing_intro=known_intro_question,
         )
+        interview_plan = repair_round_plan(
+            interview_plan,
+            round_type=round_type,
+            max_questions=max_questions,
+            ensure_intro=not known_intro_question,
+        )
 
         logger.info(f"[Planner] 成功生成 {len(interview_plan)} 个面试问题 (要求数量: {max_questions})")
 
@@ -494,13 +471,19 @@ async def generate_interview_plan(
             "[Planner] 生成面试计划失败，使用本地问题兜底: error_type=%s",
             type(exc).__name__,
         )
-        return _get_default_questions(
+        fallback_plan = _get_default_questions(
             max_questions,
             output_format,
             round_type=round_type,
             previous_questions=previous_questions,
             has_existing_intro=known_intro_question,
             include_provenance=True,
+        )
+        return repair_round_plan(
+            fallback_plan,
+            round_type=round_type,
+            max_questions=max_questions,
+            ensure_intro=not known_intro_question,
         )
 
 
@@ -590,13 +573,12 @@ def _get_default_questions(
     supplement_attempt = 0
     while len(selected) < requested_count:
         supplement_attempt += 1
-        ordinal = len(selected) + 1
         content = (
-            f"{supplement_topic}第 {ordinal} 题（角度 {supplement_attempt}）："
+            f"{supplement_topic}（补充视角 {supplement_attempt}）："
             "请选择一个尚未讨论的具体案例，说明当时的约束、你的判断、采取的行动和可验证结果。"
         )
         key = _normalize_question_key(content)
-        # 补充题使用独立 attempt 避免历史中已有同序号模板时循环无法推进。
+        # 补充题使用独立视角避免历史中已有同模板时循环无法推进。
         if key not in seen_exact:
             seen_exact.add(key)
             existing_questions.append(content)

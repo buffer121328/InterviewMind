@@ -1,10 +1,10 @@
 """面试会话管理用例。"""
 
-from dataclasses import dataclass
 import uuid
+from dataclasses import dataclass
 
-from app.domain.interview_rounds import resolve_max_questions, resolve_round_type
 from app.db.repositories.session.session_repo import SessionRepo
+from app.domain.interview_rounds import resolve_max_questions, resolve_round_type
 from app.schemas.interview.session import SessionCreateRequest, SessionUpdateRequest
 from ai.workflows.interview.questions.regeneration import QuestionRegenerationError, regenerate_question
 
@@ -52,6 +52,7 @@ class SessionManagementUseCases:
             job_description=request.job_description,
             max_questions=request.max_questions,
             round_type=request.round_type,
+            report_mode=request.report_mode,
             user_id=user_id,
         )
 
@@ -139,7 +140,6 @@ class SessionManagementUseCases:
             raise SessionManagementNotFound(message=f"会话 {session_id} 不存在")
         return session
 
-    async def create_next_round(self, *, session_id: str, max_questions: int | None, user_id: str, round_type: str | None = None):
     async def regenerate_question(
         self,
         *,
@@ -182,6 +182,7 @@ class SessionManagementUseCases:
             raise SessionManagementPersistenceError(message="新题目保存失败，请稍后重试")
         return replacement
 
+    async def create_next_round(self, *, session_id: str, max_questions: int | None, user_id: str, round_type: str | None = None):
         """创建 next round，在写入前沿用请求的 owner、审批和输入校验边界，并返回调用方可继续处理的结果。
 
         Args:

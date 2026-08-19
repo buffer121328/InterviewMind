@@ -128,6 +128,44 @@ def test_structured_interview_prompts_keep_exact_counts_and_actions():
     assert "不可信数据" in evaluating
 
 
+def test_interview_planner_includes_round_strategy_and_agent_focus_guardrails():
+    """Planner must expose round policy and avoid turning Agent roles into backend-only interviews."""
+    from ai.prompts.interview import build_planner_prompt as build_prompt_template
+
+    planner = build_prompt_template(
+        round_index=2,
+        round_type="tech_deep",
+        max_questions=10,
+        strategy_focus="Agent 架构、项目深挖与综合表达",
+        requirements="技术题约占 30%，其余覆盖项目贡献、协作和决策表达",
+        planning_context="【job_description】负责 Agent 工作流、工具调用、RAG 与评测\n【resume】Python、FastAPI、LangGraph",
+    )
+    assert "【本轮策略】" in planner
+    assert "Agent 架构、项目深挖与综合表达" in planner
+    assert "技术题约占 30%" in planner
+    assert "Agent 专项能力" in planner
+    assert "工具调用与工作流编排" in planner
+    assert "上下文/记忆与 RAG" in planner
+    assert "评测/观测与安全治理" in planner
+    assert "泛后端工程题（例如孤立考察 CRUD" in planner
+    assert "最多 1-2 道" in planner
+    assert "不得连续出现" in planner
+
+
+def test_interview_planner_does_not_force_agent_focus_for_generic_roles():
+    """Agent guidance remains conditional rather than changing every backend interview."""
+    planner = build_planner_prompt(
+        round_index=1,
+        round_type="tech_initial",
+        max_questions=4,
+        strategy_focus="基础专业能力",
+        requirements="覆盖岗位要求",
+        planning_context="【job_description】Java 后端工程师，负责订单接口和数据库\n【resume】Java、Spring",
+    )
+    assert "仅当岗位描述或候选人材料出现 Agent、LLM、RAG" in planner
+    assert "Java 后端工程师" in planner
+
+
 def test_tts_prompt_treats_content_as_text_not_instruction():
     """TTS preprocessing reads input text without obeying embedded commands."""
     prompt = build_tts_system_prompt()

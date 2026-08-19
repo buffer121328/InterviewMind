@@ -17,6 +17,13 @@ from app.schemas.interview.interview import EvaluatingOutput
 from app.schemas.llm_outputs import PlanOutput
 
 
+def _prompt_text(value) -> str:
+    """Render a string or LangChain message list for prompt-content assertions."""
+    if isinstance(value, list):
+        return "\n".join(str(getattr(item, "content", item)) for item in value)
+    return str(value)
+
+
 def _plan_output(count: int) -> PlanOutput:
     """Build a valid model plan with deterministic unique questions."""
     return PlanOutput.model_validate({
@@ -150,8 +157,8 @@ async def test_planner_uses_shared_deadline_and_context_metadata(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_runtime_truncates_long_answer_but_keeps_current_and_next_question():
-    """Overlong answers are audited and cannot evict authoritative turn state."""
+async def test_runtime_chunks_long_answer_without_silent_truncation():
+    """Overlong answers remain complete in the dynamic suffix and safe audit metadata."""
     captured = {}
 
     async def invoker(prompt, output_model, *, deadline=None, call_metadata=None):
@@ -184,9 +191,13 @@ async def test_runtime_truncates_long_answer_but_keeps_current_and_next_question
     result = await runtime.run()
 
     assert result["current_question_index"] == 1
-    assert "当前题：解释事件循环" in captured["prompt"]
-    assert "下一题：说明并发控制" in captured["prompt"]
-    assert "answer" in captured["call_metadata"]["truncated_sources"]
+    rendered_prompt = _prompt_text(captured["prompt"])
+    assert "当前题：解释事件循环" in rendered_prompt
+    assert "下一题：说明并发控制" in rendered_prompt
+    assert captured["call_metadata"]["truncated_sources"] == ()
+    assert captured["call_metadata"]["prompt_prefix_fingerprint"]
+    assert captured["call_metadata"]["dynamic_source_audit"]["answer_chunk_count"] > 1
+    assert "回答证据" in rendered_prompt
     assert isinstance(captured["deadline"], TaskDeadline)
 
 

@@ -65,7 +65,7 @@ def test_question_bank_priority_schema_defaults_and_rejects_unknown_values():
     ("round_type", "expected"),
     [
         ("tech_initial", ("intro", "tech", "behavior", "system_design")),
-        ("tech_deep", ("tech", "system_design")),
+        ("tech_deep", ("tech", "behavior", "system_design")),
         ("hr_comprehensive", ("intro", "behavior")),
         ("voice_default", ("intro", "tech", "behavior", "system_design")),
     ],
@@ -90,7 +90,7 @@ async def test_selection_query_filters_round_types_and_orders_priority(monkeypat
         compile_kwargs={"literal_binds": True},
     ))
     assert "question_bank_items.user_id = 'owner-1'" in sql
-    assert "question_bank_items.question_type IN ('tech', 'system_design')" in sql
+    assert "question_bank_items.question_type IN ('tech', 'behavior', 'system_design')" in sql
     assert "WHEN 'required' THEN 0" in sql
     assert "WHEN 'high' THEN 1" in sql
     assert "question_bank_items.usage_count ASC" in sql

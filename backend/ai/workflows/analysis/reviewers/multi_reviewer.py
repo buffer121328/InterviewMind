@@ -12,6 +12,7 @@ from langgraph.types import Send
 from pydantic import BaseModel, Field
 
 from ai.llm import llm_utils
+from app.config import get_settings
 from ai.runtime.execution.deadlines import TaskDeadline
 from app.schemas.llm_outputs import SessionInterviewReportOutput
 from observability import langgraph_langfuse_scope, with_langgraph_langfuse_config
@@ -67,8 +68,8 @@ class ReviewMapReduceResult:
 
 
 _REVIEWERS = (
-    ReviewerSpec("technical_depth", "smart", 0.2),
-    ReviewerSpec("communication", "fast", 0.3),
+    ReviewerSpec("technical_depth", "technical_depth", 0.2),
+    ReviewerSpec("communication", "communication", 0.3),
     ReviewerSpec("job_fit", "match_analyst", 0.2),
     ReviewerSpec("factual_risk", "reflector", 0.0),
 )
@@ -137,7 +138,12 @@ async def _review_one(state: _ReviewState) -> dict[str, Any]:
             api_config=state.get("api_config"),
             channel=reviewer.channel,
             temperature=reviewer.temperature,
-            max_retries=1,
+            max_retries=0,
+            max_tokens=(
+                get_settings().interview_deep_report_max_output_tokens
+                if state["mode"] == "session_report"
+                else None
+            ),
             deadline=state.get("deadline"),
             call_metadata=metadata,
         )
@@ -173,9 +179,12 @@ async def _compose_narrative(state: _ReviewState) -> dict[str, Any]:
         if state["mode"] == "session_report"
         else AbilityConsensusOutput
     )
+    # A session-report composer only reconciles the four independent assessments.
+    # It must not receive the raw QA or any other upstream evidence again.
+    consensus_context = "" if state["mode"] == "session_report" else state["context"]
     prompt = build_multi_reviewer_consensus_prompt(
         mode=state["mode"],
-        review_context=state["context"],
+        review_context=consensus_context,
         reviewer_outputs=json.dumps(
             [item.model_dump(exclude_none=True) for item in assessments],
             ensure_ascii=False,
@@ -187,7 +196,12 @@ async def _compose_narrative(state: _ReviewState) -> dict[str, Any]:
         api_config=state.get("api_config"),
         channel="hr_reviewer" if state["mode"] == "session_report" else "smart",
         temperature=0.1,
-        max_retries=1,
+        max_retries=0,
+        max_tokens=(
+            get_settings().interview_deep_report_max_output_tokens
+            if state["mode"] == "session_report"
+            else None
+        ),
         deadline=state.get("deadline"),
         call_metadata={
             **state.get("call_metadata", {}),

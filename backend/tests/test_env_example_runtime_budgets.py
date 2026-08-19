@@ -4,22 +4,24 @@ from pathlib import Path
 
 from app.config import AppSettings
 
-
 _RUNTIME_BUDGET_KEYS = {
-    "LLM_REQUEST_TIMEOUT_SECONDS": "45",
-    "LLM_TASK_TIMEOUT_SECONDS": "90",
+    "LLM_REQUEST_TIMEOUT_SECONDS": "70",
+    "LLM_TASK_TIMEOUT_SECONDS": "150",
     "LLM_MIN_ATTEMPT_TIMEOUT_SECONDS": "2",
     "LLM_MAX_TOKENS": "8000",
+    "JOB_CARD_SCORING_MAX_TOKENS": "3000",
     "LLM_ESTIMATED_CHARS_PER_TOKEN": "4",
     "TASK_DEADLINE_ENABLED": "true",
     "AGENT_CONTEXT_BUDGET_FLAGS": '{"interview":true,"resume_optimizer":true,"resume_generator":true,"job_assets":true,"voice_interview":true}',
-    "INTERVIEW_PLAN_TIMEOUT_SECONDS": "20",
-    "INTERACTIVE_INTERVIEW_TASK_TIMEOUT_SECONDS": "60",
-    "VOICE_INTERVIEW_TASK_TIMEOUT_SECONDS": "45",
-    "VOICE_INTERVIEW_NODE_TIMEOUT_SECONDS": "15",
+    "INTERVIEW_PLAN_TIMEOUT_SECONDS": "90",
+    "INTERACTIVE_INTERVIEW_TASK_TIMEOUT_SECONDS": "150",
+    "VOICE_INTERVIEW_TASK_TIMEOUT_SECONDS": "120",
+    "VOICE_INTERVIEW_NODE_TIMEOUT_SECONDS": "70",
     "INTERACTIVE_MIN_REMAINING_ATTEMPT_SECONDS": "3",
-    "INTERVIEW_REPORT_QA_CHAR_BUDGET": "12000",
-    "INTERVIEW_REPORT_TASK_TIMEOUT_SECONDS": "180",
+    "INTERVIEW_REPORT_QA_CHAR_BUDGET": "20000",
+    "INTERVIEW_REPORT_CONTEXT_TOTAL_CHARS": "40000",
+    "INTERVIEW_REPORT_RESUME_CHAR_BUDGET": "10000",
+    "INTERVIEW_REPORT_TASK_TIMEOUT_SECONDS": "600",
     "RESUME_WORKSPACE_TASK_TIMEOUT_SECONDS": "240",
     "RESUME_GENERATION_TASK_TIMEOUT_SECONDS": "240",
     "JOB_ASSETS_TASK_TIMEOUT_SECONDS": "240",
@@ -42,9 +44,8 @@ def _template_values() -> dict[str, str]:
 
 def test_env_example_contains_current_runtime_budget_defaults(monkeypatch) -> None:
     """Every public deadline/token budget uses the same default as AppSettings."""
-    monkeypatch.delenv("TASK_DEADLINE_ENABLED", raising=False)
-    monkeypatch.delenv("AGENT_CONTEXT_BUDGET_FLAGS", raising=False)
-    monkeypatch.delenv("INTERVIEW_REPORT_TASK_TIMEOUT_SECONDS", raising=False)
+    for key in _RUNTIME_BUDGET_KEYS:
+        monkeypatch.delenv(key, raising=False)
     monkeypatch.delenv("ABILITY_PROFILE_TASK_TIMEOUT_SECONDS", raising=False)
     values = _template_values()
     assert {key: values.get(key) for key in _RUNTIME_BUDGET_KEYS} == _RUNTIME_BUDGET_KEYS
@@ -52,11 +53,17 @@ def test_env_example_contains_current_runtime_budget_defaults(monkeypatch) -> No
     settings = AppSettings()
     assert settings.task_deadline_enabled is True
     assert all(settings.agent_context_budget_flags.values())
-    assert settings.interactive_interview_task_timeout_seconds == 60
-    assert settings.voice_interview_task_timeout_seconds == 45
-    assert settings.voice_interview_node_timeout_seconds == 15
+    assert settings.interactive_interview_task_timeout_seconds == 150
+    assert settings.voice_interview_task_timeout_seconds == 120
+    assert settings.voice_interview_node_timeout_seconds == 70
     assert settings.interactive_min_remaining_attempt_seconds == 3
-    assert settings.interview_report_task_timeout_seconds == 180
+    assert settings.llm_request_timeout_seconds == 70
+    assert settings.llm_task_timeout_seconds == 150
+    assert settings.job_card_scoring_max_tokens == 3000
+    assert settings.interview_plan_timeout_seconds == 90
+    assert settings.interview_report_context_total_chars == 40_000
+    assert settings.interview_report_resume_char_budget == 10_000
+    assert settings.interview_report_task_timeout_seconds == 600
     assert settings.ability_profile_task_timeout_seconds == 120
 
 
@@ -69,7 +76,7 @@ _FEATURE_DEFAULT_KEYS = {
     "RAG_VECTOR_ENABLED": "true",
     "RAG_AGENTIC_MODE": "active",
     "LANGFUSE_ENABLED": "true",
-    "LANGFUSE_PROMPT_MANAGEMENT_ENABLED": "true",
+    "LANGFUSE_PROMPT_MANAGEMENT_ENABLED": "false",
     "LANGFUSE_EVAL_REPORTING_ENABLED": "true",
     "MEM0_ENABLED": "true",
     "MEM0_BACKGROUND_WRITE": "true",
@@ -106,7 +113,7 @@ def test_env_example_keeps_product_capabilities_enabled_by_default(monkeypatch) 
 
     assert task_queue_enabled() is True
     assert LangfuseConfig.from_env().enabled is True
-    assert LangfuseConfig.from_env().prompt_management_enabled is True
+    assert LangfuseConfig.from_env().prompt_management_enabled is False
     assert is_mem0_background_write() is True
     # Default-enabled mem0 still fails closed without external model credentials.
     monkeypatch.delenv("MEM0_LLM_API_KEY", raising=False)

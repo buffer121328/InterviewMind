@@ -79,6 +79,10 @@ class QuestionBankItemModel(Base):
             "priority IN ('required', 'high', 'low')",
             name="ck_question_bank_priority",
         ),
+        UniqueConstraint(
+            "user_id", "source_type", "source_id", "origin_session_id",
+            name="uq_question_bank_report_source",
+        ),
     )
 
 

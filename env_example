@@ -44,9 +44,9 @@ AGENT_RUN_STALE_SECONDS=1800
 AGENT_RUN_HEARTBEAT_SECONDS=30
 # 单个 Worker 最多并行 5 个岗位资产任务；其他 LLM 任务仍受单任务门禁保护。
 AGENT_RUN_WORKER_THREADS=5
-# Worker 优雅停止时限（毫秒）：须覆盖最长任务预算（240s）+ 清理缓冲，且小于 Compose stop_grace_period（330s）。
+# Worker 优雅停止时限（毫秒）：须覆盖最长任务预算（600s）+ 清理缓冲，且小于 Compose stop_grace_period（720s）。
 # 提高任何 *_TASK_TIMEOUT_SECONDS 预算时必须同步检查此值与 docker-compose.yml 的 stop_grace_period。
-AGENT_RUN_WORKER_SHUTDOWN_TIMEOUT_MS=300000
+AGENT_RUN_WORKER_SHUTDOWN_TIMEOUT_MS=660000
 AGENT_RUN_CANCEL_POLL_SECONDS=2
 AGENT_RUN_RECOVERY_INTERVAL_SECONDS=60
 # 交互式简历生成会话在 PostgreSQL 中保留的时间。
@@ -70,12 +70,18 @@ AUTO_CREATE_TABLES=true
 # LLM 网关、模型池与请求限制
 # 注意：具体模型成员由前端配置，不使用 FAST_LLM_* / SMART_LLM_* 环境变量。
 # ----------------------------------------------------------------------------
-LLM_REQUEST_TIMEOUT_SECONDS=45
+LLM_REQUEST_TIMEOUT_SECONDS=70
 # 同一任务跨重试/fallback 的总时间预算；默认对未显式传 deadline 的模型调用也启用。
-LLM_TASK_TIMEOUT_SECONDS=90
+LLM_TASK_TIMEOUT_SECONDS=150
 # 剩余时间低于此值时不再启动新的 attempt 或备用模型。
 LLM_MIN_ATTEMPT_TIMEOUT_SECONDS=2
 LLM_MAX_TOKENS=8000
+# 面试逐答控制只需要简短的状态决策；标准/深度报告分别使用明确上限，避免继承全局 8000 token。
+INTERACTIVE_INTERVIEW_MAX_OUTPUT_TOKENS=1200
+INTERVIEW_STANDARD_REPORT_MAX_OUTPUT_TOKENS=3500
+INTERVIEW_DEEP_REPORT_MAX_OUTPUT_TOKENS=4000
+# 岗位卡片评分只需紧凑 JSON；独立限制输出，避免回退前消耗过多等待时间。
+JOB_CARD_SCORING_MAX_TOKENS=3000
 # 只用于安全观测的 token 粗估，不替代供应商返回的实际 usage。
 LLM_ESTIMATED_CHARS_PER_TOKEN=4
 # 默认全局开启共享 TaskDeadline；主模型、修复、retry 和 fallback 不会分别重置预算。
@@ -83,18 +89,21 @@ TASK_DEADLINE_ENABLED=true
 # 默认开启所有已注册 Agent 的上下文预算；可按 Agent 显式设为 false 做局部排障。
 AGENT_CONTEXT_BUDGET_FLAGS={"interview":true,"resume_optimizer":true,"resume_generator":true,"job_assets":true,"voice_interview":true}
 # 面试 Planner 的用户阻塞链路总预算；超时后立即使用本地题目兜底。
-INTERVIEW_PLAN_TIMEOUT_SECONDS=20
+INTERVIEW_PLAN_TIMEOUT_SECONDS=90
 # 文字面试单轮任务总预算；主调用、工具后的二次调用、retry/fallback 共享，不重复计时。
-INTERACTIVE_INTERVIEW_TASK_TIMEOUT_SECONDS=60
+INTERACTIVE_INTERVIEW_TASK_TIMEOUT_SECONDS=150
 # 语音面试单轮共享任务预算，以及单个 ASR/分析/回复节点的调用上限。
-VOICE_INTERVIEW_TASK_TIMEOUT_SECONDS=45
-VOICE_INTERVIEW_NODE_TIMEOUT_SECONDS=15
+VOICE_INTERVIEW_TASK_TIMEOUT_SECONDS=120
+VOICE_INTERVIEW_NODE_TIMEOUT_SECONDS=70
 # 任务剩余时间低于此值时，不再启动新的交互模型 attempt 或备用模型。
 INTERACTIVE_MIN_REMAINING_ATTEMPT_SECONDS=3
 # 面试报告原始 QA 超过该字符数后按块提取逐题证据，再汇总画像和短板。
-INTERVIEW_REPORT_QA_CHAR_BUDGET=12000
+INTERVIEW_REPORT_QA_CHAR_BUDGET=20000
+# 深度报告的总上下文预算与简历来源预算。默认完整保留常规简历；仍有硬上限避免无界模型请求。
+INTERVIEW_REPORT_CONTEXT_TOTAL_CHARS=40000
+INTERVIEW_REPORT_RESUME_CHAR_BUDGET=10000
 INTERVIEW_REPORT_CHUNK_SIZE=5
-INTERVIEW_REPORT_TASK_TIMEOUT_SECONDS=180
+INTERVIEW_REPORT_TASK_TIMEOUT_SECONDS=600
 # Resume Workspace、交互式生成、岗位资产与画像各自共享的任务总预算。
 RESUME_WORKSPACE_TASK_TIMEOUT_SECONDS=240
 RESUME_GENERATION_TASK_TIMEOUT_SECONDS=240
@@ -210,10 +219,12 @@ LANGFUSE_TRACING_ENVIRONMENT=development
 LANGFUSE_RELEASE=local
 LANGFUSE_SAMPLE_RATE=1.0
 # 安全默认：不挂载会上传完整 prompt/output 的官方 LangChain/LangGraph callback。
-# 只有在确认第三方项目的数据合规边界后才显式改为 true。
+# 此旧开关已废弃且即使设为 true 也会被忽略，避免回调外发模型 API Key。
 LANGFUSE_CAPTURE_MODEL_IO=false
+# 安全模型事件明细：只上传模型名称、阶段、token、耗时和上下文来源计数；不上传 prompt、回答或 API Key。
+LANGFUSE_INCLUDE_MODEL_EVENTS_IN_SPAN_OUTPUT=false
 # 启用 Langfuse Prompt Management，失败时自动回退本地 Prompt。
-LANGFUSE_PROMPT_MANAGEMENT_ENABLED=true
+LANGFUSE_PROMPT_MANAGEMENT_ENABLED=false
 LANGFUSE_PROMPT_LABEL=production
 LANGFUSE_PROMPT_CACHE_TTL_SECONDS=300
 LANGFUSE_PROMPT_FETCH_TIMEOUT_SECONDS=0.05

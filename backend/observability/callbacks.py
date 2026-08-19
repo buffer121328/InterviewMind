@@ -73,16 +73,15 @@ def get_langfuse_client() -> Any | None:
 
 
 def _create_callback_handler_instance() -> Any | None:
-    """仅在显式允许原始模型 I/O 时创建官方 callback，默认阻断 prompt/output 外发。"""
-    import observability
+    """Never attach the raw Langfuse LangChain callback to provider clients.
 
-    if observability._client is None or not _current_config().capture_model_io:
-        return None
-    try:
-        return observability._get_callback_handler()()
-    except Exception as error:
-        logger.warning("Langfuse CallbackHandler 创建失败: %s", type(error).__name__)
-        return None
+    LangChain serializes model constructor and invocation parameters for callback
+    handlers. Those parameters can include a provider API key before this service
+    gets an opportunity to apply its trace-payload sanitizer. Safe Agent spans and
+    summarized model events remain available through the direct Langfuse client.
+    """
+
+    return None
 
 
 def get_langchain_callbacks() -> list[Any]:
@@ -103,13 +102,10 @@ def get_langchain_callbacks() -> list[Any]:
 
 
 def get_langgraph_callbacks() -> list[Any]:
-    """返回 Langfuse 官方 LangGraph callback handler。
+    """Return no Langfuse LangGraph callback to keep provider credentials out of traces.
 
-    Langfuse 官方通过 `langfuse.langchain.CallbackHandler` 接入 LangGraph：
-    在 `graph.invoke/ainvoke/stream/astream_events` 的 config 里传入
-    `callbacks`，LangGraph 会生成图与节点级 run，并将 callback 传播到
-    子 runnable。该回调可在 Agent 根 span 内工作，也可为独立 Graph
-    调用创建自己的 Langfuse trace。
+    Agent root spans and safe model-event summaries continue to be recorded through
+    the direct Langfuse client; the raw callback is deliberately disabled.
     """
     import observability
 

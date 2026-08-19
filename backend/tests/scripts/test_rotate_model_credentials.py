@@ -67,8 +67,8 @@ async def test_rotation_run_succeeds_with_bytes_keys(monkeypatch, capsys) -> Non
     old_key = Fernet.generate_key().decode()
     new_key = Fernet.generate_key().decode()
     owner_key = b"agent_interview:model_credentials:v1:owner:abc:model:rotation-model"
-    secret = "fixture-sk-rotation-script"
-    redis = _BytesRedis({owner_key: ModelCredentialCipher(old_key).encrypt(secret).encode()})
+    fixture_value = "fixture-model-credential"
+    redis = _BytesRedis({owner_key: ModelCredentialCipher(old_key).encrypt(fixture_value).encode()})
 
     monkeypatch.setenv("MODEL_CREDENTIAL_ENCRYPTION_KEY", new_key)
     monkeypatch.setenv("MODEL_CREDENTIAL_ENCRYPTION_PREVIOUS_KEY", old_key)
@@ -84,6 +84,6 @@ async def test_rotation_run_succeeds_with_bytes_keys(monkeypatch, capsys) -> Non
     assert result == 0
     rotated = await redis.get(owner_key)
     assert rotated is not None
-    assert ModelCredentialCipher(new_key).decrypt(rotated.decode()) == secret
+    assert ModelCredentialCipher(new_key).decrypt(rotated.decode()) == fixture_value
     assert redis.ttls[owner_key] == 120_000
-    assert secret not in capsys.readouterr().out
+    assert fixture_value not in capsys.readouterr().out

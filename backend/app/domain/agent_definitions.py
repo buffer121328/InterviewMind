@@ -266,6 +266,7 @@ _DEFINITIONS = (
         prompt_version="2",
         adapter_key=TASK_TYPE_INTERVIEW_REPORT,
         graph_reference_mode="required",
+        run_gate_policy="worker_limit",
     ),
     AgentDefinition(
         name="job_recommendation_collector",

@@ -1,16 +1,21 @@
 import logging
 import uuid
-from typing import List, Optional, Dict, Any
-from datetime import datetime
+from typing import Optional
 
+from sqlalchemy import delete, func, select, text, update
+
+from app.clock import utc_now
+from app.db.models import MessageModel, SessionModel, async_session
+from app.domain.interview_rounds import (
+    resolve_max_questions,
+    resolve_round_type,
+    validate_next_round_index,
+)
+from app.domain.interview_session_titles import build_interview_session_title
 from app.schemas.interview.session import InterviewSession
-from sqlalchemy import select, update, delete, func, text
-from app.db.models import async_session, SessionModel, MessageModel
+
 from .base import BaseService
 from .session_mgmt import SessionManagementService
-from app.domain.interview_rounds import resolve_max_questions, resolve_round_type, validate_next_round_index
-from app.domain.interview_session_titles import build_interview_session_title
-from app.clock import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -107,7 +112,11 @@ class SessionAdvancedService(BaseService):
                 job_description=parent.metadata.job_description, company_info=parent.metadata.company_info,
                 source_job_id=parent.metadata.source_job_id, job_context_snapshot=parent.metadata.job_context_snapshot.model_dump() if parent.metadata.job_context_snapshot else None,
                 question_count=0, max_questions=resolved_max_questions, status='active', pinned=False,
-                series_id=series_id, round_index=new_round_index, round_type=new_round_type, parent_session_id=parent_session_id
+                series_id=series_id, round_index=new_round_index, round_type=new_round_type,
+                report_mode=parent.metadata.report_mode.value,
+                report_source_version=parent.metadata.report_source_version,
+                round_strategy_version=parent.metadata.round_strategy_version,
+                parent_session_id=parent_session_id
             ))
             await db.commit()
 
@@ -163,6 +172,11 @@ class SessionAdvancedService(BaseService):
                 source_job_id=source.metadata.source_job_id, job_context_snapshot=source.metadata.job_context_snapshot.model_dump() if source.metadata.job_context_snapshot else None,
                 question_count=source.metadata.question_count, max_questions=max_questions or source.metadata.max_questions, status='active', pinned=False,
                 series_id=source.metadata.series_id, round_index=source.metadata.round_index, round_type=source.metadata.round_type,
+                report_mode=source.metadata.report_mode.value,
+                report_source_version=source.metadata.report_source_version,
+                round_strategy_version=source.metadata.round_strategy_version,
+                stable_context_version=source.metadata.stable_context_version,
+                stable_context_fingerprint=source.metadata.stable_context_fingerprint,
                 parent_session_id=source_session_id, interview_plan=plan
             ))
             messages = (await db.execute(select(MessageModel).where(MessageModel.session_id == source_session_id).order_by(MessageModel.timestamp.asc()))).scalars().all()
@@ -223,15 +237,19 @@ class SessionAdvancedService(BaseService):
             db: 数据库会话。
             session_id: 面试会话 ID。
         """
-        checkpoint_tables = ("checkpoint_writes", "checkpoint_blobs", "checkpoints")
-        for table_name in checkpoint_tables:
+        checkpoint_deletes = (
+            ("checkpoint_writes", text("DELETE FROM checkpoint_writes WHERE thread_id = :thread_id")),
+            ("checkpoint_blobs", text("DELETE FROM checkpoint_blobs WHERE thread_id = :thread_id")),
+            ("checkpoints", text("DELETE FROM checkpoints WHERE thread_id = :thread_id")),
+        )
+        for table_name, delete_stmt in checkpoint_deletes:
             try:
                 exists = (await db.execute(
                     text("SELECT to_regclass(:table_name)"),
                     {"table_name": table_name},
                 )).scalar_one_or_none()
                 if exists:
-                    await db.execute(text(f"DELETE FROM {table_name} WHERE thread_id = :thread_id"), {"thread_id": session_id})
+                    await db.execute(delete_stmt, {"thread_id": session_id})
             except Exception as e:
                 # 不同环境可能使用 MemorySaver 或表结构尚未初始化，忽略即可。
                 logger.debug(f"清理 checkpoint 表 {table_name} 失败或不存在: {e}")

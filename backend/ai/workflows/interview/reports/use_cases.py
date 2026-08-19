@@ -1,18 +1,34 @@
 """面试画像与短板地图用例。"""
 
-from dataclasses import dataclass
 import hashlib
 import re
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
-from app.domain.ability_growth import build_ability_growth_record
-from app.domain.interview_reports import build_interview_report_markdown, build_structured_interview_report
 from app.db.repositories.interview.question_bank_repo import get_question_bank_repo
 from app.db.repositories.interview.weakness_report_repo import get_weakness_report_repo
 from app.db.repositories.session.session_repo import SessionRepo
-from app.schemas.interview.interview_report import SaveReportQuestionsRequest, SaveReportQuestionsResponse
+from app.domain.ability_growth import build_ability_growth_record
+from app.domain.interview_report_modes import (
+    InterviewReportMode,
+    normalize_report_mode,
+    normalize_report_source_version,
+)
+from app.domain.interview_reports import (
+    build_interview_report_markdown,
+    build_structured_interview_report,
+)
+from app.schemas.interview.interview_report import (
+    ReportArtifactMetadata,
+    SaveReportQuestionsRequest,
+    SaveReportQuestionsResponse,
+)
 from app.schemas.interview.session import SessionMarkdownReportResponse
-from app.schemas.interview.schemas import ProfileGenerateRequest
+
+if TYPE_CHECKING:
+    from app.files.artifact_service import ArtifactService
 from ai.workflows.analysis.ability_service import get_ability_service
+from app.schemas.interview.schemas import ProfileGenerateRequest
 
 
 @dataclass(slots=True)
@@ -39,6 +55,16 @@ class InterviewReportUseCases:
         """初始化 `InterviewReportUseCases` 的依赖和运行配置；构造阶段不执行业务写入，外部客户端只在后续方法调用时承担访问边界。"""
         self._session_repo = SessionRepo()
         self._question_bank_repo = get_question_bank_repo()
+        self._artifact_service: ArtifactService | None = None
+
+    def _get_artifact_service(self) -> "ArtifactService":
+        """仅在标准报告读取时加载 PDF 产物服务，保持深度报告轻量读取兼容。"""
+
+        if self._artifact_service is None:
+            from app.files.artifact_service import ArtifactService
+
+            self._artifact_service = ArtifactService()
+        return self._artifact_service
 
     async def generate_profile(self, *, request: ProfileGenerateRequest | None, user_id: str) -> dict[str, object]:
         """创建能力画像生成任务，并返回任务负载结果。
@@ -82,6 +108,7 @@ class InterviewReportUseCases:
         *,
         session_id: str,
         user_id: str,
+        report_mode: InterviewReportMode | str | None = None,
     ) -> SessionMarkdownReportResponse:
         """读取单场面试的统一 Markdown 报告（含画像与短板地图）。
 
@@ -92,12 +119,68 @@ class InterviewReportUseCases:
         session = await self._session_repo.get_session(session_id, user_id=user_id)
         if not session:
             raise InterviewReportNotFound(message="会话不存在或无权访问")
+        mode = normalize_report_mode(report_mode)
+        source_version = normalize_report_source_version(
+            getattr(session.metadata, "report_source_version", None)
+        )
+        if mode is InterviewReportMode.STANDARD:
+            artifact = await self._get_artifact_service().get_report_pdf(
+                session_id=session_id,
+                user_id=user_id,
+                report_mode=mode,
+                report_source_version=source_version,
+            )
+            if artifact is None:
+                return SessionMarkdownReportResponse(
+                    success=False,
+                    session_id=session_id,
+                    report_mode=mode,
+                    status="not_ready",
+                    message="标准报告尚未生成或仍在生成中",
+                )
+            report_reference = next(
+                (
+                    item
+                    for item in reversed(list(getattr(session.metadata, "turn_checkpoint_refs", None) or []))
+                    if isinstance(item, dict)
+                    and item.get("kind") == "standard_report_evaluation"
+                    and item.get("report_source_version") == source_version
+                ),
+                {},
+            )
+            report_quality = str(report_reference.get("generation_mode") or "unknown_legacy")
+            raw_reason = report_reference.get("degradation_reason")
+            return SessionMarkdownReportResponse(
+                success=True,
+                session_id=session_id,
+                report_mode=mode,
+                status="ready",
+                report_quality=report_quality,
+                degradation_reason=(str(raw_reason) if isinstance(raw_reason, str) and raw_reason else None),
+                pdf_artifact=ReportArtifactMetadata(
+                    id=artifact.id,
+                    title=artifact.title,
+                    format=artifact.format,
+                    mime_type=artifact.mime_type,
+                    size_bytes=artifact.size_bytes,
+                    created_at=(
+                        artifact.created_at.isoformat()
+                        if hasattr(artifact.created_at, "isoformat")
+                        else str(artifact.created_at)
+                    ),
+                    download_url=f"/api/artifacts/{artifact.id}/download",
+                    artifact_mode=mode,
+                    report_source_version=artifact.report_source_version,
+                ),
+            )
         profile = await self._session_repo.get_profile(session_id, user_id=user_id)
         report = await get_weakness_report_repo().get_report_by_session(session_id, user_id=user_id)
         if profile is None or report is None:
             return SessionMarkdownReportResponse(
                 success=False,
                 session_id=session_id,
+                report_mode=mode,
+                status="not_ready",
                 message="本场面试报告尚未生成或仍在生成中",
             )
         generated_at = str(report.get("updated_at") or profile.get("last_updated") or "")
@@ -124,9 +207,16 @@ class InterviewReportUseCases:
                 markdown += "\n## 跨轮优势\n" + "".join(f"- {item}\n" for item in strengths)
             if weaknesses:
                 markdown += "\n## 跨轮改进项\n" + "".join(f"- {item}\n" for item in weaknesses)
+        weakness_generation_mode = (
+            structured_weakness.get("generation_mode")
+            if isinstance(structured_weakness, dict)
+            else getattr(structured_weakness, "generation_mode", "")
+        )
         return SessionMarkdownReportResponse(
             success=True,
             session_id=session_id,
+            report_mode=mode,
+            status="degraded" if weakness_generation_mode == "degraded_evidence_only" else "ready",
             markdown=markdown,
             generated_at=generated_at or None,
             company_profile=company_profile,

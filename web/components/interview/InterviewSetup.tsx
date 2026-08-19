@@ -16,6 +16,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { JobLibraryPickerDialog } from "@/components/interview/JobLibraryPickerDialog";
 import type { InterviewJobSelection } from "@/lib/interviewJobSelection";
+import { getInterviewReportDisplayPolicy, type InterviewReportMode } from "@/lib/interviewReportMode";
 
 type InterviewMode = "text" | "voice";
 type InterviewType = "tech_initial" | "tech_deep" | "hr_comprehensive";
@@ -46,9 +47,11 @@ interface InterviewSetupProps {
     onInterviewTypeChange: (value: InterviewType) => void;
     questionBankCount: number;
     onQuestionBankCountChange: (value: number) => void;
+    reportMode: InterviewReportMode;
+    onReportModeChange: (value: InterviewReportMode) => void;
     isLoading: boolean;
     hasApiConfig: boolean;
-    onStartInterview: (mode: InterviewMode, options?: { interviewType: InterviewType; maxQuestions: number }) => Promise<void>;
+    onStartInterview: (mode: InterviewMode, options?: { interviewType: InterviewType; maxQuestions: number; reportMode: InterviewReportMode }) => Promise<void>;
     onConfigureApi: () => void;
     onOpenJobLibrary?: () => void;
     hasVoiceConfig?: boolean;  // 是否配置了语音模型
@@ -70,6 +73,8 @@ export function InterviewSetup({
     onInterviewTypeChange,
     questionBankCount,
     onQuestionBankCountChange,
+    reportMode,
+    onReportModeChange,
     isLoading,
     hasApiConfig,
     onStartInterview,
@@ -131,6 +136,7 @@ export function InterviewSetup({
         await onStartInterview(selectedMode, {
             interviewType: draftInterviewType,
             maxQuestions: finalQuestionCount,
+            reportMode,
         });
     };
 
@@ -145,6 +151,7 @@ export function InterviewSetup({
                     </label>
                     <div className="relative group">
                         <input
+                            id="interview-resume-upload"
                             type="file"
                             accept=".pdf,.doc,.docx,.txt,.md"
                             onChange={handleFileUpload}
@@ -220,7 +227,16 @@ export function InterviewSetup({
 
                 {jobContextSnapshot && (
                     <div className="grid gap-3 rounded-xl border border-teal-200 bg-teal-50/60 p-4 sm:grid-cols-2">
-                        <p className="text-xs font-medium text-teal-800 sm:col-span-2">已关联岗位库 #{jobContextSnapshot.source_job_id}，可继续编辑本次面试快照。</p>
+                        <div className="flex items-center justify-between gap-3 sm:col-span-2">
+                            <p className="text-xs font-medium text-teal-800">已关联岗位库 #{jobContextSnapshot.source_job_id}，可继续编辑本次面试快照。</p>
+                            <label
+                                htmlFor="interview-resume-upload"
+                                className="inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border border-teal-200 bg-white px-3 py-2 text-xs font-medium text-teal-700 transition-colors hover:bg-teal-100 focus-within:outline-none focus-within:ring-2 focus-within:ring-teal-400"
+                            >
+                                <Upload className="h-3.5 w-3.5" />
+                                {resume ? "更换简历" : "上传简历"}
+                            </label>
+                        </div>
                         <div className="space-y-2">
                             <label className="text-sm font-medium text-teal-900">公司名称</label>
                             <input
@@ -404,6 +420,45 @@ export function InterviewSetup({
                     </div>
                 </div>
 
+                {/* 5. 报告模式选择 */}
+                <div className="space-y-3">
+                    <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-teal-100 text-xs font-bold text-teal-600">5</span>
+                        面试报告
+                    </label>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                        {(['standard', 'deep'] as const).map((mode) => {
+                            const policy = getInterviewReportDisplayPolicy(mode);
+                            const selected = reportMode === mode;
+                            return (
+                                <button
+                                    key={mode}
+                                    type="button"
+                                    onClick={() => onReportModeChange(mode)}
+                                    className={cn(
+                                        "relative rounded-xl border-2 p-4 text-left transition-all",
+                                        selected
+                                            ? "border-teal-500 bg-teal-50 ring-2 ring-teal-100"
+                                            : "border-gray-200 bg-white hover:border-teal-200",
+                                    )}
+                                >
+                                    <div className="flex items-start justify-between gap-3">
+                                        <div>
+                                            <h4 className="font-semibold text-gray-800">{policy.label}</h4>
+                                            <p className="mt-1 text-xs leading-5 text-gray-500">{policy.description}</p>
+                                        </div>
+                                        {selected && <CheckCircle2 className="h-5 w-5 shrink-0 text-teal-600" />}
+                                    </div>
+                                    {mode === 'standard' && (
+                                        <p className="mt-3 text-xs font-medium text-teal-700">推荐：完成后提供快速 PDF。</p>
+                                    )}
+                                </button>
+                            );
+                        })}
+                    </div>
+                    <p className="text-xs text-gray-400">报告模式仅决定本次面试完成后的产物；深度报告可在历史详情中按需补充生成。</p>
+                </div>
+
                 {/* 本次面试共享上下文 */}
                 <div className="rounded-xl border border-teal-100 bg-teal-50/50 p-4">
                     <div className="mb-3 flex items-center gap-2">
@@ -455,7 +510,7 @@ export function InterviewSetup({
                     </div>
                 )}
 
-                {/* 5. 开始按钮 */}
+                {/* 6. 开始按钮 */}
                 <Button
                     className={cn(
                         "w-full h-12 text-base font-medium shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed",

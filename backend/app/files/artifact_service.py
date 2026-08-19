@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import Any
 
 import fitz
+from sqlalchemy import select
+
 from app.clock import utc_now
 from app.config import get_settings
 from app.db.models import (
@@ -24,13 +26,24 @@ from app.db.models import (
     WeaknessReportModel,
     async_session,
 )
+from app.domain.interview_report_modes import (
+    LEGACY_REPORT_SOURCE_VERSION,
+    InterviewReportMode,
+    normalize_report_mode,
+    normalize_report_source_version,
+)
 from app.domain.interview_reports import build_interview_report_markdown
 from app.runtime_paths import resolve_runtime_paths
 from app.schemas.artifacts import ArtifactExportRequest
-from sqlalchemy import select
 
 _SAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
 _MIME = {"html": "text/html; charset=utf-8", "pdf": "application/pdf"}
+# Installed by the controlled Debian image from the OFL-licensed Noto CJK package.
+_REPORT_CJK_FONT_CANDIDATES = (
+    Path("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"),
+    Path("/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc"),
+)
+_REPORT_CJK_FONT_NAME = "reportcjk"
 
 
 class ArtifactNotFound(Exception):
@@ -63,6 +76,15 @@ class ArtifactService:
         """处理安全文件名相关后端逻辑。"""
         stem = _SAFE_NAME.sub("-", title).strip(".-")[:100] or "report"
         return f"{stem}.{extension}"
+
+    @staticmethod
+    def _identity_for_export(request: ArtifactExportRequest) -> tuple[str, str]:
+        """为产物写入收口模式和来源版本，旧导出请求保持原行为。"""
+
+        if request.source_type != "interview_report":
+            return "default", LEGACY_REPORT_SOURCE_VERSION
+        report_mode = normalize_report_mode(request.artifact_mode).value
+        return report_mode, normalize_report_source_version(request.report_source_version)
 
     async def _source(self, request: ArtifactExportRequest, user_id: str) -> tuple[str, dict[str, Any], str | None]:
         """处理来源相关后端逻辑。"""
@@ -253,15 +275,15 @@ class ArtifactService:
         return blocks
 
     @staticmethod
-    def _wrap_pdf_text(text: str, width: float, fontname: str, fontsize: float) -> list[str]:
-        """封装PDF文本相关后端逻辑。"""
+    def _wrap_pdf_text(text: str, width: float, font: fitz.Font, fontsize: float) -> list[str]:
+        """Wrap text using the actual embedded font metrics, including CJK glyph widths."""
         if not text:
             return [""]
         lines: list[str] = []
         current = ""
         for char in text:
             candidate = current + char
-            if current and fitz.get_text_length(candidate, fontname=fontname, fontsize=fontsize) > width:
+            if current and font.text_length(candidate, fontsize=fontsize) > width:
                 lines.append(current.rstrip())
                 current = char.lstrip()
             else:
@@ -270,14 +292,42 @@ class ArtifactService:
             lines.append(current.rstrip())
         return lines
 
+    @staticmethod
+    def _report_cjk_font_path() -> Path:
+        """Locate the image-provided CJK font; never fall back to a reader-side CID alias."""
+
+        for path in _REPORT_CJK_FONT_CANDIDATES:
+            if path.is_file():
+                return path
+        raise RuntimeError("embedded CJK PDF font is unavailable")
+
+    @staticmethod
+    def _validate_interview_report_pdf(content: bytes) -> None:
+        """Reject an unreadable PDF before it can replace an owner-scoped report artifact."""
+
+        document = fitz.open(stream=content, filetype="pdf")
+        try:
+            extracted = "".join(page.get_text().strip() for page in document)
+            embedded_font = any(
+                _REPORT_CJK_FONT_NAME in str(font).lower()
+                for page in document
+                for font in page.get_fonts(full=True)
+            )
+            if not extracted or not embedded_font:
+                raise RuntimeError("generated interview report PDF failed readability validation")
+        finally:
+            document.close()
+
     @classmethod
     def _pdf_from_blocks(cls, blocks: list[tuple[str, str]]) -> bytes:
-        """处理PDF来源相关后端逻辑。"""
+        """Render report markdown with an embedded CJK font and deterministic pagination."""
         document = fitz.open()
         page_width, page_height = fitz.paper_size("a4")
         margin_x, top_y, bottom_y = 48.0, 44.0, page_height - 42.0
         content_width = page_width - margin_x * 2
-        fontname = "china-s"
+        font_path = cls._report_cjk_font_path()
+        fontname = _REPORT_CJK_FONT_NAME
+        measure_font = fitz.Font(fontfile=str(font_path))
         teal = (0.059, 0.463, 0.431)
         teal_dark = (0.086, 0.306, 0.388)
         ink = (0.09, 0.126, 0.2)
@@ -289,6 +339,7 @@ class ArtifactService:
         def new_page():
             nonlocal page, y
             page = document.new_page(width=page_width, height=page_height)
+            page.insert_font(fontname=fontname, fontfile=str(font_path))
             page.draw_rect(fitz.Rect(0, 0, page_width, 18), color=teal_dark, fill=teal_dark, overlay=True)
             page.draw_rect(fitz.Rect(0, 18, page_width, 22), color=teal, fill=teal, overlay=True)
             y = top_y
@@ -303,18 +354,18 @@ class ArtifactService:
                 continue
             if kind == "h1":
                 fontsize, leading, before, after, color = 24.0, 29.0, 2.0, 12.0, teal_dark
-                lines = cls._wrap_pdf_text(text, content_width, fontname, fontsize)
+                lines = cls._wrap_pdf_text(text, content_width, measure_font, fontsize)
                 ensure(before + len(lines) * leading + after)
                 y += before
                 for line in lines:
-                    line_width = fitz.get_text_length(line, fontname=fontname, fontsize=fontsize)
+                    line_width = measure_font.text_length(line, fontsize=fontsize)
                     page.insert_text(((page_width - line_width) / 2, y + fontsize), line, fontname=fontname, fontsize=fontsize, color=color)
                     y += leading
                 y += after
                 continue
             if kind == "h2":
                 fontsize, leading = 11.5, 17.0
-                lines = cls._wrap_pdf_text(text, content_width - 16, fontname, fontsize)
+                lines = cls._wrap_pdf_text(text, content_width - 16, measure_font, fontsize)
                 height = max(24.0, len(lines) * leading + 8.0)
                 ensure(height + 10.0)
                 y += 7.0
@@ -327,7 +378,7 @@ class ArtifactService:
                 continue
             if kind == "h3":
                 fontsize, leading = 11.0, 16.0
-                lines = cls._wrap_pdf_text(text, content_width - 12, fontname, fontsize)
+                lines = cls._wrap_pdf_text(text, content_width - 12, measure_font, fontsize)
                 ensure(len(lines) * leading + 9.0)
                 y += 4.0
                 page.draw_rect(fitz.Rect(margin_x, y, margin_x + 4, y + len(lines) * leading), color=teal, fill=teal, overlay=True)
@@ -341,9 +392,9 @@ class ArtifactService:
             display = prefix + text
             fontsize, leading = 9.4, 14.0
             indent = 10.0 if kind in {"bullet", "number"} else 0.0
-            lines = cls._wrap_pdf_text(display, content_width - indent, fontname, fontsize)
-            ensure(len(lines) * leading + 4.0)
+            lines = cls._wrap_pdf_text(display, content_width - indent, measure_font, fontsize)
             for line_index, line in enumerate(lines):
+                ensure(leading + 3.0)
                 x = margin_x + (indent if line_index > 0 and kind in {"bullet", "number"} else 0.0)
                 page.insert_text((x, y + fontsize), line, fontname=fontname, fontsize=fontsize, color=muted)
                 y += leading
@@ -354,6 +405,9 @@ class ArtifactService:
             footer = f"{index + 1} / {page_count}"
             footer_width = fitz.get_text_length(footer, fontname="helv", fontsize=8)
             pdf_page.insert_text(((page_width - footer_width) / 2, page_height - 18), footer, fontname="helv", fontsize=8, color=(0.58, 0.64, 0.71))
+        # PyMuPDF delegates CJK TrueType collection subsetting to fontTools.
+        # Fallback keeps the PDF portable if MuPDF cannot subset the collection itself.
+        document.subset_fonts(fallback=True)
         data = document.tobytes(garbage=4, deflate=True)
         document.close()
         return data
@@ -372,6 +426,7 @@ class ArtifactService:
 
     async def export(self, request: ArtifactExportRequest, user_id: str) -> ArtifactModel:
         """处理产物服务相关后端逻辑。"""
+        artifact_mode, report_source_version = self._identity_for_export(request)
         title, report, agent_run_id = await self._source(request, user_id)
         if request.source_type in {"generated_resume", "interview_report"}:
             markdown = str(
@@ -389,7 +444,10 @@ class ArtifactService:
             content = self._html_document(title, report).encode("utf-8") if request.format == "html" else self._pdf_bytes(title, report)
         digest = hashlib.sha256(content).hexdigest()
         filename = self._safe_filename(title, request.format)
-        storage_key = f"{hashlib.sha256(user_id.encode()).hexdigest()[:16]}/{request.source_type}/{request.source_id}/{digest[:16]}-{filename}"
+        storage_key = (
+            f"{hashlib.sha256(user_id.encode()).hexdigest()[:16]}/{request.source_type}/"
+            f"{request.source_id}/{artifact_mode}/{report_source_version}/{digest[:16]}-{filename}"
+        )
         path = self._path(storage_key)
         temporary_path: Path | None = None
         try:
@@ -404,13 +462,144 @@ class ArtifactService:
             raise ArtifactStorageUnavailable() from exc
         now = self._now()
         async with async_session() as session:
-            existing = await session.scalar(select(ArtifactModel).where(ArtifactModel.user_id == user_id, ArtifactModel.source_type == request.source_type, ArtifactModel.source_id == request.source_id, ArtifactModel.format == request.format).with_for_update())
+            existing = await session.scalar(
+                select(ArtifactModel)
+                .where(
+                    ArtifactModel.user_id == user_id,
+                    ArtifactModel.source_type == request.source_type,
+                    ArtifactModel.source_id == request.source_id,
+                    ArtifactModel.format == request.format,
+                    ArtifactModel.artifact_mode == artifact_mode,
+                    ArtifactModel.report_source_version == report_source_version,
+                )
+                .with_for_update()
+            )
             if existing:
                 existing.title, existing.storage_key, existing.size_bytes, existing.checksum_sha256, existing.updated_at = title, storage_key, len(content), digest, now
                 await session.commit()
                 await session.refresh(existing)
                 return existing
-            artifact = ArtifactModel(user_id=user_id, source_type=request.source_type, source_id=request.source_id, agent_run_id=agent_run_id, title=title, format=request.format, mime_type=_MIME[request.format], storage_key=storage_key, size_bytes=len(content), checksum_sha256=digest, created_at=now, updated_at=now)
+            artifact = ArtifactModel(
+                user_id=user_id,
+                source_type=request.source_type,
+                source_id=request.source_id,
+                artifact_mode=artifact_mode,
+                report_source_version=report_source_version,
+                agent_run_id=agent_run_id,
+                title=title,
+                format=request.format,
+                mime_type=_MIME[request.format],
+                storage_key=storage_key,
+                size_bytes=len(content),
+                checksum_sha256=digest,
+                created_at=now,
+                updated_at=now,
+            )
+            session.add(artifact)
+            await session.commit()
+            await session.refresh(artifact)
+            return artifact
+
+    async def get_report_pdf(
+        self,
+        *,
+        session_id: str,
+        user_id: str,
+        report_mode: InterviewReportMode | str,
+        report_source_version: str | None,
+    ) -> ArtifactModel | None:
+        """按 owner、模式和来源版本读取一个面试报告 PDF，不暴露存储路径。"""
+
+        mode = normalize_report_mode(report_mode).value
+        source_version = normalize_report_source_version(report_source_version)
+        async with async_session() as session:
+            return await session.scalar(
+                select(ArtifactModel)
+                .where(
+                    ArtifactModel.user_id == user_id,
+                    ArtifactModel.source_type == "interview_report",
+                    ArtifactModel.source_id == session_id,
+                    ArtifactModel.format == "pdf",
+                    ArtifactModel.artifact_mode == mode,
+                    ArtifactModel.report_source_version == source_version,
+                )
+                .order_by(ArtifactModel.updated_at.desc())
+                .limit(1)
+            )
+
+    async def persist_interview_report_pdf(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        title: str,
+        markdown: str,
+        report_source_version: str,
+    ) -> ArtifactModel:
+        """持久化标准报告 PDF；不生成 HTML，也不读取或覆盖深度报告产物。"""
+
+        artifact_mode = InterviewReportMode.STANDARD.value
+        source_version = normalize_report_source_version(report_source_version)
+        content = self._resume_pdf_bytes(markdown)
+        self._validate_interview_report_pdf(content)
+        digest = hashlib.sha256(content).hexdigest()
+        filename = self._safe_filename(title, "pdf")
+        storage_key = (
+            f"{hashlib.sha256(user_id.encode()).hexdigest()[:16]}/interview_report/"
+            f"{session_id}/{artifact_mode}/{source_version}/{digest[:16]}-{filename}"
+        )
+        path = self._path(storage_key)
+        temporary_path: Path | None = None
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as temporary:
+                temporary.write(content)
+                temporary_path = Path(temporary.name)
+            temporary_path.replace(path)
+        except OSError as exc:
+            if temporary_path is not None:
+                temporary_path.unlink(missing_ok=True)
+            raise ArtifactStorageUnavailable() from exc
+
+        now = self._now()
+        async with async_session() as session:
+            existing = await session.scalar(
+                select(ArtifactModel)
+                .where(
+                    ArtifactModel.user_id == user_id,
+                    ArtifactModel.source_type == "interview_report",
+                    ArtifactModel.source_id == session_id,
+                    ArtifactModel.format == "pdf",
+                    ArtifactModel.artifact_mode == artifact_mode,
+                    ArtifactModel.report_source_version == source_version,
+                )
+                .with_for_update()
+            )
+            if existing:
+                existing.title = title
+                existing.storage_key = storage_key
+                existing.size_bytes = len(content)
+                existing.checksum_sha256 = digest
+                existing.updated_at = now
+                await session.commit()
+                await session.refresh(existing)
+                return existing
+            artifact = ArtifactModel(
+                user_id=user_id,
+                source_type="interview_report",
+                source_id=session_id,
+                artifact_mode=artifact_mode,
+                report_source_version=source_version,
+                agent_run_id=None,
+                title=title,
+                format="pdf",
+                mime_type=_MIME["pdf"],
+                storage_key=storage_key,
+                size_bytes=len(content),
+                checksum_sha256=digest,
+                created_at=now,
+                updated_at=now,
+            )
             session.add(artifact)
             await session.commit()
             await session.refresh(artifact)

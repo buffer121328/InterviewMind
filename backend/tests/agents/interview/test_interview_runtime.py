@@ -23,6 +23,13 @@ from app.schemas.interview.interview import (
     OpeningOutput,
 )
 
+
+def _prompt_text(value) -> str:
+    """Render a string or LangChain message list for prompt-content assertions."""
+    if isinstance(value, list):
+        return "\n".join(str(getattr(item, "content", item)) for item in value)
+    return str(value)
+
 # ============================================================================
 # Mock 测试数据
 # ============================================================================
@@ -31,6 +38,13 @@ MOCK_PLAN = [
     {"id": 1, "topic": "自我介绍", "content": "请做一个简短的自我介绍。", "type": "intro"},
     {"id": 2, "topic": "项目经验", "content": "请介绍你最有成就感的项目。", "type": "tech"},
     {"id": 3, "topic": "技术栈", "content": "你擅长的技术栈有哪些？", "type": "tech"},
+]
+
+# A five-question plan has one total follow-up slot under the 20% round policy.
+FOLLOW_UP_ELIGIBLE_PLAN = [
+    *MOCK_PLAN,
+    {"id": 4, "topic": "协作", "content": "请介绍一次跨团队协作。", "type": "behavior"},
+    {"id": 5, "topic": "复盘", "content": "请说明一次项目复盘。", "type": "behavior"},
 ]
 
 MOCK_STATE = {
@@ -151,6 +165,8 @@ class TestInterviewRuntimeStateMachine:
             **MOCK_STATE,
             "turn_phase": "feedback",
             "current_question_index": 1,
+            "interview_plan": FOLLOW_UP_ELIGIBLE_PLAN,
+            "max_questions": len(FOLLOW_UP_ELIGIBLE_PLAN),
             "messages": [MagicMock(content="我负责过微服务的并发治理和性能优化。")],
         }
 
@@ -252,6 +268,8 @@ class TestFollowUpLimits:
         state = {
             **MOCK_STATE,
             "current_question_index": 1,
+            "interview_plan": FOLLOW_UP_ELIGIBLE_PLAN,
+            "max_questions": len(FOLLOW_UP_ELIGIBLE_PLAN),
             "follow_up_count": 1,
             "max_follow_ups": 2,
         }
@@ -309,6 +327,8 @@ class TestToolRoundTrip:
             **MOCK_STATE,
             "turn_phase": "feedback",
             "current_question_index": 1,
+            "interview_plan": FOLLOW_UP_ELIGIBLE_PLAN,
+            "max_questions": len(FOLLOW_UP_ELIGIBLE_PLAN),
             "messages": [MagicMock(content="我做过一些并发优化，但细节想不起来了。")],
         }
 
@@ -346,7 +366,7 @@ class TestToolRoundTrip:
             limit=3,
         )
         assert mock_llm.await_count == 2
-        assert "【可用参考信息】" in mock_llm.await_args_list[1].args[0]
+        assert "【可用参考信息】" in _prompt_text(mock_llm.await_args_list[1].args[0])
         assert result["current_question_index"] == 2
         completed_tool_events = [
             item for item in result["trace"]
@@ -508,19 +528,23 @@ async def test_evaluating_context_uses_answer_points_without_exposing_them_in_fe
         **MOCK_STATE,
         "turn_phase": "feedback",
         "messages": [{"role": "user", "content": "Redis 主要在内存中操作。"}],
-        "interview_plan": [{
-            "id": 1,
-            "topic": "Redis",
-            "content": "Redis 为什么快？",
-            "type": "tech",
-            "answer_points": [answer_point],
-        }],
+        "interview_plan": [
+            {
+                "id": 1,
+                "topic": "Redis",
+                "content": "Redis 为什么快？",
+                "type": "tech",
+                "answer_points": [answer_point],
+            },
+            *FOLLOW_UP_ELIGIBLE_PLAN[1:],
+        ],
+        "max_questions": len(FOLLOW_UP_ELIGIBLE_PLAN),
     }
     runtime = InterviewRuntime(state=state, llm_invoker=invoke)
 
     result = await runtime.run()
 
-    assert answer_point in captured_prompts[0]
+    assert answer_point in _prompt_text(captured_prompts[0])
     assert answer_point not in result["messages"][0]["content"]
 
 
@@ -550,6 +574,8 @@ class TestTechnicalFollowUpGovernance:
             state={
                 **MOCK_STATE,
                 "current_question_index": 1,
+                "interview_plan": FOLLOW_UP_ELIGIBLE_PLAN,
+                "max_questions": len(FOLLOW_UP_ELIGIBLE_PLAN),
                 "follow_up_count": 1,
                 "total_follow_up_count": 0,
             },
@@ -568,12 +594,15 @@ class TestTechnicalFollowUpGovernance:
         assert result["follow_up_count"] == 2
         assert result["total_follow_up_count"] == 1
 
-    def test_round_budget_stops_follow_up_after_half_of_technical_questions(self):
+    def test_round_budget_stops_follow_up_after_twenty_percent_of_main_questions(self):
         plan = [
-            {"content": "请自我介绍。", "type": "intro"},
             *[
                 {"content": f"技术问题 {index}", "type": "tech"}
-                for index in range(1, 5)
+                for index in range(1, 7)
+            ],
+            *[
+                {"content": f"行为问题 {index}", "type": "behavior"}
+                for index in range(1, 15)
             ],
         ]
         runtime = InterviewRuntime(
@@ -581,7 +610,7 @@ class TestTechnicalFollowUpGovernance:
                 **MOCK_STATE,
                 "interview_plan": plan,
                 "current_question_index": 2,
-                "total_follow_up_count": 2,
+                "total_follow_up_count": 4,
             },
             llm_invoker=AsyncMock(),
         )
@@ -594,7 +623,7 @@ class TestTechnicalFollowUpGovernance:
 
         result = runtime._handle_follow_up_action(output)
 
-        assert runtime.max_total_follow_ups == 2
+        assert runtime.max_total_follow_ups == 4
         assert result["current_question_index"] == 3
         assert result["follow_up_count"] == 0
 
@@ -606,6 +635,8 @@ class TestTechnicalFollowUpGovernance:
                 **MOCK_STATE,
                 "turn_phase": "feedback",
                 "current_question_index": 1,
+                "interview_plan": FOLLOW_UP_ELIGIBLE_PLAN,
+                "max_questions": len(FOLLOW_UP_ELIGIBLE_PLAN),
                 "messages": [MagicMock(content="我会使用监控指标定位瓶颈。")],
             },
             llm_invoker=failing_llm,

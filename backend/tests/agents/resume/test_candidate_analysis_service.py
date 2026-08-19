@@ -89,8 +89,8 @@ async def test_session_analysis_runs_four_parallel_reviewers_then_reduces(monkey
         "job_fit",
         "factual_risk",
     }
-    assert channels["technical_depth"] == ("smart", 0.2)
-    assert channels["communication"] == ("fast", 0.3)
+    assert channels["technical_depth"] == ("technical_depth", 0.2)
+    assert channels["communication"] == ("communication", 0.3)
     assert channels["job_fit"] == ("match_analyst", 0.2)
     assert channels["factual_risk"] == ("reflector", 0.0)
     assert reducer_calls == 1
@@ -98,6 +98,53 @@ async def test_session_analysis_runs_four_parallel_reviewers_then_reduces(monkey
     assert profile.total_questions_analyzed == 1
     assert weakness["consensus_method"] == "parallel_map_reduce"
     assert len(weakness["reviewer_assessments"]) == 4
+
+
+@pytest.mark.asyncio
+async def test_session_report_reducer_receives_only_reviewer_assessments(monkeypatch):
+    """The final report composer must not receive source QA or scoring references."""
+    from ai.workflows.analysis.reviewers.multi_reviewer import ReviewerAssessment
+
+    composer_prompts: list[str] = []
+
+    async def invoke(*, output_model, prompt, call_metadata=None, **_kwargs):
+        if output_model is ReviewerAssessment:
+            return ReviewerAssessment(
+                perspective=call_metadata["review_perspective"],
+                score=8,
+                evidence_refs=["Q1"],
+                confidence=0.8,
+            )
+        composer_prompts.append(prompt)
+        return _combined_output()
+
+    monkeypatch.setattr("ai.llm.llm_utils.invoke_structured", invoke)
+    await SessionReportAnalysisService().generate_session_report(
+        session_id="session-1",
+        resume="RESUME_ONLY_SENTINEL",
+        job_description="JD_ONLY_SENTINEL",
+        company_info="COMPANY_ONLY_SENTINEL",
+        qa_history=[{
+            "question": "QUESTION_ONLY_SENTINEL",
+            "answer": "ANSWER_ONLY_SENTINEL",
+            "answer_points": ["ANSWER_POINT_ONLY_SENTINEL"],
+        }],
+        api_config={"smart": {"model": "demo"}},
+    )
+
+    assert len(composer_prompts) == 1
+    prompt = composer_prompts[0]
+    assert "独立评审结果" in prompt
+    assert "仅提供四位独立评审的结构化结论" in prompt
+    for source_only_value in (
+        "RESUME_ONLY_SENTINEL",
+        "JD_ONLY_SENTINEL",
+        "COMPANY_ONLY_SENTINEL",
+        "QUESTION_ONLY_SENTINEL",
+        "ANSWER_ONLY_SENTINEL",
+        "ANSWER_POINT_ONLY_SENTINEL",
+    ):
+        assert source_only_value not in prompt
 
 
 @pytest.mark.asyncio

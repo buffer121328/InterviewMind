@@ -7,6 +7,7 @@
 import { JsonObject, ResumeResultData } from '@/lib/api/resume';
 import { API_BASE_URL as NORMALIZED_API_BASE_URL } from '@/lib/api/config';
 import type { JobContextSnapshot } from '@/lib/jobContextHandoff';
+import type { InterviewReportMode } from '@/lib/interviewReportMode';
 
 // ============================================================================
 // 类型定义
@@ -37,9 +38,10 @@ export interface SessionMetadata {
     source_job_id?: number | null;
     job_context_snapshot?: JobContextSnapshot | null;
     company_profile?: Record<string, unknown> | null;
+    report_mode?: InterviewReportMode;
+    interview_plan?: Array<Record<string, unknown>>;
 }
 
-    interview_plan?: Array<Record<string, unknown>>;
 export interface InterviewSession {
     session_id: string;
     title: string;
@@ -66,6 +68,7 @@ export interface SessionListItem {
     company_info?: string;
     max_questions: number;
     has_company_profile?: boolean;
+    report_mode?: InterviewReportMode;
 }
 
 export interface ResumeInfo {
@@ -96,12 +99,15 @@ export interface ApiConfig {
     fastModelId: string;
     reasoningPoolModelIds: string[];
     fastPoolModelIds: string[];
+    // 面试报告专家模型
+    technicalDepthModelId: string; // 技术深度评审
+    communicationModelId: string;  // 沟通评审
+    matchAnalystModelId: string;   // 岗位匹配评审
+    reflectorModelId: string;      // 事实风险评审
+    hrReviewerModelId: string;     // 报告叙事汇总
     // 简历工具专家模型
     generalModelId: string;        // 通用任务（简历分析 + 主持人）
-    matchAnalystModelId: string;   // 匹配分析师
     contentWriterModelId: string;  // 内容优化师
-    hrReviewerModelId: string;     // HR审核官
-    reflectorModelId: string;      // 质量审核
     mimoModelId: string;           // MiMo ASR / 文本对话 / TTS 拆分语音链路
     ragEmbeddingModelId: string;   // RAG 向量检索 Embedding
     mem0LlmModelId: string;        // mem0 记忆提取 LLM
@@ -373,11 +379,13 @@ export const DEFAULT_API_CONFIG: ApiConfig = {
     fastModelId: '',
     reasoningPoolModelIds: [],
     fastPoolModelIds: [],
-    generalModelId: '',
+    technicalDepthModelId: '',
+    communicationModelId: '',
     matchAnalystModelId: '',
-    contentWriterModelId: '',
-    hrReviewerModelId: '',
     reflectorModelId: '',
+    hrReviewerModelId: '',
+    generalModelId: '',
+    contentWriterModelId: '',
     mimoModelId: '',
     ragEmbeddingModelId: '',
     mem0LlmModelId: '',

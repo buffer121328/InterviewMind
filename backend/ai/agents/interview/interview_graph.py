@@ -61,6 +61,10 @@ from ai.tools.interview_tools import (
     search_question_bank,
 )
 from ai.tools.memory_tools import search_memory
+from app.domain.interview_round_strategy import (
+    ROUND_STRATEGY_VERSION,
+    round_question_type_distribution,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -109,6 +113,7 @@ class InterviewRuntimeContext:
     """不进入 checkpoint 的可信请求上下文；水合后的模型凭据只存在于此。"""
 
     api_config: Optional[Mapping[str, Any]] = None
+    stable_context: Optional[Mapping[str, Any]] = None
 
 
 class InterviewState(TypedDict):
@@ -158,6 +163,8 @@ class InterviewState(TypedDict):
 
     # 长期记忆上下文（来自 mem0）
     memory_context: str  # 格式化后的记忆上下文，注入到 prompt
+    round_strategy_version: str
+    round_question_type_distribution: dict[str, int]
     memory_items: List[dict]  # 原始记忆列表，用于日志和调试
     trace: List[dict]  # agent 运行 trace
 
@@ -270,10 +277,17 @@ async def node_planner(state: InterviewState, runtime: Runtime[InterviewRuntimeC
                 user_id,
                 bank_count,
                 round_type=round_type,
+                plan_max_questions=max_q,
             )
         except Exception as e:
             logger.warning(f"抽取个人题库失败，将由 planner 补足: {e}")
-    candidates = prepare_question_bank_candidates(bank_items, max_q)
+    candidates = prepare_question_bank_candidates(
+        bank_items,
+        max_q,
+        round_type=round_type,
+        selection_limit=bank_count,
+        enforce_strategy=True,
+    )
     known_intro_question = any(is_introduction_question(item) for item in candidates)
     remaining_questions = max_q - len(candidates)
 
@@ -321,11 +335,44 @@ async def node_planner(state: InterviewState, runtime: Runtime[InterviewRuntimeC
             owner_id=user_id,
             cache_scope=cache_scope,
         )
-    interview_plan = merge_question_plan(candidates, generated_plan, max_q, round_type=round_type)
+    interview_plan = merge_question_plan(
+        candidates,
+        generated_plan,
+        max_q,
+        round_type=round_type,
+        enforce_strategy=True,
+    )
     if session_id:
+        from ai.agents.interview.turn_context import build_stable_context
         from app.db.repositories.session.session_repo import SessionRepo
 
-        await SessionRepo().save_interview_plan(session_id, interview_plan)
+        stable_context = build_stable_context(
+            resume_context=resume,
+            job_description=job_desc,
+            company_info=company_info,
+            interview_plan=interview_plan,
+            round_index=round_index,
+            round_type=round_type,
+            memory_context=memory_context,
+            rubric={
+                "evaluation": ["事实依据", "技术准确性", "表达清晰度"],
+                "follow_up_policy": "仅在轮次策略允许且技术主问题存在未验证缺口时追问",
+            },
+            prompt_version="interview-evaluating.v1",
+            round_strategy_version=ROUND_STRATEGY_VERSION,
+        )
+        session_repo = SessionRepo()
+        await session_repo.save_interview_plan(session_id, interview_plan)
+        await session_repo.update_session(
+            session_id=session_id,
+            user_id=user_id,
+            metadata_updates={
+                "stable_context": stable_context.payload,
+                "stable_context_version": stable_context.schema_version,
+                "stable_context_fingerprint": stable_context.fingerprint,
+                "round_strategy_version": ROUND_STRATEGY_VERSION,
+            },
+        )
 
     logger.info(f"[Planner] run_id={run_id} user_id={user_id} round={round_index}/{round_type} 生成 {len(interview_plan)} 题")
 
@@ -339,7 +386,9 @@ async def node_planner(state: InterviewState, runtime: Runtime[InterviewRuntimeC
         "current_sub_question": None,
         "max_follow_ups": 2,
         "round_index": round_index,
-        "round_type": round_type
+        "round_type": round_type,
+        "round_strategy_version": ROUND_STRATEGY_VERSION,
+        "round_question_type_distribution": round_question_type_distribution(interview_plan),
     }
 
 
@@ -360,7 +409,8 @@ async def node_responder(state: InterviewState, runtime: Runtime[InterviewRuntim
     每个状态调用 invoke_structured() 输出 InterviewerOutput，
     action 字段决定状态转移 —— 不再靠自然语言猜测。
     """
-    from ai.llm.llm_utils import invoke_structured
+    from ai.llm.llm_utils import invoke_structured, invoke_structured_with_messages
+    from app.config import get_settings
 
     from .interview_runtime import InterviewRuntime
 
@@ -380,12 +430,24 @@ async def node_responder(state: InterviewState, runtime: Runtime[InterviewRuntim
             prompt: 经过类型边界校验的 `prompt`；其格式和可选值由参数类型及调用流程约束。
             output_model: 经过类型边界校验的 `output_model`；其格式和可选值由参数类型及调用流程约束。
         """
+        if isinstance(prompt, list):
+            return await invoke_structured_with_messages(
+                messages=prompt,
+                output_model=output_model,
+                api_config=api_config,
+                channel="fast",
+                max_retries=0,
+                max_tokens=get_settings().interactive_interview_max_output_tokens,
+                deadline=deadline,
+                call_metadata=call_metadata,
+            )
         return await invoke_structured(
             prompt=prompt,
             output_model=output_model,
             api_config=api_config,
             channel="fast",
-            max_retries=2,
+            max_retries=0,
+            max_tokens=get_settings().interactive_interview_max_output_tokens,
             deadline=deadline,
             call_metadata=call_metadata,
         )
@@ -403,6 +465,7 @@ async def node_responder(state: InterviewState, runtime: Runtime[InterviewRuntim
         llm_invoker=llm_invoker,
         tool_executor=tool_executor,
         api_config=api_config,
+        stable_context=runtime.context.stable_context,
     )
 
     # 执行状态机主循环

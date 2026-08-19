@@ -75,8 +75,6 @@ class JobsUseCases:
         Args:
             browser_channel: 浏览器渠道标识（如 msedge/chrome）。
         """
-        from integrations.boss.automation_client import BossAutomationError, get_boss_automation_client
-
         try:
             return await get_boss_automation_client().browser_tab_status(browser_channel)
         except BossAutomationError as exc:
@@ -93,8 +91,6 @@ class JobsUseCases:
         Args:
             request: 请求对象。
         """
-        from integrations.boss.automation_client import BossAutomationError, get_boss_automation_client
-
         try:
             return await get_boss_automation_client().browser_tab_search_and_capture(
                 query=request.query,
@@ -125,7 +121,6 @@ class JobsUseCases:
         job = await get_job_capture_repo().get_job(job_id, user_id)
         if not job:
             raise JobNotFound("job_not_found", "岗位不存在或无权访问")
-        from integrations.boss.security import is_allowed_boss_job_url
         source_url = str(job.get("source_url") or "")
         if not is_allowed_boss_job_url(source_url):
             raise JobBadRequest("invalid_job_url", "岗位没有可打开的 BOSS 官方详情链接")

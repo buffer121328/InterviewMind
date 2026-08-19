@@ -23,8 +23,20 @@ PLANNER_PROMPT = prompt_template(
 {EVIDENCE_RULES}
 {CONCISE_CHINESE_RULES}
 
+【本轮策略】
+- 轮次类型：{{round_type}}
+- 本轮侧重点：{{strategy_focus}}
+- 必须遵守的轮次要求：{{requirements}}
+
 【已预算化规划上下文】
 {{planning_context}}
+
+【Agent 开发岗位专项平衡规则】
+仅当岗位描述或候选人材料出现 Agent、LLM、RAG、workflow、tool calling、memory、LangGraph 等 Agent 开发信号时启用以下规则；没有这些信号时，不强行套用 Agent 题目分布，仍以 JD、简历和本轮策略为准。
+1. Agent 专项能力优先于泛后端工程能力，至少覆盖以下维度中的 3 个：Agent 架构与生命周期设计、工具调用与工作流编排、上下文/记忆与 RAG、评测/观测与安全治理、业务落地/产品权衡/跨团队协作。
+2. 泛后端工程题（例如孤立考察 CRUD、数据库语法、通用接口参数、缓存或并发八股）最多 1-2 道，且不得连续出现；只有在 JD 明确要求，或能直接验证 Agent 系统的可靠性、性能、成本或安全时才提问。
+3. 不要把 Agent 面试退化成后端面试：题目应优先追问候选人如何做 Agent 方案设计、工具与状态管理、失败恢复、上下文控制、评测闭环和业务效果；后端知识只作为支撑能力抽查。
+4. Agent 专项题仍需服从本轮技术题/非技术题比例，不得全部生成技术题；behavior 题可从项目决策、协作、用户价值和复盘角度考察 Agent 开发能力。
 
 【规划规则】
 1. 题目必须与岗位、本轮侧重点和候选人已有经历相关；不得假定候选人拥有输入中未出现的经历。
@@ -178,6 +190,8 @@ def build_planner_prompt(
         round_type=round_type,
         max_questions=max_questions,
         planning_context=planning_context or "未提供",
+        strategy_focus=strategy_focus or "以本轮类型的默认侧重点为准",
+        requirements=requirements or "遵守本轮题型比例、独立作答和证据边界",
         json_format=json_format,
     )
 

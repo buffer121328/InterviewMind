@@ -56,28 +56,25 @@ def reset_observability(monkeypatch):
     observability._reset_langfuse_for_tests()
 
 
-def test_langchain_callback_requires_explicit_raw_model_io_opt_in(monkeypatch):
-    """官方 callback 会携带完整 prompt/output，因此必须显式启用。"""
+def test_langchain_callback_is_disabled_even_when_legacy_raw_model_io_opt_in_is_set(monkeypatch):
+    """Provider API keys can appear in serialized callback params, so raw callbacks stay disabled."""
     import observability
-
-    class FakeCallbackHandler:
-        pass
 
     monkeypatch.setattr(observability, "_client", FakeLangfuseClient())
     monkeypatch.setattr(observability, "_configured", True)
-    monkeypatch.setattr(observability, "_get_callback_handler", lambda: FakeCallbackHandler)
-
-    assert observability.get_langchain_callbacks() == []
-
+    monkeypatch.setattr(
+        observability,
+        "_get_callback_handler",
+        lambda: (_ for _ in ()).throw(AssertionError("raw callback must not be created")),
+    )
     monkeypatch.setenv("LANGFUSE_CAPTURE_MODEL_IO", "true")
     monkeypatch.setattr(observability, "_config", None)
-    callbacks = observability.get_langchain_callbacks()
 
-    assert len(callbacks) == 1
-    assert isinstance(callbacks[0], FakeCallbackHandler)
+    assert observability.get_langchain_callbacks() == []
+    assert observability.get_langgraph_callbacks() == []
 
 
-def test_llm_factory_attaches_langfuse_callback_only_when_active(monkeypatch):
+def test_llm_factory_never_attaches_raw_langfuse_callback(monkeypatch):
     from ai.llm import llms
 
     created = {}
@@ -87,7 +84,6 @@ def test_llm_factory_attaches_langfuse_callback_only_when_active(monkeypatch):
             created.update(kwargs)
 
     monkeypatch.setattr(llms, "ChatOpenAI", FakeChatOpenAI)
-    monkeypatch.setattr(llms, "get_langchain_callbacks", lambda: ["langfuse-callback"])
     monkeypatch.setattr(llms, "validate_outbound_url", lambda *_args, **_kwargs: None)
 
     llms.create_llm_from_config(
@@ -96,7 +92,8 @@ def test_llm_factory_attaches_langfuse_callback_only_when_active(monkeypatch):
         model="gpt-test",
     )
 
-    assert created["callbacks"] == ["langfuse-callback"]
+    assert "callbacks" not in created
+    assert "test-key" not in repr(created["metadata"])
     assert created["model_name"] == "gpt-test"
     assert created["streaming"] is True
 
@@ -110,22 +107,24 @@ def test_langfuse_callback_handler_dependency_is_available():
 
 
 @pytest.mark.asyncio
-async def test_langgraph_config_uses_official_callback_and_suppresses_direct_llm_callbacks(monkeypatch):
+async def test_langgraph_config_keeps_existing_callbacks_but_never_adds_raw_langfuse_callback(monkeypatch):
     import observability
 
-    class FakeCallbackHandler:
-        pass
-
     client = FakeLangfuseClient()
+    existing_callback = object()
     monkeypatch.setattr(observability, "_create_langfuse_client", lambda config: client)
-    monkeypatch.setattr(observability, "_get_callback_handler", lambda: FakeCallbackHandler)
+    monkeypatch.setattr(
+        observability,
+        "_get_callback_handler",
+        lambda: (_ for _ in ()).throw(AssertionError("raw callback must not be created")),
+    )
     monkeypatch.setenv("LANGFUSE_ENABLED", "true")
     monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk-test")
     monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-test")
     monkeypatch.setenv("LANGFUSE_CAPTURE_MODEL_IO", "true")
 
     config = observability.with_langgraph_langfuse_config(
-        {"configurable": {"thread_id": "thread-1"}, "metadata": {"existing": "yes"}},
+        {"configurable": {"thread_id": "thread-1"}, "metadata": {"existing": "yes"}, "callbacks": [existing_callback]},
         run_name="interview-turn",
         metadata={"agent_type": "interview"},
     )
@@ -133,8 +132,7 @@ async def test_langgraph_config_uses_official_callback_and_suppresses_direct_llm
     assert config["configurable"] == {"thread_id": "thread-1"}
     assert config["run_name"] == "interview-turn"
     assert config["metadata"] == {"existing": "yes", "agent_type": "interview"}
-    assert len(config["callbacks"]) == 1
-    assert isinstance(config["callbacks"][0], FakeCallbackHandler)
+    assert config["callbacks"] == [existing_callback]
 
     async with observability.agent_observation(
         name="interview-runtime",
@@ -143,7 +141,7 @@ async def test_langgraph_config_uses_official_callback_and_suppresses_direct_llm
         session_id="session-1",
         input_payload={},
     ):
-        assert len(observability.get_langchain_callbacks()) == 1
+        assert observability.get_langchain_callbacks() == []
         with observability.langgraph_langfuse_scope(True):
             assert observability.get_langchain_callbacks() == []
 
@@ -273,6 +271,8 @@ async def test_record_model_event_drops_raw_payload_fields():
             resume="private resume",
             api_key="sk-private",
             input_chars=14,
+            source_raw_breakdown={"resume": 5460},
+            source_raw_token_breakdown={"resume": 3817},
         )
 
     assert observation.model_events == [
@@ -281,6 +281,8 @@ async def test_record_model_event_drops_raw_payload_fields():
             "trace_id": observation.trace_id,
             "event_type": "llm.request.started",
             "input_chars": 14,
+            "source_raw_breakdown": {"resume": 5460},
+            "source_raw_token_breakdown": {"resume": 3817},
         }
     ]
 
@@ -346,12 +348,177 @@ def test_token_usage_and_local_cny_cost_are_normalized(monkeypatch):
         "output_tokens": 500,
         "total_tokens": 1500,
         "cache_read_tokens": 100,
+        "prompt_cache_hit_tokens": None,
+        "prompt_cache_miss_tokens": None,
         "reasoning_tokens": None,
     }
     assert cost == {
-        "usage_status": "available",
+        "usage_status": "confirmed",
         "cost_status": "estimated",
         "cost_currency": "CNY",
         "cost_source": "local_pricelist",
         "estimated_cost_cny": 0.0018,
     }
+
+
+def test_deepseek_cache_usage_merges_provider_fields_with_langchain_usage():
+    """DeepSeek cache counters can coexist with LangChain's normalized totals."""
+    import observability
+
+    class Response:
+        usage_metadata = {
+            "input_tokens": 1200,
+            "output_tokens": 300,
+            "total_tokens": 1500,
+        }
+        response_metadata = {
+            "token_usage": {
+                "prompt_tokens": 1200,
+                "completion_tokens": 300,
+                "prompt_cache_hit_tokens": 800,
+                "prompt_cache_miss_tokens": 400,
+            }
+        }
+
+    assert observability.extract_token_usage(Response()) == {
+        "input_tokens": 1200,
+        "output_tokens": 300,
+        "total_tokens": 1500,
+        "cache_read_tokens": 800,
+        "prompt_cache_hit_tokens": 800,
+        "prompt_cache_miss_tokens": 400,
+        "reasoning_tokens": None,
+    }
+
+
+def test_deepseek_zero_hit_usage_remains_a_reported_cache_miss():
+    import observability
+
+    class Response:
+        response_metadata = {
+            "usage": {
+                "prompt_tokens": 500,
+                "completion_tokens": 50,
+                "prompt_cache_hit_tokens": 0,
+                "prompt_cache_miss_tokens": 500,
+            }
+        }
+
+    usage = observability.extract_token_usage(Response())
+
+    assert usage["cache_read_tokens"] == 0
+    assert usage["prompt_cache_hit_tokens"] == 0
+    assert usage["prompt_cache_miss_tokens"] == 500
+
+
+@pytest.mark.asyncio
+async def test_deepseek_cache_usage_is_recorded_as_safe_hit_event():
+    import observability
+    from ai.llm.model_pool import _ModelPoolCallback
+
+    class Scheduler:
+        def start(self, _identity):
+            return None
+
+        def record_success(self, _identity):
+            return None
+
+        def record_failure(self, _identity):
+            return None
+
+    class Response:
+        response_metadata = {
+            "token_usage": {
+                "prompt_tokens": 700,
+                "completion_tokens": 100,
+                "prompt_cache_hit_tokens": 600,
+                "prompt_cache_miss_tokens": 100,
+            }
+        }
+
+    callback = _ModelPoolCallback(
+        Scheduler(),  # type: ignore[arg-type]
+        "deepseek-cache-test",
+        model_name="deepseek-chat",
+        provider_metadata={
+            "model_provider": "deepseek",
+            "model_integration": "deepseek",
+        },
+    )
+
+    async with observability.agent_observation(
+        name="deepseek-cache-test",
+        agent_type="test",
+        user_id="user-1",
+        session_id="session-1",
+        input_payload={},
+    ) as observation:
+        with observability.model_call_metadata_scope(
+            prompt_cache_eligible=True,
+            prompt_cache_status="unreported",
+        ):
+            callback.on_chat_model_start(
+                messages=[[{"role": "user", "content": "stable prefix"}]],
+                run_id="deepseek-cache-run",
+            )
+            callback.on_llm_end(Response(), run_id="deepseek-cache-run")
+
+    completed = observation.model_events[-1]
+    assert completed["prompt_cache_status"] == "hit"
+    assert completed["cache_hit"] is True
+    assert completed["cache_read_tokens"] == 600
+    assert completed["prompt_cache_hit_tokens"] == 600
+    assert completed["prompt_cache_miss_tokens"] == 100
+
+
+@pytest.mark.asyncio
+async def test_deepseek_missing_cache_counters_remains_unreported():
+    import observability
+    from ai.llm.model_pool import _ModelPoolCallback
+
+    class Scheduler:
+        def start(self, _identity):
+            return None
+
+        def record_success(self, _identity):
+            return None
+
+        def record_failure(self, _identity):
+            return None
+
+    class Response:
+        usage_metadata = {
+            "input_tokens": 90,
+            "output_tokens": 10,
+            "total_tokens": 100,
+        }
+
+    callback = _ModelPoolCallback(
+        Scheduler(),  # type: ignore[arg-type]
+        "deepseek-unreported-test",
+        model_name="deepseek-chat",
+        provider_metadata={"model_integration": "deepseek"},
+    )
+
+    async with observability.agent_observation(
+        name="deepseek-unreported-test",
+        agent_type="test",
+        user_id="user-1",
+        session_id="session-1",
+        input_payload={},
+    ) as observation:
+        with observability.model_call_metadata_scope(
+            prompt_cache_eligible=True,
+            prompt_cache_status="unreported",
+        ):
+            callback.on_chat_model_start(
+                messages=[[{"role": "user", "content": "stable prefix"}]],
+                run_id="deepseek-unreported-run",
+            )
+            callback.on_llm_end(Response(), run_id="deepseek-unreported-run")
+
+    completed = observation.model_events[-1]
+    assert completed["input_tokens"] == 90
+    assert completed["output_tokens"] == 10
+    assert completed["prompt_cache_status"] == "unreported"
+    assert "cache_hit" not in completed

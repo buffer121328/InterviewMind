@@ -66,8 +66,10 @@ class LangfuseConfig:
     environment: str | None = None
     release: str | None = None
     sample_rate: float | None = None
+    # Kept for backwards-compatible config deserialization. Raw model I/O is never
+    # exported because provider client parameters can contain credentials.
     capture_model_io: bool = False
-    prompt_management_enabled: bool = True
+    prompt_management_enabled: bool = False
     prompt_label: str | None = "production"
     prompt_cache_ttl_seconds: int = 300
     prompt_fetch_timeout_seconds: float = 0.05
@@ -85,8 +87,11 @@ class LangfuseConfig:
             environment=os.getenv("LANGFUSE_TRACING_ENVIRONMENT") or None,
             release=os.getenv("LANGFUSE_RELEASE") or None,
             sample_rate=_env_sample_rate("LANGFUSE_SAMPLE_RATE"),
-            capture_model_io=_env_bool("LANGFUSE_CAPTURE_MODEL_IO"),
-            prompt_management_enabled=_env_bool("LANGFUSE_PROMPT_MANAGEMENT_ENABLED", True),
+            # `LANGFUSE_CAPTURE_MODEL_IO` is intentionally ignored. The official
+            # LangChain/LangGraph callback may receive serialized client kwargs,
+            # including provider credentials, before this application can sanitize them.
+            capture_model_io=False,
+            prompt_management_enabled=_env_bool("LANGFUSE_PROMPT_MANAGEMENT_ENABLED", False),
             prompt_label=prompt_label,
             prompt_cache_ttl_seconds=_env_int("LANGFUSE_PROMPT_CACHE_TTL_SECONDS", 300),
             prompt_fetch_timeout_seconds=max(

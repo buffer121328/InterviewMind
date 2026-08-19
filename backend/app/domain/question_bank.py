@@ -5,18 +5,13 @@ from __future__ import annotations
 import hashlib
 import re
 
+from app.domain.interview_round_strategy import ordered_question_types
+
 QUESTION_PRIORITY_ORDER = ("required", "high", "low")
-QUESTION_TYPES_BY_ROUND: dict[str, tuple[str, ...]] = {
-    "tech_initial": ("intro", "tech", "behavior", "system_design"),
-    "tech_deep": ("tech", "system_design"),
-    "hr_comprehensive": ("intro", "behavior"),
-    "voice_default": ("intro", "tech", "behavior", "system_design"),
-}
-
-
 def question_types_for_round(round_type: str) -> tuple[str, ...]:
-    """Return question types compatible with an interview round."""
-    return QUESTION_TYPES_BY_ROUND.get(round_type, QUESTION_TYPES_BY_ROUND["tech_initial"])
+    """Return question types from the shared versioned round strategy."""
+
+    return ordered_question_types(round_type)
 
 
 def normalize_question_key(question_text: str) -> str:

@@ -32,6 +32,7 @@ dependencies = [
     "guardrails-ai>=0.10.2",
     "langchain-deepseek>=1.0.0,<2.0.0",
     "langchain-qwq>=0.1.0,<1.0.0",
+    "fonttools>=4.63.0",
 ]
 
 [project.optional-dependencies]

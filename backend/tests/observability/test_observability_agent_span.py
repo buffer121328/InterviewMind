@@ -151,6 +151,8 @@ async def test_agent_observation_redacts_arbitrary_business_text_before_langfuse
         input_payload={
             "resume_content": "候选人手机号 13800000000",
             "api_key": "sk-private-value",
+            "openai_api_key": "provider-private-value",
+            "azure_ad_token": "provider-token-value",
             "mode": "optimize",
             "sk-private-field-name-123456": "field value",
             "missing": ["私密技能关键词"],
@@ -165,11 +167,16 @@ async def test_agent_observation_redacts_arbitrary_business_text_before_langfuse
     serialized = repr(update)
     assert "13800000000" not in serialized
     assert "sk-private-value" not in serialized
+    assert "provider-private-value" not in serialized
+    assert "provider-token-value" not in serialized
     assert "sk-private-field-name-123456" not in serialized
     assert "私密技能关键词" not in serialized
     assert "不应外发的面试回答" not in serialized
     assert update["input"]["resume_content"]["redacted"] is True
-    assert update["input"]["api_key"] == "***REDACTED***"
+    redacted_value = "***REDACTED***"
+    assert update["input"]["api_key"] == redacted_value
+    assert update["input"]["openai_api_key"] == redacted_value
+    assert update["input"]["azure_ad_token"] == redacted_value
     assert update["input"]["mode"] == "optimize"
     assert update["input"]["missing"] == {"item_count": 1}
     assert update["output"]["answer"]["redacted"] is True

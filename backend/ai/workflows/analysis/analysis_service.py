@@ -40,6 +40,11 @@ logger = logging.getLogger(__name__)
 
 ReportCheckpointCallback = Callable[[dict[str, Any]], Awaitable[None]]
 
+_REPORT_CONTEXT_TOTAL_CHARS = 40_000
+_REPORT_BASE_CONTEXT_TOTAL_CHARS = 7_500
+_REPORT_RESUME_CHAR_BUDGET = 100_000
+_REPORT_PROFILE_CONTEXT_MAX_CHARS = 6_000
+
 
 class SessionReportAnalysisService:
     """定义会话报告分析服务相关后端数据结构或服务组件。"""
@@ -62,10 +67,9 @@ class SessionReportAnalysisService:
 
         settings = get_settings()
         deadline = TaskDeadline(settings.interview_report_task_timeout_seconds)
-        qa_chars = sum(
-            len(str(item.get("question") or "")) + len(str(item.get("answer") or ""))
-            for item in qa_history
-        )
+        # The direct-path threshold must account for internal answer points as
+        # well as visible Q&A because they are part of the scoring context.
+        qa_chars = len(format_qa(qa_history))
         try:
             if qa_chars <= settings.interview_report_qa_char_budget:
                 result, evidence, reviewer_assessments = await self._generate_single_call(
@@ -187,7 +191,9 @@ class SessionReportAnalysisService:
                 }
                 for index, item in enumerate(qa_history)
             ],
+            qa_history=qa_history,
             answer_points_by_question=answer_points_by_question(qa_history),
+            monitor_stage="session_report.reviewer_context",
         )
         review_result = await run_multi_reviewer_map_reduce(
             mode="session_report",
@@ -259,7 +265,8 @@ class SessionReportAnalysisService:
                 output_model=EvidenceChunkOutput,
                 api_config=api_config,
                 channel="smart",
-                max_retries=1,
+                max_retries=0,
+                max_tokens=get_settings().interview_deep_report_max_output_tokens,
                 deadline=deadline,
                 call_metadata=assembled.model_event_fields(),
             )
@@ -311,13 +318,13 @@ class SessionReportAnalysisService:
         )
         final_context = ContextAssembler(
             agent_name="interview_report",
-            total_model_chars=16_000,
+            total_model_chars=_REPORT_CONTEXT_TOTAL_CHARS,
             source_budgets={
-                "profile_context": 4500,
+                "profile_context": _REPORT_PROFILE_CONTEXT_MAX_CHARS,
                 "question_evidence": 8500,
                 "answer_points": 3000,
             },
-            cache_version="2026-07-31.multi-reviewer.report.v1",
+            cache_version="2026-08-18.multi-reviewer.report.v2",
         ).assemble([
             ContextSource(
                 name="question_evidence",
@@ -341,7 +348,7 @@ class SessionReportAnalysisService:
                 content=base_context.model_context,
                 trusted=True,
                 priority=80,
-                max_chars=4500,
+                max_chars=_REPORT_PROFILE_CONTEXT_MAX_CHARS,
                 truncation_strategy="head_tail",
             ),
         ])
@@ -352,7 +359,9 @@ class SessionReportAnalysisService:
             job_description=job_description,
             company_info=company_info,
             evidence=evidence,
+            qa_history=qa_history,
             answer_points_by_question=answer_points_by_question(qa_history),
+            monitor_stage="session_report.reviewer_context",
         )
         review_result = await run_multi_reviewer_map_reduce(
             mode="session_report",
@@ -375,7 +384,14 @@ class SessionReportAnalysisService:
         qa_text: str,
         include_qa: bool,
     ) -> AssembledContext:
-        """组装报告上下文相关后端逻辑。"""
+        """组装有界深度报告上下文，默认完整保留可容纳的简历。"""
+        settings = get_settings()
+        report_total_chars = getattr(
+            settings, "interview_report_context_total_chars", _REPORT_CONTEXT_TOTAL_CHARS
+        )
+        resume_char_budget = getattr(
+            settings, "interview_report_resume_char_budget", _REPORT_RESUME_CHAR_BUDGET
+        )
         sources = [
             ContextSource(
                 name="qa_history",
@@ -383,7 +399,7 @@ class SessionReportAnalysisService:
                 required=include_qa,
                 trusted=True,
                 priority=100,
-                max_chars=12_000,
+                max_chars=20_000,
                 truncation_strategy="head_tail",
             ),
             ContextSource(
@@ -397,7 +413,7 @@ class SessionReportAnalysisService:
                 name="resume",
                 content=resume,
                 priority=70,
-                max_chars=2600,
+                max_chars=resume_char_budget,
                 truncation_strategy="head_tail",
             ),
             ContextSource(
@@ -409,14 +425,18 @@ class SessionReportAnalysisService:
         ]
         return ContextAssembler(
             agent_name="interview_report",
-            total_model_chars=16_000 if include_qa else 5500,
+            total_model_chars=(
+                report_total_chars
+                if include_qa
+                else _REPORT_BASE_CONTEXT_TOTAL_CHARS
+            ),
             source_budgets={
-                "qa_history": 12_000,
+                "qa_history": 20_000,
                 "job_description": 2200,
-                "resume": 2600,
+                "resume": resume_char_budget,
                 "company": 500,
             },
-            cache_version="2026-07-29.phase3.report.v1",
+            cache_version="2026-08-18.phase3.report.v3",
         ).assemble(sources)
 
     @staticmethod

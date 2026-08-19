@@ -126,6 +126,8 @@ export interface AgentPerformanceOverview {
     total_tokens: number | null;
     cache_read_tokens: number;
     cache_hit_rate: number | null;
+    /** Provider-reported cache outcomes; unreported samples are not treated as misses. */
+    cache_status_counts?: Partial<Record<'hit' | 'miss' | 'unsupported' | 'unreported', number>>;
     retry_rate: number | null;
     fallback_rate: number | null;
     timeout_rate: number | null;
@@ -180,4 +182,96 @@ export interface AgentTaskHealth {
     created_at: string | null;
     finished_at: string | null;
     last_model_event_at: string | null;
+}
+
+export type InterviewBudgetStageStatus = 'running' | 'succeeded' | 'failed' | 'skipped' | 'unknown';
+export type InterviewBudgetStageKind = 'context' | 'model' | 'other';
+
+export interface InterviewBudgetSourceUsage {
+    input_chars: number;
+    estimated_input_tokens: number | null;
+    raw_input_chars?: number;
+    estimated_raw_input_tokens?: number | null;
+}
+
+/** Safe aggregate for one report-generation stage; it never contains prompt or response text. */
+export interface InterviewBudgetStage {
+    stage: string;
+    kind?: InterviewBudgetStageKind;
+    status: InterviewBudgetStageStatus;
+    event_count: number;
+    attempt_count: number;
+    completed_count: number;
+    failed_count: number;
+    skipped_count: number;
+    retry_count: number;
+    fallback_count: number;
+    repair_count?: number;
+    usage_unavailable_count?: number;
+    input_chars: number;
+    estimated_input_tokens: number;
+    source_breakdown?: Record<string, InterviewBudgetSourceUsage>;
+    input_tokens: number | null;
+    output_tokens: number | null;
+    total_tokens: number | null;
+    duration_ms: number;
+    model_duration_ms: number;
+    elapsed_ms: number | null;
+    deadline_ms: number | null;
+    deadline_remaining_ms: number | null;
+    failure_types: string[];
+    primary_failure: string | null;
+    warning_types?: string[];
+    primary_warning?: string | null;
+    /** Safe source identifiers affected by context protection; never source text. */
+    context_protection_sources?: string[];
+    model_names: string[];
+    first_event_at: string | null;
+    last_event_at: string | null;
+}
+
+export interface InterviewBudgetTotals {
+    input_chars: number;
+    estimated_input_tokens: number;
+    context_input_chars?: number;
+    context_estimated_input_tokens?: number;
+    model_input_chars?: number;
+    model_estimated_input_tokens?: number;
+    input_tokens: number | null;
+    output_tokens: number | null;
+    total_tokens: number | null;
+    duration_ms: number;
+    model_duration_ms: number;
+    attempt_count: number;
+    completed_count: number;
+    failed_count: number;
+    skipped_count: number;
+    retry_count: number;
+    fallback_count: number;
+    timeout_count: number;
+    repair_count?: number;
+    usage_unavailable_count?: number;
+    context_protection_count?: number;
+}
+
+/** Owner-scoped report run budget snapshot used by the report-page live monitor. */
+export interface InterviewBudgetSnapshot {
+    run_id: string;
+    task_type: string;
+    agent_name: string;
+    status: string;
+    outcome: string;
+    stage: string | null;
+    is_active: boolean;
+    started_at: string | null;
+    finished_at: string | null;
+    elapsed_ms: number | null;
+    deadline_ms: number | null;
+    deadline_remaining_ms: number | null;
+    primary_failure: string | null;
+    failure_types: string[];
+    warning_types?: string[];
+    last_updated_at: string | null;
+    totals: InterviewBudgetTotals;
+    stages: InterviewBudgetStage[];
 }

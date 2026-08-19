@@ -90,6 +90,11 @@ export async function getAgentRun(runId: string): Promise<AgentRun> {
     return apiRequest<AgentRun>(`/api/agent-runs/${runId}`);
 }
 
+/** Reads one owner-scoped, safe token/duration snapshot for a report AgentRun. */
+export async function getAgentRunBudget(runId: string): Promise<import('./agentRunTypes').InterviewBudgetSnapshot> {
+    return apiRequest<import('./agentRunTypes').InterviewBudgetSnapshot>(`/api/agent-runs/${runId}/budget`);
+}
+
 /** Calls the backend for get agent run trace link; the shared API client supplies request identity and error normalization, and this helper returns the typed endpoint result. */
 export async function getAgentRunTraceLink(runId: string): Promise<{
     available: boolean;

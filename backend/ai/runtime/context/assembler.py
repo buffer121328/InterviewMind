@@ -13,10 +13,12 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from hashlib import sha256
 from math import ceil
+from time import perf_counter
 from typing import Any, Literal
 
 from ai.runtime.middleware import contains_prompt_injection
 from app.config import get_settings
+from observability.events import record_model_event
 
 TruncationStrategy = Literal["head", "tail", "head_tail", "sections"]
 SelectorPart = str | int
@@ -110,6 +112,21 @@ class AssembledContext:
                 item["name"]: item["included_chars"]
                 for item in self.source_audit
                 if item["included_chars"] > 0
+            },
+            "source_token_breakdown": {
+                item["name"]: item["estimated_included_tokens"]
+                for item in self.source_audit
+                if item["included_chars"] > 0
+            },
+            "source_raw_breakdown": {
+                item["name"]: item["selected_chars"]
+                for item in self.source_audit
+                if item["selected_chars"] > 0
+            },
+            "source_raw_token_breakdown": {
+                item["name"]: item["estimated_selected_tokens"]
+                for item in self.source_audit
+                if item["selected_chars"] > 0
             },
             "truncated_sources": list(self.truncated_sources),
             "input_fingerprint": self.content_fingerprint,
@@ -240,6 +257,7 @@ class ContextAssembler:
 
     def assemble(self, sources: list[ContextSource]) -> AssembledContext:
         """组装已校验来源；required 和高优先级来源先消费预算，低优先级不能挤占。"""
+        started_at = perf_counter()
         trusted_context: dict[str, Any] = {}
         visible_sections: list[str] = []
         audits_by_index: dict[int, dict[str, Any]] = {}
@@ -356,7 +374,7 @@ class ContextAssembler:
             for item in source_audit
             if item["included_chars"] > 0
         )
-        return AssembledContext(
+        assembled = AssembledContext(
             trusted_context=trusted_context,
             model_context=model_context,
             source_audit=source_audit,
@@ -370,3 +388,12 @@ class ContextAssembler:
             truncated_sources=truncated_sources,
             cache_version=self.cache_version,
         )
+        # 只写入字符数、估算 token 和耗时，供报告页定位上下文预算问题；不携带来源正文。
+        record_model_event(
+            event_type="context.assembled",
+            stage=f"{self.agent_name}.context_assembly",
+            status="completed",
+            duration_ms=max(0, int((perf_counter() - started_at) * 1000)),
+            **assembled.model_event_fields(),
+        )
+        return assembled

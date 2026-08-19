@@ -41,3 +41,13 @@ def test_request_schemas_apply_round_type_defaults():
 def test_start_request_schemas_exclude_direct_candidate_injection():
     assert "experience_questions" not in InterviewStartRequest.model_fields
     assert "experience_questions" not in VoiceStartRequest.model_fields
+
+
+def test_voice_start_request_accepts_report_mode_for_new_ui_sessions():
+    voice = VoiceStartRequest(
+        thread_id="voice-report-mode",
+        api_config={},
+        report_mode="standard",
+    )
+
+    assert voice.report_mode.value == "standard"

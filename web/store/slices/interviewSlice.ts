@@ -9,6 +9,7 @@ import { getUserId } from '@/hooks/useUserIdentity';
 import type { Message, ResumeInfo, InterviewProgress, InterviewSession, ExecutionPlanStep, InterviewType } from '../types';
 import { API_BASE_URL } from '@/lib/api/config';
 import type { JobContextSnapshot } from '@/lib/jobContextHandoff';
+import { DEFAULT_NEW_INTERVIEW_REPORT_MODE, type InterviewReportMode } from '@/lib/interviewReportMode';
 import { listAgentRunEvents } from '@/lib/api/agentRunEvents';
 import { parseStreamEvent, reduceExecutionPlanStreamEvent } from '@/lib/streamEvents';
 import { buildInteractiveExecutionPlan } from '@/lib/agentRunEvents';
@@ -32,6 +33,7 @@ export interface InterviewFlowState {
     maxQuestions: number;
     interviewType: InterviewType;
     questionBankCount: number;
+    reportMode: InterviewReportMode;
     showAbilityProfile: boolean;
     apiError: string | null;
     isVoiceMode: boolean;
@@ -53,6 +55,7 @@ export interface InterviewFlowActions {
     setMaxQuestions: (maxQuestions: number) => void;
     setInterviewType: (interviewType: InterviewType) => void;
     setQuestionBankCount: (count: number) => void;
+    setReportMode: (reportMode: InterviewReportMode) => void;
     uploadResume: (file: File) => Promise<void>;
     startInterview: (mode?: 'mock' | 'voice') => Promise<void>;
     sendMessage: (content: string) => Promise<void>;
@@ -105,6 +108,7 @@ export const createInterviewSlice = (set: SetState, get: GetState): InterviewFlo
     maxQuestions: 10,
     interviewType: 'tech_initial',
     questionBankCount: 0,
+    reportMode: DEFAULT_NEW_INTERVIEW_REPORT_MODE,
     showAbilityProfile: false,
     apiError: null,
     isVoiceMode: false,
@@ -128,6 +132,7 @@ export const createInterviewSlice = (set: SetState, get: GetState): InterviewFlo
     setQuestionBankCount: (count: number) => set((state) => ({
         questionBankCount: Math.max(0, Math.min(count, state.maxQuestions)),
     })),
+    setReportMode: (reportMode: InterviewReportMode) => set({ reportMode }),
 
     uploadResume: async (file: File) => {
         set({ isLoading: true });
@@ -161,7 +166,7 @@ export const createInterviewSlice = (set: SetState, get: GetState): InterviewFlo
 
     startInterview: async (mode: 'mock' | 'voice' = 'mock') => {
         const {
-            resume, jobDescription, companyInfo, jobContextSnapshot, maxQuestions, interviewType, questionBankCount,
+            resume, jobDescription, companyInfo, jobContextSnapshot, maxQuestions, interviewType, questionBankCount, reportMode,
             getApiConfigForRequest,
         } = get();
 
@@ -205,6 +210,7 @@ export const createInterviewSlice = (set: SetState, get: GetState): InterviewFlo
                 max_questions: maxQuestions,
                 status: 'active',
                 round_type: interviewType,
+                report_mode: reportMode,
                 source_job_id: jobContextSnapshot?.source_job_id,
                 job_context_snapshot: jobContextSnapshot ? { ...jobContextSnapshot, job_description: jobDescription } : null,
             },
@@ -242,6 +248,7 @@ export const createInterviewSlice = (set: SetState, get: GetState): InterviewFlo
             mode: 'mock',
             max_questions: maxQuestions,
             round_type: interviewType,
+            report_mode: reportMode,
             question_bank_count: Math.min(questionBankCount, maxQuestions),
             api_config: apiConfig,
         };

@@ -23,7 +23,7 @@ interface SatisfactionDialogProps {
 
 /**
  * 用户满意度反馈弹窗（受控组件）。
- * 星级可不选、方面可多选、说明可选填；"稍后再说"/右上角 X 仅关闭、不提交也不标记已询问。
+ * 星级可不选、方面可多选、说明可选填；"稍后再说"/右上角 X 仅关闭、不提交，是否标记已询问由调用方决定。
  */
 export function SatisfactionDialog({ open, onOpenChange, agentType, refKey, title, onSubmitted }: SatisfactionDialogProps) {
     const [rating, setRating] = useState<number | null>(null);

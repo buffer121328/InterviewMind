@@ -251,7 +251,6 @@ def test_provider_aware_factory_uses_native_deepseek_and_metadata(monkeypatch):
             created.update(kwargs)
 
     monkeypatch.setattr(llms, "ChatDeepSeek", FakeDeepSeek)
-    monkeypatch.setattr(llms, "get_langchain_callbacks", lambda: [])
     monkeypatch.setattr(llms, "validate_outbound_url", lambda *_args, **_kwargs: None)
 
     llm = llms.create_llm_from_config(
@@ -278,7 +277,6 @@ def test_provider_aware_factory_uses_native_qwen_for_dashscope(monkeypatch):
             created.update(kwargs)
 
     monkeypatch.setattr(llms, "ChatQwen", FakeQwen)
-    monkeypatch.setattr(llms, "get_langchain_callbacks", lambda: [])
     monkeypatch.setattr(llms, "validate_outbound_url", lambda *_args, **_kwargs: None)
 
     llm = llms.create_llm_from_config(
@@ -328,3 +326,55 @@ async def test_langfuse_span_output_keeps_model_events_summarized(monkeypatch):
     assert output["model_event_count"] == 2
     assert output["model_event_summary"]["interview"]["completed_count"] == 1
     assert "model_events" not in output
+
+
+def test_legacy_raw_model_io_setting_is_ignored_for_credential_safety(monkeypatch):
+    """The legacy setting cannot re-enable callbacks that see provider credentials."""
+    from observability.config import LangfuseConfig
+
+    monkeypatch.setenv("LANGFUSE_CAPTURE_MODEL_IO", "true")
+
+    assert LangfuseConfig.from_env().capture_model_io is False
+
+
+@pytest.mark.asyncio
+async def test_langfuse_can_export_safe_model_event_details_without_raw_callback(monkeypatch):
+    """The safe detail setting exposes diagnostics but never model credentials or source text."""
+    import observability
+
+    client = FakeLangfuseClient()
+    monkeypatch.setattr(observability, "_create_langfuse_client", lambda config: client)
+    monkeypatch.setenv("LANGFUSE_ENABLED", "true")
+    monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk-test")
+    monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-test")
+    monkeypatch.setenv("LANGFUSE_INCLUDE_MODEL_EVENTS_IN_SPAN_OUTPUT", "true")
+    monkeypatch.setenv("LANGFUSE_CAPTURE_MODEL_IO", "true")
+
+    async with observability.agent_observation(
+        name="agent-run",
+        agent_type="interview",
+        user_id="user-1",
+        session_id="session-1",
+        input_payload={"turn": 1},
+    ):
+        observability.record_model_event(
+            event_type="llm.request.completed",
+            model_name="safe-model",
+            model_provider="safe-provider",
+            stage="session_report.review.technical_depth",
+            input_tokens=120,
+            output_tokens=40,
+            total_tokens=160,
+            model_duration_ms=42,
+            source_breakdown={"qa_history": 500, "resume": 120},
+            api_key="must-not-be-exported",
+        )
+
+    output = client.observations[0][1].updates[0]["output"]
+    exported = output["model_events"][0]
+    assert exported["model_name"] == "safe-model"
+    assert exported["stage"] == "session_report.review.technical_depth"
+    assert exported["source_breakdown"] == {"qa_history": 500, "resume": 120}
+    assert "api_key" not in exported
+    assert "must-not-be-exported" not in repr(output)
+    assert observability.get_langchain_callbacks() == []

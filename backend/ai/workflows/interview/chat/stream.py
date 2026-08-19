@@ -111,6 +111,9 @@ class ChatStreamUseCases:
             raise ChatStreamBadRequest(message="面试已完成，不能继续提交回答")
 
         interview_plan = await self._session_repo.get_interview_plan(request.thread_id)
+        stable_context = await self._session_repo.get_interview_stable_context(
+            request.thread_id, user_id=user_id
+        )
         hydrated_messages = []
         for msg in session.messages:
             if not msg.content:
@@ -175,6 +178,10 @@ class ChatStreamUseCases:
             "round_type": round_type,
             "memory_context": memory_context,
             "memory_items": memory_items,
+            "turn_state": getattr(metadata, "turn_state", None) or {},
+            "expected_turn_state_version": int(
+                (getattr(metadata, "turn_state", None) or {}).get("state_version") or 0
+            ),
         }
         turn_digest = hashlib.sha256(
             request.message.strip().encode("utf-8")
@@ -216,6 +223,7 @@ class ChatStreamUseCases:
                     result_holder=result_holder,
                     emit_plan=False,
                     api_config=api_config,
+                    stable_context=stable_context,
                 ),
                 result=lambda: {
                     "thread_id": request.thread_id,
@@ -275,6 +283,7 @@ class ChatStreamUseCases:
         result_holder: dict[str, int] | None = None,
         emit_plan: bool = True,
         api_config: dict | None = None,
+        stable_context: dict | None = None,
     ) -> AsyncGenerator[str, None]:
         """生成流式响应事件，并把业务状态变化转换为前端可重放的 SSE 结构。
 
@@ -288,6 +297,7 @@ class ChatStreamUseCases:
             lease: 经过类型边界校验的 `lease`；其格式和可选值由参数类型及调用流程约束。
             run_id: 运行标识。
             api_config: 请求级模型配置；仅作为 runtime context 传入图，不进入 state/checkpoint。
+            stable_context: owner-scoped stable prefix snapshot, passed only via runtime context.
         """
         ai_response_content = ""
         final_question_index = inputs.get("current_question_index", 0)
@@ -295,7 +305,8 @@ class ChatStreamUseCases:
         emitted_steps = emitter.emitted_steps
         emitted_response_nodes: set[str] = set()
         plan = execution_plan()
-        response_persisted = False
+        responder_content = ""
+        responder_output: dict | None = None
         completion_requested = False
 
         try:
@@ -314,13 +325,9 @@ class ChatStreamUseCases:
                 event = emitter.run_event("run.stage.changed", "saving_answer")
                 if event:
                     yield event
-            await self._session_repo.add_message(
-                session_id=thread_id,
-                role="user",
-                content=user_message,
-                question_index=inputs.get("current_question_index", 0),
-                user_id=user_id,
-            )
+            # User/assistant messages, progress and turn state are committed
+            # together after a successful responder result. This prevents a
+            # retry from seeing a half-written turn.
             event = emitter.step_event("save_answer", "completed")
             if event:
                 yield event
@@ -338,7 +345,10 @@ class ChatStreamUseCases:
                 async for event in graph.astream_events(
                     inputs,
                     config=config,
-                    context=InterviewRuntimeContext(api_config=api_config),
+                    context=InterviewRuntimeContext(
+                        api_config=api_config,
+                        stable_context=stable_context,
+                    ),
                     version="v2",
                 ):
                     kind = event["event"]
@@ -351,20 +361,8 @@ class ChatStreamUseCases:
                             content = extract_latest_assistant_content(output)
                             if content:
                                 emitted_response_nodes.add(node_name)
-                                if node_name == "responder" and not response_persisted:
-                                    response_question_index = (
-                                        output.get("current_question_index", final_question_index)
-                                        if isinstance(output, dict)
-                                        else final_question_index
-                                    )
-                                    await self._session_repo.add_message(
-                                        session_id=thread_id,
-                                        role="assistant",
-                                        content=content,
-                                        question_index=response_question_index,
-                                        user_id=user_id,
-                                    )
-                                    response_persisted = True
+                                if node_name == "responder":
+                                    responder_content = content
                                 step = emitter.step_event("analyze_answer", "completed")
                                 if step:
                                     yield step
@@ -376,6 +374,7 @@ class ChatStreamUseCases:
                                 response = ChatStreamResponse(type="token", content=visible_content)
                                 yield f"data: {response.model_dump_json()}\n\n"
                         if node_name == "responder" and output and isinstance(output, dict):
+                            responder_output = output
                             if "current_question_index" in output:
                                 final_question_index = output["current_question_index"]
                             if "question_count" in output:
@@ -385,11 +384,6 @@ class ChatStreamUseCases:
                                 step = emitter.step_event("update_progress", "running")
                                 if step:
                                     yield step
-                                await self._session_repo.update_session(
-                                    session_id=thread_id,
-                                    metadata_updates={"question_count": output["question_count"]},
-                                    user_id=user_id,
-                                )
                                 response = ChatStreamResponse(
                                     type="state_update",
                                     content=json.dumps({
@@ -406,22 +400,29 @@ class ChatStreamUseCases:
                     event = emitter.run_event("run.stage.changed", "saving_response")
                     if event:
                         yield event
-                if not response_persisted:
-                    await self._session_repo.add_message(
-                        session_id=thread_id,
-                        role="assistant",
-                        content=ai_response_content,
-                        question_index=final_question_index,
-                        user_id=user_id,
-                    )
-                await write_memory_background(
-                    thread_id,
-                    user_message,
-                    ai_response_content,
-                    inputs,
-                    user_id,
-                    api_config,
+                if not responder_output:
+                    raise RuntimeError("面试回复未返回可持久化的回合状态")
+                commit_result = await self._session_repo.commit_interview_turn(
+                    session_id=thread_id,
+                    user_id=user_id,
+                    user_content=user_message,
+                    assistant_content=responder_content or ai_response_content,
+                    user_question_index=inputs.get("current_question_index", 0),
+                    assistant_question_index=final_question_index,
+                    question_count=responder_output.get("question_count", final_question_index),
+                    turn_state=responder_output.get("turn_state") or {},
+                    expected_turn_state_version=inputs.get("expected_turn_state_version", 0),
+                    run_id=run_id,
                 )
+                if commit_result.get("committed"):
+                    await write_memory_background(
+                        thread_id,
+                        user_message,
+                        ai_response_content,
+                        inputs,
+                        user_id,
+                        api_config,
+                    )
 
             if completion_requested:
                 await handle_interview_complete(

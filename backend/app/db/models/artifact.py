@@ -17,6 +17,8 @@ class ArtifactModel(Base):
     user_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
     source_type: Mapped[str] = mapped_column(String(64), nullable=False)
     source_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    artifact_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="default")
+    report_source_version: Mapped[str] = mapped_column(String(128), nullable=False, default="legacy")
     agent_run_id: Mapped[str | None] = mapped_column(String, nullable=True)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     format: Mapped[str] = mapped_column(String(16), nullable=False)
@@ -28,7 +30,15 @@ class ArtifactModel(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
     __table_args__ = (
-        UniqueConstraint("user_id", "source_type", "source_id", "format", name="uq_artifact_source_format"),
+        UniqueConstraint(
+            "user_id",
+            "source_type",
+            "source_id",
+            "format",
+            "artifact_mode",
+            "report_source_version",
+            name="uq_artifact_source_format_mode_version",
+        ),
         Index("idx_artifacts_owner_source", "user_id", "source_type", "source_id"),
         Index("idx_artifacts_owner_run", "user_id", "agent_run_id"),
     )

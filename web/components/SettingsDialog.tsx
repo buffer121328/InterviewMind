@@ -273,6 +273,8 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                                     onSetFastModel={store.setFastModel}
                                     onToggleReasoningPoolModel={store.toggleReasoningPoolModel}
                                     onToggleFastPoolModel={store.toggleFastPoolModel}
+                                    onSetTechnicalDepthModel={store.setTechnicalDepthModel}
+                                    onSetCommunicationModel={store.setCommunicationModel}
                                     onSetGeneralModel={store.setGeneralModel}
                                     onSetMatchAnalystModel={store.setMatchAnalystModel}
                                     onSetContentWriterModel={store.setContentWriterModel}

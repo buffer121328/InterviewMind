@@ -7,6 +7,8 @@ RUN apt-get update && apt-get install -y \
     gcc \
     libpq-dev \
     curl \
+    fonts-noto-cjk \
+    poppler-utils \
     && rm -rf /var/lib/apt/lists/* \
     && pip install --no-cache-dir uv
 

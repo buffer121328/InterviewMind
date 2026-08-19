@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field, model_validator
 
 from app.config import get_settings
+from app.domain.interview_report_modes import InterviewReportMode
 from app.domain.interview_rounds import resolve_max_questions, resolve_round_type
 from app.schemas.jobs.job_context import JobContextSnapshot
 
@@ -46,6 +47,7 @@ class VoiceStartRequest(BaseModel):
     job_context_snapshot: Optional[JobContextSnapshot] = Field(default=None, description="来源岗位与实际编辑上下文快照")
     max_questions: int | None = Field(default=None, ge=1, le=20, description="最大问题数量；不传时按面试类型默认")
     round_type: str = Field(default="tech_initial", description="面试类型")
+    report_mode: InterviewReportMode = Field(default=InterviewReportMode.DEEP, description="报告模式；旧调用缺省为 deep")
     question_bank_count: int = Field(default=0, ge=0, le=20, description="从个人题库抽取的题数")
 
     @model_validator(mode="after")

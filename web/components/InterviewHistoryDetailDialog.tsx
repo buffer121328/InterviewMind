@@ -11,6 +11,7 @@ import {
     Download,
     FileCode2,
     FileText,
+    Gauge,
     Loader2,
     MessagesSquare,
     RefreshCw,
@@ -31,6 +32,12 @@ import { getSessionDetail, type SessionDetail } from '@/lib/api/sessions';
 import { getSessionInterviewReport, saveSessionReportQuestions, type SessionMarkdownReport } from '@/lib/api/interviewReport';
 import { normalizeStructuredInterviewReport } from '@/lib/interviewReportStructured';
 import {
+    getInterviewReportDisplayPolicy,
+    getInterviewReportStatusLabel,
+    normalizeInterviewReportMode,
+    type InterviewReportMode,
+} from '@/lib/interviewReportMode';
+import {
     createInterviewReportRun,
     listAgentRuns,
     pollAgentRun,
@@ -39,8 +46,10 @@ import {
 import { downloadArtifact, exportArtifact, type ArtifactFormat } from '@/lib/api/artifacts';
 import { getRequestApiConfig } from '@/store/interviewFacade';
 import { InterviewHistoryEvaluationPanel } from '@/components/evaluations/InterviewHistoryEvaluationPanel';
+import { InterviewBudgetMonitor } from '@/components/interview/InterviewBudgetMonitor';
+import { summarizeCompanySeriesProfile } from '@/lib/companySeriesProfile';
 
-type InterviewDialogTab = 'overview' | 'dialogue' | 'report' | 'evaluation';
+type InterviewDialogTab = 'overview' | 'dialogue' | 'report' | 'budget' | 'evaluation';
 
 interface InterviewHistoryDetailDialogProps {
     sessionId: string | null;
@@ -65,6 +74,22 @@ function formatDate(value?: string | null) {
     if (!value) return '-';
     const date = new Date(value);
     return Number.isNaN(date.getTime()) ? value : date.toLocaleString('zh-CN');
+}
+
+/** Maps safe server-side degradation categories to an explanation without exposing provider errors. */
+function getStandardReportQualityMessage(report: SessionMarkdownReport): string {
+    if (report.report_quality === 'degraded_evidence_only') {
+        const reason = report.degradation_reason === 'model_timeout'
+            ? '模型评审在时限内未完成'
+            : report.degradation_reason === 'output_contract_failure'
+                ? '模型返回结果未通过格式校验'
+                : '模型评审暂不可用';
+        return `此 PDF 为证据受限结果：${reason}。它只基于本场问答和确定性证据生成，不包含未完成的模型评分或推断。`;
+    }
+    if (report.report_quality === 'unknown_legacy') {
+        return '这是历史生成的 PDF，系统未保存当时的模型评审状态；请重新生成以获得明确的质量标识和新版排版。';
+    }
+    return '模型评审已完成。标准模式不展示结构化评分、问答证据、Markdown 或 HTML。';
 }
 
 /** Keeps legacy completed sessions consistent with the single approved closing sentence. */
@@ -106,6 +131,7 @@ export function InterviewHistoryDetailDialog({
 }: InterviewHistoryDetailDialogProps) {
     const [session, setSession] = useState<SessionDetail | null>(null);
     const [report, setReport] = useState<SessionMarkdownReport | null>(null);
+    const [activeReportMode, setActiveReportMode] = useState<InterviewReportMode>('deep');
     const [reportView, setReportView] = useState<'structured' | 'markdown'>('structured');
     const [selectedQuestionIndices, setSelectedQuestionIndices] = useState<number[]>([]);
     const [savingQuestions, setSavingQuestions] = useState(false);
@@ -116,19 +142,19 @@ export function InterviewHistoryDetailDialog({
     const [error, setError] = useState<string | null>(null);
     const pollAbortRef = useRef<AbortController | null>(null);
 
-    /** Reloads the persisted Markdown after a report task completes. */
-    const loadReport = useCallback(async () => {
+    /** Reloads one persisted report mode after its recoverable task reaches a terminal state. */
+    const loadReport = useCallback(async (reportMode: InterviewReportMode) => {
         if (!sessionId) return;
-        setReport(await getSessionInterviewReport(sessionId));
+        setReport(await getSessionInterviewReport(sessionId, reportMode));
     }, [sessionId]);
 
-    /** Follows one recoverable report run and refreshes the Markdown at its terminal state. */
-    const monitorRun = useCallback(async (runId: string, signal: AbortSignal) => {
+    /** Follows one recoverable report run and refreshes the matching persisted report mode. */
+    const monitorRun = useCallback(async (runId: string, reportMode: InterviewReportMode, signal: AbortSignal) => {
         try {
             const completed = await pollAgentRun(runId, setReportRun, signal);
             setReportRun(completed);
             if (completed.status === 'succeeded') {
-                await loadReport();
+                await loadReport(reportMode);
                 setError(null);
             } else {
                 setError(completed.error_message || '面试报告任务执行失败');
@@ -148,29 +174,32 @@ export function InterviewHistoryDetailDialog({
         const timer = window.setTimeout(() => {
             setLoading(true);
             setError(null);
-            void Promise.all([
-            getSessionDetail(sessionId),
-            getSessionInterviewReport(sessionId),
-            listAgentRuns({ taskType: 'interview_report', sessionId, limit: 1 })
-                .catch(() => ({ runs: [], total: 0, limit: 1, offset: 0 })),
-        ]).then(([sessionResult, reportResult, runsResponse]) => {
-            if (cancelled) return;
-            if (!sessionResult) {
-                setError('无法读取该场面试记录，请稍后重试');
-                return;
-            }
-            const latestRun = runsResponse.runs[0] || null;
-            setSession(sessionResult);
-            setReport(reportResult);
-            setReportRun(latestRun);
-            if (latestRun && ACTIVE_RUN_STATUSES.has(latestRun.status)) {
-                setSubmitting(true);
-                void monitorRun(latestRun.run_id, controller.signal).finally(() => {
-                    if (!controller.signal.aborted) setSubmitting(false);
-                });
-            }
-        }).catch(cause => {
-            if (!cancelled) setError(cause instanceof Error ? cause.message : '加载面试详情失败');
+            void getSessionDetail(sessionId).then(async (sessionResult) => {
+                if (cancelled) return;
+                if (!sessionResult) {
+                    setError('无法读取该场面试记录，请稍后重试');
+                    return;
+                }
+                const reportMode = normalizeInterviewReportMode(sessionResult.metadata.report_mode);
+                setActiveReportMode(reportMode);
+                const [reportResult, runsResponse] = await Promise.all([
+                    getSessionInterviewReport(sessionId, reportMode),
+                    listAgentRuns({ taskType: 'interview_report', sessionId, limit: 1 })
+                        .catch(() => ({ runs: [], total: 0, limit: 1, offset: 0 })),
+                ]);
+                if (cancelled) return;
+                const latestRun = runsResponse.runs[0] || null;
+                setSession(sessionResult);
+                setReport(reportResult);
+                setReportRun(latestRun);
+                if (latestRun && ACTIVE_RUN_STATUSES.has(latestRun.status)) {
+                    setSubmitting(true);
+                    void monitorRun(latestRun.run_id, reportMode, controller.signal).finally(() => {
+                        if (!controller.signal.aborted) setSubmitting(false);
+                    });
+                }
+            }).catch(cause => {
+                if (!cancelled) setError(cause instanceof Error ? cause.message : '加载面试详情失败');
             }).finally(() => {
                 if (!cancelled) setLoading(false);
             });
@@ -183,26 +212,31 @@ export function InterviewHistoryDetailDialog({
         };
     }, [monitorRun, open, sessionId]);
 
-    /** Starts the single AgentRun that persists both structured report artifacts. */
-    const handleGenerateReport = useCallback(async () => {
+    /** Starts the explicitly selected report-mode AgentRun without retaining API configuration in report state. */
+    const handleGenerateReport = useCallback(async (targetMode: InterviewReportMode) => {
         if (!sessionId || (reportRun && ACTIVE_RUN_STATUSES.has(reportRun.status))) return;
         const apiConfig = getRequestApiConfig();
         if (!apiConfig) {
             setError('请先在设置中配置 API Key');
             return;
         }
+        setActiveReportMode(targetMode);
         setSubmitting(true);
         setError(null);
         pollAbortRef.current?.abort();
         const controller = new AbortController();
         pollAbortRef.current = controller;
         try {
-            const created = await createInterviewReportRun({ session_id: sessionId, api_config: apiConfig });
+            const created = await createInterviewReportRun({
+                session_id: sessionId,
+                report_mode: targetMode,
+                api_config: apiConfig,
+            });
             if ('run_id' in created) {
                 setReportRun(created);
-                await monitorRun(created.run_id, controller.signal);
+                await monitorRun(created.run_id, targetMode, controller.signal);
             } else {
-                await loadReport();
+                await loadReport(targetMode);
             }
         } catch (cause) {
             setError(cause instanceof Error ? cause.message : '生成面试报告失败');
@@ -211,21 +245,37 @@ export function InterviewHistoryDetailDialog({
         }
     }, [loadReport, monitorRun, reportRun, sessionId]);
 
-    /** Generates and downloads an owner-scoped private HTML or PDF artifact. */
+    /** Downloads only the persisted artifact permitted by the displayed report mode. */
     const handleDownload = useCallback(async (format: ArtifactFormat) => {
         if (!sessionId || !report?.success) return;
         setExportingFormat(format);
         setError(null);
         try {
-            const artifact = await exportArtifact('interview_report', sessionId, format);
-            await downloadArtifact(artifact);
+            if (report.report_mode === 'standard' && format === 'pdf' && report.pdf_artifact) {
+                await downloadArtifact({
+                    id: report.pdf_artifact.id,
+                    source_type: 'interview_report',
+                    source_id: sessionId,
+                    title: report.pdf_artifact.title,
+                    format: 'pdf',
+                    mime_type: report.pdf_artifact.mime_type,
+                    size_bytes: report.pdf_artifact.size_bytes,
+                    created_at: report.pdf_artifact.created_at,
+                    download_url: report.pdf_artifact.download_url,
+                });
+            } else {
+                const artifact = await exportArtifact('interview_report', sessionId, format);
+                await downloadArtifact(artifact);
+            }
         } catch (cause) {
-            setError(cause instanceof Error ? cause.message : '下载面试报告失败');
+            setError(cause instanceof Error ? cause.message : '下载报告失败');
         } finally {
             setExportingFormat(null);
         }
-    }, [report?.success, sessionId]);
+    }, [report, sessionId]);
 
+    const reportMode = activeReportMode;
+    const reportPolicy = getInterviewReportDisplayPolicy(reportMode);
     const structuredReport = useMemo(() => normalizeStructuredInterviewReport(report), [report]);
     const recommendedQuestions = structuredReport.weaknessReport.recommendedQuestions;
     const handleSaveQuestions = useCallback(async () => {
@@ -263,10 +313,11 @@ export function InterviewHistoryDetailDialog({
                 ) : session ? (
                     <Tabs defaultValue={initialTab} className="min-h-0 flex-1 gap-0">
                         <div className="border-b border-gray-100 px-6 py-3">
-                            <TabsList className="grid w-full max-w-2xl grid-cols-4">
+                            <TabsList className="grid w-full max-w-3xl grid-cols-5">
                                 <TabsTrigger value="overview"><FileText />概览</TabsTrigger>
                                 <TabsTrigger value="dialogue"><MessagesSquare />面试问答</TabsTrigger>
                                 <TabsTrigger value="report"><BarChart3 />面试报告</TabsTrigger>
+                                <TabsTrigger value="budget"><Gauge />预算监测</TabsTrigger>
                                 <TabsTrigger value="evaluation"><ShieldCheck />加入评测集</TabsTrigger>
                             </TabsList>
                         </div>
@@ -280,6 +331,26 @@ export function InterviewHistoryDetailDialog({
                                         <InfoCard label="轮次" value={`第 ${session.metadata.round_index || 1} 轮`} />
                                         <InfoCard label="已回答" value={`${answeredCount} 题`} />
                                     </div>
+                                    {session.metadata.round_index === 3 && (
+                                        <section className="rounded-xl border border-teal-200 bg-teal-50 p-5">
+                                            <h3 className="mb-2 flex items-center gap-2 font-semibold text-teal-950">
+                                                <BarChart3 className="h-4 w-4 text-teal-700" />公司三轮总画像
+                                            </h3>
+                                            {summarizeCompanySeriesProfile(report?.company_profile) ? (() => {
+                                                const profile = summarizeCompanySeriesProfile(report?.company_profile)!;
+                                                return (
+                                                    <div className="space-y-3 text-sm text-teal-950">
+                                                        <p>已基于 {profile.sourceRoundCount || 3} 轮面试汇总。{profile.overallAssessment || '综合评价已生成。'}</p>
+                                                        {profile.strengths.length ? <p><strong>跨轮优势：</strong>{profile.strengths.join('、')}</p> : null}
+                                                        {profile.weaknesses.length ? <p><strong>改进重点：</strong>{profile.weaknesses.join('、')}</p> : null}
+                                                        <p className="text-xs text-teal-800">这是同一公司的三轮汇总；“成长档案”会跨多个公司系列，需要单独生成。</p>
+                                                    </div>
+                                                );
+                                            })() : (
+                                                <p className="text-sm leading-6 text-teal-900">三轮单场画像齐备后，系统会在第三轮报告生成时汇总公司总画像；若刚完成，请先生成或刷新本轮报告。</p>
+                                            )}
+                                        </section>
+                                    )}
                                     <div className="grid gap-4 lg:grid-cols-2">
                                         <section className="rounded-xl border border-gray-200 bg-white p-5">
                                             <h3 className="mb-4 flex items-center gap-2 font-semibold text-gray-900">
@@ -313,6 +384,91 @@ export function InterviewHistoryDetailDialog({
                             </ScrollArea>
                         </TabsContent>
 
+                        <TabsContent value="report" className="min-h-0 flex-1 overflow-hidden">
+                            <div className="flex h-full min-h-0 flex-col">
+                                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 px-6 py-3">
+                                    <div>
+                                        <div className="flex items-center gap-2">
+                                            <p className="text-sm font-medium text-gray-900">{reportMode === 'standard' ? '标准面试报告' : '结构化面试复盘'}</p>
+                                            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">{reportPolicy.label} · {generating ? `生成中（${reportRun?.stage || '处理中'}）` : getInterviewReportStatusLabel(report?.report_mode === reportMode ? report.status : undefined)}</span>
+                                        </div>
+                                        <p className="text-xs text-gray-500">
+                                            {report?.generated_at ? `更新时间：${formatDate(report.generated_at)}` : reportPolicy.description}
+                                        </p>
+                                    </div>
+                                    <div className="flex flex-wrap gap-2">
+                                        <Button variant="outline" size="sm" onClick={() => void handleGenerateReport(reportMode)} disabled={generating || session.metadata.status !== 'completed'}>
+                                            {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                                            {report?.success ? `重新生成${reportPolicy.label}` : `生成${reportPolicy.label}`}
+                                        </Button>
+                                        {reportPolicy.showDeepGenerationAction && <Button variant="outline" size="sm" onClick={() => void handleGenerateReport('deep')} disabled={generating || session.metadata.status !== 'completed'}><BarChart3 className="h-4 w-4" />生成深度报告</Button>}
+                                        {report?.success && reportPolicy.showMarkdown && <Button variant="outline" size="sm" onClick={() => setReportView(value => value === 'structured' ? 'markdown' : 'structured')}>{reportView === 'structured' ? '查看 Markdown' : '查看结构化复盘'}</Button>}
+                                        {report?.success && reportPolicy.showRecommendedQuestions && selectedQuestionIndices.length > 0 && <Button variant="outline" size="sm" onClick={() => void handleSaveQuestions()} disabled={savingQuestions}>{savingQuestions ? '保存中...' : '加入题库'}</Button>}
+                                        {reportPolicy.showHtmlDownload && <Button variant="outline" size="sm" onClick={() => void handleDownload('html')} disabled={!report?.success || exportingFormat !== null}>
+                                            {exportingFormat === 'html' ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileCode2 className="h-4 w-4" />}下载 HTML
+                                        </Button>}
+                                        {reportPolicy.showPdf && <Button variant="outline" size="sm" onClick={() => void handleDownload('pdf')} disabled={!report?.success || exportingFormat !== null || (reportMode === 'standard' && !report?.pdf_artifact)}>
+                                            {exportingFormat === 'pdf' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}下载 PDF
+                                        </Button>}
+                                    </div>
+                                </div>
+                                {error && (
+                                    <div role="alert" className="mx-6 mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
+                                )}
+                                <ScrollArea className="min-h-0 flex-1 bg-slate-100/70">
+                                    <div className="space-y-1 pt-1">
+                                        {report?.success && reportMode === 'standard' ? (
+                                            <div className="mx-auto my-6 w-[min(100%,720px)] px-4">
+                                                <ReportSection title="标准报告 PDF">
+                                                    <div className="flex flex-wrap items-center justify-between gap-4">
+                                                        <div>
+                                                            <p>标准报告已按当前面试记录生成，可下载 PDF 查看完整复盘。</p>
+                                                            <p className={`mt-2 text-xs ${report.report_quality === 'degraded_evidence_only' ? 'text-amber-700' : 'text-slate-500'}`}>{getStandardReportQualityMessage(report)}</p>
+                                                        </div>
+                                                        <Button onClick={() => void handleDownload('pdf')} disabled={!report.pdf_artifact || exportingFormat !== null}>
+                                                            {exportingFormat === 'pdf' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}下载 PDF
+                                                        </Button>
+                                                    </div>
+                                                </ReportSection>
+                                            </div>
+                                        ) : report?.success && report.markdown ? (
+                                            reportView === 'markdown' ? (
+                                                <article className="prose prose-slate mx-auto my-6 min-h-[297mm] w-[min(100%,210mm)] max-w-none bg-white px-8 py-10 shadow-sm sm:px-14"><ReactMarkdown>{report.markdown}</ReactMarkdown></article>
+                                            ) : (
+                                                <div className="mx-auto my-6 w-[min(100%,900px)] space-y-5 px-4">
+                                                    <ReportSection title="综合结论"><p>{structuredReport.profile.overall_assessment || '暂无综合结论'}</p><p className="mt-2 text-sm text-teal-700">{structuredReport.profile.recommendation}</p></ReportSection>
+                                                    <ReportSection title="能力画像"><div className="grid gap-3 sm:grid-cols-2">{Object.entries(structuredReport.profile.dimensions).map(([key, value]) => <div key={key} className="rounded-lg bg-slate-50 p-3"><strong>{key}</strong><p className="text-sm">评分：{String(value.score ?? '-')}</p><p className="text-xs text-slate-500">{String(value.evidence ?? value.reason ?? '')}</p></div>)}</div></ReportSection>
+                                                    <ReportSection title="重点短板">{structuredReport.weaknessReport.weaknessCategories.map((item, index) => <div key={index} className="mb-2 rounded-lg border border-amber-200 bg-amber-50 p-3"><strong>{String(item.category || '未分类')}</strong><p className="text-sm">{String(item.description || '')}</p></div>)}</ReportSection>
+                                                    <ReportSection title="典型问答">{structuredReport.weaknessReport.questionFailures.map((item, index) => <div key={index} className="mb-3"><strong>{String(item.question || `问题 ${index + 1}`)}</strong><p className="text-sm text-rose-700">{String(item.issue || '')}</p><p className="text-sm text-slate-600">{String(item.better_example || '')}</p></div>)}</ReportSection>
+                                                    <ReportSection title="逐题证据">{structuredReport.weaknessReport.questionEvidence.map((item, index) => <div key={index} className="mb-2 rounded-lg bg-slate-50 p-3"><strong>{String(item.question_id || `Q${index + 1}`)} · {String(item.question_summary || '')}</strong><p className="text-xs text-slate-500">缺失证据：{Array.isArray(item.missing_evidence) ? item.missing_evidence.join('、') : '-'}</p></div>)}</ReportSection>
+                                                    <ReportSection title="改进行动"><ol className="list-decimal space-y-2 pl-5">{structuredReport.weaknessReport.improvementActions.map((item, index) => <li key={index}>{String(item.action || '')} <span className="text-xs text-slate-400">{String(item.estimated_effort || '')}</span></li>)}</ol></ReportSection>
+                                                    <ReportSection title="推荐练习题"><div className="space-y-2">{recommendedQuestions.map((question, index) => <label key={index} className="flex gap-3 rounded-lg border border-slate-200 bg-white p-3"><input type="checkbox" checked={selectedQuestionIndices.includes(index)} onChange={() => setSelectedQuestionIndices(current => current.includes(index) ? current.filter(value => value !== index) : [...current, index])} /><span>{question}</span></label>)}</div></ReportSection>
+                                                </div>
+                                            )
+                                        ) : (
+                                            <div className="flex min-h-80 flex-col items-center justify-center p-10 text-center">
+                                                <BarChart3 className="h-10 w-10 text-gray-300" />
+                                                <h3 className="mt-4 font-medium text-gray-800">本场面试尚无报告</h3>
+                                                <p className="mt-1 max-w-md text-sm text-gray-500">{report?.message || '面试完成后可生成统一报告。'}</p>
+                                            </div>
+                                        )}
+                                    </div>
+                                </ScrollArea>
+                            </div>
+                        </TabsContent>
+
+                        <TabsContent value="budget" className="min-h-0 flex-1 overflow-hidden">
+                            <ScrollArea className="h-full bg-slate-100/70">
+                                <div className="pt-6">
+                                    <InterviewBudgetMonitor
+                                        runId={reportRun?.run_id || null}
+                                        sessionId={session.session_id}
+                                        active={Boolean(reportRun && ACTIVE_RUN_STATUSES.has(reportRun.status))}
+                                    />
+                                </div>
+                            </ScrollArea>
+                        </TabsContent>
+
                         <TabsContent value="evaluation" className="min-h-0 flex-1 overflow-hidden">
                             <ScrollArea className="h-full">
                                 <InterviewHistoryEvaluationPanel
@@ -321,59 +477,6 @@ export function InterviewHistoryDetailDialog({
                                     onOpenEvaluationCenter={onOpenEvaluationCenter}
                                 />
                             </ScrollArea>
-                        </TabsContent>
-
-                        <TabsContent value="report" className="min-h-0 flex-1 overflow-hidden">
-                            <div className="flex h-full min-h-0 flex-col">
-                                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 px-6 py-3">
-                                    <div>
-                                        <p className="text-sm font-medium text-gray-900">结构化面试复盘</p>
-                                        <p className="text-xs text-gray-500">
-                                            {report?.generated_at ? `更新时间：${formatDate(report.generated_at)}` : '能力画像与短板地图将合并生成'}
-                                        </p>
-                                    </div>
-                                    <div className="flex flex-wrap gap-2">
-                                        <Button variant="outline" size="sm" onClick={() => void handleGenerateReport()} disabled={generating || session.metadata.status !== 'completed'}>
-                                            {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-                                            {report?.success ? '重新生成' : '生成报告'}
-                                        </Button>
-                                        {report?.success && <Button variant="outline" size="sm" onClick={() => setReportView(value => value === 'structured' ? 'markdown' : 'structured')}>{reportView === 'structured' ? '查看 Markdown' : '查看结构化复盘'}</Button>}
-                                        {report?.success && selectedQuestionIndices.length > 0 && <Button variant="outline" size="sm" onClick={() => void handleSaveQuestions()} disabled={savingQuestions}>{savingQuestions ? '保存中...' : '加入题库'}</Button>}
-                                        <Button variant="outline" size="sm" onClick={() => void handleDownload('html')} disabled={!report?.success || exportingFormat !== null}>
-                                            {exportingFormat === 'html' ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileCode2 className="h-4 w-4" />}下载 HTML
-                                        </Button>
-                                        <Button variant="outline" size="sm" onClick={() => void handleDownload('pdf')} disabled={!report?.success || exportingFormat !== null}>
-                                            {exportingFormat === 'pdf' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}下载 PDF
-                                        </Button>
-                                    </div>
-                                </div>
-                                {error && (
-                                    <div role="alert" className="mx-6 mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
-                                )}
-                                <ScrollArea className="min-h-0 flex-1 bg-slate-100/70">
-                                    {report?.success && report.markdown ? (
-                                        reportView === 'markdown' ? (
-                                            <article className="prose prose-slate mx-auto my-6 min-h-[297mm] w-[min(100%,210mm)] max-w-none bg-white px-8 py-10 shadow-sm sm:px-14"><ReactMarkdown>{report.markdown}</ReactMarkdown></article>
-                                        ) : (
-                                            <div className="mx-auto my-6 w-[min(100%,900px)] space-y-5 px-4">
-                                                <ReportSection title="综合结论"><p>{structuredReport.profile.overall_assessment || '暂无综合结论'}</p><p className="mt-2 text-sm text-teal-700">{structuredReport.profile.recommendation}</p></ReportSection>
-                                                <ReportSection title="能力画像"><div className="grid gap-3 sm:grid-cols-2">{Object.entries(structuredReport.profile.dimensions).map(([key, value]) => <div key={key} className="rounded-lg bg-slate-50 p-3"><strong>{key}</strong><p className="text-sm">评分：{String(value.score ?? '-')}</p><p className="text-xs text-slate-500">{String(value.evidence ?? value.reason ?? '')}</p></div>)}</div></ReportSection>
-                                                <ReportSection title="重点短板">{structuredReport.weaknessReport.weaknessCategories.map((item, index) => <div key={index} className="mb-2 rounded-lg border border-amber-200 bg-amber-50 p-3"><strong>{String(item.category || '未分类')}</strong><p className="text-sm">{String(item.description || '')}</p></div>)}</ReportSection>
-                                                <ReportSection title="典型问答">{structuredReport.weaknessReport.questionFailures.map((item, index) => <div key={index} className="mb-3"><strong>{String(item.question || `问题 ${index + 1}`)}</strong><p className="text-sm text-rose-700">{String(item.issue || '')}</p><p className="text-sm text-slate-600">{String(item.better_example || '')}</p></div>)}</ReportSection>
-                                                <ReportSection title="逐题证据">{structuredReport.weaknessReport.questionEvidence.map((item, index) => <div key={index} className="mb-2 rounded-lg bg-slate-50 p-3"><strong>{String(item.question_id || `Q${index + 1}`)} · {String(item.question_summary || '')}</strong><p className="text-xs text-slate-500">缺失证据：{Array.isArray(item.missing_evidence) ? item.missing_evidence.join('、') : '-'}</p></div>)}</ReportSection>
-                                                <ReportSection title="改进行动"><ol className="list-decimal space-y-2 pl-5">{structuredReport.weaknessReport.improvementActions.map((item, index) => <li key={index}>{String(item.action || '')} <span className="text-xs text-slate-400">{String(item.estimated_effort || '')}</span></li>)}</ol></ReportSection>
-                                                <ReportSection title="推荐练习题"><div className="space-y-2">{recommendedQuestions.map((question, index) => <label key={index} className="flex gap-3 rounded-lg border border-slate-200 bg-white p-3"><input type="checkbox" checked={selectedQuestionIndices.includes(index)} onChange={() => setSelectedQuestionIndices(current => current.includes(index) ? current.filter(value => value !== index) : [...current, index])} /><span>{question}</span></label>)}</div></ReportSection>
-                                            </div>
-                                        )
-                                    ) : (
-                                        <div className="flex min-h-80 flex-col items-center justify-center p-10 text-center">
-                                            <BarChart3 className="h-10 w-10 text-gray-300" />
-                                            <h3 className="mt-4 font-medium text-gray-800">本场面试尚无报告</h3>
-                                            <p className="mt-1 max-w-md text-sm text-gray-500">{report?.message || '面试完成后可生成统一报告。'}</p>
-                                        </div>
-                                    )}
-                                </ScrollArea>
-                            </div>
                         </TabsContent>
                     </Tabs>
                 ) : null}
