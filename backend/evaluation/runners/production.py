@@ -195,6 +195,21 @@ class CatalogEvaluationView:
                 runner=_run_interview_turn_case,
                 required_trace_categories=("runtime", "model"),
             ),
+            "resume_optimizer": EvaluationCaseAdapterSpec(
+                task_type="resume_optimize",
+                runner=_run_resume_case,
+                required_trace_categories=("runtime", "model"),
+            ),
+            "resume_analyzer": EvaluationCaseAdapterSpec(
+                task_type="resume_workspace",
+                runner=_run_resume_case,
+                required_trace_categories=("runtime", "model"),
+            ),
+            "resume_generator": EvaluationCaseAdapterSpec(
+                task_type="resume_generation",
+                runner=_run_resume_case,
+                required_trace_categories=("runtime", "model"),
+            ),
         })
 
     def resolve(self, capability_name: str) -> CatalogEvaluationEntry:
@@ -340,6 +355,50 @@ async def _run_interview_turn_case(
         raise
 
 
+async def _run_resume_case(
+    payload: dict[str, Any],
+    context: EvaluationExecutionContext,
+    trace: EvaluationTraceCollector,
+    production_adapter: Any,
+) -> Any:
+    """通过同一 Catalog adapter 执行有隔离分支的简历评测案例。"""
+
+    from ai.runtime.harness.contracts import DeferredExecutionResult
+    from ai.workflows.agent_runs.catalog import get_evaluation_driver
+
+    adapter_key = getattr(production_adapter, "key", None)
+    expected = {
+        "resume_optimizer": "resume_optimize",
+        "resume_analyzer": "resume_workspace",
+        "resume_generator": "resume_generation",
+    }
+    capability = next(
+        (name for name, key in expected.items() if key == adapter_key),
+        None,
+    )
+    if capability is None:
+        raise EvaluationConfigurationError("resume production adapter drifted")
+    resolved_task_type = expected[capability]
+    trace.start_step(capability)
+    try:
+        result = await get_evaluation_driver().run(
+            task_type=resolved_task_type,
+            payload=payload,
+            run_id=context.run_id,
+            user_id=context.evaluation_user_id,
+            session_id=context.evaluation_session_id,
+            memory_namespace=context.evaluation_memory_namespace,
+            artifact_namespace=context.evaluation_artifact_namespace,
+        )
+        if isinstance(result, DeferredExecutionResult):
+            raise TypeError("evaluation adapter cannot return deferred persistence")
+        trace.finish_step(capability)
+        return _normalize_runtime_value(result)
+    except Exception:
+        trace.finish_step(capability, status="failed")
+        raise
+
+
 async def _run_interview_planner_case(
     payload: dict[str, Any],
     context: EvaluationExecutionContext,
@@ -363,6 +422,7 @@ def build_production_agent_registry() -> AgentAdapterRegistry:
         "interview_scoring",
         "interview_turn",
         "resume_analyzer",
+        "resume_generator",
         "resume_optimizer",
     ):
         # 兼容旧 dataset capability 名称，但所有实际执行都重新解析 Catalog；

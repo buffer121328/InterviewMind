@@ -360,8 +360,8 @@ def _binary_metrics(
     false_negatives = sum(not left and right for left, right in zip(judge, human))
     severe_total = sum(severe_mask)
     severe_misses = sum(
-        severe and not predicted
-        for predicted, severe in zip(judge, severe_mask)
+        severe and expected and not predicted
+        for predicted, expected, severe in zip(judge, human, severe_mask)
     )
     return (
         kappa,

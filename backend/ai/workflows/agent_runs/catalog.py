@@ -23,12 +23,12 @@ from ai.workflows.agent_runs.adapters import (
     JobAssetsExecutionAdapter,
     JobRecommendationCaptureExecutionAdapter,
     ObservedExecutionAdapter,
+    ResumeGenerationExecutionAdapter,
     ResumeOptimizeExecutionAdapter,
     ResumeWorkspaceExecutionAdapter,
 )
 from ai.workflows.agent_runs.contracts import ExecutionResult
 from app.domain.agent_runs import (
-    TASK_TYPE_RESUME_GENERATION,
     TASK_TYPE_VOICE_INTERVIEW_TURN,
 )
 
@@ -44,18 +44,6 @@ async def _stream_driver_only_adapter(_payload: dict, _context) -> ExecutionResu
     raise RuntimeError("stream task must be dispatched through StreamDriver")
 
 
-async def _session_driver_only_adapter(_payload: dict, _context) -> ExecutionResult:
-    """拒绝绕过 SessionDriver 的直接 adapter 调用。
-
-    该轻量注册项只用于让 Catalog 验证 `resume_generation` 的显式 session
-    adapter key。具体 Graph、session repository 与 checkpoint 在 request workflow
-    运行期注入 SessionDriver，避免 Catalog 导入重型运行依赖。
-    """
-
-    raise RuntimeError("session task must be dispatched through SessionDriver")
-
-
-
 @lru_cache(maxsize=1)
 def get_production_adapter_registry() -> ExecutionAdapterRegistry:
     """构建 queued/inline production adapters；具体业务模块保持延迟导入。"""
@@ -66,6 +54,7 @@ def get_production_adapter_registry() -> ExecutionAdapterRegistry:
         InterviewTurnExecutionAdapter(),
         ResumeOptimizeExecutionAdapter(),
         ResumeWorkspaceExecutionAdapter(),
+        ResumeGenerationExecutionAdapter(),
         InterviewReportExecutionAdapter(),
         AbilityProfileExecutionAdapter(),
         JobRecommendationCaptureExecutionAdapter(),
@@ -75,10 +64,6 @@ def get_production_adapter_registry() -> ExecutionAdapterRegistry:
         CallableExecutionAdapter(
             key=TASK_TYPE_VOICE_INTERVIEW_TURN,
             runner=_stream_driver_only_adapter,
-        ),
-        CallableExecutionAdapter(
-            key=TASK_TYPE_RESUME_GENERATION,
-            runner=_session_driver_only_adapter,
         ),
     )
     for adapter in explicit_adapters:

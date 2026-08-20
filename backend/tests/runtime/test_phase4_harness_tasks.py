@@ -19,6 +19,7 @@ from ai.workflows.agent_runs.adapters import (
     JobAssetsExecutionAdapter,
     JobRecommendationCaptureExecutionAdapter,
     ProductionTaskExecutionAdapter,
+    ResumeGenerationExecutionAdapter,
     ResumeOptimizeExecutionAdapter,
     ResumeWorkspaceExecutionAdapter,
 )
@@ -77,6 +78,7 @@ def test_phase4_registry_registers_each_migrated_task_explicitly() -> None:
     expected = {
         "resume_optimize": ResumeOptimizeExecutionAdapter,
         "resume_workspace": ResumeWorkspaceExecutionAdapter,
+        "resume_generation": ResumeGenerationExecutionAdapter,
         "interview_report": InterviewReportExecutionAdapter,
         "ability_profile": AbilityProfileExecutionAdapter,
         "job_recommendation_capture": JobRecommendationCaptureExecutionAdapter,
@@ -98,16 +100,20 @@ def test_phase4_registry_registers_each_migrated_task_explicitly() -> None:
     }
     for task_type, adapter_type in expected.items():
         adapter = registry.get(task_type)
-        assert isinstance(adapter.adapter, ProductionTaskExecutionAdapter)
         assert isinstance(adapter.adapter, adapter_type)
+        if task_type != "resume_generation":
+            assert isinstance(adapter.adapter, ProductionTaskExecutionAdapter)
         assert adapter.key == task_type
     interview_turn = registry.get("interview_turn")
     assert isinstance(interview_turn.adapter, InterviewTurnExecutionAdapter)
     assert interview_turn.key == "interview_turn"
-    for task_type in {*stream_only_tasks, *session_tasks}:
+    for task_type in stream_only_tasks:
         adapter = registry.get(task_type)
         assert isinstance(adapter.adapter, CallableExecutionAdapter)
         assert adapter.key == task_type
+    resume_generation = registry.get("resume_generation")
+    assert isinstance(resume_generation.adapter, ResumeGenerationExecutionAdapter)
+    assert resume_generation.key == "resume_generation"
 
 
 def test_catalog_rejects_incompatible_worker_limit_policy() -> None:
@@ -221,3 +227,40 @@ async def test_job_assets_inline_run_does_not_acquire_global_gate(monkeypatch) -
     )
 
     assert calls == ["succeed"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("adapter_type", "task_type"),
+    (
+        (ResumeOptimizeExecutionAdapter, "resume_optimize"),
+        (ResumeWorkspaceExecutionAdapter, "resume_workspace"),
+        (ResumeGenerationExecutionAdapter, "resume_generation"),
+    ),
+)
+async def test_resume_evaluation_adapters_use_isolated_runner(adapter_type, task_type) -> None:
+    captured = {}
+
+    async def evaluation_runner(payload, context):
+        captured.update({"payload": payload, "context": context})
+        return {"isolated": True}
+
+    adapter = adapter_type(evaluation_runner=evaluation_runner)
+    context = ExecutionContext(
+        run_id="eval-run-1",
+        task_type=task_type,
+        agent_name="resume_eval",
+        agent_version="1",
+        user_id="eval-user:eval-run-1",
+        session_id="eval-session:eval-run-1",
+        owner_scope="eval:eval-run-1",
+        execution_mode="evaluation",
+        environment="evaluation",
+        memory_namespace="eval:memory:eval-run-1",
+        artifact_namespace="eval:artifact:eval-run-1",
+        side_effect_policy="local_write",
+    )
+
+    assert await adapter.run({"resume_content": "redacted"}, context) == {"isolated": True}
+    assert captured["context"].user_id == "eval-user:eval-run-1"
+    assert captured["context"].external_tools_enabled is False

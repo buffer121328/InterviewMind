@@ -5,7 +5,8 @@ export type EvaluationAgentName =
     | 'interview_turn'
     | 'interview_scoring'
     | 'resume_optimizer'
-    | 'resume_analyzer';
+    | 'resume_analyzer'
+    | 'resume_generator';
 
 export type EvaluationQuickModeName = 'quick' | 'standard' | 'release';
 
@@ -385,6 +386,10 @@ export interface EvaluationCaseRunDetail extends EvaluationCaseRun {
     };
     scores: EvaluationScore[];
     annotations: EvaluationAnnotation[];
+    review_status: 'not_required' | 'pending' | 'approved' | 'rejected' | 'waived' | 'rerun_requested';
+    review_resolver_key: string | null;
+    review_resolved_at: string | null;
+    review_resolution_note: string | null;
 }
 
 export interface EvaluationAnnotation {
@@ -567,6 +572,7 @@ export const evaluationApi = {
     annotations: (caseRunId: string) => apiRequest<Page<EvaluationAnnotation>>(`/api/evaluations/case-runs/${caseRunId}/annotations`),
     addAnnotation: (caseRunId: string, payload: Record<string, unknown>) => apiRequest<EvaluationAnnotation>(`/api/evaluations/case-runs/${caseRunId}/annotations`, { method: 'POST', body: JSON.stringify(payload) }),
     adjudicate: (annotationId: string, payload: Record<string, unknown>) => apiRequest<EvaluationAnnotation>(`/api/evaluations/annotations/${annotationId}/adjudicate`, { method: 'POST', body: JSON.stringify(payload) }),
+    resolveReview: (caseRunId: string, payload: Record<string, unknown>) => apiRequest<{ review_status: string }>(`/api/evaluations/case-runs/${caseRunId}/review-resolution`, { method: 'POST', body: JSON.stringify(payload) }),
     createCandidateDataset: (caseRunId: string, payload: Record<string, unknown>) => apiRequest<EvaluationDataset>(`/api/evaluations/case-runs/${caseRunId}/candidate-dataset`, { method: 'POST', body: JSON.stringify(payload) }),
     calibrations: () => apiRequest<Page<EvaluationCalibration>>('/api/evaluations/calibrations'),
     createCalibration: (payload: Record<string, unknown>) => apiRequest<EvaluationCalibration>('/api/evaluations/calibrations', { method: 'POST', body: JSON.stringify(payload) }),

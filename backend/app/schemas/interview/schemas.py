@@ -60,7 +60,7 @@ class InterviewStartRequest(BaseModel):
         self.round_type = resolve_round_type(self.round_type)
         self.max_questions = resolve_max_questions(self.round_type, self.max_questions)
         return self
-    question_bank_count: int = Field(default=0, ge=0, le=20, description="从个人题库抽取的题数")
+    question_bank_count: int = Field(default=0, ge=0, le=10, description="从个人题库抽取的题数")
     # 用户配置（可选）
     user_id: Optional[str] = Field(default=None, description="用户标识")
     api_config: Optional[ApiConfig] = Field(default=None, description="用户自定义 API 配置")

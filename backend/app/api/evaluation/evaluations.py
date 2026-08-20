@@ -22,6 +22,7 @@ from app.schemas.evaluation.evaluations import (
     EvaluationOnlineSampleRequest,
     EvaluationQuickRunRequest,
     EvaluationReviewRequest,
+    EvaluationReviewResolutionRequest,
     EvaluationRunCreateRequest,
     EvaluationSuiteCreateRequest,
     InterviewEvaluationConfirmRequest,
@@ -651,6 +652,14 @@ async def annotation_queue(user_id: str = Depends(get_current_user_id)):
 
     try:
         return await evaluation_use_cases.annotation_queue(user_id=user_id)
+    except EvaluationUseCaseError as exc:
+        _raise(exc)
+
+
+@router.post("/case-runs/{case_run_id}/review-resolution")
+async def resolve_review(case_run_id: str, request: EvaluationReviewResolutionRequest, user_id: str = Depends(get_current_user_id)):
+    try:
+        return await evaluation_use_cases.resolve_review(user_id=user_id, case_run_id=case_run_id, request=request)
     except EvaluationUseCaseError as exc:
         _raise(exc)
 

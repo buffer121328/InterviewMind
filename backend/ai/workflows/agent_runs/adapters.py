@@ -27,36 +27,81 @@ EvaluationRunner = Callable[
 class ProductionTaskExecutionAdapter:
     """把一个显式生产任务入口包装为 Harness adapter。"""
 
-    __slots__ = ("executor", "key")
+    __slots__ = ("executor", "evaluation_executor", "key")
 
-    def __init__(self, *, key: str, executor: TaskRunner) -> None:
+    def __init__(
+        self,
+        *,
+        key: str,
+        executor: TaskRunner,
+        evaluation_executor: EvaluationRunner | None = None,
+    ) -> None:
         self.key = key
         self.executor = executor
+        self.evaluation_executor = evaluation_executor
 
     async def run(
         self,
         payload: dict[str, Any],
         context: ExecutionContext,
     ) -> ExecutionResult:
-        """延迟委托业务 executor；AgentRun 终态仍由 driver 持有。"""
+        """按执行环境委托唯一注册 adapter 的生产或隔离评测分支。"""
 
-        if context.environment != "production":
-            raise ValueError(f"adapter is not enabled for evaluation: {self.key}")
+        if context.environment == "evaluation":
+            if self.evaluation_executor is None:
+                raise ValueError(f"adapter is not enabled for evaluation: {self.key}")
+            return await self.evaluation_executor(payload, context)
         return await self.executor(payload, context.user_id, context.mark_progress)
 
 
 class ResumeOptimizeExecutionAdapter(ProductionTaskExecutionAdapter):
-    """简历优化任务的显式 production adapter。"""
+    """简历优化任务的同源 production/evaluation adapter。"""
 
-    def __init__(self, *, executor: TaskRunner | None = None) -> None:
-        super().__init__(key="resume_optimize", executor=executor or _run_resume_optimize)
+    def __init__(
+        self,
+        *,
+        executor: TaskRunner | None = None,
+        evaluation_runner: EvaluationRunner | None = None,
+    ) -> None:
+        super().__init__(
+            key="resume_optimize",
+            executor=executor or _run_resume_optimize,
+            evaluation_executor=evaluation_runner or _run_resume_optimize_evaluation,
+        )
 
 
 class ResumeWorkspaceExecutionAdapter(ProductionTaskExecutionAdapter):
-    """简历工作台任务的显式 production adapter。"""
+    """简历竞争力分析任务的同源 production/evaluation adapter。"""
 
-    def __init__(self, *, executor: TaskRunner | None = None) -> None:
-        super().__init__(key="resume_workspace", executor=executor or _run_resume_workspace)
+    def __init__(
+        self,
+        *,
+        executor: TaskRunner | None = None,
+        evaluation_runner: EvaluationRunner | None = None,
+    ) -> None:
+        super().__init__(
+            key="resume_workspace",
+            executor=executor or _run_resume_workspace,
+            evaluation_executor=evaluation_runner or _run_resume_workspace_evaluation,
+        )
+
+
+class ResumeGenerationExecutionAdapter:
+    """简历生成任务的 session/evaluation 同源 adapter。"""
+
+    key = "resume_generation"
+
+    def __init__(self, *, evaluation_runner: EvaluationRunner | None = None) -> None:
+        self._evaluation_runner = evaluation_runner or _run_resume_generation_evaluation
+
+    async def run(
+        self,
+        payload: dict[str, Any],
+        context: ExecutionContext,
+    ) -> ExecutionResult:
+        if context.environment == "evaluation":
+            return await self._evaluation_runner(payload, context)
+        raise RuntimeError("session task must be dispatched through SessionDriver")
 
 
 class InterviewReportExecutionAdapter(ProductionTaskExecutionAdapter):
@@ -117,6 +162,95 @@ async def _run_resume_workspace(payload: dict[str, Any], user_id: str, progress:
     from ai.workflows.agent_runs.tasks.resume.workspace import execute_resume_workspace
 
     return await execute_resume_workspace(payload, user_id, progress)
+
+
+async def _run_resume_optimize_evaluation(
+    payload: dict[str, Any], context: ExecutionContext
+) -> ExecutionResult:
+    """运行真实简历优化 pipeline，但不读取会话或持久化评测结果。"""
+
+    from ai.agents.resume.optimization.flow import run_pipeline
+
+    await context.mark_progress("preparing")
+    result = await run_pipeline(
+        resume_content=str(payload.get("resume_content") or payload.get("resume") or ""),
+        job_description=str(payload.get("job_description") or ""),
+        user_id=context.user_id,
+        api_config=dict(payload.get("api_config") or {}),
+        session_ids=[],
+        include_profile=False,
+        run_id=context.run_id,
+        mode=str(payload.get("mode") or "balanced"),
+        precomputed_jd_analysis=payload.get("precomputed_jd_analysis"),
+    )
+    await context.mark_progress("optimizing")
+    return result
+
+
+async def _run_resume_workspace_evaluation(
+    payload: dict[str, Any], context: ExecutionContext
+) -> ExecutionResult:
+    """运行真实竞争力分析图，使用 evaluation 身份且不保存工作台结果。"""
+
+    from ai.agents.resume.resume_analyzer_graph import analyze_resume
+
+    await context.mark_progress("competition_analysis")
+    result = await analyze_resume(
+        resume_content=str(payload.get("resume_content") or payload.get("resume") or ""),
+        job_description=str(payload.get("job_description") or ""),
+        session_ids=[],
+        user_id=context.user_id,
+        api_config=dict(payload.get("api_config") or {}),
+        call_metadata={
+            "environment": "evaluation",
+            "evaluation_run_id": context.run_id,
+            "memory_namespace": context.memory_namespace,
+        },
+    )
+    await context.mark_progress("jd_matching")
+    return result
+
+
+async def _run_resume_generation_evaluation(
+    payload: dict[str, Any], context: ExecutionContext
+) -> ExecutionResult:
+    """运行生产简历生成图的无持久化评测分支。"""
+
+    from ai.agents.resume.generation.graph import build_resume_generation_graph
+    from ai.agents.resume.generation.sessions import _new_generation_state
+
+    async def report_progress(stage: str, phase: str, _result: dict[str, Any]) -> None:
+        if phase == "started":
+            await context.mark_progress(stage)
+
+    state = _new_generation_state(
+        resume_content=str(payload.get("resume_content") or payload.get("resume") or ""),
+        job_description=str(payload.get("job_description") or ""),
+        optimization_result=dict(payload.get("optimization_result") or {}),
+        template_style=str(payload.get("template_style") or "professional"),
+        api_config=dict(payload.get("api_config") or {}),
+        user_id=context.user_id,
+        agent_run_id=context.run_id,
+        user_answers={str(key): str(value) for key, value in dict(payload.get("user_answers") or {}).items()},
+    )
+    graph = build_resume_generation_graph(report_progress)
+    final_state = await graph.ainvoke(
+        state,
+        config={"configurable": {"thread_id": f"eval-resume-generation:{context.run_id}"}},
+    )
+    content = (
+        final_state.get("final_markdown")
+        or final_state.get("optimized_draft")
+        or final_state.get("draft_content")
+    )
+    if not content:
+        raise RuntimeError("resume generation evaluation produced no content")
+    return {
+        "title": final_state.get("title") or "评测简历",
+        "content": content,
+        "fact_check_result": final_state.get("fact_check_result"),
+        "review_result": final_state.get("review_result"),
+    }
 
 
 async def _run_interview_report(payload: dict[str, Any], user_id: str, progress: ProgressCallback) -> ExecutionResult:

@@ -110,6 +110,17 @@ export function QuickEvaluationPanel({
         && modelConfigReady
         && !submitting,
     );
+    const catalogCaseCount = useMemo(
+        () => catalog?.agents.reduce((total, agent) => total + agent.case_count, 0) ?? 0,
+        [catalog],
+    );
+    const quickLaunchHint = !catalog?.runs_enabled
+        ? '服务端尚未启用真实评测'
+        : !modelConfigReady
+            ? '先完成 Smart / Fast 模型设置即可运行'
+            : selectedModeName !== 'quick'
+                ? '当前是完整检查模式，请在下方确认配置后运行'
+                : `将运行 ${selectedAgent?.label ?? '所选 Agent'} 的快速冒烟`;
 
     /** Changes the Agent selection and clears an incompatible baseline comparison. */
     function selectAgent(agent: EvaluationCatalogAgent): void {
@@ -173,9 +184,27 @@ export function QuickEvaluationPanel({
                         自动读取模型设置，创建并锁定内置 Dataset Version，复用内置 Suite 与 Rubric，然后进入可恢复 AgentRun。
                     </p>
                 </div>
-                <ContextualHelpIcon id="credential-boundary" label="凭据安全边界">
-                    API Key 不在页面展示；只随本次请求发送，并由后端加密进入任务载荷。
-                </ContextualHelpIcon>
+                <div className="flex flex-col items-stretch gap-2 sm:items-end">
+                    <ContextualHelpIcon id="credential-boundary" label="凭据安全边界">
+                        API Key 不在页面展示；只随本次请求发送，并由后端加密进入任务载荷。
+                    </ContextualHelpIcon>
+                    {selectedModeName === 'quick' && <Button
+                        size="lg"
+                        className="min-w-52 bg-teal-600 hover:bg-teal-700"
+                        disabled={!canRun}
+                        onClick={() => void startEvaluation()}
+                    >
+                        <Play className="mr-2 h-4 w-4" />
+                        {submitting ? '正在启动…' : '一键运行快速冒烟'}
+                    </Button>}
+                </div>
+            </div>
+            <div className="mt-4 flex flex-col gap-3 rounded-xl border border-teal-100 bg-white/80 p-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex flex-wrap items-center gap-2 text-sm">
+                    <Badge className="bg-teal-700 hover:bg-teal-700">{catalog.agents.length} 个可评测 Agent</Badge>
+                    <Badge variant="secondary">共 {catalogCaseCount} 条内置案例</Badge>
+                </div>
+                <p className="text-xs text-slate-600">{quickLaunchHint}</p>
             </div>
         </section>
 
@@ -187,7 +216,7 @@ export function QuickEvaluationPanel({
             <SectionHeading step="1" title="选择 Agent" description="这些入口对应真实生产 Agent，不需要填写内部名称。" />
             <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                 {catalog.agents.map(agent => {
-                    const active = agent.name === selectedAgentName;
+                    const active = agent.name === effectiveAgentName;
                     return <button
                         key={agent.name}
                         type="button"

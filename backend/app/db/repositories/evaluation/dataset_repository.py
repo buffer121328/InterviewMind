@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from app.db.models import EvaluationDatasetVersionModel, EvaluationSuiteModel
+from app.db.models import EvaluationCaseModel, EvaluationDatasetVersionModel, EvaluationSuiteModel
 from app.schemas.evaluation.evaluations import EvaluationDatasetCreateRequest, EvaluationSuiteCreateRequest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession

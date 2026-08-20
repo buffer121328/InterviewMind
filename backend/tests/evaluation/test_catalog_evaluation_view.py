@@ -188,9 +188,7 @@ async def test_compatibility_registry_keeps_names_but_rejects_parallel_fallbacks
     assert planner.prompt_version == "3"
     assert planner.production_adapter_key == "interview_start"
 
-    with pytest.raises(EvaluationConfigurationError, match="case adapter"):
-        await registry.get("resume_optimizer").run(
-            {},
-            EvaluationExecutionContext.for_run("eval-run-1"),
-            EvaluationTraceCollector(evaluation_namespace="eval:eval-run-1"),
-        )
+    resume_optimizer = registry.get("resume_optimizer")
+    assert resume_optimizer.prompt_name == "resume.match_analyst"
+    assert resume_optimizer.prompt_version == "1"
+    assert resume_optimizer.production_adapter_key == "resume_optimize"

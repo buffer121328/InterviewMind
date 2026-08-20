@@ -29,47 +29,48 @@ _MAX_CACHE_ENTRIES = 128
 class CandidateInterviewFacts(BaseModel):
     """只保存简历原文中可直接定位的候选人事实片段，不补写推断经历。"""
 
-    source_fingerprint: str
-    core_skills: list[str] = Field(default_factory=list)
-    project_evidence: list[str] = Field(default_factory=list)
-    role_evidence: list[str] = Field(default_factory=list)
-    quantified_results: list[str] = Field(default_factory=list)
-    experience_gaps: list[str] = Field(default_factory=list)
+    source_fingerprint: str  # 简历原文指纹，用于缓存隔离与失效判断
+    core_skills: list[str] = Field(default_factory=list)  # 技能/技术栈原句
+    project_evidence: list[str] = Field(default_factory=list)  # 项目/系统相关原句
+    role_evidence: list[str] = Field(default_factory=list)  # 工作/职责/教育等经历原句
+    quantified_results: list[str] = Field(default_factory=list)  # 含量化指标的结果原句
+    experience_gaps: list[str] = Field(default_factory=list)  # 经验缺口（评估结论，压缩阶段恒为空）
 
 
 class JDInterviewRequirements(BaseModel):
     """保存 JD 原文中明确出现的岗位要求，不扩展未声明的能力要求。"""
 
-    source_fingerprint: str
-    required_skills: list[str] = Field(default_factory=list)
-    preferred_skills: list[str] = Field(default_factory=list)
-    responsibilities: list[str] = Field(default_factory=list)
-    seniority: list[str] = Field(default_factory=list)
-    interview_dimensions: list[str] = Field(default_factory=list)
+    source_fingerprint: str  # JD 原文指纹，用于缓存隔离与失效判断
+    required_skills: list[str] = Field(default_factory=list)  # 硬性要求原句
+    preferred_skills: list[str] = Field(default_factory=list)  # 加分/优先项原句
+    responsibilities: list[str] = Field(default_factory=list)  # 职责描述原句
+    seniority: list[str] = Field(default_factory=list)  # 年限/学历/职级要求原句
+    interview_dimensions: list[str] = Field(default_factory=list)  # 考察维度原句
 
 
 class PreviousRoundDigest(BaseModel):
     """保存上一轮显式题目、画像优势和短板，供跨轮去重与侧重点继承。"""
 
-    source_fingerprint: str
-    question_fingerprints: list[str] = Field(default_factory=list)
-    covered_topics: list[str] = Field(default_factory=list)
-    verified_strengths: list[str] = Field(default_factory=list)
-    unresolved_weaknesses: list[str] = Field(default_factory=list)
-    prohibited_exact_questions: list[str] = Field(default_factory=list)
-    previous_summary: str = ""
+    source_fingerprint: str  # 上一轮输入组合指纹，用于缓存隔离与失效判断
+    question_fingerprints: list[str] = Field(default_factory=list)  # 显式题目指纹（截断 20 位），用于跨轮去重
+    covered_topics: list[str] = Field(default_factory=list)  # 已覆盖主题标签
+    verified_strengths: list[str] = Field(default_factory=list)  # 已验证优势
+    unresolved_weaknesses: list[str] = Field(default_factory=list)  # 未解决短板（含画像与弱点报告来源）
+    prohibited_exact_questions: list[str] = Field(default_factory=list)  # 上一轮显式题目原文，禁止本轮重问
+    previous_summary: str = ""  # 上一轮摘要文本（截断 1000 字符）
 
 
 @dataclass(frozen=True, slots=True)
 class PlannerContextBundle:
     """携带压缩事实和已预算化模型上下文，供 Prompt 与模型事件共同使用。"""
 
-    candidate_facts: CandidateInterviewFacts
-    job_requirements: JDInterviewRequirements
-    previous_round: PreviousRoundDigest
-    assembled: AssembledContext
+    candidate_facts: CandidateInterviewFacts  # 简历压缩事实
+    job_requirements: JDInterviewRequirements  # JD 压缩要求
+    previous_round: PreviousRoundDigest  # 上一轮压缩摘要
+    assembled: AssembledContext  # 已按预算组装、含安全审计的模型上下文
 
 
+# 进程内 LRU 事实缓存：键为 (owner, cache_scope, 简历指纹, JD 指纹, 上一轮输入指纹, 版本)。
 _FACT_CACHE: OrderedDict[
     tuple[str, str, str, str, str, str],
     tuple[CandidateInterviewFacts, JDInterviewRequirements, PreviousRoundDigest],
@@ -77,7 +78,11 @@ _FACT_CACHE: OrderedDict[
 
 
 def _fingerprint(value: Any) -> str:
-    """返回稳定单向指纹；缓存和审计均不保存原始输入作为键。"""
+    """返回稳定单向指纹；缓存和审计均不保存原始输入作为键。
+
+    Args:
+        value: 任意可序列化输入；字符串直接编码，其余结构按排序键 JSON 序列化。
+    """
     if isinstance(value, str):
         payload = value
     else:
@@ -86,7 +91,12 @@ def _fingerprint(value: Any) -> str:
 
 
 def _clean_lines(text: str, *, limit: int = 120) -> list[tuple[str, str]]:
-    """解析标题与正文行，保留原句内容并限制极端长文的扫描规模。"""
+    """解析标题与正文行，保留原句内容并限制极端长文的扫描规模。
+
+    Args:
+        text: 简历/JD 原始文本。
+        limit: 最多解析的正文行数，超出部分不再扫描。
+    """
     rows: list[tuple[str, str]] = []
     heading = ""
     for raw in str(text or "").splitlines():
@@ -103,7 +113,13 @@ def _clean_lines(text: str, *, limit: int = 120) -> list[tuple[str, str]]:
 
 
 def _unique_bounded(values: Iterable[str], *, count: int, max_chars: int) -> list[str]:
-    """按原顺序去重并执行条数与字符双重上限。"""
+    """按原顺序去重并执行条数与字符双重上限。
+
+    Args:
+        values: 候选原句列表。
+        count: 最多保留的条数。
+        max_chars: 累计最多保留的字符数。
+    """
     selected: list[str] = []
     seen: set[str] = set()
     used = 0
@@ -125,7 +141,11 @@ def _unique_bounded(values: Iterable[str], *, count: int, max_chars: int) -> lis
 
 
 def build_candidate_interview_facts(resume: str) -> CandidateInterviewFacts:
-    """从简历原句中选择技能、项目、职责和量化结果，不生成候选人未声明的事实。"""
+    """从简历原句中选择技能、项目、职责和量化结果，不生成候选人未声明的事实。
+
+    Args:
+        resume: 候选人简历原文。
+    """
     rows = _clean_lines(resume)
     skill_terms = re.compile(r"技能|技术栈|能力|skill|stack|熟悉|掌握|精通", re.I)
     project_terms = re.compile(r"项目|project|系统|平台|产品", re.I)
@@ -153,7 +173,11 @@ def build_candidate_interview_facts(resume: str) -> CandidateInterviewFacts:
 
 
 def build_jd_interview_requirements(job_description: str) -> JDInterviewRequirements:
-    """从 JD 原句提取硬要求、加分项、职责和资历信息，未命中时保留职责原文。"""
+    """从 JD 原句提取硬要求、加分项、职责和资历信息，未命中时保留职责原文。
+
+    Args:
+        job_description: 岗位描述原文。
+    """
     rows = _clean_lines(job_description)
     required_terms = re.compile(r"必须|要求|任职|掌握|熟悉|required|requirement", re.I)
     preferred_terms = re.compile(r"优先|加分|preferred|plus", re.I)
@@ -185,7 +209,14 @@ def build_previous_round_digest(
     weakness_report: Mapping[str, Any] | None,
     previous_summary: str | None = None,
 ) -> PreviousRoundDigest:
-    """把上一轮显式产物压缩成去重摘要，不把模型外推内容提升为候选人事实。"""
+    """把上一轮显式产物压缩成去重摘要，不把模型外推内容提升为候选人事实。
+
+    Args:
+        previous_questions: 上一轮显式题目列表，支持字符串或含 content/question/topic 的映射。
+        previous_profile: 上一轮候选人画像映射（读取 skill_tags/key_strengths/key_weaknesses）。
+        weakness_report: 上一轮弱点报告映射（读取 weakness_categories）。
+        previous_summary: 上一轮摘要文本，保留截断后版本。
+    """
     exact_questions: list[str] = []
     covered_topics: list[str] = []
     for item in previous_questions or ():
@@ -242,7 +273,18 @@ def _get_compact_facts(
     weakness_report: Mapping[str, Any] | None,
     previous_summary: str | None,
 ) -> tuple[CandidateInterviewFacts, JDInterviewRequirements, PreviousRoundDigest]:
-    """读取或生成 owner 隔离事实缓存；任何来源指纹变化都会创建新条目。"""
+    """读取或生成 owner 隔离事实缓存；任何来源指纹变化都会创建新条目。
+
+    Args:
+        owner_id: 候选人/会话所有者标识，用于缓存隔离。
+        cache_scope: 会话系列标识，同一 owner 的不同系列互不共享缓存。
+        resume: 简历原文。
+        job_description: JD 原文。
+        previous_questions: 上一轮显式题目。
+        previous_profile: 上一轮画像。
+        weakness_report: 上一轮弱点报告。
+        previous_summary: 上一轮摘要文本。
+    """
     previous_payload = {
         "questions": list(previous_questions or ()),
         "profile": dict(previous_profile or {}),
@@ -298,7 +340,29 @@ def assemble_planner_context(
     retrieval_context: Mapping[str, Any] | None = None,
     memory_context: str | None = None,
 ) -> PlannerContextBundle:
-    """按 Phase 2 优先级组装 Planner 上下文，并返回不含原文的模型事件审计。"""
+    """按 Phase 2 优先级组装 Planner 上下文，并返回不含原文的模型事件审计。
+
+    Args:
+        owner_id: 候选人/会话所有者标识，用于缓存隔离。
+        cache_scope: 会话系列标识，用于缓存隔离。
+        resume: 简历原文。
+        job_description: JD 原文。
+        company_info: 公司信息文本；为空或“未知”时不进入上下文。
+        round_index: 当前轮次序号。
+        round_type: 轮次类型（如 tech_initial）。
+        max_questions: 本轮计划生成的题目数。
+        strategy_focus: 策略侧重点。
+        requirements: 额外要求文本。
+        previous_questions: 上一轮显式题目。
+        previous_profile: 上一轮画像。
+        weakness_report: 上一轮弱点报告。
+        previous_summary: 上一轮摘要文本。
+        retrieval_context: 检索上下文映射。
+        memory_context: 长期记忆上下文文本。
+
+    Returns:
+        PlannerContextBundle：压缩事实 + 已按来源预算组装的安全模型上下文。
+    """
     candidate, jd, previous = _get_compact_facts(
         owner_id=owner_id,
         cache_scope=cache_scope,

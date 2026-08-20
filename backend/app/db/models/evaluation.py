@@ -156,6 +156,10 @@ class EvaluationCaseRunModel(Base):
     overall_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     error_category: Mapped[str | None] = mapped_column(String(160), nullable=True)
     needs_review: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    review_status: Mapped[str] = mapped_column(String(32), nullable=False, default="not_required")
+    review_resolver_key: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    review_resolved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    review_resolution_note: Mapped[str | None] = mapped_column(String(2000), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 

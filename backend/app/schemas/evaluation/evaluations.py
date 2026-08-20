@@ -109,6 +109,7 @@ class EvaluationQuickRunRequest(_EvaluationRequest):
         "interview_scoring",
         "resume_optimizer",
         "resume_analyzer",
+        "resume_generator",
     ] = Field(description="目标 Agent 名称")
     mode: Literal["quick", "standard", "release"] = Field(default="quick", description="运行模式")
     api_config: ApiConfig = Field(description="模型 API 配置")
@@ -122,6 +123,21 @@ class EvaluationReviewRequest(_EvaluationRequest):
 
     case_run_ids: list[str] = Field(default_factory=list, max_length=5000, description="案例运行 ID 列表")
     failed_only: bool = Field(default=True, description="是否仅复核失败案例")
+
+
+class EvaluationReviewResolutionRequest(_EvaluationRequest):
+    """记录案例人工处理结论，且不得覆盖自动安全失败。"""
+
+    status: Literal["approved", "rejected", "waived", "rerun_requested"] = Field(description="人工处理结论")
+    reviewer_key: str = Field(min_length=1, max_length=120, description="处理人标识")
+    comment: str = Field(min_length=1, max_length=2000, description="处理说明")
+
+    @field_validator("comment")
+    @classmethod
+    def reject_sensitive_comment(cls, value: str) -> str:
+        if redact_secret_text(value) != value:
+            raise ValueError("sensitive review resolution comment is not allowed")
+        return value
 
 
 class EvidenceSpan(_EvaluationRequest):
@@ -207,6 +223,16 @@ class EvaluationCalibrationCreateRequest(_EvaluationRequest):
     human_binary: list[bool] = Field(default_factory=list, description="人工二分类结果")
     severe_mask: list[bool] = Field(default_factory=list, description="严重样本掩码")
     threshold: float | None = Field(default=None, description="阈值")
+
+
+    @model_validator(mode="after")
+    def validate_severe_positive_mask(self):
+        if self.severe_mask:
+            if len(self.severe_mask) != len(self.human_binary) or len(self.judge_binary) != len(self.human_binary):
+                raise ValueError("severe_mask and binary labels must align")
+            if any(severe and not positive for severe, positive in zip(self.severe_mask, self.human_binary)):
+                raise ValueError("severe_mask may only mark human-confirmed positive cases")
+        return self
 
 
 class EvaluationCalibrationSimulateRequest(_EvaluationRequest):

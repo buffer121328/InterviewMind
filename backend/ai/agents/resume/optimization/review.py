@@ -52,7 +52,7 @@ async def stage5_fact_check(state: PipelineState) -> PipelineState:
         status="started",
         input_summary=f"change_items={len(state.change_items)}",
     )
-    from .resume_fact_policy import validate_change_items
+    from ai.agents.resume.resume_fact_policy import validate_change_items
 
     # 使用事实核验策略验证所有 ChangeItem
     jd_keywords = list((state.jd_analysis or {}).get("jd_keywords") or [])

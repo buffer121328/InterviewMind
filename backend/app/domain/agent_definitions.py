@@ -188,6 +188,7 @@ _DEFINITIONS = (
         prompt_name="resume.match_analyst",
         prompt_version="1",
         adapter_key=TASK_TYPE_RESUME_OPTIMIZE,
+        evaluation_enabled=True,
         graph_reference_mode="required",
     ),
     AgentDefinition(
@@ -207,6 +208,7 @@ _DEFINITIONS = (
         prompt_name="resume.match_analyst",
         prompt_version="1",
         adapter_key=TASK_TYPE_RESUME_WORKSPACE,
+        evaluation_enabled=True,
     ),
     AgentDefinition(
         name="resume_generator",
@@ -228,6 +230,7 @@ _DEFINITIONS = (
         prompt_version="1",
         execution_modes=("session",),
         adapter_key=TASK_TYPE_RESUME_GENERATION,
+        evaluation_enabled=True,
         graph_reference_mode="required",
         run_gate_policy="none",
     ),

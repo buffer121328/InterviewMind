@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.db.models import EvaluationAnnotationModel, EvaluationCalibrationModel, EvaluationCaseRunModel, EvaluationRunModel, EvaluationScoreModel
-from app.schemas.evaluation.evaluations import EvaluationAnnotationCreateRequest
+from app.schemas.evaluation.evaluations import EvaluationAnnotationCreateRequest, EvaluationReviewResolutionRequest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -99,9 +99,25 @@ class AnnotationRepositoryMixin:
                     session, case_run_id=case_run_id, user_id=user_id
                 )
                 if case_run is not None:
-                    case_run.needs_review = False
+                    case_run.review_status = "approved" if case_run.status == "succeeded" and case_run.hard_gate_passed else "rejected"
+                    case_run.review_resolver_key = "adjudicator"
+                    case_run.review_resolved_at = _now()
+                    case_run.review_resolution_note = "专家裁决"
             await session.flush()
             return row
+
+    async def resolve_review(self, session: AsyncSession, *, case_run_id: str, user_id: str, request: EvaluationReviewResolutionRequest) -> EvaluationCaseRunModel:
+        case_run = await self.get_case_run(session, case_run_id=case_run_id, user_id=user_id)
+        if case_run is None:
+            raise LookupError("case run not found")
+        if request.status in {"approved", "waived"} and (case_run.status != "succeeded" or not case_run.hard_gate_passed):
+            raise ValueError("运行失败或硬门禁失败的案例不能人工通过或豁免")
+        case_run.review_status = request.status
+        case_run.review_resolver_key = request.reviewer_key
+        case_run.review_resolved_at = _now()
+        case_run.review_resolution_note = request.comment
+        await session.flush()
+        return case_run
 
     async def list_annotations(
             self,

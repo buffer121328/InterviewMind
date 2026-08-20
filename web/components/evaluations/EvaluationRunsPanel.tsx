@@ -2,10 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-    CheckCircle2,
     Download,
     ExternalLink,
-    FlaskConical,
     Loader2,
     Play,
     RefreshCw,
@@ -23,14 +21,13 @@ import type {
     EvaluationDatasetDetail,
     EvaluationApprovalStatus,
     EvaluationRun,
-    EvaluationScore,
     EvaluationSuite,
     EvaluationToolEffect,
 } from '@/lib/api/evaluations';
 import { downloadEvaluationReport, evaluationApi } from '@/lib/api/evaluations';
-import { groupScoresBySource, runProgress } from '@/lib/evaluationMetrics';
+import { runProgress } from '@/lib/evaluationMetrics';
 import { toast } from 'sonner';
-import { EvaluationTrajectory } from './EvaluationTrajectory';
+import { EvaluationCaseDetail } from './EvaluationCaseDetail';
 
 interface Props {
     runs: EvaluationRun[];
@@ -275,28 +272,12 @@ export function EvaluationRunsPanel({ runs, suites, focusRunId, onRefresh, onOpe
                 {!selected && <Empty text="选择一个运行查看案例。" />}
 
                 {detailBusy && <div className="mt-5 flex items-center justify-center rounded-xl border border-dashed p-10 text-sm text-slate-500"><Loader2 className="mr-2 animate-spin" />加载案例详情…</div>}
-                {caseDetail && !detailBusy && <CaseDetail detail={caseDetail} candidateName={candidateName} candidateVersion={candidateVersion} onCandidateName={setCandidateName} onCandidateVersion={setCandidateVersion} onCreateCandidate={createCandidateDataset} />}
+                {caseDetail && !detailBusy && <EvaluationCaseDetail key={caseDetail.id} detail={caseDetail} candidateName={candidateName} candidateVersion={candidateVersion} onCandidateName={setCandidateName} onCandidateVersion={setCandidateVersion} onCreateCandidate={createCandidateDataset} />}
             </section>
         </div>
     </div>;
 }
 
-function CaseDetail({ detail, candidateName, candidateVersion, onCandidateName, onCandidateVersion, onCreateCandidate }: { detail: EvaluationCaseRunDetail; candidateName: string; candidateVersion: string; onCandidateName: (value: string) => void; onCandidateVersion: (value: string) => void; onCreateCandidate: () => Promise<void> }) {
-    const grouped = groupScoresBySource(detail.scores);
-    const expected = detail.case.expected ?? {};
-    return <div className="mt-6 border-t pt-5"><div className="mb-3 flex flex-wrap items-center justify-between gap-2"><div><h4 className="font-semibold">案例三栏详情 · {detail.case.case_key}</h4><p className="text-xs text-slate-500">{detail.case.category} · {detail.case.severity} · repetition {detail.repetition_index + 1}</p></div><div className="flex items-center gap-2 text-xs"><span className={`rounded-full px-2 py-1 ${detail.hard_gate_passed ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>{detail.hard_gate_passed ? '硬门禁通过' : '硬门禁失败'}</span>{detail.needs_review && <span className="rounded-full bg-amber-50 px-2 py-1 text-amber-700">待人工复核</span>}</div></div>{detail.review_reasons.length > 0 && <div className="mb-3 flex flex-wrap gap-2 text-[11px] text-amber-800">{detail.review_reasons.map((reason) => <span key={reason} className="rounded-full bg-amber-50 px-2 py-1">{reviewReasonLabel(reason)}</span>)}</div>}
-        <div className="grid gap-3 2xl:grid-cols-3">
-            <DetailColumn title="输入与 Golden"><JsonBlock label="案例输入" value={detail.case.input} /><JsonBlock label="预期输出 / 事实" value={expected} /><div className="flex flex-wrap gap-1">{detail.case.tags.map((tag) => <span key={tag} className="rounded-full bg-slate-100 px-2 py-1 text-[10px] text-slate-600">{tag}</span>)}</div></DetailColumn>
-            <DetailColumn title="执行轨迹"><EvaluationTrajectory record={detail.record} scores={detail.scores} /><JsonBlock label="运行记录摘要" value={{ final_status: detail.record.final_status, error: detail.record.error, recovery_count: detail.record.recovery_count, estimated_cost_usd: detail.record.estimated_cost_usd }} /></DetailColumn>
-            <DetailColumn title="输出、评分与裁决"><JsonBlock label="实际输出" value={detail.actual_output} /><div className="space-y-3">{Object.entries(grouped).map(([source, scores]) => <ScoreGroup key={source} source={source} scores={scores} />)}{!detail.scores.length && <Empty text="暂无自动评分。" />}</div>{detail.annotations.length > 0 && <div><div className="mb-2 text-xs font-medium text-slate-600">人工标注 / 裁决</div><div className="space-y-2">{detail.annotations.map((item) => <div key={item.id} className="rounded-lg border p-2 text-xs"><div className="flex justify-between"><span className="font-medium">{item.reviewer_key} · {item.metric_name}</span><span>rev {item.revision}</span></div><div className="mt-1 text-slate-500">{prettyInline(item.value)} · {item.adjudication ? '专家裁决' : item.blind ? '盲测' : '非盲测'}</div></div>)}</div></div>}</DetailColumn>
-        </div>
-        <div className="mt-3 rounded-xl border border-dashed border-teal-200 bg-teal-50/50 p-3"><div className="flex flex-col justify-between gap-3 md:flex-row md:items-end"><div><div className="flex items-center gap-2 text-sm font-medium text-teal-900"><FlaskConical className="h-4 w-4" />失败案例沉淀</div><p className="mt-1 text-xs text-teal-700">创建新的 Candidate Dataset Version，不修改已锁定版本。</p></div><div className="grid gap-2 sm:grid-cols-[220px_150px_auto]"><Input value={candidateName} onChange={(event) => onCandidateName(event.target.value)} placeholder="Dataset 名称" /><Input value={candidateVersion} onChange={(event) => onCandidateVersion(event.target.value)} placeholder="版本" /><Button onClick={() => void onCreateCandidate()}><CheckCircle2 />加入回归集</Button></div></div></div>
-    </div>;
-}
-
-function ScoreGroup({ source, scores }: { source: string; scores: EvaluationScore[] }) { return <div><div className="mb-1 flex items-center justify-between text-xs"><span className="font-medium text-slate-700">{sourceLabel(source)}</span><span className="text-slate-400">{scores.length} scores</span></div><div className="space-y-1">{scores.map((score) => <div key={score.id} className={`rounded-lg border p-2 text-xs ${score.hard_gate && score.status !== 'passed' ? 'border-red-200 bg-red-50' : 'bg-slate-50'}`}><div className="flex justify-between gap-2"><span className="font-medium">{score.metric_name}</span><span>{score.value == null ? score.status : score.value.toFixed(3)}</span></div><div className="mt-1 text-[11px] text-slate-500">{score.reason ?? score.status} · {score.metric_version}</div></div>)}</div></div>; }
-function DetailColumn({ title, children }: { title: string; children: React.ReactNode }) { return <section className="min-w-0 space-y-3 rounded-xl border bg-slate-50/60 p-3"><h5 className="text-sm font-semibold text-slate-800">{title}</h5>{children}</section>; }
-function JsonBlock({ label, value }: { label: string; value: unknown }) { return <div><div className="mb-1 text-xs font-medium text-slate-600">{label}</div><pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-slate-950 p-3 text-[11px] leading-5 text-emerald-200">{JSON.stringify(value ?? null, null, 2)}</pre></div>; }
 function Field({ label, children }: { label: string; children: React.ReactNode }) { return <label className="grid gap-1 text-xs font-medium text-slate-600"><span>{label}</span>{children}</label>; }
 function Info({ label, value }: { label: string; value: string }) { return <div className="rounded-xl bg-slate-50 p-3"><div className="text-xs text-slate-500">{label}</div><div className="mt-1 truncate font-semibold" title={value}>{value}</div></div>; }
 function Status({ status }: { status: string }) { const tone = status === 'succeeded' ? 'bg-emerald-50 text-emerald-700' : status === 'failed' ? 'bg-red-50 text-red-700' : status === 'cancelled' ? 'bg-slate-100 text-slate-600' : 'bg-blue-50 text-blue-700'; return <span className={`rounded-full px-2 py-0.5 text-[10px] uppercase ${tone}`}>{status}</span>; }
@@ -342,24 +323,7 @@ function parseOptionalBoolean(value: string | undefined): boolean | undefined {
     return value == null ? undefined : value === 'true';
 }
 
-function sourceLabel(source: string): string { return ({ deterministic: '确定性规则', deepeval: 'DeepEval', judge: 'LLM Judge', human: '人工标注', user_feedback: '用户反馈' } as Record<string, string>)[source] ?? source; }
 function formatRate(value: unknown): string { const number = Number(value); return value == null || !Number.isFinite(number) ? '-' : `${(number * 100).toFixed(1)}%`; }
 function formatNumber(value: unknown): string { const number = Number(value); return value == null || !Number.isFinite(number) ? '-' : Math.round(number).toLocaleString('zh-CN'); }
 function formatDate(value: string): string { const date = new Date(value); return Number.isNaN(date.getTime()) ? value : date.toLocaleString('zh-CN'); }
 function shortHash(value: string): string { return value.length > 20 ? `${value.slice(0, 10)}…${value.slice(-7)}` : value; }
-function prettyInline(value: unknown): string { return typeof value === 'string' ? value : JSON.stringify(value); }
-
-function reviewReasonLabel(reason: string): string {
-    return ({
-        runtime_failure: '运行失败',
-        trace_incomplete: 'Trace 不完整',
-        hard_gate_failure: '硬门禁失败',
-        semantic_not_evaluated: '语义未评测',
-        semantic_failure: '语义评测失败',
-        tool_selection_execution_conflict: '工具选择/执行冲突',
-        dependency_failure_with_success: '依赖失败但业务声称成功',
-        external_approval_evidence_missing: 'External 审批证据缺失',
-        sampled_review: '命中人工抽样',
-        judge_disagreement: 'Judge 分歧',
-    } as Record<string, string>)[reason] ?? reason;
-}

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import pytest
 from ai.runtime.agent_runs.policies import allows_whole_run_retry
+from ai.workflows.agent_runs.catalog import get_production_catalog
+from app.domain.agent_runs import TASK_TYPE_INTERVIEW_START
 from app.config import AppSettings
 from app.db.models.evaluation import EvaluationCaseModel, EvaluationCaseRunModel
 from app.schemas.evaluation.evaluations import (
@@ -15,8 +17,12 @@ from app.schemas.evaluation.evaluations import (
     EvaluationRunCreateRequest,
 )
 from app.schemas.langfuse_prompts import PromptProductionPromotionRequest
+from evaluation.runners.production import CatalogEvaluationView
+
 from evaluation.builtins import (
     BUILTIN_EVALUATION_AGENTS,
+    _DEFAULT_SMOKE_RESUME,
+    _load_smoke_resume_fixture,
     model_config_fingerprint,
     public_evaluation_catalog,
 )
@@ -87,7 +93,21 @@ def test_one_click_catalog_and_request_keep_low_level_defaults_server_owned() ->
         "interview_scoring",
         "resume_optimizer",
         "resume_analyzer",
+        "resume_generator",
     ]
+    case_counts = {agent.name: len(agent.cases) for agent in BUILTIN_EVALUATION_AGENTS}
+    assert case_counts == {
+        "interview_planner": 3,
+        "interview_turn": 3,
+        "interview_scoring": 3,
+        "resume_optimizer": 2,
+        "resume_analyzer": 2,
+        "resume_generator": 2,
+    }
+    assert sum(case_counts.values()) == 15
+    case_keys = [case["case_key"] for agent in BUILTIN_EVALUATION_AGENTS for case in agent.cases]
+    assert len(case_keys) == len(set(case_keys))
+    assert set(case_counts) == set(CatalogEvaluationView().capabilities())
     assert [item["name"] for item in catalog["modes"]] == [
         "quick",
         "standard",
@@ -126,6 +146,23 @@ def test_one_click_catalog_and_request_keep_low_level_defaults_server_owned() ->
             mode="manual",
             api_config=request.api_config,
         )
+
+
+@pytest.mark.fast
+def test_one_click_planner_prompt_identity_matches_authoritative_catalog() -> None:
+    """The API catalog must not submit a stale identity that quick-run rejects."""
+
+    planner = next(
+        agent
+        for agent in public_evaluation_catalog()["agents"]
+        if agent["name"] == "interview_planner"
+    )
+    definition = get_production_catalog().definition(TASK_TYPE_INTERVIEW_START)
+
+    assert (planner["prompt_name"], planner["prompt_version"]) == (
+        definition.prompt_name,
+        definition.prompt_version,
+    )
 
 
 @pytest.mark.fast
@@ -391,3 +428,16 @@ async def test_evaluation_create_run_reuses_owner_scoped_idempotent_aggregate(mo
     assert result["id"] == stable_id
     assert result["agent_run"] == {"run_id": "agent-run-1", "status": "succeeded"}
     repository.create_run.assert_not_awaited()
+
+
+@pytest.mark.fast
+def test_local_smoke_resume_fixture_is_bounded_and_falls_back(tmp_path) -> None:
+    """Local runtime fixtures may supply test input without becoming source data."""
+
+    fixture = tmp_path / "smoke-resume.txt"
+    fixture.write_text("候选人具备 Python、FastAPI 与 Agent 工程经验。", encoding="utf-8")
+    assert _load_smoke_resume_fixture(fixture).startswith("候选人具备")
+    assert _load_smoke_resume_fixture(tmp_path / "missing.txt") == _DEFAULT_SMOKE_RESUME
+
+    fixture.write_text("x" * 12_001, encoding="utf-8")
+    assert _load_smoke_resume_fixture(fixture) == _DEFAULT_SMOKE_RESUME

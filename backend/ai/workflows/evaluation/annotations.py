@@ -10,6 +10,7 @@ from app.db.unit_of_work import UnitOfWork
 from app.schemas.evaluation.evaluations import (
     EvaluationAdjudicationRequest,
     EvaluationAnnotationCreateRequest,
+    EvaluationReviewResolutionRequest,
 )
 
 from ai.workflows.evaluation.serializers import _annotation, _case_run
@@ -48,6 +49,17 @@ class AnnotationUseCasesMixin:
             if get_settings().evaluation_langfuse_reporting_enabled:
                 _mirror_human_annotation(row)
             return _annotation(row)
+
+    async def resolve_review(self, *, user_id: str, case_run_id: str, request: EvaluationReviewResolutionRequest) -> dict[str, Any]:
+        self._ensure_center_enabled()
+        async with UnitOfWork(async_session) as uow:
+            try:
+                row = await self.repository.resolve_review(uow.db, case_run_id=case_run_id, user_id=user_id, request=request)
+            except LookupError as exc:
+                raise EvaluationUseCaseError(str(exc), status_code=404) from exc
+            except ValueError as exc:
+                raise EvaluationUseCaseError(str(exc), status_code=422) from exc
+            return {"id": row.id, "review_status": row.review_status, "review_resolver_key": row.review_resolver_key, "review_resolved_at": row.review_resolved_at.isoformat() if row.review_resolved_at else None, "review_resolution_note": row.review_resolution_note}
 
     async def list_annotations(
         self, *, user_id: str, case_run_id: str
@@ -135,7 +147,7 @@ class AnnotationUseCasesMixin:
                 items.extend(
                     {**_case_run(case), "agent_name": run.agent_name}
                     for case in cases
-                    if case.needs_review
+                    if case.needs_review and getattr(case, "review_status", "pending") == "pending"
                 )
             return {"items": items, "total": len(items)}
 
