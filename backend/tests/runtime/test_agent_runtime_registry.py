@@ -56,7 +56,7 @@ def test_default_registries_expose_business_capabilities():
     from ai.workflows.agent_runs.graph_bindings import register_production_graphs
 
     register_production_graphs()
-    assert {"interview", "resume", "memory", "verification", "jobs"}.issubset(
+    assert {"interview", "interview_planner", "resume", "memory", "verification", "jobs"}.issubset(
         tool_registry.names()
     )
     assert {
@@ -142,6 +142,21 @@ def test_interview_tools_can_be_built_through_runtime_registry():
         "get_candidate_profile",
         "get_interview_history",
         "search_memory",
+    }
+
+
+def test_interview_planner_tools_are_read_only_and_allowlisted():
+    tools = tool_registry.build(
+        "interview_planner",
+        AgentContext(user_id="user-1", session_id="session-1"),
+    )
+
+    assert {tool.name for tool in tools} == {
+        "search_planner_question_bank",
+        "get_previous_round_context",
+        "get_weakness_report",
+        "retrieve_interview_evidence",
+        "search_candidate_memory",
     }
 
 

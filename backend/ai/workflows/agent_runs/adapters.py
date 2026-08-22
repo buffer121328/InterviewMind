@@ -295,6 +295,24 @@ async def _run_evaluation_suite(payload: dict[str, Any], user_id: str, progress:
     return await execute_evaluation_suite(payload, user_id, progress)
 
 
+class InterviewScoringExecutionAdapter:
+    """`interview_scoring` 的隔离评分 adapter，不推进面试状态。"""
+
+    key = "interview_scoring"
+
+    def __init__(self, *, evaluation_runner: EvaluationRunner | None = None) -> None:
+        self._evaluation_runner = evaluation_runner or _run_interview_scoring_evaluation
+
+    async def run(
+        self,
+        payload: dict[str, Any],
+        context: ExecutionContext,
+    ) -> ExecutionResult:
+        if context.environment != "evaluation":
+            raise RuntimeError("interview scoring is only dispatched by the evaluation driver")
+        return await self._evaluation_runner(payload, context)
+
+
 class InterviewTurnExecutionAdapter:
     """`interview_turn` 的 stream/evaluation 同源执行适配器。"""
 
@@ -421,6 +439,23 @@ async def _run_interview_start_evaluation(
         previous_summary=payload.get("previous_summary"),
         owner_id=context.user_id,
         cache_scope=context.session_id or context.run_id or "",
+        planner_tools_enabled=True,
+        planner_tool_fixtures=payload.get("_evaluation_tool_fixtures"),
+    )
+
+
+async def _run_interview_scoring_evaluation(
+    payload: dict[str, Any],
+    context: ExecutionContext,
+) -> ExecutionResult:
+    """调用独立评分能力，只返回结构化评分，不改变面试回合状态。"""
+
+    from ai.agents.interview.scoring import score_interview_answer
+
+    await context.mark_progress("scoring")
+    return await score_interview_answer(
+        payload,
+        api_config=dict(payload.get("api_config") or {}),
     )
 
 
@@ -430,7 +465,11 @@ async def _run_interview_turn_evaluation(
 ) -> ExecutionResult:
     """在 evaluation identity 下调用真实 InterviewRuntime，不写源 session。"""
 
-    from ai.agents.interview.interview_graph import node_responder
+    from ai.agents.interview.interview_graph import (
+        InterviewRuntimeContext,
+        Runtime,
+        node_responder,
+    )
 
     state = dict(payload)
     state.update(
@@ -441,9 +480,22 @@ async def _run_interview_turn_evaluation(
             # 历史案例必须显式关闭正式 memory 注入；工具读取也只会命中 eval identity。
             "memory_context": "",
             "memory_items": [],
+            "_evaluation_environment": payload.get("_evaluation_environment"),
+            "_evaluation_tool_fixtures": payload.get("_evaluation_tool_fixtures"),
+            "_evaluation_expected_tool_calls": payload.get("_evaluation_expected_tool_calls", []),
+            "_evaluation_allowed_tool_calls": payload.get("_evaluation_allowed_tool_calls", []),
         }
     )
-    result = await node_responder(state)
+    if Runtime is None:
+        raise RuntimeError("Interview runtime is unavailable")
+    result = await node_responder(
+        state,
+        Runtime(
+            context=InterviewRuntimeContext(
+                api_config=dict(payload.get("api_config") or {}),
+            )
+        ),
+    )
     return _normalize_runtime_value(result)
 
 

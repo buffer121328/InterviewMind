@@ -15,7 +15,12 @@ from ai.runtime.harness.registry import CallableExecutionAdapter, ExecutionAdapt
 from app.domain.agent_definitions import AgentDefinition
 
 
-def _catalog(runner, *, evaluation_enabled: bool = True) -> AgentCatalog:
+def _catalog(
+    runner,
+    *,
+    evaluation_enabled: bool = True,
+    run_gate_policy: str = "none",
+) -> AgentCatalog:
     definition = AgentDefinition(
         name="demo_agent",
         version="7",
@@ -27,7 +32,7 @@ def _catalog(runner, *, evaluation_enabled: bool = True) -> AgentCatalog:
         evaluation_enabled=evaluation_enabled,
         side_effect_policy="local_write",
         graph_reference_mode="diagnostic",
-        run_gate_policy="none",
+        run_gate_policy=run_gate_policy,
     )
     registry = ExecutionAdapterRegistry()
     registry.register(CallableExecutionAdapter(key="demo_adapter", runner=runner))
@@ -193,6 +198,101 @@ async def test_queued_driver_claims_once_and_preserves_result_contract(deferred:
     expected = "succeed_deferred" if deferred else "succeed"
     assert any(call[0] == expected for call in service.calls)
     assert not any(call[0] == "fail" for call in service.calls)
+
+
+@pytest.mark.asyncio
+async def test_queued_driver_waits_for_global_gate_without_failing_or_retrying() -> None:
+    """A transient global gate conflict remains queued work rather than a run failure."""
+
+    service = _FakeService()
+    acquire_calls = 0
+
+    class Lease:
+        released = False
+
+        async def release(self) -> None:
+            self.released = True
+
+    lease = Lease()
+
+    async def acquire():
+        nonlocal acquire_calls
+        acquire_calls += 1
+        return None if acquire_calls == 1 else lease
+
+    async def runner(_payload, _context):
+        return {"ok": True}
+
+    await QueuedDriver(
+        catalog=_catalog(runner, run_gate_policy="global"),
+        service=service,
+        gate_acquire=acquire,
+        heartbeat_seconds=3600,
+        cancel_poll_seconds=0,
+        gate_poll_seconds=0,
+    ).run("run-1")
+
+    assert acquire_calls == 2
+    assert any(call[0] == "succeed" for call in service.calls)
+    assert not any(call[0] in {"fail", "requeue"} for call in service.calls)
+    assert lease.released is True
+
+
+@pytest.mark.asyncio
+async def test_queued_driver_cancels_while_waiting_for_global_gate() -> None:
+    """Cancellation must not wait for an occupied global lease to become available."""
+
+    service = _FakeService(cancel_requested=True)
+
+    async def acquire():
+        return None
+
+    async def runner(_payload, _context):
+        raise AssertionError("a cancelled wait must not execute the adapter")
+
+    await QueuedDriver(
+        catalog=_catalog(runner, run_gate_policy="global"),
+        service=service,
+        gate_acquire=acquire,
+        heartbeat_seconds=3600,
+        cancel_poll_seconds=0,
+        gate_poll_seconds=0,
+    ).run("run-1")
+
+    assert ("cancelled", "run-1") in service.calls
+    assert not any(call[0] in {"claim", "fail", "succeed"} for call in service.calls)
+
+
+@pytest.mark.asyncio
+async def test_queued_driver_keeps_post_acquisition_failure_visible() -> None:
+    """Only transient lock contention is retried; a real adapter failure remains failed."""
+
+    service = _FakeService()
+
+    class Lease:
+        released = False
+
+        async def release(self) -> None:
+            self.released = True
+
+    lease = Lease()
+
+    async def acquire():
+        return lease
+
+    async def runner(_payload, _context):
+        raise ValueError("model output rejected")
+
+    await QueuedDriver(
+        catalog=_catalog(runner, run_gate_policy="global"),
+        service=service,
+        gate_acquire=acquire,
+        heartbeat_seconds=3600,
+        cancel_poll_seconds=3600,
+    ).run("run-1")
+
+    assert any(call[0] == "fail" for call in service.calls)
+    assert lease.released is True
 
 
 @pytest.mark.asyncio

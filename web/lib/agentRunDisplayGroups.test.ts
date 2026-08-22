@@ -23,6 +23,9 @@ function run(overrides: Partial<AgentRun>): AgentRun {
 
 test('getAgentRunCategory maps every internal task type to one user-facing category', () => {
     assert.deepEqual([
+        getAgentRunCategory('ability_profile'),
+        getAgentRunCategory('evaluation_suite'),
+        getAgentRunCategory('interview_evaluation_draft'),
         getAgentRunCategory('interview_start'),
         getAgentRunCategory('interview_turn'),
         getAgentRunCategory('interview_report'),
@@ -32,7 +35,7 @@ test('getAgentRunCategory maps every internal task type to one user-facing categ
         getAgentRunCategory('resume_generation'),
         getAgentRunCategory('job_assets'),
         getAgentRunCategory('job_recommendation_capture'),
-    ], ['text-interview', 'text-interview', 'text-interview', 'voice-interview', 'resume-optimization', 'resume-optimization', 'resume-optimization', 'job-delivery', 'job-delivery']);
+    ], ['text-interview', 'evaluation', 'evaluation', 'text-interview', 'text-interview', 'text-interview', 'voice-interview', 'resume-optimization', 'resume-optimization', 'resume-optimization', 'job-delivery', 'job-delivery']);
 });
 
 test('groupAgentRunsForDisplay separates user categories and dates', () => {
@@ -44,6 +47,16 @@ test('groupAgentRunsForDisplay separates user categories and dates', () => {
     ] }], new Date('2026-07-27T12:00:00Z'));
 
     assert.deepEqual(groups.map(group => `${group.categoryLabel}:${group.dateLabel}`), ['简历优化:今天', '文本面试:昨天', '语音面试:昨天', '岗位投递:过去7天']);
+});
+
+test('groupAgentRunsForDisplay keeps evaluation runs out of business categories', () => {
+    const groups = groupAgentRunsForDisplay([{ runs: [
+        run({ run_id: 'suite', task_type: 'evaluation_suite', created_at: '2026-07-27T04:00:00Z', updated_at: '2026-07-27T04:00:00Z' }),
+        run({ run_id: 'draft', task_type: 'interview_evaluation_draft', created_at: '2026-07-27T03:00:00Z', updated_at: '2026-07-27T03:00:00Z' }),
+    ] }], new Date('2026-07-27T12:00:00Z'));
+
+    assert.deepEqual(groups.map(group => `${group.categoryLabel}:${group.dateLabel}`), ['评测:今天']);
+    assert.deepEqual(groups[0]?.runs.map(item => item.task_type), ['evaluation_suite', 'interview_evaluation_draft']);
 });
 
 test('groupAgentRunsForDisplay uses creation time instead of later status updates', () => {
@@ -78,6 +91,7 @@ test('interview run labels distinguish one generated response from the whole int
     assert.equal(getAgentRunStatusLabel(activeTurn), '本次回复已生成');
     assert.equal(getInterviewSessionProgressLabel(activeTurn), '面试进行中 · 当前第 1/5 题');
     assert.equal(getAgentRunGroupStatusLabel('text-interview', 'succeeded'), '生成任务已结束');
+    assert.equal(getAgentRunGroupStatusLabel('evaluation', 'succeeded'), '已完成');
 });
 
 test('BOSS capture reports the QR login stage as the current status', () => {

@@ -10,6 +10,8 @@ import logging
 from difflib import SequenceMatcher
 from typing import Any, Dict, List, Optional
 
+from pydantic import BaseModel, Field
+
 from ai.llm.llm_utils import clean_json_response, invoke_structured
 from ai.runtime.context.assembler import ContextAssembler, ContextSource
 from ai.runtime.execution.deadlines import TaskDeadline
@@ -31,6 +33,24 @@ from ..questions.plan import INTRODUCTION_ROUND_TYPES, is_introduction_question
 from .context import PlannerContextBundle, assemble_planner_context
 
 logger = logging.getLogger(__name__)
+
+
+class PlannerToolDecision(BaseModel):
+    """Planner 的一次受限工具选择，不包含业务正文。"""
+
+    need_tool: bool = False
+    tool_name: str | None = Field(default=None, max_length=120)
+    tool_args: dict[str, Any] = Field(default_factory=dict)
+    reason: str = Field(default="", max_length=240)
+
+
+PLANNER_TOOL_NAMES = frozenset({
+    "search_planner_question_bank",
+    "get_previous_round_context",
+    "get_weakness_report",
+    "retrieve_interview_evidence",
+    "search_candidate_memory",
+})
 
 # 面试启动属于用户阻塞链路；模型池自身可能有多通道和重试，因此使用独立总预算，
 # 超时后立即使用本地题目兜底，避免单次启动累计等待数分钟。
@@ -344,6 +364,8 @@ async def generate_interview_plan(
     previous_summary: Optional[str] = None,
     owner_id: str = "",
     cache_scope: str = "",
+    planner_tools_enabled: bool = False,
+    planner_tool_fixtures: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
     """
     生成面试计划（核心函数）
@@ -374,6 +396,23 @@ async def generate_interview_plan(
         面试问题列表
     """
     try:
+        if planner_tools_enabled:
+            retrieval_context = await _run_planner_tool_selection(
+                resume=resume,
+                job_description=job_description,
+                round_type=round_type,
+                round_index=round_index,
+                previous_questions=previous_questions,
+                previous_profile=previous_profile,
+                weakness_report=weakness_report,
+                retrieval_context=retrieval_context,
+                memory_context=memory_context,
+                api_config=api_config,
+                owner_id=owner_id or "default_user",
+                session_id=session_id,
+                planner_tool_fixtures=planner_tool_fixtures,
+                cache_scope=cache_scope,
+            )
         prompt, context_bundle = _build_planner_prompt_bundle(
             resume=resume,
             job_description=job_description,
@@ -485,6 +524,106 @@ async def generate_interview_plan(
             max_questions=max_questions,
             ensure_intro=not known_intro_question,
         )
+
+
+async def _run_planner_tool_selection(
+    *,
+    resume: str,
+    job_description: str,
+    round_type: str,
+    round_index: int,
+    previous_questions: Optional[List[str]],
+    previous_profile: Optional[Dict],
+    weakness_report: Optional[Dict],
+    retrieval_context: Optional[Dict],
+    memory_context: Optional[str],
+    api_config: Dict[str, Any],
+    owner_id: str,
+    session_id: Optional[str],
+    planner_tool_fixtures: Optional[Dict[str, Any]],
+    cache_scope: str,
+) -> Dict[str, Any]:
+    """让 Planner 按需选择最多两个补充工具；任何失败均降级为空摘要。"""
+
+    from ai.runtime.context import AgentContext
+    from ai.tools.runtime import GovernedToolRuntime
+
+    context = AgentContext(
+        user_id=owner_id,
+        session_id=session_id,
+        api_config=api_config or {},
+        runtime_data={
+            "environment": "evaluation" if owner_id.startswith("eval-user:") else "production",
+            "evaluation_tool_fixtures": planner_tool_fixtures,
+        },
+        permissions=frozenset({
+            "question_bank.search",
+            "interview.history.read",
+            "interview.weakness.read",
+            "interview.retrieval.read",
+            "memory.search",
+        }),
+    )
+    runtime = GovernedToolRuntime(
+        context,
+        groups=("interview_planner",),
+    )
+    available = ", ".join(sorted(runtime.names(group="interview_planner")))
+    decision_prompt = (
+        "你是面试规划信息选择器。只在现有上下文不足时选择一个只读工具；"
+        "如果上下文足够则 need_tool=false。禁止编造工具名或参数。请输出 JSON。\n"
+        f"可用工具: {available}\n"
+        f"轮次: {round_index}, 类型: {round_type}\n"
+        f"简历摘要: {resume[:1800]}\n"
+        f"岗位 JD: {job_description[:1800]}\n"
+        f"上一轮问题: {list(previous_questions or [])[:8]}\n"
+        f"上一轮画像: {dict(previous_profile or {})}\n"
+        f"短板报告: {dict(weakness_report or {})}\n"
+        f"已有检索上下文: {dict(retrieval_context or {})}\n"
+        f"已有记忆: {(memory_context or '')[:800]}\n"
+        "字段必须为 need_tool、tool_name、tool_args、reason。"
+    )
+    merged = dict(retrieval_context or {})
+    selections: list[dict[str, Any]] = []
+    for selection_index in range(2):
+        try:
+            decision = await invoke_structured(
+                prompt=decision_prompt + f"\n已完成补充查询次数: {selection_index}",
+                output_model=PlannerToolDecision,
+                api_config=api_config,
+                channel="fast",
+                max_retries=0,
+                deadline=TaskDeadline(float(get_settings().interview_plan_timeout_seconds)),
+                call_metadata={
+                    "stage": "planner_tool_selection",
+                    "selection_index": selection_index,
+                    "cache_scope": cache_scope,
+                },
+            )
+        except Exception as exc:
+            logger.warning("[Planner] 工具选择失败，继续使用已有上下文: %s", type(exc).__name__)
+            break
+        if not decision.need_tool or not decision.tool_name:
+            break
+        if decision.tool_name not in PLANNER_TOOL_NAMES:
+            logger.warning("[Planner] 拒绝未允许工具: %s", decision.tool_name)
+            break
+        try:
+            result = await runtime.execute(
+                decision.tool_name,
+                decision.tool_args,
+                group="interview_planner",
+                workflow_name="interview_planner",
+                stage="optional_read",
+            )
+        except Exception as exc:
+            logger.warning("[Planner] 可选工具失败，继续降级: %s=%s", decision.tool_name, type(exc).__name__)
+            result = {"status": "degraded", "tool": decision.tool_name, "error_type": type(exc).__name__}
+        selections.append({"tool": decision.tool_name, "reason": decision.reason, "result": result})
+        decision_prompt += f"\n上一次工具结果摘要: {str(result)[:1200]}"
+    if selections:
+        merged["planner_tool_selections"] = selections
+    return merged
 
 
 def _normalize_question_key(content: str) -> str:

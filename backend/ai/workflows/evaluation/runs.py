@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import uuid
 from typing import Any
 
 from ai.workflows.agent_runs.use_cases import AgentRunUseCaseError, agent_run_use_cases
@@ -27,9 +28,11 @@ from ai.workflows.evaluation.run_filters import (
 )
 from app.config import get_settings
 from app.db.models import async_session
+from app.db.repositories.jobs.job_capture_repo import JobCaptureRepo
 from app.db.unit_of_work import UnitOfWork
 from app.domain.agent_runs import TASK_TYPE_EVALUATION_SUITE
 from app.schemas.evaluation.evaluations import (
+    EvaluationAllQuickRunRequest,
     EvaluationCandidateDatasetRequest,
     EvaluationQuickRunRequest,
     EvaluationReviewRequest,
@@ -40,7 +43,9 @@ from app.security.payload_crypto import (
     decrypt_payload,
 )
 from evaluation.builtins import (
+    BUILTIN_EVALUATION_AGENTS,
     get_builtin_agent,
+    get_builtin_scope,
     get_quick_mode,
     model_config_fingerprint,
 )
@@ -48,6 +53,19 @@ from evaluation.runners.production import (
     CatalogEvaluationView,
     EvaluationConfigurationError,
 )
+
+
+async def _job_description_snapshot_for_evaluation(user_id: str) -> str:
+    """Read one owner-scoped JD once, before creating an immutable evaluation dataset."""
+
+    jobs = await JobCaptureRepo().list_jobs(user_id=user_id, limit=50)
+    for job in jobs:
+        description = str(job.get("job_description") or "").strip()
+        if description:
+            return description[:12_000]
+    raise EvaluationUseCaseError(
+        "标准回归和发布检查需要岗位库中至少一条完整 JD", status_code=409
+    )
 
 
 def _evaluation_run_id_for_idempotency(user_id: str, idempotency_key: str) -> str:
@@ -68,6 +86,7 @@ class RunUseCasesMixin:
         user_id: str,
         request: EvaluationQuickRunRequest,
         idempotency_key: str | None,
+        smoke_batch_id: str | None = None,
     ) -> dict[str, Any]:
         """把 Agent 与模式选择展开为受服务端约束的真实可恢复评测运行。"""
 
@@ -87,6 +106,26 @@ class RunUseCasesMixin:
         if request.prompt_version is not None and request.prompt_version != catalog_entry.definition.prompt_version:
             raise EvaluationUseCaseError("evaluation prompt identity drifted", status_code=409)
 
+        try:
+            scope = get_builtin_scope(agent, mode.name)
+            if mode.name in {"standard", "release"}:
+                async with UnitOfWork(async_session) as uow:
+                    existing_dataset = await self.repository.get_dataset_by_name_version(
+                        uow.db,
+                        user_id=user_id,
+                        name=scope.dataset_name,
+                        version=scope.dataset_version,
+                    )
+                if existing_dataset is None:
+                    scope = get_builtin_scope(
+                        agent,
+                        mode.name,
+                        job_description=await _job_description_snapshot_for_evaluation(user_id),
+                        require_job_description=True,
+                    )
+        except ValueError as exc:
+            raise EvaluationUseCaseError(str(exc), status_code=409) from exc
+
         settings = get_settings()
         baseline_run_id: str | None = None
         try:
@@ -95,12 +134,14 @@ class RunUseCasesMixin:
                     uow.db,
                     user_id=user_id,
                     agent=agent,
+                    scope=scope,
                 )
                 if request.compare_production:
                     baseline = await self.repository.latest_successful_run_for_agent(
                         uow.db,
                         user_id=user_id,
                         agent_name=agent.name,
+                        dataset_version=f"{scope.dataset_name}:{scope.dataset_version}",
                     )
                     baseline_run_id = baseline.id if baseline else None
                 suite_id = suite.id
@@ -134,7 +175,51 @@ class RunUseCasesMixin:
             user_id=user_id,
             request=run_request,
             idempotency_key=idempotency_key,
+            smoke_batch_id=smoke_batch_id,
         )
+
+    async def all_agents_quick_run(
+        self,
+        *,
+        user_id: str,
+        request: EvaluationAllQuickRunRequest,
+        idempotency_key: str | None,
+    ) -> dict[str, Any]:
+        """Queue one server-owned quick smoke run for every supported built-in Agent.
+
+        The client supplies model routing only. Agent identities and the one-case quick
+        boundary remain owned by the allowlisted server catalog.
+        """
+
+        self._ensure_runs_enabled()
+        runs: list[dict[str, Any]] = []
+        failures: list[dict[str, str]] = []
+        # Replayed idempotency keys must resolve to the same batch. Requests without
+        # one still need a fresh durable grouping rather than being merged forever.
+        if idempotency_key:
+            smoke_batch_id = "smoke_" + hashlib.sha256(
+                f"{user_id}\0{idempotency_key}".encode()
+            ).hexdigest()[:32]
+        else:
+            smoke_batch_id = f"smoke_{uuid.uuid4().hex}"
+        for agent in BUILTIN_EVALUATION_AGENTS:
+            agent_key = f"{idempotency_key}:{agent.name}" if idempotency_key else None
+            try:
+                run = await self.quick_run(
+                    user_id=user_id,
+                    request=EvaluationQuickRunRequest(
+                        agent_name=agent.name,
+                        mode="quick",
+                        api_config=request.api_config,
+                    ),
+                    idempotency_key=agent_key,
+                    smoke_batch_id=smoke_batch_id,
+                )
+            except EvaluationUseCaseError as exc:
+                failures.append({"agent_name": agent.name, "message": exc.message})
+            else:
+                runs.append(run)
+        return {"smoke_batch_id": smoke_batch_id, "runs": runs, "failures": failures}
 
     async def create_run(
         self,
@@ -142,6 +227,7 @@ class RunUseCasesMixin:
         user_id: str,
         request: EvaluationRunCreateRequest,
         idempotency_key: str | None,
+        smoke_batch_id: str | None = None,
     ) -> dict[str, Any]:
         """创建 EvaluationRun，并通过加密 AgentRun payload 排队执行。"""
 
@@ -212,6 +298,7 @@ class RunUseCasesMixin:
                     baseline_run_id=request.baseline_run_id,
                     repetition_count=request.repetition_count,
                     include_judges=request.include_judges,
+                    smoke_batch_id=smoke_batch_id,
                     budget={
                         "max_concurrency": request.max_concurrency,
                         "max_budget_usd": request.max_budget_usd,

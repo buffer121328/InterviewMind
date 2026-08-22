@@ -28,6 +28,10 @@ class EvaluationCaseCreateRequest(_EvaluationRequest):
     forbidden_claims: list[JsonValue] = Field(default_factory=list, max_length=200, description="禁止出现的主张")
     expected_tool_calls: list[str] = Field(default_factory=list, max_length=100, description="期望的工具调用")
     allowed_tool_calls: list[str] = Field(default_factory=list, max_length=100, description="允许的工具调用")
+    required_workflow_tool_calls: list[str] = Field(default_factory=list, max_length=100, description="固定工作流必需工具")
+    degraded_workflow_tool_calls: list[str] = Field(default_factory=list, max_length=100, description="允许失败后降级的工作流工具")
+    blocked_workflow_tool_calls: list[str] = Field(default_factory=list, max_length=100, description="必须被阻断的外部工具")
+    tool_fixtures: dict[str, JsonValue] = Field(default_factory=dict, description="隔离工具夹具")
     required_state_transitions: list[str] = Field(default_factory=list, max_length=100, description="必须经历的状态迁移")
     forbidden_state_transitions: list[str] = Field(default_factory=list, max_length=100, description="禁止的状态迁移")
     quality_rubric: dict[str, JsonValue] = Field(default_factory=dict, description="质量评分细则")
@@ -118,6 +122,12 @@ class EvaluationQuickRunRequest(_EvaluationRequest):
     compare_production: bool = Field(default=False, description="是否对比生产版本")
 
 
+class EvaluationAllQuickRunRequest(_EvaluationRequest):
+    """Use the current model settings to queue one quick smoke run for every allowlisted Agent."""
+
+    api_config: ApiConfig = Field(description="模型 API 配置")
+
+
 class EvaluationReviewRequest(_EvaluationRequest):
     """把运行中的指定案例或失败案例加入人工复核队列。"""
 
@@ -168,8 +178,8 @@ class EvaluationAnnotationCreateRequest(_EvaluationRequest):
     evidence_spans: list[EvidenceSpan] = Field(default_factory=list, max_length=200, description="证据区间列表")
     comment: str | None = Field(default=None, max_length=2000, description="备注")
     confidence: float | None = Field(default=None, ge=0, le=1, description="置信度")
-    reviewer_key: str | None = Field(default=None, min_length=1, max_length=120, description="复核人标识")
-    blind: bool = Field(default=True, description="是否盲审")
+    reviewer_key: str | None = Field(default="owner-expert", min_length=1, max_length=120, description="复核人标识")
+    blind: bool = Field(default=False, description="是否盲审")
 
     @field_validator("comment")
     @classmethod

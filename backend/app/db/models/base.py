@@ -1,6 +1,5 @@
 """
 SQLAlchemy 2.0 异步 ORM 基础设施
-替代原 db/base.py 的 DatabaseManager
 """
 
 import logging

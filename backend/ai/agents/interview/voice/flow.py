@@ -268,6 +268,7 @@ async def node_planner(
             memory_context=memory_context,
             owner_id=user_id,
             cache_scope=cache_scope,
+            planner_tools_enabled=True,
         )
     interview_plan = merge_question_plan(
         candidates,

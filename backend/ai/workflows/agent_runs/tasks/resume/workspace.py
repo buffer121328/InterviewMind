@@ -176,7 +176,7 @@ async def execute_resume_workspace(
     progress: ProgressCallback,
 ) -> dict | DeferredExecutionResult:
     """执行简历工作区相关后端逻辑。"""
-    from ai.agents.resume.jd_matcher import match_jd
+    from ai.tools.resume_tools import execute_resume_match
     from ai.agents.resume.optimization.flow import run_pipeline
     from ai.agents.resume.resume_analyzer_graph import analyze_resume
     from ai.agents.resume.resume_context import assemble_resume_context
@@ -289,7 +289,7 @@ async def execute_resume_workspace(
 
         async def match_call() -> dict[str, Any]:
             """处理简历工作区相关后端逻辑。"""
-            return await match_jd(
+            return await execute_resume_match(
                 mode="smart",
                 resume_content=compact_resume,
                 job_description=compact_jd,
@@ -297,6 +297,8 @@ async def execute_resume_workspace(
                 user_id=user_id,
                 deadline=deadline,
                 call_metadata=event_metadata,
+                workflow_name="resume_workspace",
+                stage="jd_analysis",
             )
 
         competition_raw, match_raw = await asyncio.gather(

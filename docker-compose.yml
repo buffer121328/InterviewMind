@@ -13,6 +13,7 @@ x-backend-overrides: &backend_overrides
   RUNTIME_DATA_DIR: /app/data
   ARTIFACT_STORAGE_DIR: /app/data/artifacts
   STATIC_STORAGE_DIR: /app/data/static
+  TZ: Asia/Shanghai
 
 services:
   # PostgreSQL 数据库
@@ -24,6 +25,8 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in .env}
+      TZ: Asia/Shanghai
+    command: ["postgres", "-c", "timezone=Asia/Shanghai"]
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
@@ -40,6 +43,8 @@ services:
     image: redis:7-alpine
     container_name: agent_interview_redis
     restart: always
+    environment:
+      TZ: Asia/Shanghai
     ports:
       - "127.0.0.1:${REDIS_PORT}:6379"
     networks:
@@ -146,6 +151,8 @@ services:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:?set NEXT_PUBLIC_API_URL in .env}
     container_name: agent_interview_frontend
     restart: always
+    environment:
+      TZ: Asia/Shanghai
     depends_on:
       backend:
         condition: service_healthy

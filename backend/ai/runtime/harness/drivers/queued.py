@@ -115,6 +115,7 @@ class QueuedDriver:
         gate_acquire: GateAcquire | None = None,
         heartbeat_seconds: float = 30,
         cancel_poll_seconds: float = 2,
+        gate_poll_seconds: float = 0.5,
         event_sink: EventSink | None = None,
     ) -> None:
         """初始化 QueuedDriver 的依赖与运行参数，不创建连接或执行业务写入。
@@ -125,6 +126,7 @@ class QueuedDriver:
             gate_acquire: 获取全局运行门租约的工厂；不传则禁用全局门禁。
             heartbeat_seconds: 心跳间隔秒数，运行中周期性刷新防止误判超时。
             cancel_poll_seconds: 取消轮询间隔秒数。
+            gate_poll_seconds: 全局门禁被占用时的可取消轮询间隔秒数。
             event_sink: 事件投影 sink，可选。
         """
 
@@ -133,7 +135,22 @@ class QueuedDriver:
         self._gate_acquire = gate_acquire
         self._heartbeat_seconds = heartbeat_seconds
         self._cancel_poll_seconds = cancel_poll_seconds
+        self._gate_poll_seconds = max(0, gate_poll_seconds)
         self._event_sink = event_sink
+
+    async def _wait_for_global_lease(self, run_id: str) -> LeaseProtocol | None:
+        """等待全局运行门，同时允许尚未 claim 的任务被取消。"""
+
+        if self._gate_acquire is None:
+            raise RuntimeError("global run gate is not configured")
+        while True:
+            if await self._service.is_cancel_requested(run_id):
+                await self._service.mark_cancelled(run_id)
+                return None
+            lease = await self._gate_acquire()
+            if lease is not None:
+                return lease
+            await asyncio.sleep(self._gate_poll_seconds)
 
     async def run(self, run_id: str) -> None:
         """领取并执行一个 queued AgentRun，保持既有终态与恢复语义。
@@ -150,11 +167,9 @@ class QueuedDriver:
         # ② 全局门禁：任务声明 global 策略时需先拿到单用户运行租约。
         lease: LeaseProtocol | None = None
         if entry.definition.run_gate_policy == "global":
-            if self._gate_acquire is None:
-                raise RuntimeError("global run gate is not configured")
-            lease = await self._gate_acquire()
+            lease = await self._wait_for_global_lease(run_id)
             if lease is None:
-                raise RuntimeError("single-user LLM run is active")
+                return
 
         claimed = False
         try:

@@ -50,6 +50,11 @@ class _DoubaoLLM(_LLM):
     model_name = "doubao-seed-1-6-250615"
 
 
+class _MimoLLM(_LLM):
+    _model_provider = "mimo"
+    model_name = "mimo-v2.5-pro"
+
+
 @pytest.mark.asyncio
 async def test_structured_call_falls_back_after_primary_timeout(monkeypatch):
     primary_calls = []
@@ -241,6 +246,22 @@ async def test_doubao_candidate_uses_strict_json_schema(monkeypatch):
 
     assert result.answer == "严格结构化结果"
     assert calls == [{"method": "json_schema", "strict": True, "include_raw": True}]
+
+
+@pytest.mark.asyncio
+async def test_mimo_candidate_uses_json_mode(monkeypatch):
+    calls = []
+    mimo = _MimoLLM([_Output(answer="MiMo 结构化结果")], calls)
+    monkeypatch.setattr(
+        llms.model_gateway,
+        "get_chat_candidates",
+        lambda *_args, **_kwargs: [mimo],
+    )
+
+    result = await invoke_structured("return json", _Output, api_config={"smart": {}}, max_retries=0)
+
+    assert result.answer == "MiMo 结构化结果"
+    assert calls == [{"method": "json_mode", "include_raw": True}]
 
 
 @pytest.mark.asyncio

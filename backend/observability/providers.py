@@ -23,6 +23,8 @@ def _normalize_model_provider(value: Any) -> str | None:
         return "qwen"
     if raw in {"volcengine", "ark", "doubao"}:
         return "volcengine"
+    if raw in {"mimo", "xiaomi", "xiaomi_mimo"}:
+        return "mimo"
     if raw == "custom":
         # Let the configured model name and endpoint identify hosted services
         # such as Volcengine Ark; unknown custom endpoints still infer to the
@@ -62,6 +64,8 @@ def infer_model_provider(model: Any, base_url: str | None = None) -> str:
         base_url: 基础 URL。
     """
     text = f"{model or ''} {base_url or ''}".lower()
+    if any(marker in text for marker in ("mimo-v2", "xiaomimimo.com", "mimo.mi.com")):
+        return "mimo"
     if any(marker in text for marker in ("ark.cn-", "volcengine", "doubao")):
         return "volcengine"
     if "deepseek" in text:
@@ -84,7 +88,7 @@ def infer_model_integration(model: Any, base_url: str | None = None, provider: A
     explicit = _normalize_model_provider(provider) or ""
     inferred = infer_model_provider(model, base_url)
     base = (base_url or "").lower()
-    if explicit in {"deepseek", "qwen", "openai", "openai_compatible"}:
+    if explicit in {"deepseek", "qwen", "openai", "openai_compatible", "mimo"}:
         inferred = explicit
     if inferred == "deepseek" and (not base or "deepseek" in base):
         return "deepseek"
@@ -92,6 +96,8 @@ def infer_model_integration(model: Any, base_url: str | None = None, provider: A
         return "qwen"
     if inferred == "openai" and (not base or "openai" in base):
         return "openai"
+    if inferred == "mimo":
+        return "openai_compatible"
     return "openai_compatible"
 
 

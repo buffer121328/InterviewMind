@@ -4,6 +4,11 @@ export function formatEvaluationRate(value: number | null | undefined): string {
     return value == null || !Number.isFinite(value) ? '样本不足' : `${(value * 100).toFixed(1)}%`;
 }
 
+/** Formats rates whose denominator is an observed runtime event rather than a sample count. */
+export function formatObservedEventRate(value: number | null | undefined): string {
+    return value == null || !Number.isFinite(value) ? '未观测到该类事件' : `${(value * 100).toFixed(1)}%`;
+}
+
 export function formatSignedRate(value: number | null | undefined): string {
     if (value == null || !Number.isFinite(value)) return '无基线';
     const percent = value * 100;
@@ -35,14 +40,14 @@ export function overviewCards(overview: EvaluationOverview) {
         { key: 'approval-violations', group: 'governance', label: '审批违规', value: String(overview.approval_violation_count), tone: 'red' },
         { key: 'latency', group: 'stability', label: '最近 P95 延迟', value: overview.p95_latency_ms == null ? '样本不足' : `${Math.round(overview.p95_latency_ms)} ms`, tone: 'amber' },
         { key: 'token', group: 'stability', label: 'Token 相对基线', value: formatSignedRate(overview.token_delta_percent), tone: 'orange' },
-        { key: 'tool-success', group: 'stability', label: '工具执行成功率', value: formatEvaluationRate(overview.tool_execution_success_rate), tone: 'emerald' },
-        { key: 'tool-failure', group: 'stability', label: '工具失败率', value: formatEvaluationRate(overview.tool_failure_rate), tone: 'orange' },
+        { key: 'tool-success', group: 'stability', label: '工具执行成功率', value: formatObservedEventRate(overview.tool_execution_success_rate), tone: 'emerald' },
+        { key: 'tool-failure', group: 'stability', label: '工具失败率', value: formatObservedEventRate(overview.tool_failure_rate), tone: 'orange' },
         { key: 'tool-blocked', group: 'governance', label: '工具正确阻断率', value: formatEvaluationRate(overview.tool_blocked_rate), tone: 'violet' },
-        { key: 'tool-retry', group: 'stability', label: '工具重试率', value: formatEvaluationRate(overview.tool_retry_rate), tone: 'amber' },
+        { key: 'tool-retry', group: 'stability', label: '工具重试率', value: formatObservedEventRate(overview.tool_retry_rate), tone: 'amber' },
         { key: 'tool-duration', group: 'stability', label: 'Tool P95 耗时', value: overview.tool_p95_duration_ms == null ? '样本不足' : `${Math.round(overview.tool_p95_duration_ms)} ms`, tone: 'amber' },
-        { key: 'dependency-failure', group: 'stability', label: '依赖失败率', value: formatEvaluationRate(overview.dependency_failure_rate), tone: 'rose' },
-        { key: 'dependency-timeout', group: 'stability', label: '外部 IO 超时率', value: formatEvaluationRate(overview.external_io_timeout_rate), tone: 'red' },
-        { key: 'retrieval-empty', group: 'stability', label: '检索空召回率', value: formatEvaluationRate(overview.retrieval_empty_rate), tone: 'orange' },
+        { key: 'dependency-failure', group: 'stability', label: '依赖失败率', value: formatObservedEventRate(overview.dependency_failure_rate), tone: 'rose' },
+        { key: 'dependency-timeout', group: 'stability', label: '外部 IO 超时率', value: formatObservedEventRate(overview.external_io_timeout_rate), tone: 'red' },
+        { key: 'retrieval-empty', group: 'stability', label: '检索空召回率', value: formatObservedEventRate(overview.retrieval_empty_rate), tone: 'orange' },
         { key: 'retrieval-success', group: 'quality', label: '检索成功率', value: formatEvaluationRate(overview.retrieval_success_rate), tone: 'cyan' },
         { key: 'retrieval-adopted', group: 'quality', label: '检索采用率', value: formatEvaluationRate(overview.retrieval_adopted_rate), tone: 'teal' },
         { key: 'memory-hit', group: 'quality', label: 'Memory 命中率', value: formatEvaluationRate(overview.memory_search_hit_rate), tone: 'cyan' },

@@ -80,9 +80,9 @@ def test_overview_and_trend_helpers_keep_quality_sources_observable() -> None:
     assert _metric_average([run], ("factual",)) == pytest.approx(0.9)
     point = _trend_point(run)
     assert point["sample_count"] == 20
-    assert point["average_score"] == pytest.approx(0.85)
-    assert point["minimum_score"] == pytest.approx(0.8)
-    assert point["score_spread"] == pytest.approx(0.1)
+    assert "average_score" not in point
+    assert "minimum_score" not in point
+    assert "score_spread" not in point
     assert point["p95_latency_ms"] == 300
     assert point["p95_tokens"] == 260
 
@@ -274,7 +274,13 @@ async def test_overview_governance_rates_are_owner_scoped_and_weighted(monkeypat
                 "retrieval_empty_case_count": 1,
                 "langfuse_reported_case_count": 1,
                 "langfuse_failed_case_count": 1,
-                "metrics": {},
+                "needs_review_count": 2,
+                "pending_review_count": 0,
+                "metrics": {
+                    "tool.expected_call_coverage": 0.8,
+                    "tool.allowed_call_compliance": 1.0,
+                    "budget.latency_compliance": 0.5,
+                },
             },
         ),
         SimpleNamespace(
@@ -291,6 +297,8 @@ async def test_overview_governance_rates_are_owner_scoped_and_weighted(monkeypat
                 "external_io_total": 0,
                 "external_io_failed_count": 0,
                 "approval_event_total": 1,
+                "needs_review_count": 1,
+                "pending_review_count": 1,
                 "metrics": {},
             },
         ),
@@ -313,6 +321,8 @@ async def test_overview_governance_rates_are_owner_scoped_and_weighted(monkeypat
     assert overview["trace_incomplete_count"] == 1
     assert overview["tool_failure_rate"] == pytest.approx(0.25)
     assert overview["tool_execution_success_rate"] == pytest.approx(0.75)
+    assert overview["tool_call_accuracy"] == pytest.approx(0.9)
+    assert overview["latency_compliance_rate"] == pytest.approx(0.5)
     assert overview["tool_p95_duration_ms"] == 50
     assert overview["dependency_failure_rate"] == pytest.approx(0.5)
     assert overview["external_io_timeout_rate"] == pytest.approx(0.5)
@@ -323,6 +333,7 @@ async def test_overview_governance_rates_are_owner_scoped_and_weighted(monkeypat
     assert overview["approval_violation_count"] == 1
     assert overview["langfuse_reported_case_count"] == 1
     assert overview["langfuse_failed_case_count"] == 1
+    assert overview["pending_review_count"] == 1
     repository.list_runs.assert_awaited_once_with(
         repository.list_runs.await_args.args[0],
         user_id="owner-a",

@@ -8,6 +8,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from app.clock import utc_isoformat
+
 
 @pytest.mark.fast
 @pytest.mark.asyncio
@@ -74,7 +76,7 @@ async def test_dataset_detail_returns_owner_scoped_case_summaries(monkeypatch) -
             "tags": ["quick"],
             "severity": "high",
             "content_hash": "sha256:case",
-            "created_at": created_at.isoformat(),
+            "created_at": utc_isoformat(created_at),
         }
     ]
     repository.get_dataset.assert_awaited_once_with(

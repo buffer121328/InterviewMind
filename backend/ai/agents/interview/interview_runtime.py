@@ -34,6 +34,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from ai.runtime.context import AgentContext
 from ai.runtime.execution.deadlines import TaskDeadline
 from ai.tools.executor import ToolExecutionGuard
+from ai.tools.runtime import GovernedToolRuntime
 from app.config import get_settings
 from app.domain.interview_round_strategy import (
     ROUND_STRATEGY_VERSION,
@@ -166,18 +167,29 @@ class InterviewRuntime:
 
         # 已执行的工具结果缓存；实际调用统一经过 Guard，兼容 trace 只由事件投影生成。
         self.tool_results: Dict[str, Any] = {}
+        self._evaluation_tools_preloaded = False
         self._tool_guard = ToolExecutionGuard()
         self._tool_context = AgentContext(
             user_id=str(self.state.get("user_id") or "interview-user"),
             session_id=self.state.get("session_id"),
             run_id=self.state.get("run_id"),
             api_config=api_config or {},
+            runtime_data={
+                "environment": self.state.get("_evaluation_environment"),
+                "evaluation_tool_fixtures": self.state.get("_evaluation_tool_fixtures"),
+            },
             permissions=frozenset({
                 "question_bank.search",
                 "candidate.profile.read",
                 "interview.history.read",
                 "memory.search",
             }),
+        )
+        self._governed_tools = GovernedToolRuntime(
+            self._tool_context,
+            groups=("interview",),
+            guard=self._tool_guard,
+            audit_callback=self._record_tool_observation,
         )
 
     # ------------------------------------------------------------------
@@ -302,6 +314,8 @@ class InterviewRuntime:
         current_q = self._get_current_question()
         next_q = self._get_next_question()
 
+        await self._preload_evaluation_tools()
+
         logger.info(
             f"[Runtime] evaluating: idx={self.current_idx}/{len(self.plan)}, "
             f"follow_up={self.follow_up_count}/{self.max_follow_ups}, "
@@ -332,7 +346,7 @@ class InterviewRuntime:
             next_q,
             tool_context,
             allow_tool_request=bool(
-                self.tool_executor
+                self._tools_available()
                 and self.tool_round_count < self.max_tool_rounds
                 and not self.tool_results
             ),
@@ -673,6 +687,29 @@ class InterviewRuntime:
     # 工具调用
     # ------------------------------------------------------------------
 
+    async def _preload_evaluation_tools(self) -> None:
+        """满足隔离评测案例声明的必需 read-only fixture 工具契约。"""
+        if self._evaluation_tools_preloaded:
+            return
+        self._evaluation_tools_preloaded = True
+        if self.state.get("_evaluation_environment") != "evaluation":
+            return
+        expected = self.state.get("_evaluation_expected_tool_calls") or []
+        fixtures = self.state.get("_evaluation_tool_fixtures") or {}
+        allowed = set(self.state.get("_evaluation_allowed_tool_calls") or expected)
+        if not isinstance(expected, list) or not expected or not isinstance(fixtures, dict):
+            return
+        requests = []
+        for name in expected:
+            fixture = fixtures.get(str(name))
+            if str(name) not in allowed or not isinstance(fixture, dict):
+                continue
+            arguments = fixture.get("arguments") or {}
+            if isinstance(arguments, dict):
+                requests.append({"tool_name": str(name), "tool_args": dict(arguments)})
+        if requests:
+            await self.execute_tools(requests)
+
     async def execute_tools(self, tool_requests: List[Any]) -> Dict[str, Any]:
         """在 evaluating 状态显式执行工具调用（不做 Agent 自主决策）
 
@@ -684,9 +721,6 @@ class InterviewRuntime:
         """
         results = {}
 
-        if not self.tool_executor:
-            return results
-
         for request in tool_requests:
             if isinstance(request, str):
                 name = request
@@ -695,28 +729,36 @@ class InterviewRuntime:
                 name = str(request.get("tool_name", "")).strip()
                 tool_args = request.get("tool_args", {}) or {}
             try:
-                async def invoke_tool() -> Any:
-                    """调用 runtime 注入的业务工具；治理事件由外层 Guard 统一生成。"""
+                if self.tool_executor is not None:
+                    async def invoke_tool(**_arguments: Any) -> Any:
+                        return await self.tool_executor(name, **tool_args)
 
-                    return await self.tool_executor(name, **tool_args)
-
-                result = await self._tool_guard.execute(
-                    invoke_tool,
-                    context=self._tool_context,
-                    effect="read",
-                    required_permissions=(
-                        {
-                            "search_question_bank": "question_bank.search",
-                            "get_candidate_profile": "candidate.profile.read",
-                            "get_interview_history": "interview.history.read",
-                            "search_memory": "memory.search",
-                        }.get(name, "interview.tool.read"),
-                    ),
-                    tool_name=name,
-                    workflow_name="interview_runtime",
-                    stage=InterviewPhase.EVALUATING.value,
-                    audit_callback=self._record_tool_observation,
-                )
+                    result = await self._tool_guard.execute(
+                        invoke_tool,
+                        context=self._tool_context,
+                        effect="read",
+                        required_permissions=(
+                            {
+                                "search_question_bank": "question_bank.search",
+                                "get_candidate_profile": "candidate.profile.read",
+                                "get_interview_history": "interview.history.read",
+                                "search_memory": "memory.search",
+                            }.get(name, "interview.tool.read"),
+                        ),
+                        tool_name=name,
+                        workflow_name="interview_runtime",
+                        stage=InterviewPhase.EVALUATING.value,
+                        audit_callback=self._record_tool_observation,
+                        **tool_args,
+                    )
+                else:
+                    result = await self._governed_tools.execute(
+                        name,
+                        tool_args,
+                        group="interview",
+                        workflow_name="interview_runtime",
+                        stage=InterviewPhase.EVALUATING.value,
+                    )
                 results[name] = result
                 self.tool_results[name] = result
                 self.tool_round_count += 1
@@ -767,6 +809,7 @@ class InterviewRuntime:
                 "content",
                 "score",
                 "count",
+                "recent_confirmed_gap",
             )
             compact = {key: result[key] for key in preferred_keys if key in result}
             payload = compact or {"status": "success", "item_count": len(result)}
@@ -840,11 +883,18 @@ class InterviewRuntime:
             output: 模型评估输出。
         """
         return bool(
-            self.tool_executor
+            self._tools_available()
             and self.tool_round_count < self.max_tool_rounds
             and not self.tool_results
             and output.need_tool
             and output.tool_name
+        )
+
+    def _tools_available(self) -> bool:
+        """Return whether either legacy injection or registry-backed tools are usable."""
+
+        return self.tool_executor is not None or bool(
+            self._governed_tools.names(group="interview")
         )
 
     def _build_tool_instruction(self, allow_tool_request: bool) -> str:

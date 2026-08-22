@@ -33,13 +33,18 @@ async def search_memory(user_id: str, query: str, limit: int = 5, api_config: di
         return []
 
 
-def make_memory_tools(user_id: str) -> List[Any]:
+def make_memory_tools(user_id: str, api_config: dict | None = None) -> List[Any]:
     """构造绑定用户上下文的记忆工具集合。"""
 
     @tool
-    async def search_memory(query: str) -> List[Dict[str, Any]]:
+    async def search_memory(query: str, limit: int = 5) -> List[Dict[str, Any]]:
         """搜索候选人的长期记忆信息。"""
-        return await globals()["search_memory"](user_id=user_id, query=query)
+        return await globals()["search_memory"](
+            user_id=user_id,
+            query=query,
+            limit=limit,
+            api_config=api_config,
+        )
 
     return [
         attach_tool_contract(search_memory, effect="read", permissions=("memory.search",), result_retention="summary"),

@@ -48,6 +48,10 @@ class EvaluationRepository(
                     "forbidden_claims": case.forbidden_claims,
                     "expected_tool_calls": case.expected_tool_calls,
                     "allowed_tool_calls": case.allowed_tool_calls,
+                    "required_workflow_tool_calls": case.required_workflow_tool_calls,
+                    "degraded_workflow_tool_calls": case.degraded_workflow_tool_calls,
+                    "blocked_workflow_tool_calls": case.blocked_workflow_tool_calls,
+                    "tool_fixtures": case.tool_fixtures,
                     "required_state_transitions": case.required_state_transitions,
                     "forbidden_state_transitions": case.forbidden_state_transitions,
                     "quality_rubric": case.quality_rubric,
@@ -120,6 +124,10 @@ class EvaluationRepository(
                     or [],
                     expected_tool_calls=source_expected.get("expected_tool_calls") or [],
                     allowed_tool_calls=source_expected.get("allowed_tool_calls") or [],
+                    required_workflow_tool_calls=source_expected.get("required_workflow_tool_calls") or [],
+                    degraded_workflow_tool_calls=source_expected.get("degraded_workflow_tool_calls") or [],
+                    blocked_workflow_tool_calls=source_expected.get("blocked_workflow_tool_calls") or [],
+                    tool_fixtures=source_expected.get("tool_fixtures") or {},
                     required_state_transitions=(
                         source_expected.get("required_state_transitions") or []
                     ),

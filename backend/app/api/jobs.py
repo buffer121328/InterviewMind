@@ -144,8 +144,15 @@ async def open_job_in_existing_boss_tab(
         request: 打开岗位请求体。
         user_id: 当前用户 ID（用于 owner 校验）。
     """
+    from ai.tools.job_tools import execute_job_open
+
     return await _call_use_case(
-        lambda: jobs_use_cases.open_job_in_existing_tab(job_id=job_id, request=request, user_id=user_id),
+        lambda: execute_job_open(
+            job_id=job_id,
+            user_id=user_id,
+            browser_channel=request.browser_channel,
+            confirmed=True,
+        ),
         "open_job_failed",
         "打开 BOSS 岗位失败",
     )

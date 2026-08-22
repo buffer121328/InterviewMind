@@ -6,6 +6,7 @@ from collections.abc import Sequence
 
 TASK_TYPE_INTERVIEW_START = "interview_start"
 TASK_TYPE_INTERVIEW_TURN = "interview_turn"
+TASK_TYPE_INTERVIEW_SCORING = "interview_scoring"
 TASK_TYPE_VOICE_INTERVIEW_TURN = "voice_interview_turn"
 TASK_TYPE_RESUME_OPTIMIZE = "resume_optimize"
 TASK_TYPE_RESUME_WORKSPACE = "resume_workspace"

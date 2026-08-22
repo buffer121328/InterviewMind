@@ -86,11 +86,27 @@ class ReportingUseCasesMixin:
                     succeeded, ("factual", "support", "faithful")
                 ),
                 "tool_call_accuracy": _metric_average(
-                    succeeded, ("tool", "function_call")
+                    succeeded,
+                    (
+                        "tool.name_and_key_parameter_accuracy",
+                        "tool.expected_call_coverage",
+                        "tool.allowed_call_compliance",
+                        "tool.key_argument_contract_compliance",
+                    ),
+                ),
+                "latency_compliance_rate": _metric_average(
+                    succeeded, ("budget.latency_compliance",)
                 ),
                 "judge_human_agreement": _latest_agreement(calibrations),
                 "pending_review_count": sum(
-                    int(row.summary.get("needs_review_count") or 0) for row in rows
+                    int(
+                        row.summary.get(
+                            "pending_review_count",
+                            row.summary.get("needs_review_count", 0),
+                        )
+                        or 0
+                    )
+                    for row in rows
                 ),
                 "regression_count": sum(
                     int(row.summary.get("regression_count") or 0) for row in rows

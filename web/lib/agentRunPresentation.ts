@@ -1,13 +1,11 @@
 import type { AgentRun, AgentRunEvent, AgentRunStatus } from './api/agentRunTypes';
+import { CHINA_TIME_ZONE, parsePersistedTimestamp } from './chinaTime.ts';
 
-export const RUN_CENTER_TIME_ZONE = 'Asia/Shanghai';
+export const RUN_CENTER_TIME_ZONE = CHINA_TIME_ZONE;
 
 /** Parses API timestamps as UTC, including historical values emitted before the explicit `Z` suffix. */
 export function parseAgentRunTimestamp(value?: string | null): Date | null {
-    if (!value) return null;
-    const normalized = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(value) ? value : `${value}Z`;
-    const timestamp = new Date(normalized);
-    return Number.isNaN(timestamp.getTime()) ? null : timestamp;
+    return parsePersistedTimestamp(value);
 }
 
 /** Formats a timestamp for the compact task timeline in China Standard Time. */

@@ -20,6 +20,11 @@ _TOOL_SELECTION_METRICS = frozenset(
         "tool.name_and_key_parameter_accuracy",
         "tool.expected_call_coverage",
         "tool.allowed_call_compliance",
+        "tool.key_argument_contract_compliance",
+        "tool.fixture_result_adoption",
+        "workflow.required_tool_call_coverage",
+        "workflow.tool_degradation_compliance",
+        "workflow.external_effect_interception",
     }
 )
 

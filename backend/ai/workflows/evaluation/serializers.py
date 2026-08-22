@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.clock import utc_isoformat
+
 
 def _dataset(row: Any) -> dict[str, Any]:
     """序列化 Dataset 元数据。"""
@@ -16,8 +18,8 @@ def _dataset(row: Any) -> dict[str, Any]:
         "case_count": row.case_count,
         "source": row.source,
         "content_hash": row.content_hash,
-        "created_at": row.created_at.isoformat(),
-        "locked_at": row.locked_at.isoformat() if row.locked_at else None,
+        "created_at": utc_isoformat(row.created_at),
+        "locked_at": utc_isoformat(row.locked_at),
     }
 
 
@@ -31,7 +33,7 @@ def _dataset_case(row: Any) -> dict[str, Any]:
         "tags": row.tags,
         "severity": row.severity,
         "content_hash": row.content_hash,
-        "created_at": row.created_at.isoformat(),
+        "created_at": utc_isoformat(row.created_at),
     }
 
 
@@ -46,8 +48,8 @@ def _suite(row: Any) -> dict[str, Any]:
         "dataset_version_id": row.dataset_version_id,
         "rubric_version": row.rubric_version,
         "gate_policy_id": row.gate_policy_id,
-        "created_at": row.created_at.isoformat(),
-        "updated_at": row.updated_at.isoformat(),
+        "created_at": utc_isoformat(row.created_at),
+        "updated_at": utc_isoformat(row.updated_at),
     }
 
 
@@ -58,6 +60,7 @@ def _run(row: Any, *, agent_run: dict[str, Any] | None = None) -> dict[str, Any]
         "id": row.id,
         "suite_id": row.suite_id,
         "agent_run_id": row.agent_run_id,
+        "smoke_batch_id": getattr(row, "smoke_batch_id", None),
         "agent_name": row.agent_name,
         "agent_version": row.agent_version,
         "prompt_name": row.prompt_name,
@@ -70,9 +73,9 @@ def _run(row: Any, *, agent_run: dict[str, Any] | None = None) -> dict[str, Any]
         "include_judges": row.include_judges,
         "budget": row.budget,
         "summary": row.summary,
-        "started_at": row.started_at.isoformat() if row.started_at else None,
-        "finished_at": row.finished_at.isoformat() if row.finished_at else None,
-        "created_at": row.created_at.isoformat(),
+        "started_at": utc_isoformat(row.started_at),
+        "finished_at": utc_isoformat(row.finished_at),
+        "created_at": utc_isoformat(row.created_at),
     }
     if agent_run is not None:
         payload["agent_run"] = agent_run
@@ -99,7 +102,7 @@ def _case_run(row: Any) -> dict[str, Any]:
         "needs_review": row.needs_review,
         "review_status": getattr(row, "review_status", "pending" if row.needs_review else "not_required"),
         "review_resolver_key": getattr(row, "review_resolver_key", None),
-        "review_resolved_at": row.review_resolved_at.isoformat() if getattr(row, "review_resolved_at", None) else None,
+        "review_resolved_at": utc_isoformat(getattr(row, "review_resolved_at", None)),
         "review_resolution_note": getattr(row, "review_resolution_note", None),
         "runtime_success": outcome.get("runtime_success"),
         "semantic_evaluated": outcome.get("semantic_evaluated"),
@@ -124,7 +127,7 @@ def _score(row: Any) -> dict[str, Any]:
         "hard_gate": row.hard_gate,
         "evidence_refs": row.evidence_refs,
         "metric_version": row.metric_version,
-        "created_at": row.created_at.isoformat(),
+        "created_at": utc_isoformat(row.created_at),
     }
 
 
@@ -146,7 +149,7 @@ def _annotation(row: Any) -> dict[str, Any]:
         "blind": row.blind,
         "revision": row.revision,
         "adjudication": row.adjudication,
-        "created_at": row.created_at.isoformat(),
+        "created_at": utc_isoformat(row.created_at),
     }
 
 
@@ -162,7 +165,7 @@ def _calibration(row: Any) -> dict[str, Any]:
         "statistics": row.statistics,
         "threshold": row.threshold,
         "status": row.status,
-        "created_at": row.created_at.isoformat(),
+        "created_at": utc_isoformat(row.created_at),
     }
 
 
@@ -178,5 +181,5 @@ def _gate(row: Any) -> dict[str, Any]:
         "regression_tolerances": row.regression_tolerances,
         "minimum_sample_size": row.minimum_sample_size,
         "status": row.status,
-        "created_at": row.created_at.isoformat(),
+        "created_at": utc_isoformat(row.created_at),
     }

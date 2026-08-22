@@ -123,14 +123,6 @@ def _is_unacceptable_regression(delta: Any, config: Any) -> bool:
 def _trend_point(row: Any) -> dict[str, Any]:
     """把一次运行转换为可筛选、可绘图的版本趋势点。"""
 
-    metrics = [
-        float(value)
-        for value in dict(row.summary.get("metrics") or {}).values()
-        if value is not None
-    ]
-    average_score = sum(metrics) / len(metrics) if metrics else None
-    minimum_score = min(metrics) if metrics else None
-    score_spread = max(metrics) - min(metrics) if metrics else None
     return {
         "run_id": row.id,
         "created_at": row.created_at.isoformat(),
@@ -141,9 +133,6 @@ def _trend_point(row: Any) -> dict[str, Any]:
         "prompt_version": row.prompt_version,
         "model_config_hash": row.model_config_hash,
         "dataset_version": row.dataset_version,
-        "average_score": average_score,
-        "minimum_score": minimum_score,
-        "score_spread": score_spread,
         "sample_count": int(row.summary.get("completed_count") or 0),
         "complete_success_rate": row.summary.get("complete_success_rate"),
         "p50_latency_ms": row.summary.get("p50_latency_ms"),

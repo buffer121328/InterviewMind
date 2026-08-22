@@ -95,8 +95,8 @@ async def generate_assets(
     # ======================================================================
     jd_analysis = None
     try:
-        from ai.agents.resume.jd_matcher import match_jd
-        jd_analysis = await match_jd(
+        from ai.tools.resume_tools import execute_resume_match
+        jd_analysis = await execute_resume_match(
             mode="smart",
             resume_content=compact_resume,
             job_description=compact_jd,
@@ -104,6 +104,8 @@ async def generate_assets(
             user_id=user_id,
             deadline=deadline,
             call_metadata=context_metadata,
+            workflow_name="job_workflows",
+            stage="jd_analysis",
         )
         messages.append(
             f"JD分析完成: 匹配度 {jd_analysis.get('overall_match_score', 0)}%"

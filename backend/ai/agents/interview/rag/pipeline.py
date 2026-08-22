@@ -496,9 +496,21 @@ async def _retrieve_memory_evidences(
         api_config: 前端请求携带的模型通道配置。
     """
     from ai.runtime.middleware.content_safety import contains_prompt_injection
-    from ai.tools.memory_tools import search_memory
+    from ai.runtime.context import AgentContext
+    from ai.tools.runtime import GovernedToolRuntime
 
-    memories = await search_memory(user_id=user_id, query=query, limit=limit, api_config=api_config)
+    context = AgentContext(
+        user_id=user_id,
+        api_config=api_config or {},
+        permissions=frozenset({"memory.search"}),
+    )
+    memories = await GovernedToolRuntime(context, groups=("memory",)).execute(
+        "search_memory",
+        {"query": query, "limit": limit},
+        group="memory",
+        workflow_name="interview_rag",
+        stage="memory_retrieval",
+    )
     evidences: List[RagEvidence] = []
     for index, item in enumerate(memories):
         if not isinstance(item, dict) or item.get("message"):

@@ -6,6 +6,7 @@ from typing import Any, Literal
 
 from langchain_core.tools import tool
 
+from ai.runtime.context import AgentContext
 from ai.workflows.jobs import jobs_use_cases
 from app.schemas.jobs.job_schemas import BossOpenJobRequest
 from app.schemas.tools import attach_tool_contract
@@ -61,3 +62,30 @@ def make_job_tools(user_id: str) -> list[Any]:
             result_retention="summary",
         ),
     ]
+
+
+async def execute_job_open(
+    *,
+    job_id: int,
+    user_id: str,
+    browser_channel: Literal["msedge", "chrome"] | None = None,
+    confirmed: bool = False,
+    call_id: str | None = None,
+) -> dict[str, Any]:
+    """Open a saved BOSS job through the external-action guard."""
+    from ai.tools.runtime import GovernedToolRuntime
+
+    context = AgentContext(
+        user_id=user_id,
+        permissions=frozenset({"boss.job.open"}),
+    )
+    result = await GovernedToolRuntime(context, groups=("jobs",)).execute(
+        "open_boss_job",
+        {"job_id": job_id, "browser_channel": browser_channel},
+        group="jobs",
+        confirmed=confirmed,
+        call_id=call_id,
+        workflow_name="job_workflows",
+        stage="open_boss_job",
+    )
+    return dict(result)

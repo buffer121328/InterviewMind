@@ -176,7 +176,7 @@ export function TaskRunsTab({ onOpenResumeWorkspace, onOpenSession, onOpenReport
     const categoryTotals = useMemo(() => allDisplayGroups.reduce((counts, group) => {
         counts[group.category] += group.runs.length;
         return counts;
-    }, { 'text-interview': 0, 'voice-interview': 0, 'resume-optimization': 0, 'job-delivery': 0 } as Record<AgentRunCategory, number>), [allDisplayGroups]);
+    }, { 'text-interview': 0, 'voice-interview': 0, 'resume-optimization': 0, 'job-delivery': 0, evaluation: 0 } as Record<AgentRunCategory, number>), [allDisplayGroups]);
 
     /** Toggles one local business-and-date section; child run detail disclosure remains independent. */
     const toggleGroup = (groupKey: string) => {
@@ -295,7 +295,7 @@ export function TaskRunsTab({ onOpenResumeWorkspace, onOpenSession, onOpenReport
             <section className="surface-panel mt-5 flex flex-col justify-between gap-4 p-4 sm:flex-row sm:items-center">
                 <div>
                     <div className="flex items-center gap-2 text-sm font-semibold text-slate-950"><Activity className="h-4 w-4 text-teal-700" />可恢复 Agent 任务</div>
-                    <p className="mt-1 text-xs text-slate-500">列表通过 SSE 接收实时事件，低频刷新用于断线兜底。当前筛选：文本面试 {categoryTotals['text-interview']} 项、语音面试 {categoryTotals['voice-interview']} 项、简历优化 {categoryTotals['resume-optimization']} 项、岗位投递 {categoryTotals['job-delivery']} 项。</p>
+                    <p className="mt-1 text-xs text-slate-500">列表通过 SSE 接收实时事件，低频刷新用于断线兜底。当前筛选：文本面试 {categoryTotals['text-interview']} 项、语音面试 {categoryTotals['voice-interview']} 项、简历优化 {categoryTotals['resume-optimization']} 项、岗位投递 {categoryTotals['job-delivery']} 项、评测 {categoryTotals.evaluation} 项。</p>
                     <p className="mt-1 text-xs font-medium text-teal-700">任务状态表示单次 Agent 执行；整场面试是否结束以面试会话进度为准。</p>
                     <p className="mt-1 text-xs text-slate-500">仅整理可确认加密会话引用归属当前用户的历史面试任务，不会暴露任务载荷。</p>
                 </div>
@@ -346,7 +346,7 @@ export function TaskRunsTab({ onOpenResumeWorkspace, onOpenSession, onOpenReport
                             onClick={() => toggleGroup(groupKey)}
                         >
                             <span className="flex min-w-0 items-center gap-3">
-                                <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${group.category === 'resume-optimization' ? 'bg-violet-100 text-violet-700' : group.category === 'job-delivery' ? 'bg-amber-100 text-amber-700' : 'bg-teal-100 text-teal-700'}`}>
+                                <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${group.category === 'resume-optimization' ? 'bg-violet-100 text-violet-700' : group.category === 'job-delivery' ? 'bg-amber-100 text-amber-700' : group.category === 'evaluation' ? 'bg-blue-100 text-blue-700' : 'bg-teal-100 text-teal-700'}`}>
                                     <Activity className="h-4 w-4" aria-hidden="true" />
                                 </span>
                                 <span className="min-w-0">

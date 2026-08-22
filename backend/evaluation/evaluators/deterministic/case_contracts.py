@@ -12,6 +12,7 @@ from evaluation.schemas import (
     AgentEvalRecord,
     EvalScore,
     EvalScoreStatus,
+    EvalToolStatus,
     ScoreSource,
 )
 
@@ -30,7 +31,7 @@ class DeterministicCaseContractEvaluator:
         """返回只引用 case/call/event 标识的确定性 Score，不复制 Golden 正文。"""
 
         scores: list[EvalScore] = []
-        output_text = _normalized(record.final_output)
+        output_text = _primary_output_text(case, record.final_output)
         if case.expected_output is not None:
             scores.append(
                 _binary_score(
@@ -74,9 +75,38 @@ class DeterministicCaseContractEvaluator:
             )
 
         actual_tools = [call.tool_name for call in record.tool_calls]
+        completed_tools = [
+            call.tool_name
+            for call in record.tool_calls
+            if call.status is EvalToolStatus.COMPLETED
+        ]
+        tool_applicability = case.quality_rubric.get("tool_applicability")
+        if tool_applicability == "not_applicable":
+            scores.append(
+                EvalScore(
+                    metric_name="tool.contract_applicability",
+                    dimension="tool_use",
+                    evaluator_name=self.name,
+                    source=ScoreSource.DETERMINISTIC,
+                    status=EvalScoreStatus.NOT_APPLICABLE,
+                    value=None,
+                    reason_code="tool_not_required",
+                )
+            )
+        elif tool_applicability == "forbidden":
+            scores.append(
+                _binary_score(
+                    metric_name="tool.forbidden_call_compliance",
+                    dimension="tool_use",
+                    passed=not record.tool_calls,
+                    evidence_refs=tuple(
+                        f"tool-call:{call.call_id}" for call in record.tool_calls
+                    ),
+                )
+            )
         if case.expected_tool_calls:
             expected = tuple(dict.fromkeys(case.expected_tool_calls))
-            matched = [name in actual_tools for name in expected]
+            matched = [name in completed_tools for name in expected]
             scores.append(
                 _ratio_score(
                     metric_name="tool.expected_call_coverage",
@@ -84,6 +114,47 @@ class DeterministicCaseContractEvaluator:
                     matches=matched,
                     evidence_refs=tuple(
                         f"case:{case.case_id}:expected-tool:{index}"
+                        for index, passed in enumerate(matched)
+                        if not passed
+                    ),
+                )
+            )
+        expected_arguments = case.quality_rubric.get("expected_tool_arguments")
+        if isinstance(expected_arguments, dict) and all(
+            isinstance(name, str) and isinstance(arguments, dict)
+            for name, arguments in expected_arguments.items()
+        ):
+            matched = [name in completed_tools for name in expected_arguments]
+            scores.append(
+                _ratio_score(
+                    metric_name="tool.key_argument_contract_compliance",
+                    dimension="tool_use",
+                    matches=matched,
+                    evidence_refs=tuple(
+                        f"case:{case.case_id}:tool-arguments:{index}"
+                        for index, passed in enumerate(matched)
+                        if not passed
+                    ),
+                )
+            )
+        tool_result_facts = case.quality_rubric.get("tool_result_facts")
+        if isinstance(tool_result_facts, list) and all(
+            isinstance(fact, str) and fact.strip() for fact in tool_result_facts
+        ):
+            fixture_tools_completed = bool(case.expected_tool_calls) and all(
+                name in completed_tools for name in case.expected_tool_calls
+            )
+            matched = [
+                fixture_tools_completed and _normalized(fact) in output_text
+                for fact in tool_result_facts
+            ]
+            scores.append(
+                _ratio_score(
+                    metric_name="tool.fixture_result_adoption",
+                    dimension="tool_use",
+                    matches=matched,
+                    evidence_refs=tuple(
+                        f"case:{case.case_id}:tool-result-fact:{index}"
                         for index, passed in enumerate(matched)
                         if not passed
                     ),
@@ -101,6 +172,54 @@ class DeterministicCaseContractEvaluator:
                     passed=not invalid_calls,
                     evidence_refs=tuple(
                         f"tool-call:{call.call_id}" for call in invalid_calls
+                    ),
+                )
+            )
+
+        if case.required_workflow_tool_calls:
+            required = tuple(dict.fromkeys(case.required_workflow_tool_calls))
+            scores.append(
+                _ratio_score(
+                    metric_name="workflow.required_tool_call_coverage",
+                    dimension="planning_and_execution",
+                    matches=[name in completed_tools for name in required],
+                    evidence_refs=tuple(
+                        f"case:{case.case_id}:required-workflow-tool:{index}"
+                        for index, name in enumerate(required)
+                        if name not in completed_tools
+                    ),
+                )
+            )
+        if case.degraded_workflow_tool_calls:
+            expected = tuple(dict.fromkeys(case.degraded_workflow_tool_calls))
+            failed = {call.tool_name for call in record.tool_calls if call.status is EvalToolStatus.FAILED}
+            scores.append(
+                _ratio_score(
+                    metric_name="workflow.tool_degradation_compliance",
+                    dimension="planning_and_execution",
+                    matches=[
+                        name in failed and record.final_status == "succeeded"
+                        for name in expected
+                    ],
+                    evidence_refs=tuple(
+                        f"case:{case.case_id}:degraded-workflow-tool:{index}"
+                        for index, name in enumerate(expected)
+                        if name not in failed or record.final_status != "succeeded"
+                    ),
+                )
+            )
+        if case.blocked_workflow_tool_calls:
+            expected = tuple(dict.fromkeys(case.blocked_workflow_tool_calls))
+            blocked = {call.tool_name for call in record.tool_calls if call.status is EvalToolStatus.BLOCKED}
+            scores.append(
+                _ratio_score(
+                    metric_name="workflow.external_effect_interception",
+                    dimension="security_and_permissions",
+                    matches=[name in blocked for name in expected],
+                    evidence_refs=tuple(
+                        f"case:{case.case_id}:blocked-workflow-tool:{index}"
+                        for index, name in enumerate(expected)
+                        if name not in blocked
                     ),
                 )
             )
@@ -132,6 +251,67 @@ class DeterministicCaseContractEvaluator:
                     matches=absent,
                     evidence_refs=tuple(
                         f"case:{case.case_id}:forbidden-transition:{index}"
+                        for index, passed in enumerate(absent)
+                        if not passed
+                    ),
+                )
+            )
+
+        required_output_paths = case.quality_rubric.get("required_output_paths")
+        if isinstance(required_output_paths, list) and all(
+            isinstance(path, str) and path.strip() for path in required_output_paths
+        ):
+            matched = [
+                _output_path_value(record.final_output, path) is not None
+                for path in required_output_paths
+            ]
+            scores.append(
+                _ratio_score(
+                    metric_name="rubric.required_output_path_coverage",
+                    dimension="final_output_quality",
+                    matches=matched,
+                    evidence_refs=tuple(
+                        f"case:{case.case_id}:required-output-path:{index}"
+                        for index, passed in enumerate(matched)
+                        if not passed
+                    ),
+                )
+            )
+
+        expected_output_values = case.quality_rubric.get("expected_output_values")
+        if isinstance(expected_output_values, dict) and all(
+            isinstance(path, str) and path.strip()
+            for path in expected_output_values
+        ):
+            matched = [
+                _output_path_value(record.final_output, path) == expected
+                for path, expected in expected_output_values.items()
+            ]
+            scores.append(
+                _ratio_score(
+                    metric_name="rubric.expected_output_value_coverage",
+                    dimension="planning_and_execution",
+                    matches=matched,
+                    evidence_refs=tuple(
+                        f"case:{case.case_id}:expected-output-value:{index}"
+                        for index, passed in enumerate(matched)
+                        if not passed
+                    ),
+                )
+            )
+
+        forbidden_output_text = case.quality_rubric.get("forbidden_output_text")
+        if isinstance(forbidden_output_text, list) and all(
+            isinstance(value, str) and value for value in forbidden_output_text
+        ):
+            absent = [_normalized(value) not in output_text for value in forbidden_output_text]
+            scores.append(
+                _ratio_score(
+                    metric_name="rubric.forbidden_output_text_absence",
+                    dimension="final_output_quality",
+                    matches=absent,
+                    evidence_refs=tuple(
+                        f"case:{case.case_id}:forbidden-output-text:{index}"
                         for index, passed in enumerate(absent)
                         if not passed
                     ),
@@ -180,6 +360,59 @@ def _normalized(value: Any) -> str:
         value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
     )
     return re.sub(r"\s+", "", serialized).lower().strip('"')
+
+
+def _primary_output_text(case: EvaluationCaseSpec, output: Any) -> str:
+    """Serialize the case's user-facing output projection for text checks."""
+
+    rubric = case.quality_rubric
+    if "primary_output_paths" not in rubric:
+        return _normalized(output)
+    paths = rubric.get("primary_output_paths")
+    if not isinstance(paths, list) or not paths or not all(
+        isinstance(path, str) and path.strip() for path in paths
+    ):
+        return ""
+    values = [
+        selected
+        for path in paths
+        for selected in _output_path_values(output, path)
+        if selected not in (None, "")
+    ]
+    return _normalized(values)
+
+
+def _output_path_values(value: Any, path: str) -> tuple[Any, ...]:
+    """Resolve object keys and ``[]`` list wildcards from a structured output."""
+
+    current: tuple[Any, ...] = (value,)
+    for part in path.split("."):
+        if not part:
+            return ()
+        next_values: list[Any] = []
+        if part == "[]":
+            for item in current:
+                if isinstance(item, list):
+                    next_values.extend(item)
+        else:
+            for item in current:
+                if isinstance(item, dict) and part in item:
+                    next_values.append(item[part])
+        current = tuple(next_values)
+        if not current:
+            return ()
+    return current
+
+
+def _output_path_value(value: Any, path: str) -> Any | None:
+    """读取点分输出路径；缺失与显式空值都不满足案例契约。"""
+
+    current = value
+    for part in path.split("."):
+        if not isinstance(current, dict) or part not in current:
+            return None
+        current = current[part]
+    return current if current not in (None, "") else None
 
 
 def _output_item_count(value: Any) -> int | None:

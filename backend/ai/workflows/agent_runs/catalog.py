@@ -18,6 +18,7 @@ from ai.workflows.agent_runs.adapters import (
     EvaluationSuiteExecutionAdapter,
     InterviewEvaluationDraftExecutionAdapter,
     InterviewReportExecutionAdapter,
+    InterviewScoringExecutionAdapter,
     InterviewStartExecutionAdapter,
     InterviewTurnExecutionAdapter,
     JobAssetsExecutionAdapter,
@@ -52,6 +53,7 @@ def get_production_adapter_registry() -> ExecutionAdapterRegistry:
     explicit_adapters = (
         InterviewStartExecutionAdapter(),
         InterviewTurnExecutionAdapter(),
+        InterviewScoringExecutionAdapter(),
         ResumeOptimizeExecutionAdapter(),
         ResumeWorkspaceExecutionAdapter(),
         ResumeGenerationExecutionAdapter(),

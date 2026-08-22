@@ -31,6 +31,7 @@ class RunRepositoryMixin:
             repetition_count: int,
             include_judges: bool,
             budget: dict[str, Any],
+            smoke_batch_id: str | None = None,
             run_id: str | None = None,
         ) -> EvaluationRunModel:
             """创建 EvaluationRun；敏感 api_config 由 AgentRun 加密载荷持有。"""
@@ -45,6 +46,7 @@ class RunRepositoryMixin:
                 user_id=user_id,
                 suite_id=suite.id,
                 agent_run_id=None,
+                smoke_batch_id=smoke_batch_id,
                 agent_name=suite.agent_name,
                 agent_version=agent_version,
                 prompt_name=prompt_name,
@@ -128,16 +130,20 @@ class RunRepositoryMixin:
             *,
             user_id: str,
             agent_name: str,
+            dataset_version: str | None = None,
         ) -> EvaluationRunModel | None:
-            """返回 owner 下同一 Agent 最近成功运行，作为可选生产比较基线。"""
+            """返回 owner 下同一 Agent 的可比最近成功运行。"""
 
+            conditions = [
+                EvaluationRunModel.user_id == user_id,
+                EvaluationRunModel.agent_name == agent_name,
+                EvaluationRunModel.status == "succeeded",
+            ]
+            if dataset_version is not None:
+                conditions.append(EvaluationRunModel.dataset_version == dataset_version)
             return await session.scalar(
                 select(EvaluationRunModel)
-                .where(
-                    EvaluationRunModel.user_id == user_id,
-                    EvaluationRunModel.agent_name == agent_name,
-                    EvaluationRunModel.status == "succeeded",
-                )
+                .where(*conditions)
                 .order_by(EvaluationRunModel.created_at.desc())
                 .limit(1)
             )
@@ -182,6 +188,10 @@ class RunRepositoryMixin:
                             forbidden_claims=tuple(expected.get("forbidden_claims") or []),
                             expected_tool_calls=tuple(expected.get("expected_tool_calls") or []),
                             allowed_tool_calls=tuple(expected.get("allowed_tool_calls") or []),
+                            required_workflow_tool_calls=tuple(expected.get("required_workflow_tool_calls") or []),
+                            degraded_workflow_tool_calls=tuple(expected.get("degraded_workflow_tool_calls") or []),
+                            blocked_workflow_tool_calls=tuple(expected.get("blocked_workflow_tool_calls") or []),
+                            tool_fixtures=dict(expected.get("tool_fixtures") or {}),
                             required_state_transitions=tuple(
                                 expected.get("required_state_transitions") or []
                             ),
@@ -230,6 +240,13 @@ class RunRepositoryMixin:
             )
             record_payload = result.record.model_dump(mode="json")
             actual_output = record_payload.pop("final_output", None)
+            review_status = (
+                existing.review_status
+                if existing is not None
+                and existing.review_status
+                in {"approved", "rejected", "waived", "rerun_requested"}
+                else "pending" if outcome.review_required else "not_required"
+            )
             values = {
                 "status": result.record.final_status,
                 "actual_output_encrypted": encrypt_payload(
@@ -245,6 +262,7 @@ class RunRepositoryMixin:
                     result.record.error.classification if result.record.error else None
                 ),
                 "needs_review": outcome.review_required,
+                "review_status": review_status,
                 "finished_at": _now(),
             }
             if existing is None:
@@ -299,7 +317,7 @@ class RunRepositoryMixin:
             run.status = status
             if status == "running" and run.started_at is None:
                 run.started_at = _now()
-            if status in {"succeeded", "failed", "cancelled"}:
+            if status in {"succeeded", "failed", "pending_review", "cancelled"}:
                 run.finished_at = _now()
             if summary is not None:
                 run.summary = summary

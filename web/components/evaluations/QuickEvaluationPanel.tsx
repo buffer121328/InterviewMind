@@ -2,7 +2,6 @@
 
 import { useMemo, useState } from 'react';
 import {
-    ArrowRight,
     Bot,
     CheckCircle2,
     Clock3,
@@ -34,7 +33,9 @@ import {
     promptCandidateMatches,
     type EvaluationPromptCandidate,
 } from '@/lib/evaluationQuickStart';
+import { formatEvaluationScopeSummary } from '@/lib/evaluationScopePresentation';
 import { useInterviewStore } from '@/store/useInterviewStore';
+import { RecentEvaluationResults } from './RecentEvaluationResults';
 
 interface QuickEvaluationPanelProps {
     catalog: EvaluationCatalog | null;
@@ -88,15 +89,12 @@ export function QuickEvaluationPanel({
         () => catalog?.modes.find(mode => mode.name === selectedModeName) ?? null,
         [catalog, selectedModeName],
     );
+    const selectedScope = selectedAgent?.mode_scopes[selectedModeName] ?? null;
     const matchingCandidate = selectedAgent && promptCandidateMatches(candidate, selectedAgent.prompt_name)
         ? candidate
         : null;
     const compareProduction = compareProductionOverride ?? Boolean(
         matchingCandidate?.compareProduction && selectedAgent?.latest_successful_run_id,
-    );
-    const recentRuns = useMemo(
-        () => runs.filter(run => !effectiveAgentName || run.agent_name === effectiveAgentName).slice(0, 5),
-        [effectiveAgentName, runs],
     );
     const modelConfigReady = Boolean(
         smartModel?.credentialStored
@@ -120,7 +118,39 @@ export function QuickEvaluationPanel({
             ? '先完成 Smart / Fast 模型设置即可运行'
             : selectedModeName !== 'quick'
                 ? '当前是完整检查模式，请在下方确认配置后运行'
-                : `将运行 ${selectedAgent?.label ?? '所选 Agent'} 的快速冒烟`;
+                : `所选 Agent 冒烟将运行 1 个稳定案例；全 Agent 冒烟将运行 ${catalog?.agents.length ?? 0} 个案例`;
+
+    /** Queues one quick smoke run per allowlisted Agent without exposing credentials. */
+    async function startAllAgentsQuickSmoke(): Promise<void> {
+        if (!catalog || selectedModeName !== 'quick') {
+            toast.error('全 Agent 冒烟仅支持快速冒烟模式');
+            return;
+        }
+        const apiConfig = getApiConfigForRequest();
+        if (!apiConfig) {
+            toast.error('请先在模型设置中配置 Smart 与 Fast 通道');
+            return;
+        }
+
+        setSubmitting(true);
+        try {
+            const result = await evaluationApi.allAgentsQuickRun({ api_config: apiConfig }, createIdempotencyKey());
+            if (result.failures.length) {
+                toast.warning(`已启动 ${result.runs.length} 个 Agent 冒烟`, {
+                    description: `${result.failures.length} 个 Agent 未能启动，请查看运行列表后重试`,
+                });
+            } else {
+                toast.success(`已启动全部 ${result.runs.length} 个 Agent 冒烟`, {
+                    description: '每个 Agent 运行 1 个稳定选择的代表案例',
+                });
+            }
+            await onRefresh();
+        } catch (error) {
+            toast.error(error instanceof Error ? error.message : '全 Agent 冒烟启动失败');
+        } finally {
+            setSubmitting(false);
+        }
+    }
 
     /** Changes the Agent selection and clears an incompatible baseline comparison. */
     function selectAgent(agent: EvaluationCatalogAgent): void {
@@ -234,7 +264,7 @@ export function QuickEvaluationPanel({
                         <div className="mt-3 font-medium text-slate-900">{agent.label}</div>
                         <p className="mt-1 min-h-10 text-xs leading-5 text-slate-500">{agent.description}</p>
                         <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-slate-500">
-                            <span className="rounded bg-slate-100 px-2 py-1">{agent.case_count} 个内置案例</span>
+                            <span className="rounded bg-slate-100 px-2 py-1">冒烟 {agent.mode_scopes.quick.case_count} · 回归 {agent.mode_scopes.standard.case_count} · 发布 {agent.mode_scopes.release.case_count}</span>
                             <span className="rounded bg-slate-100 px-2 py-1">{agent.prompt_name} v{agent.prompt_version}</span>
                         </div>
                     </button>;
@@ -259,9 +289,13 @@ export function QuickEvaluationPanel({
             <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                 <SummaryItem icon={<Gauge className="h-4 w-4" />} label="Smart 通道" value={smartModel ? `${smartModel.name} · ${smartModel.model}` : '未配置'} />
                 <SummaryItem icon={<Clock3 className="h-4 w-4" />} label="Fast 通道" value={fastModel ? `${fastModel.name} · ${fastModel.model}` : '未配置'} />
-                <SummaryItem icon={<Database className="h-4 w-4" />} label="Dataset / Suite" value={selectedAgent ? `${selectedAgent.dataset_name}:${selectedAgent.dataset_version}` : '-'} />
-                <SummaryItem icon={<Scale className="h-4 w-4" />} label="Rubric / Prompt" value={selectedAgent ? `${selectedAgent.rubric_version} · ${matchingCandidate?.version ?? selectedAgent.prompt_version}` : '-'} />
+                <SummaryItem icon={<Database className="h-4 w-4" />} label="Dataset / Suite" value={selectedScope ? `${selectedScope.dataset_name}:${selectedScope.dataset_version}` : '-'} />
+                <SummaryItem icon={<Scale className="h-4 w-4" />} label="Rubric / Prompt" value={selectedScope && selectedAgent ? `${selectedScope.rubric_version} · ${matchingCandidate?.version ?? selectedAgent.prompt_version}` : '-'} />
             </div>
+            {selectedScope && selectedModeName !== 'quick' && <div className="mt-3 rounded-xl border border-indigo-100 bg-indigo-50/50 p-3 text-xs text-slate-600">
+                <div className="font-medium text-slate-800">本次运行范围</div>
+                <p className="mt-1">{formatEvaluationScopeSummary(selectedScope)}</p>
+            </div>}
 
             <div className="mt-4 flex flex-col gap-4 rounded-xl border border-slate-200 bg-slate-50 p-4 lg:flex-row lg:items-center lg:justify-between">
                 <div className="flex items-center gap-3">
@@ -280,45 +314,38 @@ export function QuickEvaluationPanel({
                         </p>
                     </div>
                 </div>
-                <Button
-                    size="lg"
-                    className="min-w-40 bg-teal-600 hover:bg-teal-700"
-                    disabled={!canRun}
-                    onClick={() => void startEvaluation()}
-                >
-                    <Play className="mr-2 h-4 w-4" />
-                    {submitting ? '正在启动…' : `运行${selectedMode?.label ?? '评测'}`}
-                </Button>
+                <div className="flex flex-wrap gap-3">
+                    {selectedModeName === 'quick' && <Button
+                        size="lg"
+                        variant="outline"
+                        className="min-w-52 border-teal-200 text-teal-700 hover:bg-teal-50"
+                        disabled={!canRun}
+                        onClick={() => void startAllAgentsQuickSmoke()}
+                    >
+                        <Play className="mr-2 h-4 w-4" />
+                        {submitting ? '正在启动…' : `一键全 Agent 冒烟（${catalog.agents.length} 个案例）`}
+                    </Button>}
+                    <Button
+                        size="lg"
+                        className="min-w-40 bg-teal-600 hover:bg-teal-700"
+                        disabled={!canRun}
+                        onClick={() => void startEvaluation()}
+                    >
+                        <Play className="mr-2 h-4 w-4" />
+                        {submitting ? '正在启动…' : `运行所选${selectedMode?.label ?? '评测'}`}
+                    </Button>
+                </div>
             </div>
         </section>
 
-        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="flex items-center justify-between gap-3">
-                <div>
-                    <h3 className="font-semibold text-slate-900">最近结果</h3>
-                    <p className="mt-1 text-xs text-slate-500">默认显示当前 Agent 最近 5 次运行；详情与治理操作会进入高级模式。</p>
-                </div>
-                <Button variant="ghost" size="sm" onClick={() => void onRefresh()} disabled={loading}>刷新</Button>
-            </div>
-            <div className="mt-4 space-y-2">
-                {recentRuns.length === 0 && <div className="rounded-xl border border-dashed border-slate-200 p-6 text-center text-sm text-slate-500">还没有运行记录，选择上方模式开始第一次评测。</div>}
-                {recentRuns.map(run => <div key={run.id} className="flex flex-col gap-3 rounded-xl border border-slate-200 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                            <span className="font-medium text-slate-800">{agentLabel(catalog, run.agent_name)}</span>
-                            <Badge variant="outline" className={statusClass(run.status)}>{statusLabel(run.status)}</Badge>
-                            {run.include_judges && <Badge variant="outline">Judge</Badge>}
-                        </div>
-                        <p className="mt-1 truncate text-xs text-slate-500">
-                            {shortId(run.id)} · {formatDate(run.created_at)} · 完全成功率 {formatRate(run.summary.complete_success_rate)}
-                        </p>
-                    </div>
-                    <Button variant="outline" size="sm" onClick={() => onOpenRun(run.id)}>
-                        查看详情 <ArrowRight className="ml-2 h-3.5 w-3.5" />
-                    </Button>
-                </div>)}
-            </div>
-        </section>
+        <RecentEvaluationResults
+            catalog={catalog}
+            runs={runs}
+            selectedAgentName={effectiveAgentName}
+            loading={loading}
+            onRefresh={onRefresh}
+            onOpenRun={onOpenRun}
+        />
     </div>;
 }
 
@@ -379,36 +406,6 @@ function Notice({ tone, text }: { tone: 'warning' | 'info'; text: string }) {
 function createIdempotencyKey(): string {
     if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
     return `evaluation-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
-
-/** Maps an internal Agent name to the catalog's user-facing label. */
-function agentLabel(catalog: EvaluationCatalog, agentName: string): string {
-    return catalog.agents.find(agent => agent.name === agentName)?.label ?? agentName;
-}
-
-/** Maps durable run states to concise Chinese labels. */
-function statusLabel(status: string): string {
-    return ({ queued: '排队中', running: '运行中', succeeded: '已完成', failed: '失败', cancelled: '已取消' } as Record<string, string>)[status] ?? status;
-}
-
-/** Chooses a non-secret visual status treatment for recent runs. */
-function statusClass(status: string): string {
-    if (status === 'succeeded') return 'border-emerald-200 bg-emerald-50 text-emerald-700';
-    if (status === 'failed') return 'border-red-200 bg-red-50 text-red-700';
-    if (status === 'running') return 'border-blue-200 bg-blue-50 text-blue-700';
-    return 'border-slate-200 bg-slate-50 text-slate-600';
-}
-
-/** Formats a nullable ratio as a percentage for the recent-results summary. */
-function formatRate(value: unknown): string {
-    const number = Number(value);
-    return value == null || !Number.isFinite(number) ? '-' : `${(number * 100).toFixed(1)}%`;
-}
-
-/** Formats persisted timestamps in the user's browser locale. */
-function formatDate(value: string): string {
-    const date = new Date(value);
-    return Number.isNaN(date.getTime()) ? value : date.toLocaleString('zh-CN');
 }
 
 /** Shortens opaque identifiers while retaining enough context for visual recognition. */

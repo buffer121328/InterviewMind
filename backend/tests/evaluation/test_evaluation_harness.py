@@ -20,16 +20,17 @@ from evaluation.domain import (
     calculate_calibration,
     validate_dataset_transition,
 )
+from evaluation.evaluators.deterministic.case_contracts import DeterministicCaseContractEvaluator
 from evaluation.extractors.runtime import EvaluationTraceCollector
-from evaluation.runtime_metrics import summarize_record_governance
 from evaluation.runners import (
     AgentAdapterRegistry,
     AgentEvalRunner,
     CallableAgentAdapter,
-    EvaluationCaseSpec,
     EvaluationCaseResult,
+    EvaluationCaseSpec,
     EvaluationExecutionContext,
 )
+from evaluation.runtime_metrics import summarize_record_governance
 from evaluation.schemas import (
     EvalApproval,
     EvalApprovalStatus,
@@ -342,7 +343,9 @@ def test_worker_governance_counts_cover_tool_dependency_approval_and_retrieval()
 def test_langfuse_failure_marks_observability_degraded_without_changing_case_status() -> None:
     """Langfuse Score 失败只修改观测降级字段，业务成功和本地分数保持不变。"""
 
-    from ai.workflows.agent_runs.tasks.evaluation.evaluation_suite import _apply_langfuse_report_status
+    from ai.workflows.agent_runs.tasks.evaluation.evaluation_suite import (
+        _apply_langfuse_report_status,
+    )
 
     record = AgentEvalRunner.minimal_record_for_test(
         case=EvaluationCaseSpec(
@@ -446,7 +449,7 @@ def test_dataset_transitions_and_online_sampling_follow_governance_policy() -> N
 
 @pytest.mark.fast
 def test_production_registry_exposes_real_agent_entrypoints_without_eager_imports() -> None:
-    """默认 Harness 白名单覆盖四类真实能力，注册阶段不加载模型或数据库。"""
+    """默认 Harness 白名单覆盖六类真实能力，注册阶段不加载模型或数据库。"""
 
     from evaluation.runners import build_production_agent_registry
 
@@ -455,5 +458,330 @@ def test_production_registry_exposes_real_agent_entrypoints_without_eager_import
         "interview_scoring",
         "interview_turn",
         "resume_analyzer",
+        "resume_generator",
         "resume_optimizer",
     )
+
+
+@pytest.mark.fast
+def test_resume_confirmation_prep_resolves_shared_fact_policy() -> None:
+    """The isolated optimizer path must not fail after generation due to a sibling import typo."""
+
+    from ai.agents.resume.optimization.review import stage6_confirmation_prep
+    from ai.agents.resume.optimization.state import PipelineState
+
+    state = PipelineState(
+        resume_content="Python 后端工程师",
+        job_description="Python 后端岗位",
+        change_items=[],
+    )
+    import asyncio
+
+    result = asyncio.run(stage6_confirmation_prep(state))
+    assert result.confirmation_items == []
+
+
+@pytest.mark.fast
+def test_aggregate_evaluation_status_fails_when_any_case_fails() -> None:
+    """A completed suite with failed cases must not be labeled as successful."""
+
+    from ai.workflows.agent_runs.tasks.evaluation.evaluation_suite import (
+        _terminal_evaluation_status,
+    )
+
+    assert _terminal_evaluation_status(failed=0, complete_successes=6, total=6) == "succeeded"
+    assert _terminal_evaluation_status(failed=1, complete_successes=5, total=6) == "failed"
+
+
+@pytest.mark.fast
+def test_aggregate_evaluation_status_stays_pending_until_human_review() -> None:
+    """Automatic evidence needing owner judgment must not be shown as a final verdict."""
+
+    from ai.workflows.agent_runs.tasks.evaluation.evaluation_suite import (
+        _terminal_evaluation_status,
+    )
+
+    assert _terminal_evaluation_status(
+        failed=1,
+        complete_successes=0,
+        total=1,
+        pending_review_count=1,
+    ) == "pending_review"
+    assert _terminal_evaluation_status(
+        failed=0,
+        complete_successes=1,
+        total=1,
+        pending_review_count=0,
+    ) == "succeeded"
+
+
+@pytest.mark.fast
+def test_close_round_contract_checks_transition_without_requiring_input_fact_echo() -> None:
+    """A closing message is valid when it ends the round and does not ask another question."""
+
+    case = EvaluationCaseSpec(
+        case_id="turn-close-round",
+        dataset_version="builtin-v1",
+        input_payload={},
+        quality_rubric={
+            "expected_output_values": {"turn_state.last_action": "end_round"},
+            "forbidden_output_text": ["?", "？"],
+        },
+    )
+    record = AgentEvalRunner.minimal_record_for_test(
+        case=case,
+        actual_output={
+            "messages": [{"role": "assistant", "content": "本轮面试到此结束，感谢你的参与。"}],
+            "turn_state": {"last_action": "end_round"},
+        },
+    )
+
+    scores = DeterministicCaseContractEvaluator().evaluate(case=case, record=record)
+
+    assert {score.metric_name for score in scores} == {
+        "rubric.expected_output_value_coverage",
+        "rubric.forbidden_output_text_absence",
+    }
+    assert all(score.status is EvalScoreStatus.PASSED for score in scores)
+
+
+@pytest.mark.fast
+def test_tool_applicability_contract_distinguishes_not_applicable_forbidden_and_required() -> None:
+    """Tool metrics retain a neutral no-tool state and reject forbidden calls."""
+
+    evaluator = DeterministicCaseContractEvaluator()
+    not_applicable_case = EvaluationCaseSpec(
+        case_id="tool-na",
+        dataset_version="dataset-v1",
+        input_payload={},
+        quality_rubric={"tool_applicability": "not_applicable"},
+    )
+    not_applicable_record = AgentEvalRunner.minimal_record_for_test(
+        case=not_applicable_case,
+        actual_output={"answer": "ok"},
+    )
+    not_applicable_score = evaluator.evaluate(
+        case=not_applicable_case,
+        record=not_applicable_record,
+    )[0]
+    assert not_applicable_score.metric_name == "tool.contract_applicability"
+    assert not_applicable_score.status is EvalScoreStatus.NOT_APPLICABLE
+
+    forbidden_case = EvaluationCaseSpec(
+        case_id="tool-forbidden",
+        dataset_version="dataset-v1",
+        input_payload={},
+        quality_rubric={"tool_applicability": "forbidden"},
+    )
+    forbidden_record = AgentEvalRunner.minimal_record_for_test(
+        case=forbidden_case,
+        actual_output={"answer": "ok"},
+    ).model_copy(
+        update={
+            "tool_calls": (
+                EvalToolCall(
+                    call_id="unexpected-tool",
+                    sequence=1,
+                    tool_name="search_question_bank",
+                    effect=EvalToolEffect.READ,
+                    status=EvalToolStatus.COMPLETED,
+                    approval_status=EvalApprovalStatus.NOT_REQUIRED,
+                ),
+            )
+        }
+    )
+    forbidden_score = evaluator.evaluate(case=forbidden_case, record=forbidden_record)[0]
+    assert forbidden_score.metric_name == "tool.forbidden_call_compliance"
+    assert forbidden_score.status is EvalScoreStatus.FAILED
+
+    required_case = EvaluationCaseSpec(
+        case_id="tool-required",
+        dataset_version="dataset-v1",
+        input_payload={},
+        expected_tool_calls=("search_question_bank",),
+    )
+    required_score = evaluator.evaluate(case=required_case, record=forbidden_record)[0]
+    assert required_score.metric_name == "tool.expected_call_coverage"
+    assert required_score.status is EvalScoreStatus.PASSED
+
+
+@pytest.mark.fast
+def test_tool_fixture_adoption_requires_completed_call_and_output_fact() -> None:
+    """A fixture fact passes only when the declared tool completed and was used."""
+
+    case = EvaluationCaseSpec(
+        case_id="tool-fixture",
+        dataset_version="dataset-v1",
+        input_payload={},
+        expected_tool_calls=("get_candidate_profile",),
+        allowed_tool_calls=("get_candidate_profile",),
+        quality_rubric={
+            "expected_tool_arguments": {"get_candidate_profile": {}},
+            "tool_result_facts": ["缓存穿透"],
+        },
+    )
+    record = AgentEvalRunner.minimal_record_for_test(
+        case=case,
+        actual_output={"content": "请说明你如何防护缓存穿透。"},
+    ).model_copy(
+        update={
+            "tool_calls": (
+                EvalToolCall(
+                    call_id="profile-tool",
+                    sequence=1,
+                    tool_name="get_candidate_profile",
+                    effect=EvalToolEffect.READ,
+                    status=EvalToolStatus.COMPLETED,
+                    approval_status=EvalApprovalStatus.NOT_REQUIRED,
+                    simulated=True,
+                ),
+            )
+        }
+    )
+
+    scores = DeterministicCaseContractEvaluator().evaluate(case=case, record=record)
+
+    by_name = {score.metric_name: score for score in scores}
+    assert by_name["tool.expected_call_coverage"].status is EvalScoreStatus.PASSED
+    assert by_name["tool.key_argument_contract_compliance"].status is EvalScoreStatus.PASSED
+    assert by_name["tool.fixture_result_adoption"].status is EvalScoreStatus.PASSED
+
+
+@pytest.mark.fast
+def test_primary_output_scope_ignores_resume_explanation_metadata() -> None:
+    """Forbidden claims are checked in the assembled resume, not change reasons."""
+
+    case = EvaluationCaseSpec(
+        case_id="resume-primary-output",
+        dataset_version="dataset-v1",
+        input_payload={},
+        forbidden_claims=("具备团队管理经验", "主导过架构设计"),
+        quality_rubric={"primary_output_paths": ["assembled_resume"]},
+    )
+    record = AgentEvalRunner.minimal_record_for_test(
+        case=case,
+        actual_output={
+            "assembled_resume": "若您有团队管理相关工作经验，请补充对应工作内容",
+            "change_items": [
+                {"reason": "目标岗位要求具备团队管理经验，当前简历无对应证据"},
+                {"reason": "目标岗位要求主导过架构设计，当前简历无对应证据"},
+            ],
+        },
+    )
+
+    score = DeterministicCaseContractEvaluator().evaluate(case=case, record=record)[0]
+
+    assert score.metric_name == "factual.forbidden_claim_absence"
+    assert score.status is EvalScoreStatus.PASSED
+
+
+@pytest.mark.fast
+def test_primary_output_scope_supports_planner_list_content() -> None:
+    """List wildcard projections inspect generated question content only."""
+
+    case = EvaluationCaseSpec(
+        case_id="planner-primary-output",
+        dataset_version="dataset-v1",
+        input_payload={},
+        expected_facts=("缓存一致性",),
+        expected_tool_calls=("get_weakness_report",),
+        quality_rubric={
+            "primary_output_paths": ["[].content"],
+            "tool_result_facts": ["缓存一致性"],
+        },
+    )
+    record = AgentEvalRunner.minimal_record_for_test(
+        case=case,
+        actual_output=[
+            {"content": "请说明你如何处理缓存一致性。", "reason": "弱点报告包含缓存一致性"},
+        ],
+    ).model_copy(update={"tool_calls": (EvalToolCall(
+        call_id="weakness-tool",
+        sequence=1,
+        tool_name="get_weakness_report",
+        effect=EvalToolEffect.READ,
+        status=EvalToolStatus.COMPLETED,
+        approval_status=EvalApprovalStatus.NOT_REQUIRED,
+        simulated=True,
+    ),)})
+
+    scores = DeterministicCaseContractEvaluator().evaluate(case=case, record=record)
+    by_name = {score.metric_name: score for score in scores}
+
+    assert by_name["factual.expected_fact_coverage"].status is EvalScoreStatus.PASSED
+    assert by_name["tool.fixture_result_adoption"].status is EvalScoreStatus.PASSED
+
+
+@pytest.mark.fast
+def test_primary_output_scope_missing_path_does_not_fallback_to_metadata() -> None:
+    """An explicitly configured missing path produces an empty checked projection."""
+
+    case = EvaluationCaseSpec(
+        case_id="missing-primary-output",
+        dataset_version="dataset-v1",
+        input_payload={},
+        expected_facts=("缓存一致性",),
+        quality_rubric={"primary_output_paths": ["assembled_resume"]},
+    )
+    record = AgentEvalRunner.minimal_record_for_test(
+        case=case,
+        actual_output={"reason": "缓存一致性"},
+    )
+
+    score = DeterministicCaseContractEvaluator().evaluate(case=case, record=record)[0]
+
+    assert score.metric_name == "factual.expected_fact_coverage"
+    assert score.status is EvalScoreStatus.FAILED
+
+
+@pytest.mark.fast
+def test_primary_output_scope_preserves_legacy_whole_output_fallback() -> None:
+    """Cases without the new rubric key retain whole-output containment behavior."""
+
+    case = EvaluationCaseSpec(
+        case_id="legacy-output",
+        dataset_version="dataset-v1",
+        input_payload={},
+        expected_facts=("缓存一致性",),
+    )
+    record = AgentEvalRunner.minimal_record_for_test(
+        case=case,
+        actual_output={"reason": "缓存一致性"},
+    )
+
+    score = DeterministicCaseContractEvaluator().evaluate(case=case, record=record)[0]
+
+    assert score.status is EvalScoreStatus.PASSED
+
+
+@pytest.mark.fast
+def test_fixed_workflow_tool_contracts_measure_completion_degradation_and_blocking() -> None:
+    case = EvaluationCaseSpec(
+        case_id="workflow-tools",
+        dataset_version="dataset-v1",
+        input_payload={},
+        required_workflow_tool_calls=("match_jd",),
+        degraded_workflow_tool_calls=("search_memory",),
+        blocked_workflow_tool_calls=("open_boss_job",),
+    )
+    record = AgentEvalRunner.minimal_record_for_test(
+        case=case,
+        actual_output={"answer": "degraded but completed"},
+    ).model_copy(
+        update={
+            "tool_calls": (
+                EvalToolCall(call_id="jd", sequence=1, tool_name="match_jd", effect=EvalToolEffect.READ, status=EvalToolStatus.COMPLETED),
+                EvalToolCall(call_id="memory", sequence=2, tool_name="search_memory", effect=EvalToolEffect.READ, status=EvalToolStatus.FAILED),
+                EvalToolCall(call_id="boss", sequence=3, tool_name="open_boss_job", effect=EvalToolEffect.EXTERNAL, status=EvalToolStatus.BLOCKED),
+            ),
+        }
+    )
+
+    scores = DeterministicCaseContractEvaluator().evaluate(case=case, record=record)
+
+    assert {score.metric_name for score in scores} == {
+        "workflow.required_tool_call_coverage",
+        "workflow.tool_degradation_compliance",
+        "workflow.external_effect_interception",
+    }
+    assert all(score.status is EvalScoreStatus.PASSED for score in scores)

@@ -18,6 +18,7 @@
 import hashlib
 import json
 import logging
+from collections.abc import Mapping
 
 from .quality import (
     _build_quality_judge_result,
@@ -62,6 +63,12 @@ async def stage5_fact_check(state: PipelineState) -> PipelineState:
         state.assembled_resume,
         jd_keywords=jd_keywords,
     )
+    fact_result["evidence_checks"] = await _run_evidence_checks(
+        state.change_items,
+        source_text=state.resume_content,
+        user_id=state.user_id,
+        api_config=state.api_config,
+    )
 
     state.fact_check_result = fact_result
 
@@ -88,6 +95,48 @@ async def stage5_fact_check(state: PipelineState) -> PipelineState:
     )
 
     return state
+
+
+async def _run_evidence_checks(
+    change_items: list[dict],
+    *,
+    source_text: str,
+    user_id: str,
+    api_config: dict | None,
+) -> list[dict]:
+    """Verify bounded rewrite claims against the workflow-bound resume source."""
+    from ai.runtime.context import AgentContext
+    from ai.tools.runtime import GovernedToolRuntime
+
+    if not source_text:
+        return []
+    runtime = GovernedToolRuntime(
+        AgentContext(
+            user_id=user_id,
+            api_config={"resume_content": source_text, **dict(api_config or {})},
+            permissions=frozenset({"evidence.verify"}),
+        ),
+        groups=("verification",),
+    )
+    checks: list[dict] = []
+    for item in change_items[:12]:
+        if not isinstance(item, Mapping):
+            continue
+        claim = str(item.get("optimized_text") or item.get("new_text") or "").strip()
+        if not claim:
+            continue
+        try:
+            result = await runtime.execute(
+                "verify_claim_against_source",
+                {"claim": claim},
+                group="verification",
+                workflow_name="resume_optimization",
+                stage="fact_check",
+            )
+        except Exception as exc:
+            result = {"error": type(exc).__name__}
+        checks.append({"claim": claim[:300], "result": result})
+    return checks
 
 
 async def stage5_quality_judge(state: PipelineState) -> PipelineState:
@@ -170,7 +219,7 @@ async def stage6_confirmation_prep(state: PipelineState) -> PipelineState:
         status="started",
         input_summary=f"change_items={len(state.change_items)}",
     )
-    from .resume_fact_policy import REQUIRES_CONFIRMATION_KEYWORDS
+    from ai.agents.resume.resume_fact_policy import REQUIRES_CONFIRMATION_KEYWORDS
 
     confirmation_items = []
 

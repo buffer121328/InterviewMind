@@ -45,6 +45,13 @@ from weakref import WeakSet
 from langchain_core.messages import AIMessage, BaseMessage
 from pydantic import BaseModel, Field
 
+from ai.tools.interview_tools import (
+    get_candidate_profile,
+    get_interview_history,
+    search_question_bank,
+)
+from ai.tools.memory_tools import search_memory
+
 try:
     from langgraph.graph import END, StateGraph
     from langgraph.runtime import Runtime
@@ -54,13 +61,6 @@ except ModuleNotFoundError:  # pragma: no cover - 测试环境可无 langgraph
     END = "__end__"
 
 from ai.memory.memory import get_checkpointer
-from ai.tools.interview_tools import (
-    get_candidate_profile,
-    get_interview_history,
-    make_interview_tool_executor,
-    search_question_bank,
-)
-from ai.tools.memory_tools import search_memory
 from app.domain.interview_round_strategy import (
     ROUND_STRATEGY_VERSION,
     round_question_type_distribution,
@@ -334,6 +334,7 @@ async def node_planner(state: InterviewState, runtime: Runtime[InterviewRuntimeC
             previous_summary=previous_session_summary,
             owner_id=user_id,
             cache_scope=cache_scope,
+            planner_tools_enabled=True,
         )
     interview_plan = merge_question_plan(
         candidates,
@@ -452,18 +453,10 @@ async def node_responder(state: InterviewState, runtime: Runtime[InterviewRuntim
             call_metadata=call_metadata,
         )
 
-    # 构建工具执行器（状态机在 evaluating 状态时显式调用）
-    tool_executor = make_interview_tool_executor(
-        user_id=state.get("user_id", ""),
-        session_id=state.get("session_id"),
-        api_config=api_config,
-    )
-
     # 创建状态机
     runtime = InterviewRuntime(
         state=dict(state),
         llm_invoker=llm_invoker,
-        tool_executor=tool_executor,
         api_config=api_config,
         stable_context=runtime.context.stable_context,
     )

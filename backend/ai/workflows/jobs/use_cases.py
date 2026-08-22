@@ -181,15 +181,17 @@ class JobsUseCases:
         if not guardrail.allowed:
             raise JobBadRequest("job_description_rejected", "该职位介绍无法安全用于 JD 匹配分析")
 
-        from ai.agents.resume.jd_matcher import match_jd
+        from ai.tools.resume_tools import execute_resume_match
 
         try:
-            raw_analysis = await match_jd(
+            raw_analysis = await execute_resume_match(
                 resume_content=request.resume_content,
                 job_description=job_description,
                 mode="smart",
                 api_config=request.api_config.model_dump(),
                 user_id=user_id,
+                workflow_name="job_workflows",
+                stage="jd_analysis",
             )
         except ValueError as exc:
             raise JobBadRequest("jd_analysis_unavailable", str(exc)) from exc

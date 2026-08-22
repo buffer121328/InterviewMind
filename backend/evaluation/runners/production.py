@@ -54,7 +54,11 @@ async def _run_interview_turn(
 ) -> Any:
     """调用真实 InterviewRuntime responder，使用评测身份且不执行会话持久化。"""
 
-    from ai.agents.interview.interview_graph import node_responder
+    from ai.agents.interview.interview_graph import (
+        InterviewRuntimeContext,
+        Runtime,
+        node_responder,
+    )
 
     state = dict(payload)
     state.update(
@@ -62,11 +66,24 @@ async def _run_interview_turn(
             "user_id": context.evaluation_user_id,
             "session_id": context.evaluation_session_id,
             "run_id": context.run_id,
+            "_evaluation_environment": payload.get("_evaluation_environment"),
+            "_evaluation_tool_fixtures": payload.get("_evaluation_tool_fixtures"),
+            "_evaluation_expected_tool_calls": payload.get("_evaluation_expected_tool_calls", []),
+            "_evaluation_allowed_tool_calls": payload.get("_evaluation_allowed_tool_calls", []),
         }
     )
     trace.start_step("interview_turn")
     try:
-        result = await node_responder(state)
+        if Runtime is None:
+            raise RuntimeError("Interview runtime is unavailable")
+        result = await node_responder(
+            state,
+            Runtime(
+                context=InterviewRuntimeContext(
+                    api_config=dict(payload.get("api_config") or {}),
+                )
+            ),
+        )
         safe_result = _normalize_runtime_value(result)
         trace.finish_step("interview_turn")
         return safe_result
@@ -191,8 +208,8 @@ class CatalogEvaluationView:
                 required_trace_categories=("runtime", "model"),
             ),
             "interview_scoring": EvaluationCaseAdapterSpec(
-                task_type="interview_turn",
-                runner=_run_interview_turn_case,
+                task_type="interview_scoring",
+                runner=_run_interview_scoring_case,
                 required_trace_categories=("runtime", "model"),
             ),
             "resume_optimizer": EvaluationCaseAdapterSpec(
@@ -319,6 +336,40 @@ class CatalogEvaluationAdapter:
             trace,
             entry.production_adapter,
         )
+
+
+async def _run_interview_scoring_case(
+    payload: dict[str, Any],
+    context: EvaluationExecutionContext,
+    trace: EvaluationTraceCollector,
+    production_adapter: Any,
+) -> Any:
+    """通过独立评分 adapter 执行单回答评分案例。"""
+
+    if getattr(production_adapter, "key", None) != "interview_scoring":
+        raise EvaluationConfigurationError("interview scoring production adapter drifted")
+    from ai.runtime.harness.contracts import DeferredExecutionResult
+    from ai.workflows.agent_runs.catalog import get_evaluation_driver
+    from app.domain.agent_runs import TASK_TYPE_INTERVIEW_SCORING
+
+    trace.start_step("interview_scoring")
+    try:
+        result = await get_evaluation_driver().run(
+            task_type=TASK_TYPE_INTERVIEW_SCORING,
+            payload=payload,
+            run_id=context.run_id,
+            user_id=context.evaluation_user_id,
+            session_id=context.evaluation_session_id,
+            memory_namespace=context.evaluation_memory_namespace,
+            artifact_namespace=context.evaluation_artifact_namespace,
+        )
+        if isinstance(result, DeferredExecutionResult):
+            raise TypeError("evaluation adapter cannot return deferred persistence")
+        trace.finish_step("interview_scoring")
+        return _normalize_runtime_value(result)
+    except Exception:
+        trace.finish_step("interview_scoring", status="failed")
+        raise
 
 
 async def _run_interview_turn_case(

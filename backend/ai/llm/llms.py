@@ -62,10 +62,9 @@ def _attach_llm_observability_attrs(llm: object, metadata: dict[str, Any]) -> No
 def structured_output_options(llm: object) -> dict[str, Any]:
     """Return the safest structured-output mode supported by the selected candidate.
 
-    Volcengine Ark's Doubao chat models are the only configured candidates for
-    which this application opts into strict JSON Schema. Other native and
-    OpenAI-compatible providers retain JSON mode so provider-specific schema
-    support cannot break the shared fallback chain.
+    Volcengine Ark's Doubao chat models opt into strict JSON Schema. MiMo and
+    other native/OpenAI-compatible providers retain JSON mode so provider
+    capabilities cannot break the shared fallback chain.
     """
     provider = str(getattr(llm, "_model_provider", "") or "").strip().lower()
     model = str(getattr(llm, "model_name", None) or getattr(llm, "model", None) or "").strip().lower()
@@ -106,7 +105,6 @@ def create_llm_from_config(
     callbacks = list(extra_callbacks or [])
     common_options: dict[str, Any] = {
         "temperature": temperature,
-        "max_tokens": max_tokens or settings.llm_max_tokens,
         "api_key": api_key,
         "base_url": base_url,
         # 由调用层负责有限重试，避免 SDK 重试与 fallback 叠加导致长时间阻塞。
@@ -122,6 +120,13 @@ def create_llm_from_config(
             timeout=timeout or settings.llm_request_timeout_seconds
         ),
     }
+    output_token_limit = max_tokens or settings.llm_max_tokens
+    if metadata.get("model_provider") == "mimo":
+        # MiMo's OpenAI-compatible API documents max_completion_tokens and
+        # rejects the legacy max_tokens field.
+        common_options["max_completion_tokens"] = output_token_limit
+    else:
+        common_options["max_tokens"] = output_token_limit
     if callbacks:
         common_options["callbacks"] = callbacks
 

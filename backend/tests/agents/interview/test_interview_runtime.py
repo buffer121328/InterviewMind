@@ -378,6 +378,54 @@ class TestToolRoundTrip:
         assert len(completed_tool_events[0]["output_summary"]) <= 300
         assert runtime.tool_results["search_question_bank"][0]["question"] == "请解释线程池参数设计"
 
+    @pytest.mark.asyncio
+    async def test_evaluation_required_fixture_tool_runs_before_model_decision(self):
+        """Evaluation-only required tools are loaded even when the model does not request them."""
+        state = {
+            **MOCK_STATE,
+            "turn_phase": "feedback",
+            "current_question_index": 1,
+            "interview_plan": FOLLOW_UP_ELIGIBLE_PLAN,
+            "max_questions": len(FOLLOW_UP_ELIGIBLE_PLAN),
+            "messages": [MagicMock(content="请根据画像追问")],
+            "user_id": "eval-user:test-case",
+            "_evaluation_environment": "evaluation",
+            "_evaluation_expected_tool_calls": ["get_candidate_profile"],
+            "_evaluation_allowed_tool_calls": ["get_candidate_profile"],
+            "_evaluation_tool_fixtures": {
+                "get_candidate_profile": {"arguments": {}, "result": {"recent_confirmed_gap": "缓存穿透防护"}},
+            },
+        }
+        mock_llm = AsyncMock(return_value=EvaluatingOutput(
+            evaluation_notes="已读取画像",
+            action=InterviewerAction.END_ROUND,
+            content="针对缓存穿透防护继续追问。",
+        ))
+        runtime = InterviewRuntime(state=state, llm_invoker=mock_llm)
+        await runtime.run()
+
+        assert "缓存穿透防护" in _prompt_text(mock_llm.await_args.args[0])
+        assert any(item.get("event_type") == "tool.completed" for item in runtime.trace)
+        assert runtime.tool_results["get_candidate_profile"] == {"recent_confirmed_gap": "缓存穿透防护"}
+
+    @pytest.mark.asyncio
+    async def test_production_turn_does_not_preload_evaluation_fixture(self):
+        """Production turns retain model-controlled tool selection."""
+        state = {
+            **MOCK_STATE,
+            "turn_phase": "feedback",
+            "messages": [MagicMock(content="普通回答")],
+            "_evaluation_expected_tool_calls": ["get_candidate_profile"],
+        }
+        mock_llm = AsyncMock(return_value=EvaluatingOutput(
+            evaluation_notes="直接推进",
+            action=InterviewerAction.ADVANCE,
+            content="进入下一题",
+        ))
+        mock_tool_executor = AsyncMock()
+        await InterviewRuntime(state=state, llm_invoker=mock_llm, tool_executor=mock_tool_executor).run()
+        mock_tool_executor.assert_not_awaited()
+
 
 class TestFallbackLogic:
     """兜底逻辑测试"""

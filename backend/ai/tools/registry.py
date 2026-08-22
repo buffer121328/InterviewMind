@@ -82,7 +82,11 @@ def _interview_tools(context: AgentContext) -> list[Any]:
     """
     from ai.tools.interview_tools import make_interview_tools
 
-    return make_interview_tools(context.user_id, context.session_id)
+    return make_interview_tools(
+        context.user_id,
+        context.session_id,
+        api_config=dict(context.api_config) or None,
+    )
 
 
 def _resume_tools(context: AgentContext) -> list[Any]:
@@ -100,11 +104,15 @@ def _resume_tools(context: AgentContext) -> list[Any]:
         for key, value in context.api_config.items()
         if key not in {"resume_content", "job_description", "verification_source"}
     }
+    deadline = context.runtime_data.get("deadline")
+    call_metadata = context.runtime_data.get("call_metadata")
     return make_resume_tools(
         resume_content=resume,
         job_description=jd,
         api_config=model_config or None,
         user_id=context.user_id,
+        deadline=deadline,
+        call_metadata=call_metadata,
     )
 
 
@@ -137,7 +145,21 @@ def _memory_tools(context: AgentContext) -> list[Any]:
     """
     from ai.tools.memory_tools import make_memory_tools
 
-    return make_memory_tools(user_id=context.user_id)
+    return make_memory_tools(
+        user_id=context.user_id,
+        api_config=dict(context.api_config) or None,
+    )
+
+
+def _interview_planner_tools(context: AgentContext) -> list[Any]:
+    """构造面试规划专属的只读工具 allowlist。"""
+    from ai.tools.interview_planner_tools import make_interview_planner_tools
+
+    return make_interview_planner_tools(
+        context.user_id,
+        session_id=context.session_id,
+        api_config=dict(context.api_config) or None,
+    )
 
 
 tool_registry.register(ToolSpec("interview", _interview_tools))
@@ -145,3 +167,31 @@ tool_registry.register(ToolSpec("resume", _resume_tools))
 tool_registry.register(ToolSpec("verification", _verification_tools))
 tool_registry.register(ToolSpec("jobs", _job_tools))
 tool_registry.register(ToolSpec("memory", _memory_tools))
+tool_registry.register(ToolSpec("interview_planner", _interview_planner_tools))
+
+
+TOOL_GROUP_OWNERS: dict[str, tuple[str, ...]] = {
+    "interview": ("interview_runtime", "interview_rag"),
+    "resume": ("resume_optimization", "resume_generation"),
+    "verification": ("resume_generation", "resume_optimization"),
+    "jobs": ("job_workflows",),
+    "memory": ("interview_rag", "interview_runtime"),
+    "interview_planner": ("interview_planner",),
+}
+
+
+def tool_catalog() -> tuple[dict[str, Any], ...]:
+    """Return a deterministic, non-secret catalog of groups and contracts."""
+    from app.schemas.tools import get_tool_contract
+
+    context = AgentContext(user_id="catalog", permissions=frozenset())
+    entries: list[dict[str, Any]] = []
+    for group in tool_registry.names():
+        for tool in tool_registry.build(group, context):
+            entries.append({
+                "group": group,
+                "name": str(getattr(tool, "name", "")),
+                "contract": get_tool_contract(tool) or {},
+                "owners": list(TOOL_GROUP_OWNERS.get(group, ())),
+            })
+    return tuple(sorted(entries, key=lambda item: (item["group"], item["name"])))

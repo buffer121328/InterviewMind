@@ -3,9 +3,9 @@
 import pytest
 from langchain_openai import ChatOpenAI
 
+from ai.llm import llms
 from app.config import get_settings
 from app.schemas.schemas import ApiConfig
-from ai.llm import llms
 
 
 def _channel(model: str) -> dict:
@@ -387,6 +387,52 @@ def test_ark_doubao_uses_openai_compatible_client_and_strict_schema_metadata():
     assert isinstance(llm, ChatOpenAI)
     assert metadata["model_provider"] == "volcengine"
     assert metadata["model_integration"] == "openai_compatible"
+
+
+def test_mimo_factory_uses_max_completion_tokens(monkeypatch):
+    created = {}
+
+    class FakeChatOpenAI:
+        def __init__(self, **kwargs):
+            created.update(kwargs)
+
+    monkeypatch.setattr(llms, "ChatOpenAI", FakeChatOpenAI)
+    monkeypatch.setattr(llms, "validate_outbound_url", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(llms, "build_guarded_async_client", lambda **_kwargs: object())
+
+    llms.create_llm_from_config(
+        api_key="test-key",
+        base_url="https://api.xiaomimimo.com/v1",
+        model="mimo-v2.5-pro",
+        provider="mimo",
+        max_tokens=1234,
+    )
+
+    assert created["max_completion_tokens"] == 1234
+    assert "max_tokens" not in created
+    assert created["metadata"]["model_provider"] == "mimo"
+
+
+def test_non_mimo_factory_keeps_max_tokens(monkeypatch):
+    created = {}
+
+    class FakeChatOpenAI:
+        def __init__(self, **kwargs):
+            created.update(kwargs)
+
+    monkeypatch.setattr(llms, "ChatOpenAI", FakeChatOpenAI)
+    monkeypatch.setattr(llms, "validate_outbound_url", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(llms, "build_guarded_async_client", lambda **_kwargs: object())
+
+    llms.create_llm_from_config(
+        api_key="test-key",
+        base_url="https://model.example/v1",
+        model="custom-model",
+        max_tokens=1234,
+    )
+
+    assert created["max_tokens"] == 1234
+    assert "max_completion_tokens" not in created
 
 
 class _FakeRedis:

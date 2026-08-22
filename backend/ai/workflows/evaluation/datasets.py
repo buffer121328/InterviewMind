@@ -6,7 +6,9 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import get_settings
+from ai.workflows.evaluation.contracts import EvaluationUseCaseError
+from ai.workflows.evaluation.serializers import _dataset, _dataset_case
+from app.clock import utc_now
 from app.db.models import EvaluationSuiteModel, async_session
 from app.db.unit_of_work import UnitOfWork
 from app.schemas.evaluation.evaluations import (
@@ -15,10 +17,7 @@ from app.schemas.evaluation.evaluations import (
     EvaluationSuiteCreateRequest,
 )
 from app.security.payload_crypto import TaskPayloadConfigurationError
-from evaluation.builtins import BuiltinEvaluationAgent
-
-from ai.workflows.evaluation.serializers import _dataset, _dataset_case
-from ai.workflows.evaluation.contracts import EvaluationUseCaseError
+from evaluation.builtins import BuiltinEvaluationAgent, BuiltinEvaluationScope
 
 
 class DatasetUseCasesMixin:
@@ -148,6 +147,7 @@ class DatasetUseCasesMixin:
         *,
         user_id: str,
         agent: BuiltinEvaluationAgent,
+        scope: BuiltinEvaluationScope,
     ) -> EvaluationSuiteModel:
         """幂等创建并锁定 owner 专属内置数据集与套件，不覆盖同名手工资产。
 
@@ -160,18 +160,18 @@ class DatasetUseCasesMixin:
         dataset = await self.repository.get_dataset_by_name_version(
             session,
             user_id=user_id,
-            name=agent.dataset_name,
-            version=agent.dataset_version,
+            name=scope.dataset_name,
+            version=scope.dataset_version,
         )
         if dataset is None:
             dataset = await self.repository.create_dataset(
                 session,
                 user_id=user_id,
                 request=EvaluationDatasetCreateRequest(
-                    name=agent.dataset_name,
-                    version=agent.dataset_version,
+                    name=scope.dataset_name,
+                    version=scope.dataset_version,
                     source="builtin",
-                    cases=list(agent.cases),
+                    cases=list(scope.cases),
                 ),
             )
         elif dataset.source != "builtin":
@@ -204,24 +204,45 @@ class DatasetUseCasesMixin:
         suite = await self.repository.get_suite_by_name(
             session,
             user_id=user_id,
-            name=agent.suite_name,
+            name=scope.suite_name,
         )
         if suite is None:
             return await self.repository.create_suite(
                 session,
                 user_id=user_id,
                 request=EvaluationSuiteCreateRequest(
-                    name=agent.suite_name,
+                    name=scope.suite_name,
                     agent_name=agent.name,
-                    description=f"系统内置：{agent.description}",
+                    description=f"系统内置 {scope.name}：{agent.description}",
                     dataset_version_id=dataset.id,
-                    rubric_version=agent.rubric_version,
+                    rubric_version=scope.rubric_version,
                 ),
             )
+        if suite.dataset_version_id != dataset.id:
+            previous_dataset = await self.repository.get_dataset(
+                session,
+                dataset_id=suite.dataset_version_id,
+                user_id=user_id,
+            )
+            if previous_dataset is not None and previous_dataset.source == "builtin":
+                if previous_dataset.status != "retired":
+                    await self.repository.update_dataset_status(
+                        session,
+                        dataset_id=previous_dataset.id,
+                        user_id=user_id,
+                        status="retired",
+                    )
+                suite.dataset_version_id = dataset.id
+                suite.agent_name = agent.name
+                suite.rubric_version = scope.rubric_version
+                suite.description = f"系统内置 {scope.name}：{agent.description}"
+                suite.updated_at = utc_now()
+                await session.flush()
+                return suite
         if (
             suite.agent_name != agent.name
             or suite.dataset_version_id != dataset.id
-            or suite.rubric_version != agent.rubric_version
+            or suite.rubric_version != scope.rubric_version
         ):
             raise EvaluationUseCaseError(
                 "内置评测套件名称已被其他配置占用，请在高级模式中重命名该套件",

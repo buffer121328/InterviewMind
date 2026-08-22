@@ -192,3 +192,44 @@ async def test_compatibility_registry_keeps_names_but_rejects_parallel_fallbacks
     assert resume_optimizer.prompt_name == "resume.match_analyst"
     assert resume_optimizer.prompt_version == "1"
     assert resume_optimizer.production_adapter_key == "resume_optimize"
+
+
+@pytest.mark.asyncio
+@pytest.mark.fast
+async def test_interview_turn_evaluation_supplies_the_current_runtime_context(monkeypatch):
+    """The isolated adapter must match the responder's required LangGraph runtime contract."""
+
+    from ai.agents.interview import interview_graph
+    from evaluation.runners import production
+
+    seen: dict[str, Any] = {}
+
+    async def responder(state, runtime):
+        seen["user_id"] = state["user_id"]
+        seen["api_config"] = dict(runtime.context.api_config or {})
+        return {"messages": []}
+
+    monkeypatch.setattr(interview_graph, "node_responder", responder)
+    context = EvaluationExecutionContext.for_run("run-turn")
+    result = await production._run_interview_turn(
+        {"api_config": {"fast": {"model": "fast-model"}}},
+        context,
+        EvaluationTraceCollector(evaluation_namespace="eval:run-turn"),
+    )
+
+    assert result["messages"] == []
+    assert seen == {
+        "user_id": "eval-user:run-turn",
+        "api_config": {"fast": {"model": "fast-model"}},
+    }
+
+
+@pytest.mark.fast
+def test_interview_scoring_resolves_to_its_dedicated_production_capability():
+    """Scoring smoke must not be routed through the turn state machine."""
+
+    entry = CatalogEvaluationView().resolve("interview_scoring")
+
+    assert entry.task_type == "interview_scoring"
+    assert entry.production_adapter_key == "interview_scoring"
+    assert entry.case_adapter.runner.__name__ == "_run_interview_scoring_case"

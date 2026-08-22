@@ -40,6 +40,10 @@ class EvaluationCaseSpec(BaseModel):
     forbidden_claims: tuple[JsonValue, ...] = ()
     expected_tool_calls: tuple[str, ...] = ()
     allowed_tool_calls: tuple[str, ...] = ()
+    required_workflow_tool_calls: tuple[str, ...] = ()
+    degraded_workflow_tool_calls: tuple[str, ...] = ()
+    blocked_workflow_tool_calls: tuple[str, ...] = ()
+    tool_fixtures: dict[str, JsonValue] = Field(default_factory=dict)
     required_state_transitions: tuple[str, ...] = ()
     forbidden_state_transitions: tuple[str, ...] = ()
     quality_rubric: dict[str, JsonValue] = Field(default_factory=dict)
@@ -246,7 +250,15 @@ class AgentEvalRunner:
                 evaluation_model_sink(trace.record_model_event),
             ):
                 try:
-                    raw_output = await adapter.run(dict(case.input_payload), context, trace)
+                    adapter_payload = dict(case.input_payload)
+                    if case.tool_fixtures:
+                        adapter_payload["_evaluation_tool_fixtures"] = dict(case.tool_fixtures)
+                        adapter_payload["_evaluation_environment"] = "evaluation"
+                    if case.expected_tool_calls:
+                        adapter_payload["_evaluation_expected_tool_calls"] = list(case.expected_tool_calls)
+                    if case.allowed_tool_calls:
+                        adapter_payload["_evaluation_allowed_tool_calls"] = list(case.allowed_tool_calls)
+                    raw_output = await adapter.run(adapter_payload, context, trace)
                     output, findings = sanitize_evaluation_value(
                         raw_output, location="final_output"
                     )

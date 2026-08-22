@@ -4,8 +4,8 @@ Pydantic 数据模型定义
 """
 
 from typing import List, Literal, Optional
-from pydantic import BaseModel, Field
 
+from pydantic import BaseModel, Field
 
 # ============================================================================
 # 用户 API 配置模型
@@ -17,7 +17,7 @@ class ModelChannelConfig(BaseModel):
     api_key: str = Field(default="", description="由后端凭据中间件注入，前端业务请求不得直接填写")
     base_url: str = Field(..., description="API Base URL")
     model: str = Field(..., description="模型名称")
-    provider: Optional[str] = Field(default=None, description="服务商标识，如 deepseek/qwen/openai_compatible")
+    provider: Optional[str] = Field(default=None, description="服务商标识，如 mimo/deepseek/qwen/openai_compatible")
     integration: Optional[str] = Field(default=None, description="LangChain 集成方式，如 deepseek/qwen/openai_compatible")
     pricing_key: Optional[str] = Field(default=None, description="本地价格表键名；缺省使用 model")
     dimensions: Optional[int] = Field(

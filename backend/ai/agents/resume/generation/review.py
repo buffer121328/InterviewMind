@@ -70,11 +70,57 @@ async def node_fact_check(state: Mapping[str, Any]) -> dict[str, Any]:
             },
         )
         payload = result.model_dump()
+        payload["evidence_checks"] = await _run_evidence_checks(
+            payload.get("risk_details") or [],
+            source_text=resume_content,
+            user_id=str(state.get("user_id") or "default_user"),
+            api_config=api_config,
+        )
         logger.info("独立事实核查完成: is_excessive=%s", payload.get("is_excessive"))
         return {"fact_check_result": payload}
     except Exception as exc:
         logger.error("独立事实核查失败: %s", type(exc).__name__)
         return {"fact_check_result": _verification_failure(type(exc).__name__)}
+
+
+async def _run_evidence_checks(
+    risk_details: list[Any],
+    *,
+    source_text: str,
+    user_id: str,
+    api_config: Mapping[str, Any] | None,
+) -> list[dict[str, Any]]:
+    """Run bounded deterministic claim checks through the verification tool."""
+    from ai.runtime.context import AgentContext
+    from ai.tools.runtime import GovernedToolRuntime
+
+    if not risk_details or not source_text:
+        return []
+    context = AgentContext(
+        user_id=user_id,
+        api_config={"resume_content": source_text, **dict(api_config or {})},
+        permissions=frozenset({"evidence.verify"}),
+    )
+    runtime = GovernedToolRuntime(context, groups=("verification",))
+    checks: list[dict[str, Any]] = []
+    for detail in risk_details[:8]:
+        if not isinstance(detail, Mapping):
+            continue
+        claim = str(detail.get("fabricated") or detail.get("optimized_text") or "").strip()
+        if not claim:
+            continue
+        try:
+            result = await runtime.execute(
+                "verify_claim_against_source",
+                {"claim": claim},
+                group="verification",
+                workflow_name="resume_generation",
+                stage="fact_check",
+            )
+        except Exception as exc:
+            result = {"error": type(exc).__name__}
+        checks.append({"claim": claim[:300], "result": result})
+    return checks
 
 
 def _warning_text(fact_check_result: Mapping[str, Any]) -> str:
@@ -183,6 +229,12 @@ async def node_verify_final(state: Mapping[str, Any]) -> dict[str, Any]:
             },
         )
         verification = result.model_dump()
+        verification["evidence_checks"] = await _run_evidence_checks(
+            verification.get("risk_details") or [],
+            source_text=resume_content,
+            user_id=str(state.get("user_id") or "default_user"),
+            api_config=state.get("api_config"),
+        )
     except Exception as exc:
         logger.error("最终事实复核失败: %s", type(exc).__name__)
         verification = _verification_failure(type(exc).__name__)

@@ -15,6 +15,7 @@ class AgentContext:
     run_id: Optional[str] = None
     request_id: Optional[str] = None
     api_config: Mapping[str, Any] = field(default_factory=dict)
+    runtime_data: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False)
     permissions: frozenset[str] = field(default_factory=frozenset)
     locale: str = "zh-CN"
 
@@ -23,6 +24,7 @@ class AgentContext:
         if not self.user_id.strip():
             raise ValueError("user_id must not be empty")
         object.__setattr__(self, "api_config", MappingProxyType(deepcopy(dict(self.api_config))))
+        object.__setattr__(self, "runtime_data", MappingProxyType(dict(self.runtime_data)))
 
     def has_permission(self, permission: str) -> bool:
         """判断 `permission` 是否满足条件。

@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { formatEvaluationRate, formatSignedRate, groupScoresBySource, overviewCards, runProgress } from './evaluationMetrics.ts';
+import { formatEvaluationRate, formatObservedEventRate, formatSignedRate, groupScoresBySource, overviewCards, runProgress } from './evaluationMetrics.ts';
 import { passesGateThreshold } from './evaluationGates.ts';
 import { deriveAnnotationState } from './evaluationAnnotations.ts';
 
 test('evaluation rates and progress remain bounded', () => {
     assert.equal(formatEvaluationRate(0.875), '87.5%');
     assert.equal(formatEvaluationRate(null), '样本不足');
+    assert.equal(formatObservedEventRate(null), '未观测到该类事件');
     assert.equal(formatSignedRate(-0.125), '-12.5%');
     assert.equal(formatSignedRate(null), '无基线');
     assert.equal(runProgress({ summary: { progress: 2 } } as never), 1);
@@ -37,6 +38,7 @@ test('overview exposes trace, tool, dependency and approval governance metrics',
         pending_review_count: 1,
         regression_count: 0,
         p95_latency_ms: 120,
+        latency_compliance_rate: 1,
         token_delta_percent: null,
         trace_completeness_rate: 0.75,
         trace_incomplete_count: 1,

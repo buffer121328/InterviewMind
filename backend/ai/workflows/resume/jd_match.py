@@ -12,7 +12,7 @@ from app.schemas.resume.jd_schemas import (
     JDMatchRequest,
     JDMatchResponse,
 )
-from ai.agents.resume.jd_matcher import match_jd
+from ai.tools.resume_tools import execute_resume_match
 
 
 @dataclass(slots=True)
@@ -50,12 +50,13 @@ class JDMatchUseCases:
             raise JDMatchBadRequest(message="请先配置 API Key")
 
         try:
-            result = await match_jd(
+            result = await execute_resume_match(
                 resume_content=request.resume_content,
                 job_description=request.job_description,
                 mode="smart",
                 api_config=request.api_config.model_dump() if request.api_config else None,
                 user_id=user_id,
+                workflow_name="resume_jd_match",
             )
         except ValueError as exc:
             raise JDMatchBadRequest(message=str(exc)) from exc

@@ -79,12 +79,23 @@ async def stage1_jd_analysis(state: PipelineState) -> PipelineState:
         return state
 
     try:
-        from ai.agents.resume.jd_matcher import match_jd
+        from ai.runtime.context import AgentContext
+        from ai.tools.runtime import GovernedToolRuntime
 
-        state.jd_analysis = await match_jd(
-            job_description=state.job_description,
-            resume_content=state.resume_content,
-            mode="fast",
+        context = AgentContext(
+            user_id=state.user_id,
+            api_config=state.api_config or {},
+            permissions=frozenset({"resume.jd.match"}),
+        )
+        state.jd_analysis = await GovernedToolRuntime(
+            context,
+            groups=("resume",),
+        ).execute(
+            "match_jd",
+            {"job_description": state.job_description, "mode": "fast"},
+            group="resume",
+            workflow_name="resume_optimization",
+            stage="jd_analysis",
         )
         logger.info(f"[Stage1] JD分析完成: 匹配度 {state.jd_analysis.get('match_score', 0)}%")
         _append_trace(

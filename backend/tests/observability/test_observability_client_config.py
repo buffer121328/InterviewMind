@@ -181,6 +181,31 @@ def test_managed_prompt_uses_langfuse_with_local_fallback(monkeypatch):
     assert client.prompt_calls[0][1]["fetch_timeout_seconds"] == pytest.approx(0.05)
 
 
+def test_managed_prompt_fetch_error_returns_the_local_template(monkeypatch):
+    """Prompt-management outages must not prevent the Agent from using its local prompt."""
+    import observability
+    from ai.prompts.resume import build_resume_analysis_prompt
+
+    class PromptClient(FakeLangfuseClient):
+        def get_prompt(self, _name, **_kwargs):
+            raise TimeoutError("Langfuse timed out")
+
+    client = PromptClient()
+    monkeypatch.setattr(observability, "_create_langfuse_client", lambda config: client)
+    monkeypatch.setenv("LANGFUSE_ENABLED", "true")
+    monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk-test")
+    monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-test")
+    monkeypatch.setenv("LANGFUSE_PROMPT_MANAGEMENT_ENABLED", "true")
+
+    rendered = build_resume_analysis_prompt(
+        resume_content="候选人有 Python 服务开发经验",
+        job_description="Python 后端工程师",
+    )
+
+    assert "候选人有 Python 服务开发经验" in rendered
+    assert "Python 后端工程师" in rendered
+
+
 def test_managed_prompt_is_opt_in_and_defaults_to_local(monkeypatch):
     from ai.prompts.interview import build_opening_prompt
 

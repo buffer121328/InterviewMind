@@ -10,6 +10,17 @@ export type EvaluationAgentName =
 
 export type EvaluationQuickModeName = 'quick' | 'standard' | 'release';
 
+export interface EvaluationModeScope {
+    name: EvaluationQuickModeName;
+    dataset_name: string;
+    dataset_version: string;
+    suite_name: string;
+    rubric_version: string;
+    case_count: number;
+    input_categories: string[];
+    tool_applicability: Record<string, number>;
+}
+
 export interface EvaluationCatalogAgent {
     name: EvaluationAgentName;
     label: string;
@@ -21,6 +32,7 @@ export interface EvaluationCatalogAgent {
     suite_name: string;
     rubric_version: string;
     case_count: number;
+    mode_scopes: Record<EvaluationQuickModeName, EvaluationModeScope>;
     latest_successful_run_id: string | null;
 }
 
@@ -52,6 +64,17 @@ export interface EvaluationQuickRunRequest {
     compare_production?: boolean;
 }
 
+export interface EvaluationAllQuickRunRequest {
+    /** Request-scoped credentials; callers must never log or render this object. */
+    api_config: Record<string, unknown>;
+}
+
+export interface EvaluationAllQuickRunResult {
+    smoke_batch_id: string;
+    runs: EvaluationRun[];
+    failures: Array<{ agent_name: EvaluationAgentName; message: string }>;
+}
+
 export interface EvaluationOverview {
     run_count: number;
     runtime_success_rate: number | null;
@@ -65,6 +88,7 @@ export interface EvaluationOverview {
     pending_review_count: number;
     regression_count: number;
     p95_latency_ms: number | null;
+    latency_compliance_rate: number | null;
     token_delta_percent: number | null;
     trace_completeness_rate: number | null;
     trace_incomplete_count: number;
@@ -194,6 +218,7 @@ export interface EvaluationRun {
     id: string;
     suite_id: string;
     agent_run_id: string | null;
+    smoke_batch_id: string | null;
     agent_name: string;
     agent_version: string;
     prompt_name: string | null;
@@ -239,6 +264,7 @@ export interface EvaluationCaseRun {
     overall_score: number | null;
     error_category: string | null;
     needs_review: boolean;
+    review_status?: 'not_required' | 'pending' | 'approved' | 'rejected' | 'waived' | 'rerun_requested';
     runtime_success?: boolean | null;
     semantic_evaluated?: boolean | null;
     semantic_success?: boolean | null;
@@ -444,9 +470,6 @@ export interface EvaluationTrendPoint {
     prompt_version: string | null;
     model_config_hash: string;
     dataset_version: string;
-    average_score: number | null;
-    minimum_score: number | null;
-    score_spread: number | null;
     sample_count: number;
     complete_success_rate: number | null;
     p50_latency_ms: number | null;
@@ -552,6 +575,12 @@ export const evaluationApi = {
     createRun: (payload: Record<string, unknown>) => apiRequest<EvaluationRun>('/api/evaluations/runs', { method: 'POST', body: JSON.stringify(payload), headers: { 'Idempotency-Key': crypto.randomUUID() } }),
     /** Starts a real evaluation while the backend keeps API keys only in encrypted AgentRun payload. */
     quickRun: (payload: EvaluationQuickRunRequest, idempotencyKey: string) => apiRequest<EvaluationRun>('/api/evaluations/quick-runs', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+        headers: { 'Idempotency-Key': idempotencyKey },
+    }),
+    /** Queues one server-owned quick smoke run for every allowlisted Agent. */
+    allAgentsQuickRun: (payload: EvaluationAllQuickRunRequest, idempotencyKey: string) => apiRequest<EvaluationAllQuickRunResult>('/api/evaluations/quick-runs/all', {
         method: 'POST',
         body: JSON.stringify(payload),
         headers: { 'Idempotency-Key': idempotencyKey },

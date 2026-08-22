@@ -12,6 +12,7 @@ from ai.workflows.evaluation import EvaluationUseCaseError, evaluation_use_cases
 from app.api.deps import get_current_user_id
 from app.schemas.evaluation.evaluations import (
     EvaluationAdjudicationRequest,
+    EvaluationAllQuickRunRequest,
     EvaluationAnnotationCreateRequest,
     EvaluationCalibrationCreateRequest,
     EvaluationCalibrationSimulateRequest,
@@ -412,6 +413,22 @@ async def create_run(
 
     try:
         return await evaluation_use_cases.create_run(
+            user_id=user_id, request=request, idempotency_key=idempotency_key
+        )
+    except EvaluationUseCaseError as exc:
+        _raise(exc)
+
+
+@router.post("/quick-runs/all", status_code=202)
+async def all_agents_quick_run(
+    request: EvaluationAllQuickRunRequest,
+    user_id: str = Depends(get_current_user_id),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+):
+    """Queue exactly one quick smoke run for each server-allowlisted Agent."""
+
+    try:
+        return await evaluation_use_cases.all_agents_quick_run(
             user_id=user_id, request=request, idempotency_key=idempotency_key
         )
     except EvaluationUseCaseError as exc:

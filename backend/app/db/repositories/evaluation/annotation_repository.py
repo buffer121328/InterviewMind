@@ -4,10 +4,21 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.db.models import EvaluationAnnotationModel, EvaluationCalibrationModel, EvaluationCaseRunModel, EvaluationRunModel, EvaluationScoreModel
-from app.schemas.evaluation.evaluations import EvaluationAnnotationCreateRequest, EvaluationReviewResolutionRequest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.db.models import (
+    EvaluationAnnotationModel,
+    EvaluationCalibrationModel,
+    EvaluationCaseRunModel,
+    EvaluationRunModel,
+    EvaluationScoreModel,
+)
+from app.schemas.evaluation.evaluations import (
+    EvaluationAnnotationCreateRequest,
+    EvaluationReviewResolutionRequest,
+)
+from evaluation.baselines import build_baseline_comparison
 
 from .helpers import _id, _now
 
@@ -113,11 +124,97 @@ class AnnotationRepositoryMixin:
         if request.status in {"approved", "waived"} and (case_run.status != "succeeded" or not case_run.hard_gate_passed):
             raise ValueError("运行失败或硬门禁失败的案例不能人工通过或豁免")
         case_run.review_status = request.status
-        case_run.review_resolver_key = request.reviewer_key
+        case_run.review_resolver_key = request.reviewer_key or "owner-expert"
         case_run.review_resolved_at = _now()
         case_run.review_resolution_note = request.comment
+        await self._refresh_run_review_state(
+            session,
+            run_id=case_run.evaluation_run_id,
+            user_id=user_id,
+        )
         await session.flush()
         return case_run
+
+    async def _refresh_run_review_state(
+        self,
+        session: AsyncSession,
+        *,
+        run_id: str,
+        user_id: str,
+    ) -> None:
+        """Recompute the aggregate lifecycle after an owner review resolution."""
+
+        run = await self.get_run(session, run_id=run_id, user_id=user_id)
+        if run is None:
+            raise LookupError("evaluation run not found")
+        cases = list(
+            await session.scalars(
+                select(EvaluationCaseRunModel).where(
+                    EvaluationCaseRunModel.evaluation_run_id == run_id
+                )
+            )
+        )
+        pending = [
+            case
+            for case in cases
+            if case.needs_review and case.review_status in {"pending", "rerun_requested"}
+        ]
+        rejected = [case for case in cases if case.review_status == "rejected"]
+        approved = [
+            case
+            for case in cases
+            if case.review_status in {"approved", "waived"}
+        ]
+        all_runtime_success = bool(cases) and all(
+            case.status == "succeeded" for case in cases
+        )
+        all_hard_gates_passed = bool(cases) and all(
+            case.hard_gate_passed for case in cases
+        )
+        if pending:
+            status = "pending_review"
+        elif rejected or not all_runtime_success or not all_hard_gates_passed:
+            status = "failed"
+        else:
+            status = "succeeded"
+        summary = {
+            **dict(run.summary or {}),
+            "case_total": len(cases),
+            "completed_count": sum(case.status in {"succeeded", "failed", "cancelled"} for case in cases),
+            "needs_review_count": sum(case.needs_review for case in cases),
+            "pending_review_count": len(pending),
+            "reviewed_count": len(approved) + len(rejected),
+            "review_approved_count": len(approved),
+            "review_rejected_count": len(rejected),
+            "human_review_finalized": bool(cases) and not pending and any(case.needs_review for case in cases),
+        }
+        metrics = dict(summary.get("metrics") or {})
+        if "governance.pending_review_rate" in metrics:
+            metrics["governance.pending_review_rate"] = len(pending) / len(cases) if cases else 0.0
+            summary["metrics"] = metrics
+        if run.baseline_run_id:
+            baseline = await self.get_run(
+                session,
+                run_id=run.baseline_run_id,
+                user_id=user_id,
+            )
+            if baseline is not None:
+                comparison = build_baseline_comparison(
+                    current_summary=summary,
+                    current_dataset_version=run.dataset_version,
+                    current_agent_name=run.agent_name,
+                    current_model_config_hash=run.model_config_hash,
+                    baseline_snapshot={
+                        "summary": dict(baseline.summary or {}),
+                        "dataset_version": baseline.dataset_version,
+                        "agent_name": baseline.agent_name,
+                        "model_config_hash": baseline.model_config_hash,
+                        "run_id": baseline.id,
+                    },
+                )
+                summary["baseline_comparison"] = comparison
+                summary["regression_count"] = int(comparison.get("regression_count") or 0)
+        await self.update_run_status(session, run=run, status=status, summary=summary)
 
     async def list_annotations(
             self,
