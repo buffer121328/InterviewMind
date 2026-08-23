@@ -73,7 +73,7 @@ async def execute_job_open(
     call_id: str | None = None,
 ) -> dict[str, Any]:
     """Open a saved BOSS job through the external-action guard."""
-    from ai.tools.runtime import GovernedToolRuntime
+    from ai.tools.governed_runtime import GovernedToolRuntime
 
     context = AgentContext(
         user_id=user_id,

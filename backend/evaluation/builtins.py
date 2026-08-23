@@ -141,7 +141,7 @@ BUILTIN_EVALUATION_AGENTS: tuple[BuiltinEvaluationAgent, ...] = (
         dataset_name="builtin.interview-planner", dataset_version="v3",
         suite_name="builtin.interview-planner", rubric_version="builtin-v1",
         cases=(
-            {"case_key": "planner-000-weakness-required", "category": "interview_planner", "input": {"resume": _COMMON_RESUME, "job_description": _COMMON_JD, "company_info": "企业软件团队", "max_questions": 3, "round_type": "tech_deep", "round_index": 2, "output_format": "full", "generate_hints": False, "previous_questions": ["请介绍一个缓存优化实践。"], "previous_profile": {"key_weaknesses": ["缓存一致性"]}}, "expected_facts": ["缓存一致性"], "expected_tool_calls": ["get_weakness_report"], "allowed_tool_calls": ["search_candidate_memory", "get_weakness_report"], "tool_fixtures": {"get_weakness_report": {"arguments": {}, "result": {"status": "available", "weakness_categories": ["缓存一致性"]}}}, "quality_rubric": {"focus": "weakness_grounded_deepening", "question_count": 3, "tool_applicability": "required", "expected_tool_arguments": {"get_weakness_report": {}}, "tool_result_facts": ["缓存一致性"], "primary_output_paths": ["[].content"]}, "tags": ["builtin", "smoke", "planner", "tool-required"], "severity": "high", "latency_budget_ms": 60_000, "token_budget": 10_000},
+            {"case_key": "planner-000-weakness-required", "category": "interview_planner", "input": {"resume": _COMMON_RESUME, "job_description": _COMMON_JD, "company_info": "企业软件团队", "max_questions": 3, "round_type": "tech_deep", "round_index": 2, "output_format": "full", "generate_hints": False, "previous_questions": ["请介绍一个缓存优化实践。"], "previous_profile": {"key_weaknesses": ["缓存一致性"]}}, "expected_facts": ["缓存一致性"], "expected_tool_calls": ["get_weakness_report"], "allowed_tool_calls": ["search_planner_question_bank", "get_previous_round_context", "get_weakness_report", "retrieve_interview_evidence", "search_candidate_memory"], "tool_fixtures": {"get_weakness_report": {"arguments": {}, "result": {"status": "available", "weakness_categories": ["缓存一致性"]}}}, "quality_rubric": {"focus": "weakness_grounded_deepening", "question_count": 3, "tool_applicability": "required", "expected_tool_arguments": {"get_weakness_report": {}}, "tool_result_facts": ["缓存一致性"], "primary_output_paths": ["[].content"]}, "tags": ["builtin", "smoke", "planner", "tool-required"], "severity": "high", "latency_budget_ms": 60_000, "token_budget": 10_000},
             {"case_key": "planner-hr-round", "category": "interview_planner", "input": {"resume": _COMMON_RESUME, "job_description": _COMMON_JD, "company_info": "成长型技术公司", "max_questions": 2, "round_type": "hr_comprehensive", "round_index": 2, "output_format": "simple", "generate_hints": False}, "quality_rubric": {"focus": "motivation_and_collaboration", "question_count": 2, "tool_applicability": "not_applicable"}, "tags": ["builtin", "smoke", "planner"], "severity": "medium", "latency_budget_ms": 60_000, "token_budget": 6_000},
             {"case_key": "planner-incomplete-jd", "category": "interview_planner", "input": {"resume": _COMMON_RESUME, "job_description": "招聘后端工程师，负责核心服务。", "company_info": "未提供", "max_questions": 2, "round_type": "tech_initial", "round_index": 1, "output_format": "full", "generate_hints": False}, "forbidden_claims": ["公司使用 Kubernetes", "岗位要求英语六级"], "quality_rubric": {"focus": "clarify_missing_jd_without_fabrication", "question_count": 2, "tool_applicability": "forbidden"}, "tags": ["builtin", "smoke", "boundary", "tool-forbidden"], "severity": "high", "latency_budget_ms": 60_000, "token_budget": 6_000},
         ),
@@ -249,6 +249,7 @@ def get_builtin_scope(
     deliberately continues to use the legacy built-in dataset and one-case limit.
     """
 
+    validate_builtin_tool_contracts()
     if mode_name == "quick":
         quick_case = min(agent.cases, key=lambda item: str(item.get("case_key") or ""))
         return BuiltinEvaluationScope(
@@ -377,6 +378,27 @@ def _tool_applicability_counts(cases: tuple[dict[str, Any], ...]) -> dict[str, i
         label = _tool_applicability(case)
         counts[label] = counts.get(label, 0) + 1
     return counts
+
+
+def validate_builtin_tool_contracts() -> None:
+    """Fail closed when built-in tool policy drifts from the registered catalog."""
+    from ai.tools.registry import tool_catalog
+
+    registered = {str(item.get("name")) for item in tool_catalog()}
+    errors: list[str] = []
+    for agent in BUILTIN_EVALUATION_AGENTS:
+        for case in agent.cases:
+            key = str(case.get("case_key") or "unknown")
+            expected = {str(item) for item in case.get("expected_tool_calls") or []}
+            allowed = {str(item) for item in case.get("allowed_tool_calls") or []}
+            workflow = {str(item) for item in case.get("required_workflow_tool_calls") or []}
+            missing = (expected | allowed | workflow) - registered
+            if missing:
+                errors.append(f"{agent.name}/{key}: unknown tools {sorted(missing)}")
+            if not expected.issubset(allowed):
+                errors.append(f"{agent.name}/{key}: expected tools must be allowed")
+    if errors:
+        raise ValueError("内置评测工具契约失配: " + "; ".join(errors))
 
 
 def get_quick_mode(name: str) -> QuickEvaluationMode:

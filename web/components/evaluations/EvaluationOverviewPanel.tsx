@@ -20,6 +20,7 @@ import {
 import { Button } from '@/components/ui/button';
 import type { EvaluationOverview, EvaluationRegression, EvaluationTrendPoint } from '@/lib/api/evaluations';
 import { overviewCards } from '@/lib/evaluationMetrics';
+import { formatEvaluationMetricDelta, presentEvaluationMetric } from '@/lib/evaluationCaseDetail';
 import { loadAcknowledgedRegressionIds, saveAcknowledgedRegressionIds } from '@/lib/evaluationRegressionAcknowledgements';
 import { buildEvaluationTrendPresentation, formatTrendLatency, formatTrendPercentage } from '@/lib/evaluationTrendPresentation';
 
@@ -52,7 +53,10 @@ export function EvaluationOverviewPanel({ overview, trends, regressions, onOpenR
     const [acknowledged, setAcknowledged] = useState<Set<string>>(() => new Set());
 
     useEffect(() => {
-        setAcknowledged(loadAcknowledgedRegressionIds(window.localStorage));
+        const frame = window.requestAnimationFrame(() => {
+            setAcknowledged(loadAcknowledgedRegressionIds(window.localStorage));
+        });
+        return () => window.cancelAnimationFrame(frame);
     }, []);
 
     function acknowledgeRegression(runId: string): void {
@@ -93,7 +97,7 @@ export function EvaluationOverviewPanel({ overview, trends, regressions, onOpenR
         capability('事实忠实度', overview.factual_support_rate),
         capability('轨迹质量', overview.semantic_success_rate),
         capability('工具使用', overview.tool_call_accuracy),
-        capability('RAG/记忆', overview.factual_support_rate),
+        capability('RAG/记忆', averageAvailable([overview.retrieval_adopted_rate, overview.memory_adopted_rate])),
         capability('可靠性', overview.runtime_success_rate),
         capability('安全性', overview.hard_gate_pass_rate),
         capability('效率', overview.latency_compliance_rate),
@@ -143,7 +147,7 @@ export function EvaluationOverviewPanel({ overview, trends, regressions, onOpenR
         <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="flex items-center justify-between"><div><h3 className="font-semibold text-slate-900">回归告警</h3><p className="mt-1 text-xs text-slate-500">告警保留 Agent、Prompt、模型、Dataset 和基线差异上下文。</p></div><span className="rounded-full bg-rose-50 px-3 py-1 text-xs font-medium text-rose-700">{visibleRegressions.length} 待确认</span></div>
             <div className="mt-4 space-y-3">{visibleRegressions.length === 0 && <Empty text="暂无未确认回归。" />}{visibleRegressions.map((item) => <article key={item.run_id} className={`rounded-xl border p-4 ${item.hard_gate_blocked ? 'border-red-200 bg-red-50/60' : 'border-amber-200 bg-amber-50/60'}`}>
-                <div className="flex flex-col justify-between gap-3 md:flex-row"><div><div className="flex items-center gap-2"><AlertTriangle className={`h-4 w-4 ${item.hard_gate_blocked ? 'text-red-600' : 'text-amber-600'}`} /><span className="font-medium text-slate-900">{item.agent_name} · {item.prompt_name ?? '无 Prompt'} {item.prompt_version ?? ''}</span><span className="rounded-full bg-white px-2 py-0.5 text-[10px] uppercase text-slate-500">{item.severity}</span></div><div className="mt-2 text-xs text-slate-600">模型 {shortHash(item.model_config_hash)} · Dataset {item.dataset_version} · 失败案例 {item.failed_case_count} · 回归指标 {item.regression_count} · 硬门禁失败 {item.hard_gate_failure_count}</div><div className="mt-2 flex flex-wrap gap-2">{Object.entries(item.metric_deltas).slice(0, 6).map(([name, delta]) => <span key={name} className="rounded-md bg-white px-2 py-1 text-[11px] text-slate-600">{name} {delta > 0 ? '+' : ''}{delta.toFixed(3)}</span>)}</div></div><div className="flex flex-wrap items-start gap-2"><Button size="sm" variant="outline" onClick={() => onOpenRun(item.run_id)}><Eye className="mr-1 h-3.5 w-3.5" />查看案例</Button><Button size="sm" variant="outline" onClick={() => void onRequestReview(item.run_id)}><UserCheck className="mr-1 h-3.5 w-3.5" />进入复核</Button><Button size="sm" variant="outline" onClick={() => onOpenRun(item.run_id)}><FlaskConical className="mr-1 h-3.5 w-3.5" />沉淀回归集</Button><Button size="sm" variant="ghost" onClick={() => acknowledgeRegression(item.run_id)}><CheckCircle2 className="mr-1 h-3.5 w-3.5" />本次已确认</Button></div></div>
+                <div className="flex flex-col justify-between gap-3 md:flex-row"><div><div className="flex items-center gap-2"><AlertTriangle className={`h-4 w-4 ${item.hard_gate_blocked ? 'text-red-600' : 'text-amber-600'}`} /><span className="font-medium text-slate-900">{item.agent_name} · {item.prompt_name ?? '无 Prompt'} {item.prompt_version ?? ''}</span><span className="rounded-full bg-white px-2 py-0.5 text-[10px] uppercase text-slate-500">{item.severity}</span></div><div className="mt-2 text-xs text-slate-600">模型 {shortHash(item.model_config_hash)} · Dataset {item.dataset_version} · 失败案例 {item.failed_case_count} · 回归指标 {item.regression_count} · 硬门禁失败 {item.hard_gate_failure_count}</div><div className="mt-2 flex flex-wrap gap-2">{Object.entries(item.metric_deltas).slice(0, 6).map(([name, delta]) => <span key={name} className="rounded-md bg-white px-2 py-1 text-[11px] text-slate-600">{presentEvaluationMetric(name).label} {formatEvaluationMetricDelta(name, delta)}</span>)}</div></div><div className="flex flex-wrap items-start gap-2"><Button size="sm" variant="outline" onClick={() => onOpenRun(item.run_id)}><Eye className="mr-1 h-3.5 w-3.5" />查看案例</Button><Button size="sm" variant="outline" onClick={() => void onRequestReview(item.run_id)}><UserCheck className="mr-1 h-3.5 w-3.5" />进入复核</Button><Button size="sm" variant="outline" onClick={() => onOpenRun(item.run_id)}><FlaskConical className="mr-1 h-3.5 w-3.5" />沉淀回归集</Button><Button size="sm" variant="ghost" onClick={() => acknowledgeRegression(item.run_id)}><CheckCircle2 className="mr-1 h-3.5 w-3.5" />本次已确认</Button></div></div>
             </article>)}</div>
         </section>
     </div>;
@@ -159,6 +163,7 @@ function Empty({ text }: { text: string }) { return <div className="flex h-full 
 function LegendDot({ color, text }: { color: string; text: string }) { return <span className="inline-flex items-center gap-1"><span className={`h-2 w-2 rounded-full ${color}`} />{text}</span>; }
 function unique(values: string[]): string[] { return [...new Set(values)].sort(); }
 function capability(dimension: string, value: number | null) { return { dimension, score: Number(value ?? 0) * 100, available: value != null }; }
+function averageAvailable(values: Array<number | null>): number | null { const available = values.filter((value): value is number => value != null && Number.isFinite(value)); return available.length ? available.reduce((sum, value) => sum + value, 0) / available.length : null; }
 function matrixTone(score: number, available: boolean): string { if (!available) return 'border-slate-200 bg-slate-50'; if (score >= 80) return 'border-emerald-200 bg-emerald-50'; if (score >= 60) return 'border-amber-200 bg-amber-50'; return 'border-red-200 bg-red-50'; }
 function formatNumber(value: number | null): string { return value == null || !Number.isFinite(value) ? '-' : Math.round(value).toLocaleString('zh-CN'); }
 function shortHash(value: string): string { return value.length > 18 ? `${value.slice(0, 9)}…${value.slice(-6)}` : value; }

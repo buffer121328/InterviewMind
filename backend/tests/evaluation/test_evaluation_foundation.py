@@ -9,6 +9,7 @@ from pydantic import ValidationError
 
 from evaluation.evaluators.deterministic.hard_gates import DeterministicHardGateEvaluator
 from evaluation.metrics import DEFAULT_METRIC_CATALOG, build_release_decision
+from evaluation.outcomes import semantic_score_average
 from evaluation.registry import (
     EvaluatorKind,
     EvaluatorRegistry,
@@ -222,6 +223,31 @@ def test_release_decision_never_averages_away_a_failed_hard_gate() -> None:
     assert decision.passed is False
     assert decision.blocked_by == (HardGateCategory.CREDENTIAL_LEAK.value,)
     assert decision.average_soft_score == pytest.approx(0.99)
+
+
+@pytest.mark.fast
+def test_semantic_average_excludes_operational_and_non_normalized_values() -> None:
+    """统一质量值不能把毫秒、倍数或 MAE 当成 0..1 分数平均。"""
+
+    def score(metric_name: str, value: float) -> EvalScore:
+        return EvalScore(
+            metric_name=metric_name,
+            dimension="test",
+            evaluator_name="test",
+            source=ScoreSource.DETERMINISTIC,
+            status=EvalScoreStatus.PASSED,
+            value=value,
+        )
+
+    assert semantic_score_average(
+        [
+            score("factual.expected_fact_coverage", 0.8),
+            score("model.p95_latency_ms", 19_400),
+            score("model.call_amplification", 1.25),
+            score("interview.scoring_mae", 0.4),
+            score("custom.invalid_score", 2.0),
+        ]
+    ) == pytest.approx(0.8)
 
 
 @pytest.mark.fast

@@ -422,6 +422,7 @@ def build_release_decision(
         score.value
         for score in scores
         if not score.hard_gate and score.value is not None
+        and 0.0 <= score.value <= 1.0
     ]
     average_soft_score = fmean(soft_values) if soft_values else None
     blocked_by = tuple(sorted(blocked))

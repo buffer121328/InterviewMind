@@ -1,18 +1,14 @@
 """Regression tests for private report export metadata and download authorization."""
 
-from datetime import datetime
 from pathlib import Path
 
 import fitz
-
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.api.artifacts import router
-from app.db.models.artifact import ArtifactModel
 from app.files.artifact_service import ArtifactNotFound, ArtifactService
-from app.schemas.artifacts import ArtifactExportRequest
 
 
 def test_private_report_renderers_generate_html_and_pdf_without_executing_report_html():
@@ -176,13 +172,15 @@ def test_standard_report_pdf_embeds_cjk_font_and_renders_multpage_body_with_popp
 
     pdf_path = tmp_path / "standard-report.pdf"
     pdf_path.write_bytes(pdf_bytes)
-    assert shutil.which("pdftotext"), "backend image must provide Poppler for independent PDF verification"
-    assert shutil.which("pdftoppm"), "backend image must provide Poppler for independent PDF verification"
+    pdftotext = shutil.which("pdftotext")
+    pdftoppm = shutil.which("pdftoppm")
+    if pdftotext is None or pdftoppm is None:
+        pytest.skip("independent PDF rendering requires Poppler; the backend image provides it")
     text_path = tmp_path / "standard-report.txt"
-    subprocess.run(["pdftotext", "-enc", "UTF-8", str(pdf_path), str(text_path)], check=True)
+    subprocess.run([pdftotext, "-enc", "UTF-8", str(pdf_path), str(text_path)], check=True)  # noqa: S603
     assert "中文面试报告" in text_path.read_text(encoding="utf-8")
     image_prefix = tmp_path / "standard-report-page"
-    subprocess.run(["pdftoppm", "-f", "1", "-l", "1", "-png", str(pdf_path), str(image_prefix)], check=True)
+    subprocess.run([pdftoppm, "-f", "1", "-l", "1", "-png", str(pdf_path), str(image_prefix)], check=True)  # noqa: S603
     rendered = tmp_path / "standard-report-page-1.png"
     assert rendered.is_file()
     assert rendered.stat().st_size > 10_000

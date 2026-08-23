@@ -149,6 +149,59 @@ def test_round_fallback_plan_is_exact_length_and_distinct_from_initial_round():
 
 
 @pytest.mark.asyncio
+async def test_planner_repairs_missing_unresolved_weakness_coverage(monkeypatch):
+    """A later round keeps resume/JD planning while guaranteeing one targeted gap question."""
+
+    async def fake_invoke_structured(**_kwargs):
+        return PlanOutput.model_validate({
+            "questions": [
+                {"id": 1, "topic": "架构", "content": "请说明一次架构取舍。", "type": "system_design"},
+                {"id": 2, "topic": "协作", "content": "请说明一次跨团队协作。", "type": "behavior"},
+                {"id": 3, "topic": "性能", "content": "请说明一次性能优化。", "type": "tech"},
+            ],
+        })
+
+    monkeypatch.setattr(interview_planner, "invoke_structured", fake_invoke_structured)
+    monkeypatch.setattr(interview_planner, "build_planner_prompt", lambda **_kwargs: "planner json")
+
+    plan = await interview_planner.generate_interview_plan(
+        resume="Python、FastAPI、Redis",
+        job_description="后端工程师，负责缓存和异步任务",
+        company_info="企业软件团队",
+        max_questions=3,
+        api_config={},
+        round_type="tech_deep",
+        round_index=2,
+        previous_questions=["请介绍一个缓存优化实践。"],
+        previous_profile={"key_weaknesses": ["缓存一致性"]},
+    )
+
+    assert any("缓存一致性" in item["content"] for item in plan)
+    assert "请介绍一个缓存优化实践。" not in [item["content"] for item in plan]
+
+
+@pytest.mark.asyncio
+async def test_planner_fallback_also_covers_unresolved_weakness(monkeypatch):
+    async def failing_invoke(**_kwargs):
+        raise TimeoutError("synthetic")
+
+    monkeypatch.setattr(interview_planner, "invoke_structured", failing_invoke)
+    plan = await interview_planner.generate_interview_plan(
+        resume="Python、FastAPI、Redis",
+        job_description="后端工程师，负责缓存",
+        company_info="企业软件团队",
+        max_questions=2,
+        api_config={},
+        round_type="tech_deep",
+        round_index=2,
+        previous_questions=["请介绍一个缓存优化实践。"],
+        previous_profile={"key_weaknesses": ["缓存一致性"]},
+    )
+
+    assert any("缓存一致性" in item["content"] for item in plan)
+
+
+@pytest.mark.asyncio
 async def test_partial_model_plan_is_filled_to_requested_round_length(monkeypatch):
     """模型只返回少量题目时，规划器也必须补足用户选择的题数。"""
 

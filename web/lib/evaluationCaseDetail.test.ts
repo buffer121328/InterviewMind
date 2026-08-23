@@ -3,7 +3,11 @@ import test from 'node:test';
 
 import {
     evaluationReviewReasonLabel,
+    formatEvaluationMetricValue,
+    formatEvaluationMetricDelta,
+    evaluationScoreStatusLabel,
     paginateEvaluationScores,
+    presentEvaluationMetric,
     summarizeEvaluationOutput,
     summarizeEvaluationCaseOutcome,
     summarizeEvaluationScores,
@@ -12,6 +16,38 @@ import {
     summarizeEvaluationToolApplicability,
     buildEvaluationReviewGuidance,
 } from './evaluationCaseDetail.ts';
+
+test('score rules expose readable names and keep the raw metric key as fallback data', () => {
+    assert.deepEqual(presentEvaluationMetric('budget.latency_compliance'), {
+        label: '延迟预算合规',
+        group: '成本与性能',
+        description: '实际运行延迟是否不超过案例预算。',
+    });
+    assert.equal(evaluationScoreStatusLabel('not_applicable'), '不适用');
+    assert.equal(evaluationScoreStatusLabel('passed'), '通过');
+    assert.equal(evaluationScoreStatusLabel('failed'), '未通过');
+});
+
+test('custom score rules get a readable fallback instead of exposing only a raw field', () => {
+    const presentation = presentEvaluationMetric('custom.latency_guard');
+    assert.equal(presentation.group, '自定义规则');
+    assert.equal(presentation.label, 'Custom / Latency / Guard');
+    assert.match(presentation.description, /当前评测套件定义/);
+});
+
+test('metric values use the unit implied by the rule instead of pretending every value is a score', () => {
+    const score = (metric_name: string, value: number) => ({ metric_name, value, status: 'passed' } as never);
+    assert.equal(formatEvaluationMetricValue(score('model.fallback_rate', 0)), '0.0%');
+    assert.equal(formatEvaluationMetricValue(score('model.p95_latency_ms', 19400)), '19,400 ms');
+    assert.equal(formatEvaluationMetricValue(score('model.call_amplification', 1.25)), '1.25x');
+    assert.equal(formatEvaluationMetricValue(score('runtime.tool_p95_duration_ms', 0)), '0 ms');
+});
+
+test('metric deltas retain native units in regression alerts', () => {
+    assert.equal(formatEvaluationMetricDelta('quality.complete_success_rate', -0.012), '-1.2%');
+    assert.equal(formatEvaluationMetricDelta('model.p95_latency_ms', 19400), '+19,400 ms');
+    assert.equal(formatEvaluationMetricDelta('model.call_amplification', -0.25), '-0.25x');
+});
 
 test('case detail groups deterministic rules into an easy-to-scan summary', () => {
     const summaries = summarizeEvaluationScores([
@@ -199,7 +235,26 @@ test('review guidance gives a JSON path and current value for budget, fact, and 
     const allowedToolDetail = guidance.checks.find((check) => check.label.includes('tool.allowed_call_compliance'))?.detail ?? '';
     assert.match(allowedToolDetail, /expected\.allowed_tool_calls[\s\S]*unexpected_tool/);
     assert.match(guidance.checks.find((check) => check.label.includes('tool.fixture_result_adoption'))?.detail ?? '', /quality_rubric\.tool_result_facts[\s\S]*缓存穿透防护/);
-    assert.match(allowedToolDetail, /允许工具：get_candidate_profile\n实际记录：unexpected_tool（completed）\n只要出现允许列表外的工具，就不通过。/);
+    assert.match(allowedToolDetail, /自动检查检测到越界工具：unexpected_tool/);
+    assert.match(guidance.checks.find((check) => check.label.includes('tool.fixture_result_adoption'))?.detail ?? '', /自动检查检测到：无/);
+    assert.match(allowedToolDetail, /允许工具：get_candidate_profile\n实际记录：unexpected_tool（completed）\n自动检查检测到越界工具：unexpected_tool\n只要出现允许列表外的工具，就不通过。/);
+});
+
+test('review guidance reports adopted tool-result facts only from the checked output projection', () => {
+    const guidance = buildEvaluationReviewGuidance(caseDetailForScoreStatus({
+        actual_output: [{ content: '请围绕缓存一致性继续追问。', reason: '说明元数据包含缓存一致性但不计入主输出' }],
+        case: { id: 'case-1', case_key: 'tool-result', category: 'interview_planner', tags: [], severity: 'high', content_hash: 'hash', created_at: '2026-08-20T00:00:00Z', input: {}, expected: {
+            expected_tool_calls: ['get_weakness_report'],
+            quality_rubric: { tool_result_facts: ['缓存一致性'], primary_output_paths: ['[].content'] },
+        } },
+        record: { tool_calls: [{ tool_name: 'get_weakness_report', status: 'completed' }] },
+        scores: [{ id: '1', case_run_id: 'case-run-1', metric_name: 'tool.fixture_result_adoption', value: 0, status: 'failed', source: 'deterministic', reason: null, severity: 'high', hard_gate: false, evidence_refs: [], metric_version: 'v1', created_at: '2026-08-20T00:00:00Z' }],
+    }));
+
+    const detail = guidance.checks.find((check) => check.label.includes('tool.fixture_result_adoption'))?.detail ?? '';
+    assert.match(detail, /工具结果事实：缓存一致性/);
+    assert.match(detail, /自动检查检测到：缓存一致性/);
+    assert.match(detail, /自动检查范围：\[\]\.content（仅主输出，排除说明元数据）/);
 });
 
 test('review guidance labels governed follow-up checks and their handling mode', () => {
@@ -293,4 +348,66 @@ test('review guidance detects expected facts in planner question content project
     const detail = guidance.checks.find((item) => item.label.includes('factual.expected_fact_coverage'))?.detail ?? '';
     assert.match(detail, /自动检查范围：\[\]\.content（仅主输出，排除说明元数据）/);
     assert.match(detail, /自动检查检测到：缓存一致性/);
+});
+
+test('review guidance keeps configured budget checks visible when automatic scores pass', () => {
+    const guidance = buildEvaluationReviewGuidance(caseDetailForScoreStatus({
+        latency_ms: 1200,
+        token_usage: { input_tokens: 400, output_tokens: 600 },
+        case: { id: 'case-1', case_key: 'budget-pass', category: 'interview_turn', tags: [], severity: 'high', content_hash: 'hash', created_at: '2026-08-20T00:00:00Z', input: {}, expected: {
+            latency_budget_ms: 2000,
+            token_budget: 1200,
+        } },
+        scores: [
+            { id: 'latency', case_run_id: 'case-run-1', metric_name: 'budget.latency_compliance', value: 1, status: 'passed', source: 'deterministic', reason: null, severity: 'high', hard_gate: false, evidence_refs: [], metric_version: 'v1', created_at: '2026-08-20T00:00:00Z' },
+            { id: 'tokens', case_run_id: 'case-run-1', metric_name: 'budget.token_compliance', value: 1, status: 'passed', source: 'deterministic', reason: null, severity: 'high', hard_gate: false, evidence_refs: [], metric_version: 'v1', created_at: '2026-08-20T00:00:00Z' },
+        ],
+    }));
+
+    const latency = guidance.checks.find((check) => check.label === '延迟预算 · budget.latency_compliance');
+    const tokens = guidance.checks.find((check) => check.label === 'Token 预算 · budget.token_compliance');
+    assert.equal(latency?.outcome, 'passed');
+    assert.match(latency?.detail ?? '', /latency_ms=1200[\s\S]*预算=2000 ms[\s\S]*自动检查状态：通过/);
+    assert.equal(tokens?.outcome, 'passed');
+    assert.match(tokens?.detail ?? '', /实际 Token=1000[\s\S]*预算=1200[\s\S]*自动检查状态：通过/);
+    assert.equal(guidance.checks.filter((check) => check.label.includes('budget.latency_compliance')).length, 1);
+    assert.equal(guidance.checks.filter((check) => check.label.includes('budget.token_compliance')).length, 1);
+});
+
+test('review guidance surfaces missing usage and score as explicit states', () => {
+    const guidance = buildEvaluationReviewGuidance(caseDetailForScoreStatus({
+        latency_ms: 900,
+        token_usage: {},
+        case: { id: 'case-1', case_key: 'budget-missing', category: 'interview_turn', tags: [], severity: 'high', content_hash: 'hash', created_at: '2026-08-20T00:00:00Z', input: {}, expected: {
+            latency_budget_ms: 1000,
+            token_budget: 800,
+        } },
+        scores: [],
+    }));
+
+    const latency = guidance.checks.find((check) => check.label === '延迟预算 · budget.latency_compliance');
+    const tokens = guidance.checks.find((check) => check.label === 'Token 预算 · budget.token_compliance');
+    assert.equal(latency?.outcome, 'review');
+    assert.match(latency?.detail ?? '', /latency_ms=900[\s\S]*自动检查状态：待自动检查/);
+    assert.equal(tokens?.outcome, 'review');
+    assert.match(tokens?.detail ?? '', /实际 Token=未返回[\s\S]*预算=800[\s\S]*自动检查状态：待自动检查/);
+});
+
+test('review guidance keeps expected facts, detected facts, and output scope together', () => {
+    const guidance = buildEvaluationReviewGuidance(caseDetailForScoreStatus({
+        actual_output: [{ content: '请说明你如何处理缓存一致性。', reason: '说明元数据也包含缓存一致性' }],
+        case: { id: 'case-1', case_key: 'facts-visible', category: 'interview_planner', tags: [], severity: 'high', content_hash: 'hash', created_at: '2026-08-20T00:00:00Z', input: {}, expected: {
+            expected_facts: ['缓存一致性'],
+            quality_rubric: { primary_output_paths: ['[].content'] },
+        } },
+        scores: [],
+    }));
+
+    const factCheck = guidance.checks.find((check) => check.label === '期望事实覆盖 · factual.expected_fact_coverage');
+    assert.equal(factCheck?.outcome, 'review');
+    assert.equal(factCheck?.actionLabel, '自动检查');
+    assert.match(factCheck?.detail ?? '', /应出现：缓存一致性/);
+    assert.match(factCheck?.detail ?? '', /自动检查检测到：缓存一致性/);
+    assert.match(factCheck?.detail ?? '', /自动检查范围：\[\]\.content（仅主输出，排除说明元数据）/);
+    assert.match(factCheck?.detail ?? '', /自动检查状态：待自动检查/);
 });

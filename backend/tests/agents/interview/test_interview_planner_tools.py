@@ -110,3 +110,34 @@ async def test_planner_tool_selection_degrades_when_tool_fails(monkeypatch):
     )
 
     assert result["planner_tool_selections"][0]["result"]["status"] == "degraded"
+
+
+@pytest.mark.asyncio
+async def test_planner_tool_selection_honors_evaluation_allowlist(monkeypatch):
+    async def fake_invoke_structured(**_kwargs):
+        return planner.PlannerToolDecision(
+            need_tool=True,
+            tool_name="get_previous_round_context",
+            tool_args={},
+        )
+
+    monkeypatch.setattr(planner, "invoke_structured", fake_invoke_structured)
+    result = await planner._run_planner_tool_selection(
+        resume="熟悉 Python",
+        job_description="招聘后端工程师",
+        round_type="tech_initial",
+        round_index=2,
+        previous_questions=[],
+        previous_profile=None,
+        weakness_report=None,
+        retrieval_context=None,
+        memory_context=None,
+        api_config={},
+        owner_id="eval-user:test",
+        session_id="eval-session",
+        planner_tool_fixtures={},
+        cache_scope="eval-session",
+        allowed_tool_calls=["get_weakness_report"],
+    )
+
+    assert result == {}

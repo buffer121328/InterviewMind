@@ -80,7 +80,7 @@ async def stage1_jd_analysis(state: PipelineState) -> PipelineState:
 
     try:
         from ai.runtime.context import AgentContext
-        from ai.tools.runtime import GovernedToolRuntime
+        from ai.tools.governed_runtime import GovernedToolRuntime
 
         context = AgentContext(
             user_id=state.user_id,

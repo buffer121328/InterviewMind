@@ -326,6 +326,7 @@ def test_production_agent_definitions_are_registered():
 
     assert set(definitions) == {
         "interview_evaluation_draft",
+        "interview_scoring",
         "interview_start",
         "interview_turn",
         "voice_interview_turn",

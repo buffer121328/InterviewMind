@@ -38,10 +38,13 @@ from app.schemas.artifacts import ArtifactExportRequest
 
 _SAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
 _MIME = {"html": "text/html; charset=utf-8", "pdf": "application/pdf"}
-# Installed by the controlled Debian image from the OFL-licensed Noto CJK package.
+# The controlled Debian image uses the OFL-licensed Noto CJK package. Common
+# macOS fonts keep local development and tests on the same embedded-font path.
 _REPORT_CJK_FONT_CANDIDATES = (
     Path("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"),
     Path("/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc"),
+    Path("/System/Library/Fonts/STHeiti Medium.ttc"),
+    Path("/Library/Fonts/Arial Unicode.ttf"),
 )
 _REPORT_CJK_FONT_NAME = "reportcjk"
 

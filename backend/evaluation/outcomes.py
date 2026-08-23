@@ -15,6 +15,8 @@ from evaluation.schemas import (
 )
 
 _OPERATIONAL_SCORE_PREFIXES = ("runtime.", "observability.", "budget.")
+_NON_NORMALIZED_SCORE_PREFIXES = ("model.",)
+_NON_NORMALIZED_SCORE_NAMES = frozenset({"interview.scoring_mae"})
 _TOOL_SELECTION_METRICS = frozenset(
     {
         "tool.name_and_key_parameter_accuracy",
@@ -38,7 +40,7 @@ def is_semantic_score(score: EvalScore) -> bool:
 
 
 def semantic_score_average(scores: Sequence[EvalScore]) -> float | None:
-    """仅聚合已适用的语义分数，避免运行时可靠性掩盖输出质量。"""
+    """聚合 0..1 的语义质量分数，不混入带单位指标。"""
 
     values = [
         score.value
@@ -46,8 +48,22 @@ def semantic_score_average(scores: Sequence[EvalScore]) -> float | None:
         if is_semantic_score(score)
         and score.status is not EvalScoreStatus.NOT_APPLICABLE
         and score.value is not None
+        and _is_normalized_quality_score(score)
     ]
     return sum(values) / len(values) if values else None
+
+
+def _is_normalized_quality_score(score: EvalScore) -> bool:
+    """判断分值是否可进入统一 0..1 质量汇总。"""
+
+    value = score.value
+    if value is None:
+        return False
+    if score.metric_name in _NON_NORMALIZED_SCORE_NAMES or score.metric_name.startswith(
+        _NON_NORMALIZED_SCORE_PREFIXES
+    ):
+        return False
+    return 0.0 <= float(value) <= 1.0
 
 
 def classify_case_outcome(

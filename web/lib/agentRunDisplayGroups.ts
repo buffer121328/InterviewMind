@@ -14,7 +14,7 @@ export const AGENT_RUN_CATEGORIES: ReadonlyArray<{ value: AgentRunCategory; labe
 
 /** Maps every supported backend task type to the product category shown to users. */
 export function getAgentRunCategory(taskType: AgentRunTaskType): AgentRunCategory {
-    if (taskType === 'evaluation_suite' || taskType === 'interview_evaluation_draft') return 'evaluation';
+    if (taskType === 'evaluation_suite' || taskType === 'interview_evaluation_draft' || taskType === 'interview_scoring') return 'evaluation';
     if (taskType === 'voice_interview_turn') return 'voice-interview';
     if (taskType === 'resume_optimize' || taskType === 'resume_workspace' || taskType === 'resume_generation') return 'resume-optimization';
     if (taskType === 'job_assets' || taskType === 'job_recommendation_capture') return 'job-delivery';

@@ -495,9 +495,9 @@ async def _retrieve_memory_evidences(
         limit: 返回数量上限。
         api_config: 前端请求携带的模型通道配置。
     """
-    from ai.runtime.middleware.content_safety import contains_prompt_injection
     from ai.runtime.context import AgentContext
-    from ai.tools.runtime import GovernedToolRuntime
+    from ai.runtime.middleware.content_safety import contains_prompt_injection
+    from ai.tools.governed_runtime import GovernedToolRuntime
 
     context = AgentContext(
         user_id=user_id,

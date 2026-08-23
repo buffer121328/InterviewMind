@@ -106,7 +106,7 @@ async def _run_evidence_checks(
 ) -> list[dict]:
     """Verify bounded rewrite claims against the workflow-bound resume source."""
     from ai.runtime.context import AgentContext
-    from ai.tools.runtime import GovernedToolRuntime
+    from ai.tools.governed_runtime import GovernedToolRuntime
 
     if not source_text:
         return []

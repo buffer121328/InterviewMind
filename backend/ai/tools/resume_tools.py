@@ -69,7 +69,7 @@ async def execute_resume_match(
     call_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Execute the registered JD matcher with owner-scoped guard enforcement."""
-    from ai.tools.runtime import GovernedToolRuntime
+    from ai.tools.governed_runtime import GovernedToolRuntime
 
     context = AgentContext(
         user_id=user_id or "default_user",

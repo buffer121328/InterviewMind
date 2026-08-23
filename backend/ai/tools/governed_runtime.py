@@ -1,4 +1,4 @@
-"""Registry-backed execution for production Agent tools.
+"""Registry-backed governed execution for production Agent tools.
 
 The runtime owns one guard per workflow run and keeps tool construction,
 contract interpretation, and execution in a single boundary.
@@ -32,12 +32,20 @@ class GovernedToolRuntime:
         self.guard = guard or ToolExecutionGuard()
         self.audit_callback = audit_callback
         self._evaluation_fixtures = self._resolve_evaluation_fixtures(context)
+        configured_allowlist = context.runtime_data.get("allowed_tool_calls")
+        self._allowed_tool_calls = (
+            frozenset(str(item).strip() for item in configured_allowlist if str(item).strip())
+            if isinstance(configured_allowlist, (list, tuple, set, frozenset))
+            else None
+        )
         self._tools: dict[tuple[str, str], Any] = {}
         self._names: dict[str, list[tuple[str, Any]]] = {}
         for group in groups or tool_registry.names():
             for tool in tool_registry.build(group, context):
                 name = str(getattr(tool, "name", "")).strip()
                 if not name:
+                    continue
+                if self._allowed_tool_calls is not None and name not in self._allowed_tool_calls:
                     continue
                 self._tools[(group, name)] = tool
                 self._names.setdefault(name, []).append((group, tool))

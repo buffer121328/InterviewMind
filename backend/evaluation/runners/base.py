@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from threading import RLock
 from typing import Any, Protocol
 
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
+
 from app.security.security import safe_error_message
 from evaluation.extractors.runtime import (
     EvaluationTraceCollector,
@@ -23,7 +25,6 @@ from evaluation.schemas import (
     EvalTokenUsage,
     ScoreSource,
 )
-from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
 
 class EvaluationCaseSpec(BaseModel):
@@ -256,8 +257,9 @@ class AgentEvalRunner:
                         adapter_payload["_evaluation_environment"] = "evaluation"
                     if case.expected_tool_calls:
                         adapter_payload["_evaluation_expected_tool_calls"] = list(case.expected_tool_calls)
-                    if case.allowed_tool_calls:
-                        adapter_payload["_evaluation_allowed_tool_calls"] = list(case.allowed_tool_calls)
+                    # An explicitly empty allowlist is meaningful: it prevents optional
+                    # tools from being exposed in forbidden/no-tool evaluation cases.
+                    adapter_payload["_evaluation_allowed_tool_calls"] = list(case.allowed_tool_calls)
                     raw_output = await adapter.run(adapter_payload, context, trace)
                     output, findings = sanitize_evaluation_value(
                         raw_output, location="final_output"

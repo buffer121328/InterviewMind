@@ -4,6 +4,7 @@ export const AGENT_RUN_TASK_TYPES = [
     'evaluation_suite',
     'interview_evaluation_draft',
     'interview_report',
+    'interview_scoring',
     'interview_start',
     'interview_turn',
     'job_assets',

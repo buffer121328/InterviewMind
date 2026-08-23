@@ -2,9 +2,10 @@
 JD 匹配分析 API 测试
 """
 
+from unittest.mock import AsyncMock
+
 import pytest
 from fastapi.testclient import TestClient
-from unittest.mock import AsyncMock
 
 # 导入主应用
 from app.main import app
@@ -37,7 +38,7 @@ def jd_match_dependencies(monkeypatch):
     repository.get_result.return_value = None
     repository.delete_result.return_value = False
 
-    monkeypatch.setattr(jd_match_app, "match_jd", analyze)
+    monkeypatch.setattr(jd_match_app, "execute_resume_match", analyze)
     monkeypatch.setattr(jd_match_app, "get_jd_analysis_repo", lambda: repository)
     return analyze, repository
 

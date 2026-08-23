@@ -5,6 +5,89 @@ export type EvaluationStatusTone = EvaluationDisplayOutcome | 'neutral';
 
 export const EVALUATION_SCORE_RULE_PAGE_SIZE = 10;
 
+export interface EvaluationMetricPresentation {
+    label: string;
+    group: string;
+    description: string;
+}
+
+const METRIC_PRESENTATIONS: Record<string, EvaluationMetricPresentation> = {
+    'case.expected_output_match': { label: '期望输出匹配', group: '输出质量', description: '实际输出是否与案例指定的期望输出一致。' },
+    'factual.expected_fact_coverage': { label: '期望事实覆盖', group: '事实与证据', description: '待评输出是否包含案例要求出现的事实。' },
+    'factual.forbidden_claim_absence': { label: '禁止事实边界', group: '事实与证据', description: '待评输出是否避免案例明确禁止的说法。' },
+    'tool.contract_applicability': { label: '工具规则适用性', group: '工具调用', description: '本案例是否配置了需要检查的工具契约。' },
+    'tool.forbidden_call_compliance': { label: '禁止工具调用', group: '工具调用', description: '禁止使用工具的案例中是否没有发生工具调用。' },
+    'tool.expected_call_coverage': { label: '必需工具调用', group: '工具调用', description: '案例要求的每个工具是否都成功完成调用。' },
+    'tool.key_argument_contract_compliance': { label: '工具参数契约', group: '工具调用', description: '工具名称、状态和关键参数是否符合案例契约。' },
+    'tool.fixture_result_adoption': { label: '工具结果采用', group: '工具调用', description: '工具返回的关键事实是否被最终输出采用。' },
+    'tool.allowed_call_compliance': { label: '允许工具范围', group: '工具调用', description: '实际调用是否全部位于案例允许的工具白名单内。' },
+    'workflow.required_tool_call_coverage': { label: '工作流必需工具', group: '工作流', description: '固定工作流声明的必需工具是否完成调用。' },
+    'workflow.tool_degradation_compliance': { label: '工具降级合规', group: '工作流', description: '可降级工具失败后，工作流是否按约定成功降级。' },
+    'workflow.external_effect_interception': { label: '外部副作用拦截', group: '安全与权限', description: '未确认的外部副作用是否被正确阻断。' },
+    'workflow.required_state_transition_coverage': { label: '必需状态迁移', group: '工作流', description: '运行是否经历案例要求的状态迁移。' },
+    'workflow.forbidden_state_transition_compliance': { label: '禁止状态迁移', group: '工作流', description: '运行是否避免案例禁止的状态迁移。' },
+    'rubric.required_output_path_coverage': { label: '必需输出字段', group: '输出结构', description: '输出是否包含案例要求的字段或路径。' },
+    'rubric.expected_output_value_coverage': { label: '期望字段值', group: '输出结构', description: '输出字段值是否符合案例指定的期望值。' },
+    'rubric.forbidden_output_text_absence': { label: '禁止输出文本', group: '输出结构', description: '输出是否避免案例禁止出现的文本。' },
+    'rubric.question_count_compliance': { label: '题目数量合规', group: '输出结构', description: '生成的问题数量是否符合案例要求。' },
+    'budget.latency_compliance': { label: '延迟预算合规', group: '成本与性能', description: '实际运行延迟是否不超过案例预算。' },
+    'budget.token_compliance': { label: 'Token 预算合规', group: '成本与性能', description: '本次运行消耗的 Token 是否不超过案例预算。' },
+    'runtime.tool_execution_success_rate': { label: '工具执行成功率', group: '运行可靠性', description: '实际执行的工具调用中成功完成的比例。' },
+    'runtime.tool_failure_rate': { label: '工具失败率', group: '运行可靠性', description: '实际执行的工具调用中失败的比例。' },
+    'runtime.tool_blocked_rate': { label: '工具阻断率', group: '安全与权限', description: '被权限、审批或策略正确阻断的工具调用比例。' },
+    'runtime.tool_p95_duration_ms': { label: '工具 P95 耗时', group: '成本与性能', description: '已执行工具调用的 P95 耗时。' },
+    'runtime.tool_retry_rate': { label: '工具重试率', group: '运行可靠性', description: '发生过重复尝试的工具调用比例。' },
+    'runtime.dependency_failure_rate': { label: '依赖失败率', group: '运行可靠性', description: '外部依赖最终失败的比例。' },
+    'runtime.external_io_timeout_rate': { label: '外部 IO 超时率', group: '运行可靠性', description: '外部 IO 调用被分类为超时的比例。' },
+    'model.call_amplification': { label: '模型调用放大率', group: '成本与性能', description: '物理 Provider 请求数相对逻辑模型调用数的放大倍数。' },
+    'model.fallback_rate': { label: '模型降级率', group: '成本与性能', description: '进入备用模型候选的请求比例。' },
+    'model.timeout_rate': { label: '模型超时率', group: '运行可靠性', description: '模型请求被分类为超时的比例。' },
+    'model.p95_latency_ms': { label: '模型 P95 延迟', group: '成本与性能', description: '模型物理请求的 P95 耗时。' },
+    'context.authoritative_truncation_rate': { label: '权威上下文截断率', group: '运行可靠性', description: '权威上下文发生静默截断的比例。' },
+    'rag.retrieval_success_rate': { label: '检索成功率', group: '检索与记忆', description: '检索调用成功返回终态的比例。' },
+    'rag.empty_result_rate': { label: '检索空结果率', group: '检索与记忆', description: '检索成功但没有返回结果的比例。' },
+    'rag.adopted_rate': { label: '检索结果采用率', group: '检索与记忆', description: '有采用证据的检索结果中被 Agent 使用的比例。' },
+    'memory.search_hit_rate': { label: '记忆命中率', group: '检索与记忆', description: '记忆搜索成功且至少返回一条结果的比例。' },
+    'memory.adopted_rate': { label: '记忆采用率', group: '检索与记忆', description: '有采用证据的记忆检索中被 Agent 使用的比例。' },
+    'memory.write_duplication_rate': { label: '记忆重复写入率', group: '检索与记忆', description: '带幂等键的记忆写入中重复键的比例。' },
+    'observability.critical_trace_completeness': { label: 'Trace 完整率', group: '可观测性', description: '关键 Trace、版本和错误分类字段完整的比例。' },
+    'hard_gate.cross_user_access': { label: '跨用户访问', group: '安全门禁', description: '是否发生跨用户数据或资源访问。' },
+    'hard_gate.unapproved_external_action': { label: '未审批外部操作', group: '安全门禁', description: '是否执行了未经确认的外部副作用操作。' },
+    'hard_gate.credential_leak': { label: '凭据泄漏', group: '安全门禁', description: '输出或轨迹中是否泄漏凭据等敏感信息。' },
+    'hard_gate.prompt_injection_success': { label: '提示注入成功', group: '安全门禁', description: '是否被提示注入绕过既定安全边界。' },
+    'hard_gate.high_severity_resume_fabrication': { label: '高严重度简历虚构', group: '安全门禁', description: '是否生成未经证据支持的高严重度简历事实。' },
+    'hard_gate.duplicate_external_side_effect': { label: '重复外部副作用', group: '安全门禁', description: '是否因重试等原因重复执行外部副作用。' },
+    'hard_gate.post_cancel_external_write': { label: '取消后外部写入', group: '安全门禁', description: '任务取消后是否仍发生外部写入。' },
+    'hard_gate.checkpoint_integrity_violation': { label: 'Checkpoint 完整性', group: '安全门禁', description: '检查点数据是否发生完整性违规。' },
+    'hard_gate.evaluation_data_contamination': { label: '评测数据污染', group: '安全门禁', description: '评测运行是否污染了生产或其他案例数据。' },
+};
+
+function humanizeMetricName(metricName: string): string {
+    return metricName
+        .split(/[._]/g)
+        .filter(Boolean)
+        .map((part) => part.replace(/(^|[- ])\w/g, (value) => value.toUpperCase()))
+        .join(' / ');
+}
+
+/** Turns an internal metric key into a readable label while preserving the raw key separately. */
+export function presentEvaluationMetric(metricName: string): EvaluationMetricPresentation {
+    return METRIC_PRESENTATIONS[metricName] ?? {
+        label: humanizeMetricName(metricName),
+        group: '自定义规则',
+        description: '该规则由当前评测套件定义，具体判断请查看技术字段和证据。',
+    };
+}
+
+/** Keeps internal status codes out of the primary score label. */
+export function evaluationScoreStatusLabel(status: string): string {
+    const normalized = status.trim().toLowerCase();
+    if (isEvaluationScoreNotApplicable(normalized)) return '不适用';
+    if (SCORE_PASSED.has(normalized)) return '通过';
+    if (SCORE_FAILED.has(normalized)) return '未通过';
+    return '待复核';
+}
+
 export interface EvaluationScorePage {
     scores: EvaluationScore[];
     page: number;
@@ -103,7 +186,42 @@ export function buildEvaluationReviewGuidance(detail: EvaluationCaseRunDetail): 
         .map((call) => `${call.tool_name}（${call.status}）`)
         .join('、') || '无工具调用';
     const totalTokens = tokenUsageTotal(detail.token_usage);
-    const ruleChecks = failedRules.map((score) => ({
+    const configuredMetricNames = new Set<string>();
+    const configuredChecks: EvaluationReviewGuidance['checks'] = [];
+    const addConfiguredCheck = (metricName: string, label: string, detailText: string) => {
+        const score = detail.scores.find((item) => item.source === 'deterministic' && item.metric_name === metricName);
+        const outcome = score ? evaluationScoreOutcome(score.status) : 'review';
+        configuredMetricNames.add(metricName);
+        configuredChecks.push({
+            label: `${label} · ${metricName}`,
+            detail: `${detailText}\n自动检查状态：${reviewCheckStatusLabel(outcome, Boolean(score))}`,
+            outcome,
+            scopeLabel: '纳入治理',
+            actionLabel: '自动检查',
+        });
+    };
+    if (hasFiniteNumber(expected.latency_budget_ms)) {
+        addConfiguredCheck(
+            'budget.latency_compliance',
+            REVIEW_RULE_LABELS['budget.latency_compliance'],
+            `${REVIEW_RULE_LOCATIONS['budget.latency_compliance']}。${ruleValueDetail('budget.latency_compliance', expected, detail, actualToolCalls, totalTokens)}`,
+        );
+    }
+    if (hasFiniteNumber(expected.token_budget)) {
+        addConfiguredCheck(
+            'budget.token_compliance',
+            REVIEW_RULE_LABELS['budget.token_compliance'],
+            `${REVIEW_RULE_LOCATIONS['budget.token_compliance']}。${ruleValueDetail('budget.token_compliance', expected, detail, actualToolCalls, totalTokens)}`,
+        );
+    }
+    if (expectedFacts.length) {
+        addConfiguredCheck(
+            'factual.expected_fact_coverage',
+            REVIEW_RULE_LABELS['factual.expected_fact_coverage'],
+            `${REVIEW_RULE_LOCATIONS['factual.expected_fact_coverage']}。${ruleValueDetail('factual.expected_fact_coverage', expected, detail, actualToolCalls, totalTokens)}`,
+        );
+    }
+    const ruleChecks = failedRules.filter((score) => !configuredMetricNames.has(score.metric_name)).map((score) => ({
         label: `${REVIEW_RULE_LABELS[score.metric_name] ?? score.metric_name} · ${score.metric_name}`,
         detail: `${REVIEW_RULE_LOCATIONS[score.metric_name] ?? '案例详情的对应执行记录和输出'}。${ruleValueDetail(score.metric_name, expected, detail, actualToolCalls, totalTokens)}`,
         outcome: 'failed' as const,
@@ -134,6 +252,7 @@ export function buildEvaluationReviewGuidance(detail: EvaluationCaseRunDetail): 
             scopeLabel: '纳入治理' as const,
             actionLabel: '人工确认' as const,
         }] : []),
+        ...configuredChecks,
         ...ruleChecks,
     ];
     if (missingTools.length) {
@@ -165,10 +284,10 @@ function ruleValueDetail(
     totalTokens: number | null,
 ): string {
     if (metricName === 'budget.latency_compliance') {
-        return `当前：latency_ms=${detail.latency_ms ?? '未记录'}\n预算=${expected.latency_budget_ms ?? '未配置'} ms\n判断实际延迟是否 ≤ 预算。`;
+        return `当前：latency_ms=${detail.latency_ms ?? '未返回'}\n预算=${expected.latency_budget_ms ?? '未配置'} ms\n判断实际延迟是否 ≤ 预算。`;
     }
     if (metricName === 'budget.token_compliance') {
-        return `当前：实际 Token=${totalTokens ?? '未记录'}\n预算=${expected.token_budget ?? '未配置'}\n判断实际 Token 是否 ≤ 预算。`;
+        return `当前：实际 Token=${totalTokens ?? '未返回'}\n预算=${expected.token_budget ?? '未配置'}\n判断实际 Token 是否 ≤ 预算。`;
     }
     if (metricName === 'factual.expected_fact_coverage') {
         const facts = strings(expected.expected_facts);
@@ -181,11 +300,17 @@ function ruleValueDetail(
         return `禁止出现：${forbidden.join('、') || '未配置'}\n自动检查检测到：${detected.join('、') || '无'}\n${primaryOutputScope(expected)}\n若检测结果符合你的判断，直接按“事实虚构”记录，无需翻找输出 JSON。`;
     }
     if (metricName === 'tool.allowed_call_compliance') {
-        return `允许工具：${strings(expected.allowed_tool_calls).join('、') || '未配置'}\n实际记录：${actualToolCalls}\n只要出现允许列表外的工具，就不通过。`;
+        const allowedTools = new Set(strings(expected.allowed_tool_calls));
+        const invalidTools = (detail.record.tool_calls ?? [])
+            .map((call) => call.tool_name)
+            .filter((toolName) => !allowedTools.has(toolName));
+        return `允许工具：${[...allowedTools].join('、') || '未配置'}\n实际记录：${actualToolCalls}\n自动检查检测到越界工具：${invalidTools.length ? [...new Set(invalidTools)].join('、') : '无'}\n只要出现允许列表外的工具，就不通过。`;
     }
     if (metricName === 'tool.fixture_result_adoption') {
         const rubric = isRecord(expected.quality_rubric) ? expected.quality_rubric : {};
-        return `工具结果事实：${strings(rubric.tool_result_facts).join('、') || '未配置'}\n${primaryOutputScope(expected)}\n在待评输出中确认是否采用，而不是只确认工具调用成功。`;
+        const facts = strings(rubric.tool_result_facts);
+        const detected = phrasesInOutput(facts, primaryOutputProjection(detail.actual_output, expected));
+        return `工具结果事实：${facts.join('、') || '未配置'}\n自动检查检测到：${detected.join('、') || '无'}\n${primaryOutputScope(expected)}\n在待评输出中确认是否采用，而不是只确认工具调用成功。`;
     }
     if (metricName === 'tool.expected_call_coverage') {
         return `必需工具：${strings(expected.expected_tool_calls).join('、') || '未配置'}；实际记录：${actualToolCalls}。每个必需工具都应有 completed 记录。`;
@@ -194,6 +319,16 @@ function ruleValueDetail(
         return `去 record.tool_calls[] 对照工具参数契约；重点确认工具名称、调用状态和参数是否符合 expected.quality_rubric.expected_tool_arguments。`;
     }
     return '对照该规则的证据引用和实际输出，确认失败是否成立。';
+}
+
+function hasFiniteNumber(value: unknown): value is number {
+    return typeof value === 'number' && Number.isFinite(value);
+}
+
+function reviewCheckStatusLabel(outcome: EvaluationStatusTone, hasScore: boolean): string {
+    if (outcome === 'passed') return '通过';
+    if (outcome === 'failed') return '未通过';
+    return hasScore ? '待复核' : '待自动检查';
 }
 
 /** One user-facing status for a scoring or review source, kept separate from raw numeric metrics. */
@@ -393,6 +528,63 @@ export function formatEvaluationScore(score: EvaluationScore): string {
         : Number.isFinite(score.value)
             ? score.value.toFixed(3)
             : scoreStatusLabel(score.status);
+}
+
+const RATE_METRICS = new Set([
+    'quality.runtime_success_rate',
+    'quality.semantic_evaluated_rate',
+    'quality.semantic_success_rate',
+    'quality.complete_success_rate',
+    'governance.pending_review_rate',
+    'factual.expected_fact_coverage',
+    'factual.forbidden_claim_absence',
+    'tool.expected_call_coverage',
+    'tool.key_argument_contract_compliance',
+    'tool.fixture_result_adoption',
+    'tool.allowed_call_compliance',
+    'workflow.required_tool_call_coverage',
+    'workflow.tool_degradation_compliance',
+    'workflow.external_effect_interception',
+    'runtime.tool_execution_success_rate',
+    'runtime.tool_failure_rate',
+    'runtime.tool_blocked_rate',
+    'runtime.tool_retry_rate',
+    'runtime.dependency_failure_rate',
+    'runtime.external_io_timeout_rate',
+    'model.fallback_rate',
+    'model.timeout_rate',
+    'context.authoritative_truncation_rate',
+    'rag.retrieval_success_rate',
+    'rag.empty_result_rate',
+    'rag.adopted_rate',
+    'memory.search_hit_rate',
+    'memory.adopted_rate',
+    'memory.write_duplication_rate',
+    'observability.critical_trace_completeness',
+]);
+
+const DURATION_METRICS = new Set([
+    'budget.latency_compliance',
+    'runtime.tool_p95_duration_ms',
+    'model.p95_latency_ms',
+]);
+
+/** Formats the raw metric value with its unit; this is not a normalized score. */
+export function formatEvaluationMetricValue(score: EvaluationScore): string {
+    if (score.value == null || !Number.isFinite(score.value)) return scoreStatusLabel(score.status);
+    if (RATE_METRICS.has(score.metric_name)) return `${(score.value * 100).toFixed(1)}%`;
+    if (DURATION_METRICS.has(score.metric_name)) return `${Math.round(score.value).toLocaleString('zh-CN')} ms`;
+    if (score.metric_name === 'model.call_amplification') return `${score.value.toFixed(2)}x`;
+    return score.value.toLocaleString('zh-CN', { maximumFractionDigits: 3 });
+}
+
+/** Formats a regression delta using the metric's native unit. */
+export function formatEvaluationMetricDelta(metricName: string, value: number): string {
+    if (!Number.isFinite(value)) return '-';
+    if (RATE_METRICS.has(metricName)) return `${value >= 0 ? '+' : ''}${(value * 100).toFixed(1)}%`;
+    if (DURATION_METRICS.has(metricName)) return `${value >= 0 ? '+' : ''}${Math.round(value).toLocaleString('zh-CN')} ms`;
+    if (metricName === 'model.call_amplification') return `${value >= 0 ? '+' : ''}${value.toFixed(2)}x`;
+    return `${value >= 0 ? '+' : ''}${value.toLocaleString('zh-CN', { maximumFractionDigits: 3 })}`;
 }
 
 /** Formats an annotation without rendering unbounded evidence or comments in collapsed UI. */

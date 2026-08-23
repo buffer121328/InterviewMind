@@ -15,6 +15,7 @@ from ai.workflows.agent_runs.adapters import (
     EvaluationSuiteExecutionAdapter,
     InterviewEvaluationDraftExecutionAdapter,
     InterviewReportExecutionAdapter,
+    InterviewScoringExecutionAdapter,
     InterviewTurnExecutionAdapter,
     JobAssetsExecutionAdapter,
     JobRecommendationCaptureExecutionAdapter,
@@ -85,6 +86,7 @@ def test_phase4_registry_registers_each_migrated_task_explicitly() -> None:
         "job_assets": JobAssetsExecutionAdapter,
         "evaluation_suite": EvaluationSuiteExecutionAdapter,
         "interview_evaluation_draft": InterviewEvaluationDraftExecutionAdapter,
+        "interview_scoring": InterviewScoringExecutionAdapter,
     }
 
     registry = get_production_adapter_registry()
@@ -101,7 +103,7 @@ def test_phase4_registry_registers_each_migrated_task_explicitly() -> None:
     for task_type, adapter_type in expected.items():
         adapter = registry.get(task_type)
         assert isinstance(adapter.adapter, adapter_type)
-        if task_type != "resume_generation":
+        if task_type not in {"resume_generation", "interview_scoring"}:
             assert isinstance(adapter.adapter, ProductionTaskExecutionAdapter)
         assert adapter.key == task_type
     interview_turn = registry.get("interview_turn")

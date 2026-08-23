@@ -142,5 +142,5 @@ def render_run_report_html(report: dict[str, Any]) -> str:
 <style>body{{font-family:system-ui;margin:32px;color:#172033}}table{{border-collapse:collapse;width:100%;margin:16px 0}}th,td{{border:1px solid #d8dee9;padding:8px;text-align:left}}th{{background:#f5f7fa}}h1,h2{{color:#172033}}</style></head>
 <body><h1>Agent 评测报告</h1><p>Run: {escape(str(run.get('id') or ''))} · Agent: {escape(str(run.get('agent_name') or ''))}</p>
 <h2>汇总</h2><table>{metric_rows}</table>
-<h2>案例</h2><table><thead><tr><th>Case</th><th>Status</th><th>Hard Gate</th><th>Latency(ms)</th><th>Score</th></tr></thead><tbody>{case_rows}</tbody></table>
+<h2>案例</h2><table><thead><tr><th>Case</th><th>Status</th><th>Hard Gate</th><th>Latency (ms)</th><th>Semantic quality (0-1)</th></tr></thead><tbody>{case_rows}</tbody></table>
 </body></html>"""

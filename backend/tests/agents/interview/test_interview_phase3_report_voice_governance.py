@@ -13,8 +13,8 @@ from pydantic import ValidationError
 from ai.agents.interview.voice.context import build_voice_history_context
 from ai.prompts.voice import build_interview_voice_system_prompt
 from ai.workflows.analysis.analysis_service import SessionReportAnalysisService
-from app.schemas.llm_outputs import EvidenceChunkOutput, SessionInterviewReportOutput
 from app.schemas.interview.voice import VoiceChatRequest
+from app.schemas.llm_outputs import EvidenceChunkOutput, SessionInterviewReportOutput
 
 
 def _report_output() -> SessionInterviewReportOutput:
@@ -94,6 +94,7 @@ async def test_long_report_checkpoints_each_evidence_chunk_and_reuses_it_on_retr
         interview_report_qa_char_budget=100,
         interview_report_chunk_size=5,
         interview_report_task_timeout_seconds=180,
+        interview_deep_report_max_output_tokens=4000,
     )
     monkeypatch.setattr("ai.workflows.analysis.analysis_service.get_settings", lambda: settings)
     calls: list[type] = []

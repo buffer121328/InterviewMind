@@ -52,6 +52,76 @@ PLANNER_TOOL_NAMES = frozenset({
     "search_candidate_memory",
 })
 
+_WEAKNESS_ALIASES: dict[str, tuple[str, ...]] = {
+    "缓存一致性": ("缓存一致性", "cache consistency", "缓存失效", "双写一致", "读写一致"),
+    "缓存穿透": ("缓存穿透", "cache penetration", "布隆过滤器", "空值缓存"),
+}
+
+
+def _weakness_values(previous_profile: Optional[Dict], weakness_report: Optional[Dict]) -> list[str]:
+    """Return bounded, user-provided unresolved weakness labels."""
+    values: list[str] = []
+    for source in (previous_profile or {}, weakness_report or {}):
+        for key in ("key_weaknesses", "weakness_categories"):
+            raw = source.get(key, []) if isinstance(source, dict) else []
+            for item in raw or []:
+                if isinstance(item, dict):
+                    item = item.get("category") or item.get("name") or item.get("description")
+                text = " ".join(str(item or "").split())
+                if text and text not in values:
+                    values.append(text[:120])
+    return values[:10]
+
+
+def _question_covers_weakness(content: str, weakness: str) -> bool:
+    normalized = " ".join(str(content or "").casefold().split())
+    aliases = _WEAKNESS_ALIASES.get(weakness, (weakness,))
+    return any(" ".join(alias.casefold().split()) in normalized for alias in aliases)
+
+
+def _ensure_weakness_coverage(
+    plan: list[dict[str, Any]],
+    *,
+    weaknesses: list[str],
+    previous_questions: Optional[List[str]],
+    round_type: str,
+) -> tuple[list[dict[str, Any]], bool]:
+    """Keep a generated plan grounded in at least one unresolved weakness."""
+    if not weaknesses or any(
+        _question_covers_weakness(str(item.get("content") or ""), weakness)
+        for item in plan
+        for weakness in weaknesses
+    ):
+        return plan, True
+    weakness = weaknesses[0]
+    content = (
+        f"请围绕你需要提升的“{weakness}”，结合一个与岗位相关的真实项目，"
+        "说明问题表现、方案取舍、验证指标以及如何避免再次发生？"
+    )
+    previous = {" ".join(str(item or "").casefold().split()) for item in previous_questions or []}
+    if " ".join(content.casefold().split()) in previous:
+        return plan, False
+    replacement = {
+        "topic": f"{weakness}专项追问",
+        "content": content,
+        "type": "system_design" if round_type in {"tech_deep", "tech_initial"} else "behavior",
+        "answer_points": ["说明具体问题和影响", "解释方案取舍与一致性边界", "给出测试、指标或复盘证据"],
+        "target_skill": weakness,
+        "sources": [],
+        "reason": "覆盖上一轮未解决短板，且避免复述上一轮问题",
+        "fallback_reason": "weakness_coverage_repair",
+    }
+    index = next((i for i, item in reversed(list(enumerate(plan))) if str(item.get("type")) != "intro"), None)
+    if index is None:
+        index = max(len(plan) - 1, 0)
+    if plan:
+        replacement["id"] = plan[index].get("id", index + 1)
+        plan[index] = replacement
+    else:
+        replacement["id"] = 1
+        plan.append(replacement)
+    return plan, True
+
 # 面试启动属于用户阻塞链路；模型池自身可能有多通道和重试，因此使用独立总预算，
 # 超时后立即使用本地题目兜底，避免单次启动累计等待数分钟。
 
@@ -366,6 +436,8 @@ async def generate_interview_plan(
     cache_scope: str = "",
     planner_tools_enabled: bool = False,
     planner_tool_fixtures: Optional[Dict[str, Any]] = None,
+    planner_allowed_tool_calls: Optional[List[str]] = None,
+    planner_required_tool_calls: Optional[List[str]] = None,
 ) -> List[Dict[str, Any]]:
     """
     生成面试计划（核心函数）
@@ -412,6 +484,8 @@ async def generate_interview_plan(
                 session_id=session_id,
                 planner_tool_fixtures=planner_tool_fixtures,
                 cache_scope=cache_scope,
+                allowed_tool_calls=planner_allowed_tool_calls,
+                required_tool_calls=planner_required_tool_calls,
             )
         prompt, context_bundle = _build_planner_prompt_bundle(
             resume=resume,
@@ -479,6 +553,14 @@ async def generate_interview_plan(
             max_questions=max_questions,
             ensure_intro=not known_intro_question,
         )
+        interview_plan, weakness_covered = _ensure_weakness_coverage(
+            interview_plan,
+            weaknesses=_weakness_values(previous_profile, weakness_report),
+            previous_questions=previous_questions,
+            round_type=round_type,
+        )
+        if not weakness_covered:
+            logger.warning("[Planner] weakness coverage could not be repaired")
 
         logger.info(f"[Planner] 成功生成 {len(interview_plan)} 个面试问题 (要求数量: {max_questions})")
 
@@ -518,12 +600,22 @@ async def generate_interview_plan(
             has_existing_intro=known_intro_question,
             include_provenance=True,
         )
-        return repair_round_plan(
+        fallback_plan = repair_round_plan(
             fallback_plan,
             round_type=round_type,
             max_questions=max_questions,
             ensure_intro=not known_intro_question,
         )
+        fallback_plan, weakness_covered = _ensure_weakness_coverage(
+            fallback_plan,
+            weaknesses=_weakness_values(previous_profile, weakness_report),
+            previous_questions=previous_questions,
+            round_type=round_type,
+        )
+        if not weakness_covered:
+            for item in fallback_plan:
+                item["fallback_reason"] = "weakness_coverage_missing"
+        return [ensure_question_answer_points(item) for item in fallback_plan]
 
 
 async def _run_planner_tool_selection(
@@ -542,11 +634,13 @@ async def _run_planner_tool_selection(
     session_id: Optional[str],
     planner_tool_fixtures: Optional[Dict[str, Any]],
     cache_scope: str,
+    allowed_tool_calls: Optional[List[str]] = None,
+    required_tool_calls: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """让 Planner 按需选择最多两个补充工具；任何失败均降级为空摘要。"""
 
     from ai.runtime.context import AgentContext
-    from ai.tools.runtime import GovernedToolRuntime
+    from ai.tools.governed_runtime import GovernedToolRuntime
 
     context = AgentContext(
         user_id=owner_id,
@@ -555,6 +649,7 @@ async def _run_planner_tool_selection(
         runtime_data={
             "environment": "evaluation" if owner_id.startswith("eval-user:") else "production",
             "evaluation_tool_fixtures": planner_tool_fixtures,
+            "allowed_tool_calls": allowed_tool_calls,
         },
         permissions=frozenset({
             "question_bank.search",
@@ -585,7 +680,28 @@ async def _run_planner_tool_selection(
     )
     merged = dict(retrieval_context or {})
     selections: list[dict[str, Any]] = []
-    for selection_index in range(2):
+    for required_name in required_tool_calls or []:
+        if required_name not in runtime.names(group="interview_planner"):
+            continue
+        fixture = (planner_tool_fixtures or {}).get(required_name, {})
+        arguments = fixture.get("arguments", {}) if isinstance(fixture, dict) else {}
+        try:
+            result = await runtime.execute(
+                required_name,
+                arguments if isinstance(arguments, dict) else {},
+                group="interview_planner",
+                workflow_name="interview_planner",
+                stage="required_read",
+            )
+        except Exception as exc:
+            logger.warning("[Planner] required tool failed, continuing degraded: %s=%s", required_name, type(exc).__name__)
+            result = {"status": "degraded", "tool": required_name, "error_type": type(exc).__name__}
+        selections.append({"tool": required_name, "reason": "evaluation required tool", "result": result})
+        decision_prompt += f"\n必需工具结果摘要: {str(result)[:1200]}"
+    # A required fixture already supplies the case's authoritative fact; avoid
+    # adding optional retrieval calls to the same bounded evaluation budget.
+    selection_budget = 0 if required_tool_calls else 2
+    for selection_index in range(selection_budget):
         try:
             decision = await invoke_structured(
                 prompt=decision_prompt + f"\n已完成补充查询次数: {selection_index}",
@@ -605,7 +721,7 @@ async def _run_planner_tool_selection(
             break
         if not decision.need_tool or not decision.tool_name:
             break
-        if decision.tool_name not in PLANNER_TOOL_NAMES:
+        if decision.tool_name not in PLANNER_TOOL_NAMES or decision.tool_name not in runtime.names(group="interview_planner"):
             logger.warning("[Planner] 拒绝未允许工具: %s", decision.tool_name)
             break
         try:

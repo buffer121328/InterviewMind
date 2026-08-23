@@ -59,6 +59,7 @@ const TASK_LABELS: Record<AgentTaskHealth['task_type'], string> = {
     evaluation_suite: '评测任务',
     interview_evaluation_draft: '面试评估草稿',
     interview_report: '面试报告',
+    interview_scoring: '面试回答评分',
     interview_start: '面试开始',
     interview_turn: '面试回复',
     job_assets: '岗位材料生成',

@@ -25,8 +25,8 @@
 import inspect
 import json
 import logging
-from datetime import datetime, timezone
 from collections.abc import Mapping
+from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -34,7 +34,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from ai.runtime.context import AgentContext
 from ai.runtime.execution.deadlines import TaskDeadline
 from ai.tools.executor import ToolExecutionGuard
-from ai.tools.runtime import GovernedToolRuntime
+from ai.tools.governed_runtime import GovernedToolRuntime
 from app.config import get_settings
 from app.domain.interview_round_strategy import (
     ROUND_STRATEGY_VERSION,

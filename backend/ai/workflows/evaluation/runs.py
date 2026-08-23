@@ -4,19 +4,11 @@ from __future__ import annotations
 
 import hashlib
 import json
-import uuid
 from typing import Any
 
 from ai.workflows.agent_runs.use_cases import AgentRunUseCaseError, agent_run_use_cases
-from ai.workflows.evaluation.serializers import (
-    _annotation,
-    _case_run,
-    _dataset,
-    _dataset_case,
-    _run,
-    _score,
-)
 from ai.workflows.evaluation.contracts import EvaluationUseCaseError
+from ai.workflows.evaluation.quick_runs import QuickRunUseCasesMixin
 from ai.workflows.evaluation.run_filters import (
     record_has_approval_status,
     record_has_empty_retrieval,
@@ -26,46 +18,24 @@ from ai.workflows.evaluation.run_filters import (
     record_has_tool_status,
     record_trace_incomplete,
 )
+from ai.workflows.evaluation.serializers import (
+    _annotation,
+    _case_run,
+    _dataset,
+    _dataset_case,
+    _run,
+    _score,
+)
 from app.config import get_settings
 from app.db.models import async_session
-from app.db.repositories.jobs.job_capture_repo import JobCaptureRepo
 from app.db.unit_of_work import UnitOfWork
 from app.domain.agent_runs import TASK_TYPE_EVALUATION_SUITE
 from app.schemas.evaluation.evaluations import (
-    EvaluationAllQuickRunRequest,
     EvaluationCandidateDatasetRequest,
-    EvaluationQuickRunRequest,
     EvaluationReviewRequest,
     EvaluationRunCreateRequest,
 )
-from app.security.payload_crypto import (
-    TaskPayloadConfigurationError,
-    decrypt_payload,
-)
-from evaluation.builtins import (
-    BUILTIN_EVALUATION_AGENTS,
-    get_builtin_agent,
-    get_builtin_scope,
-    get_quick_mode,
-    model_config_fingerprint,
-)
-from evaluation.runners.production import (
-    CatalogEvaluationView,
-    EvaluationConfigurationError,
-)
-
-
-async def _job_description_snapshot_for_evaluation(user_id: str) -> str:
-    """Read one owner-scoped JD once, before creating an immutable evaluation dataset."""
-
-    jobs = await JobCaptureRepo().list_jobs(user_id=user_id, limit=50)
-    for job in jobs:
-        description = str(job.get("job_description") or "").strip()
-        if description:
-            return description[:12_000]
-    raise EvaluationUseCaseError(
-        "标准回归和发布检查需要岗位库中至少一条完整 JD", status_code=409
-    )
+from app.security.payload_crypto import decrypt_payload
 
 
 def _evaluation_run_id_for_idempotency(user_id: str, idempotency_key: str) -> str:
@@ -77,149 +47,8 @@ def _evaluation_run_id_for_idempotency(user_id: str, idempotency_key: str) -> st
     return f"erun_{digest}"
 
 
-class RunUseCasesMixin:
+class RunUseCasesMixin(QuickRunUseCasesMixin):
     """Run 子域应用用例：一键/高级运行、案例筛选与取消重试事件。"""
-
-    async def quick_run(
-        self,
-        *,
-        user_id: str,
-        request: EvaluationQuickRunRequest,
-        idempotency_key: str | None,
-        smoke_batch_id: str | None = None,
-    ) -> dict[str, Any]:
-        """把 Agent 与模式选择展开为受服务端约束的真实可恢复评测运行。"""
-
-        self._ensure_runs_enabled()
-        try:
-            agent = get_builtin_agent(request.agent_name)
-            mode = get_quick_mode(request.mode)
-        except ValueError as exc:
-            raise EvaluationUseCaseError(str(exc), status_code=400) from exc
-
-        try:
-            catalog_entry = CatalogEvaluationView().resolve(agent.name)
-        except EvaluationConfigurationError as exc:
-            raise EvaluationUseCaseError(str(exc), status_code=503) from exc
-        if request.prompt_name is not None and request.prompt_name != catalog_entry.definition.prompt_name:
-            raise EvaluationUseCaseError("evaluation prompt identity drifted", status_code=409)
-        if request.prompt_version is not None and request.prompt_version != catalog_entry.definition.prompt_version:
-            raise EvaluationUseCaseError("evaluation prompt identity drifted", status_code=409)
-
-        try:
-            scope = get_builtin_scope(agent, mode.name)
-            if mode.name in {"standard", "release"}:
-                async with UnitOfWork(async_session) as uow:
-                    existing_dataset = await self.repository.get_dataset_by_name_version(
-                        uow.db,
-                        user_id=user_id,
-                        name=scope.dataset_name,
-                        version=scope.dataset_version,
-                    )
-                if existing_dataset is None:
-                    scope = get_builtin_scope(
-                        agent,
-                        mode.name,
-                        job_description=await _job_description_snapshot_for_evaluation(user_id),
-                        require_job_description=True,
-                    )
-        except ValueError as exc:
-            raise EvaluationUseCaseError(str(exc), status_code=409) from exc
-
-        settings = get_settings()
-        baseline_run_id: str | None = None
-        try:
-            async with UnitOfWork(async_session) as uow:
-                suite = await self._ensure_builtin_suite(
-                    uow.db,
-                    user_id=user_id,
-                    agent=agent,
-                    scope=scope,
-                )
-                if request.compare_production:
-                    baseline = await self.repository.latest_successful_run_for_agent(
-                        uow.db,
-                        user_id=user_id,
-                        agent_name=agent.name,
-                        dataset_version=f"{scope.dataset_name}:{scope.dataset_version}",
-                    )
-                    baseline_run_id = baseline.id if baseline else None
-                suite_id = suite.id
-        except TaskPayloadConfigurationError as exc:
-            raise EvaluationUseCaseError(str(exc), status_code=503) from exc
-        except ValueError as exc:
-            raise EvaluationUseCaseError(str(exc), status_code=409) from exc
-
-        api_config = request.api_config.model_dump(mode="json")
-        run_request = EvaluationRunCreateRequest(
-            suite_id=suite_id,
-            agent_version=catalog_entry.definition.version,
-            prompt_name=catalog_entry.definition.prompt_name,
-            prompt_version=catalog_entry.definition.prompt_version,
-            baseline_run_id=baseline_run_id,
-            model_config_hash=model_config_fingerprint(api_config),
-            api_config=api_config,
-            repetition_count=mode.repetition_count,
-            max_concurrency=min(
-                mode.max_concurrency, settings.evaluation_max_concurrency
-            ),
-            max_budget_usd=min(
-                mode.max_budget_usd,
-                settings.evaluation_default_max_budget_usd,
-            ),
-            max_cases=mode.max_cases,
-            include_judges=mode.include_judges,
-            human_review_rate=mode.human_review_rate,
-        )
-        return await self.create_run(
-            user_id=user_id,
-            request=run_request,
-            idempotency_key=idempotency_key,
-            smoke_batch_id=smoke_batch_id,
-        )
-
-    async def all_agents_quick_run(
-        self,
-        *,
-        user_id: str,
-        request: EvaluationAllQuickRunRequest,
-        idempotency_key: str | None,
-    ) -> dict[str, Any]:
-        """Queue one server-owned quick smoke run for every supported built-in Agent.
-
-        The client supplies model routing only. Agent identities and the one-case quick
-        boundary remain owned by the allowlisted server catalog.
-        """
-
-        self._ensure_runs_enabled()
-        runs: list[dict[str, Any]] = []
-        failures: list[dict[str, str]] = []
-        # Replayed idempotency keys must resolve to the same batch. Requests without
-        # one still need a fresh durable grouping rather than being merged forever.
-        if idempotency_key:
-            smoke_batch_id = "smoke_" + hashlib.sha256(
-                f"{user_id}\0{idempotency_key}".encode()
-            ).hexdigest()[:32]
-        else:
-            smoke_batch_id = f"smoke_{uuid.uuid4().hex}"
-        for agent in BUILTIN_EVALUATION_AGENTS:
-            agent_key = f"{idempotency_key}:{agent.name}" if idempotency_key else None
-            try:
-                run = await self.quick_run(
-                    user_id=user_id,
-                    request=EvaluationQuickRunRequest(
-                        agent_name=agent.name,
-                        mode="quick",
-                        api_config=request.api_config,
-                    ),
-                    idempotency_key=agent_key,
-                    smoke_batch_id=smoke_batch_id,
-                )
-            except EvaluationUseCaseError as exc:
-                failures.append({"agent_name": agent.name, "message": exc.message})
-            else:
-                runs.append(run)
-        return {"smoke_batch_id": smoke_batch_id, "runs": runs, "failures": failures}
 
     async def create_run(
         self,

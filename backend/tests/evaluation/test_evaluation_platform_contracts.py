@@ -31,6 +31,7 @@ from evaluation.builtins import (
     get_builtin_scope,
     model_config_fingerprint,
     public_evaluation_catalog,
+    validate_builtin_tool_contracts,
 )
 from evaluation.runners import AgentEvalRunner, EvaluationCaseResult, EvaluationCaseSpec
 from evaluation.runners.production import CatalogEvaluationView
@@ -101,7 +102,18 @@ def test_interview_planner_tool_scopes_preserve_selection_contracts() -> None:
     assert standard.cases[0]["expected_tool_calls"] == ["get_weakness_report"]
     assert agent.dataset_version == "v3"
     assert standard.cases[0]["quality_rubric"]["primary_output_paths"] == ["[].content"]
-    assert "search_candidate_memory" in standard.cases[0]["allowed_tool_calls"]
+    assert set(standard.cases[0]["allowed_tool_calls"]) == {
+        "search_planner_question_bank",
+        "get_previous_round_context",
+        "get_weakness_report",
+        "retrieve_interview_evidence",
+        "search_candidate_memory",
+    }
+
+
+@pytest.mark.fast
+def test_builtin_tool_contracts_match_registered_tools() -> None:
+    validate_builtin_tool_contracts()
 
 
 @pytest.mark.fast

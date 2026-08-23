@@ -131,7 +131,8 @@ def make_interview_tool_executor(
             return {"error": "session_id is required"}
 
         from ai.runtime.context import AgentContext
-        from .runtime import GovernedToolRuntime
+
+        from .governed_runtime import GovernedToolRuntime
 
         context = AgentContext(
             user_id=user_id,

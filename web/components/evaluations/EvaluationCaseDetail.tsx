@@ -20,8 +20,10 @@ import {
     EVALUATION_SCORE_RULE_PAGE_SIZE,
     evaluationScoreOutcome,
     isEvaluationScoreNotApplicable,
-    formatEvaluationScore,
+    evaluationScoreStatusLabel,
+    formatEvaluationMetricValue,
     paginateEvaluationScores,
+    presentEvaluationMetric,
     summarizeEvaluationAnnotation,
     summarizeEvaluationCaseOutcome,
     summarizeEvaluationOutput,
@@ -95,13 +97,16 @@ export function EvaluationCaseDetail({
 
         <div className="grid items-start gap-3 2xl:grid-cols-3">
             <DetailColumn title="输入与 Golden" summary={`${detail.case.tags.length} 个标签`} defaultOpen={false}>
-                <JsonBlock label="案例输入" value={detail.case.input} />
-                <JsonBlock label="预期输出 / 事实" value={detail.case.expected ?? {}} />
+                <JsonBlock label="案例输入 JSON（规则来源）" value={detail.case.input} />
+                <JsonBlock label="预期输出 / 事实 JSON（规则来源）" value={detail.case.expected ?? {}} />
                 <div className="flex flex-wrap gap-1">{detail.case.tags.map((tag) => <span key={tag} className="rounded-full bg-slate-100 px-2 py-1 text-[10px] text-slate-600">{tag}</span>)}</div>
             </DetailColumn>
 
             <DetailColumn title="执行轨迹" summary={detail.record.final_status ?? '查看运行步骤'} defaultOpen>
                 <CollapsibleSection title="结构化执行轨迹" summary="点击展开安全轨迹节点" defaultOpen={false}><EvaluationTrajectory record={detail.record} scores={detail.scores} /></CollapsibleSection>
+                <CollapsibleSection title="工具调用记录" summary={`${detail.record.tool_calls?.length ?? 0} 次调用 · record.tool_calls`} defaultOpen={false}>
+                    <JsonBlock label="工具调用 JSON（独立于 Agent 输出）" value={detail.record.tool_calls ?? []} />
+                </CollapsibleSection>
                 <CollapsibleSection title="运行技术摘要" summary="错误、恢复次数与成本" defaultOpen={false}>
                     <JsonBlock label="运行记录摘要" value={{ final_status: detail.record.final_status, error: detail.record.error, recovery_count: detail.record.recovery_count, estimated_cost_usd: detail.record.estimated_cost_usd }} />
                 </CollapsibleSection>
@@ -109,7 +114,7 @@ export function EvaluationCaseDetail({
 
             <DetailColumn title="输出、评分与裁决" summary="结论、评分与复核" defaultOpen>
                 <CollapsibleSection title="实际输出" summary={outputSummary} defaultOpen={false}>
-                    <JsonBlock label="原始输出" value={detail.actual_output} />
+                    <JsonBlock label="待评输出 JSON（Agent 实际返回值）" value={detail.actual_output} />
                 </CollapsibleSection>
 
                 <section className="rounded-lg border bg-white p-2.5">
@@ -165,7 +170,7 @@ function ScoreRuleDetails({ scores }: { scores: EvaluationScore[] }) {
     const [page, setPage] = useState(1);
     const pageData = useMemo(() => paginateEvaluationScores(scores, page), [scores, page]);
 
-    return <CollapsibleSection title="查看全部评分规则" summary={`${scores.length} 项评分明细 · 每页 ${EVALUATION_SCORE_RULE_PAGE_SIZE} 条`} defaultOpen={false} className="mt-2 border-t pt-2" onOpenChange={(open) => { if (!open) setPage(1); }}>
+    return <CollapsibleSection title="查看全部评分规则" summary={`${scores.length} 项规则 · 先看中文说明，技术字段可展开`} defaultOpen={false} className="mt-2 border-t pt-2" onOpenChange={(open) => { if (!open) setPage(1); }}>
         <div className="space-y-1.5">{pageData.scores.map((score) => <ScoreDetail key={score.id} score={score} />)}</div>
         {pageData.totalPages > 1 && <PaginationControls page={pageData.page} total={scores.length} pageSize={EVALUATION_SCORE_RULE_PAGE_SIZE} onPageChange={setPage} className="mt-3" />}
     </CollapsibleSection>;
@@ -173,7 +178,31 @@ function ScoreRuleDetails({ scores }: { scores: EvaluationScore[] }) {
 
 function ScoreDetail({ score }: { score: EvaluationScore }) {
     const outcome = isEvaluationScoreNotApplicable(score.status) ? 'neutral' : evaluationScoreOutcome(score.status);
-    return <div className={`rounded-md border p-2 text-xs ${toneClasses(outcome)}`}><div className="flex items-center justify-between gap-2"><span className="font-medium">{score.metric_name}</span><span>{formatEvaluationScore(score)}</span></div><div className="mt-1 text-[11px] opacity-80">{score.hard_gate ? '硬门禁 · ' : ''}{score.metric_version}{score.reason ? ` · ${score.reason}` : ''}</div></div>;
+    const presentation = presentEvaluationMetric(score.metric_name);
+    return <div className={`rounded-lg border p-3 text-xs ${toneClasses(outcome)}`}>
+        <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="font-semibold">{presentation.label}</span>
+                    <span className="rounded-full bg-white/75 px-1.5 py-0.5 text-[10px] font-medium">{presentation.group}</span>
+                    {score.hard_gate && <span className="rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-800">硬门禁</span>}
+                </div>
+                <p className="mt-1 leading-5 opacity-85">{presentation.description}</p>
+            </div>
+            <div className="shrink-0 text-right">
+                <div className="font-semibold">{evaluationScoreStatusLabel(score.status)}</div>
+                <div className="mt-0.5 text-[11px] opacity-80">实际值 {formatEvaluationMetricValue(score)}</div>
+            </div>
+        </div>
+        <details className="mt-2 border-t border-current/10 pt-2">
+            <summary className="cursor-pointer text-[11px] font-medium opacity-75">查看技术字段</summary>
+            <div className="mt-1.5 space-y-0.5 font-mono text-[10px] leading-4 opacity-75">
+                <div>metric_name: {score.metric_name}</div>
+                <div>metric_version: {score.metric_version}</div>
+                {score.reason && <div className="font-sans">原因：{score.reason}</div>}
+            </div>
+        </details>
+    </div>;
 }
 
 function reviewStatusLabel(status: string): string { return ({ not_required: '无需处理', pending: '待处理', approved: '人工确认通过', rejected: '人工确认不通过', waived: '已豁免', rerun_requested: '待重跑' } as Record<string, string>)[status] ?? status; }

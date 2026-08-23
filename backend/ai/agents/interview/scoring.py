@@ -39,11 +39,18 @@ async def score_interview_answer(
             "max_retries": 0,
             "max_tokens": get_settings().interactive_interview_max_output_tokens,
             "deadline": deadline,
-            "call_metadata": call_metadata,
         }
         if isinstance(prompt, list):
-            return await invoke_structured_with_messages(messages=prompt, **kwargs)
-        return await invoke_structured(prompt=prompt, **kwargs)
+            return await invoke_structured_with_messages(
+                messages=prompt,
+                call_metadata=call_metadata,
+                **kwargs,
+            )
+        return await invoke_structured(
+            prompt=prompt,
+            call_metadata=call_metadata,
+            **kwargs,
+        )
 
     runtime = InterviewRuntime(
         state=dict(payload),

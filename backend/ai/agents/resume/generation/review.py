@@ -92,7 +92,7 @@ async def _run_evidence_checks(
 ) -> list[dict[str, Any]]:
     """Run bounded deterministic claim checks through the verification tool."""
     from ai.runtime.context import AgentContext
-    from ai.tools.runtime import GovernedToolRuntime
+    from ai.tools.governed_runtime import GovernedToolRuntime
 
     if not risk_details or not source_text:
         return []

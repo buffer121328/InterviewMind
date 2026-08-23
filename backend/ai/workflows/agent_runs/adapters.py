@@ -441,6 +441,8 @@ async def _run_interview_start_evaluation(
         cache_scope=context.session_id or context.run_id or "",
         planner_tools_enabled=True,
         planner_tool_fixtures=payload.get("_evaluation_tool_fixtures"),
+        planner_allowed_tool_calls=payload.get("_evaluation_allowed_tool_calls"),
+        planner_required_tool_calls=payload.get("_evaluation_expected_tool_calls"),
     )
 
 
