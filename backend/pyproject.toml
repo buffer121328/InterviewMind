@@ -33,11 +33,11 @@ dependencies = [
     "langchain-deepseek>=1.0.0,<2.0.0",
     "langchain-qwq>=0.1.0,<1.0.0",
     "fonttools>=4.63.0",
+    "deepeval==4.1.10",
 ]
 
 [project.optional-dependencies]
 eval = [
-    "deepeval>=2.0.0",
     "pytest-asyncio>=0.23.0",
     "pytest>=8.0.0",
 ]

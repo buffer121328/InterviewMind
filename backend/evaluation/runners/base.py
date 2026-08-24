@@ -353,9 +353,28 @@ class AgentEvalRunner:
         )
         from evaluation.outcomes import classify_case_outcome
         from evaluation.runtime_metrics import build_runtime_metric_scores
+        from observability import evaluation_model_sink
+
+        with evaluation_model_sink(trace.record_model_event):
+            registry_scores = await self.evaluator_registry.evaluate(
+                record,
+                case=case,
+                include_judges=include_judges,
+            )
+        if tuple(trace.model_calls) != record.model_calls:
+            record = record.model_copy(
+                update={
+                    "model_calls": tuple(trace.model_calls),
+                    "estimated_cost_usd": sum(
+                        call.estimated_cost_usd or 0 for call in trace.model_calls
+                    )
+                    or None,
+                    "token_usage": _aggregate_tokens(trace),
+                }
+            )
 
         scores = (
-            *self.evaluator_registry.evaluate(record, include_judges=include_judges),
+            *registry_scores,
             *DeterministicCaseContractEvaluator().evaluate(case=case, record=record),
             *build_runtime_metric_scores(record),
         )

@@ -26,7 +26,9 @@ class DeepEvalCasePayload:
     expected_output: str | None
     retrieval_context: tuple[str, ...]
     context: tuple[str, ...]
-    additional_metadata: dict[str, Any]
+    metadata: dict[str, Any]
+    tools_called: tuple[dict[str, Any], ...]
+    expected_tools: tuple[dict[str, Any], ...]
 
 
 class DeepEvalAdapter:
@@ -40,8 +42,16 @@ class DeepEvalAdapter:
     ) -> DeepEvalCasePayload:
         """生成可测试中间载荷，绝不使用 expected_output 替代 actual_output。"""
 
+        safe_input = {
+            key: value
+            for key, value in case.input_payload.items()
+            if key != "api_config" and not key.startswith("_evaluation_")
+        }
+        expected_arguments = case.quality_rubric.get("expected_tool_arguments")
+        if not isinstance(expected_arguments, dict):
+            expected_arguments = {}
         return DeepEvalCasePayload(
-            input=_json(case.input_payload),
+            input=_json(safe_input),
             actual_output=_json(record.final_output),
             expected_output=(
                 _json(case.expected_output)
@@ -50,7 +60,7 @@ class DeepEvalAdapter:
             ),
             retrieval_context=case.retrieval_context,
             context=tuple(_json(item) for item in case.expected_facts),
-            additional_metadata={
+            metadata={
                 "case_id": record.case_id,
                 "dataset_version": record.dataset_version,
                 "agent_name": record.agent_name,
@@ -59,6 +69,25 @@ class DeepEvalAdapter:
                 "prompt_version": record.prompt_version,
                 "model_config_hash": record.model_config_hash,
             },
+            tools_called=tuple(
+                {
+                    "name": call.tool_name,
+                    "input_parameters": dict(call.arguments_summary),
+                    "output": dict(call.result_summary) or None,
+                }
+                for call in record.tool_calls
+            ),
+            expected_tools=tuple(
+                {
+                    "name": name,
+                    "input_parameters": (
+                        dict(expected_arguments[name])
+                        if isinstance(expected_arguments.get(name), dict)
+                        else None
+                    ),
+                }
+                for name in case.expected_tool_calls
+            ),
         )
 
     def to_llm_test_case(
@@ -69,7 +98,7 @@ class DeepEvalAdapter:
     ) -> Any:
         """在 DeepEval 可用时构造 LLMTestCase；模块导入阶段不加载重型依赖。"""
 
-        from deepeval.test_case import LLMTestCase
+        from deepeval.test_case import LLMTestCase, ToolCall
 
         payload = self.to_single_turn_payload(case=case, record=record)
         return LLMTestCase(
@@ -78,7 +107,9 @@ class DeepEvalAdapter:
             expected_output=payload.expected_output,
             retrieval_context=list(payload.retrieval_context) or None,
             context=list(payload.context) or None,
-            additional_metadata=payload.additional_metadata,
+            metadata=payload.metadata,
+            tools_called=[ToolCall(**item) for item in payload.tools_called] or None,
+            expected_tools=[ToolCall(**item) for item in payload.expected_tools] or None,
         )
 
 

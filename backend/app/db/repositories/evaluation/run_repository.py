@@ -4,12 +4,19 @@ from __future__ import annotations
 
 from typing import Any, Sequence
 
-from app.db.models import EvaluationCaseModel, EvaluationCaseRunModel, EvaluationDatasetVersionModel, EvaluationRunModel, EvaluationScoreModel, EvaluationSuiteModel
+from sqlalchemy import delete, func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.db.models import (
+    EvaluationCaseModel,
+    EvaluationCaseRunModel,
+    EvaluationRunModel,
+    EvaluationScoreModel,
+    EvaluationSuiteModel,
+)
 from app.security.payload_crypto import decrypt_payload, encrypt_payload
 from evaluation.outcomes import classify_case_outcome, semantic_score_average
 from evaluation.runners import EvaluationCaseResult, EvaluationCaseSpec
-from sqlalchemy import delete, func, select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from .helpers import _id, _now
 
@@ -293,11 +300,11 @@ class RunRepositoryMixin:
                         value=score.value,
                         status=score.status.value,
                         source=score.source.value,
-                        reason_sanitized=score.reason_code,
+                        reason_sanitized=score.reason or score.reason_code,
                         severity="critical" if score.hard_gate else "info",
                         hard_gate=score.hard_gate,
                         evidence_refs=list(score.evidence_refs),
-                        metric_version="1",
+                        metric_version=score.metric_version,
                         created_at=_now(),
                     )
                 )

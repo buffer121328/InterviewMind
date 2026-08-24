@@ -138,7 +138,7 @@ function RunItem({ run, catalog, onOpenRun, compact = false }: { run: Evaluation
                 <span className="font-medium text-slate-800">{agentLabel(catalog, run.agent_name)}</span>
                 <ModeBadge label={evaluationRunModeLabel(run)} />
                 <StatusBadge status={run.status} />
-                {run.include_judges && <Badge variant="outline">Judge</Badge>}
+                {run.include_judges && <Badge variant="outline">DeepEval Judge</Badge>}
             </div>
             <p className="mt-1 truncate text-xs text-slate-500">{shortId(run.id)} · {formatChinaDateTime(run.created_at)} · 完全成功率 {formatRate(run.summary.complete_success_rate)}</p>
         </div>

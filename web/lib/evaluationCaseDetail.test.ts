@@ -28,6 +28,19 @@ test('score rules expose readable names and keep the raw metric key as fallback 
     assert.equal(evaluationScoreStatusLabel('failed'), '未通过');
 });
 
+test('DeepEval metrics use stable product-facing labels and descriptions', () => {
+    assert.deepEqual(presentEvaluationMetric('deepeval.tool_correctness'), {
+        label: 'DeepEval 工具正确性',
+        group: 'DeepEval Judge',
+        description: '实际工具调用是否符合案例声明的必需工具和关键参数。',
+    });
+    assert.deepEqual(presentEvaluationMetric('deepeval.business_rubric'), {
+        label: 'DeepEval 业务目标符合度',
+        group: 'DeepEval Judge',
+        description: '实际输出是否满足案例业务目标，并保持在 Golden 事实边界内。',
+    });
+});
+
 test('custom score rules get a readable fallback instead of exposing only a raw field', () => {
     const presentation = presentEvaluationMetric('custom.latency_guard');
     assert.equal(presentation.group, '自定义规则');

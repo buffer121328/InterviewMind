@@ -156,8 +156,15 @@ class _StubEvaluator:
     name: str
     kind: EvaluatorKind
 
-    def evaluate(self, record: AgentEvalRecord) -> list[EvalScore]:
+    def evaluate(
+        self,
+        record: AgentEvalRecord,
+        *,
+        case: object | None = None,
+    ) -> list[EvalScore]:
         """返回带来源标记的固定分数，不调用模型或外部服务。"""
+
+        del case
 
         source = (
             ScoreSource.DETERMINISTIC
@@ -176,16 +183,20 @@ class _StubEvaluator:
         ]
 
 
+@pytest.mark.asyncio
 @pytest.mark.fast
-def test_evaluator_registry_runs_deterministic_evaluators_before_opt_in_judges() -> None:
+async def test_evaluator_registry_runs_deterministic_evaluators_before_opt_in_judges() -> None:
     """Registry 默认只运行确定性 Evaluator，Judge 必须显式启用且排在其后。"""
 
     registry = EvaluatorRegistry()
     registry.register(_StubEvaluator("judge", EvaluatorKind.JUDGE))
     registry.register(_StubEvaluator("rule", EvaluatorKind.DETERMINISTIC))
 
-    assert [score.metric_name for score in registry.evaluate(_record())] == ["rule"]
-    assert [score.metric_name for score in registry.evaluate(_record(), include_judges=True)] == [
+    assert [score.metric_name for score in await registry.evaluate(_record())] == ["rule"]
+    assert [
+        score.metric_name
+        for score in await registry.evaluate(_record(), include_judges=True)
+    ] == [
         "rule",
         "judge",
     ]
@@ -372,17 +383,18 @@ def test_metric_threshold_comparison_matches_initial_policy() -> None:
     assert mae.passes(1.01) is False
 
 
+@pytest.mark.asyncio
 @pytest.mark.fast
-def test_default_registry_contains_hard_gates_without_loading_judges() -> None:
-    """默认运行路径必须启用硬门禁，同时保持 Judge 为显式可选能力。"""
+async def test_default_registry_contains_hard_gates_and_opt_in_judge() -> None:
+    """默认注册 Judge 但未显式启用时仍只执行硬门禁。"""
 
     registry = build_default_evaluator_registry()
 
     assert registry.names(kind=EvaluatorKind.DETERMINISTIC) == (
         "deterministic_hard_gates",
     )
-    assert registry.names(kind=EvaluatorKind.JUDGE) == ()
-    assert len(registry.evaluate(_record())) == len(HardGateCategory)
+    assert registry.names(kind=EvaluatorKind.JUDGE) == ("deepeval_semantic_judge",)
+    assert len(await registry.evaluate(_record())) == len(HardGateCategory)
 
 
 @pytest.mark.fast

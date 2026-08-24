@@ -331,6 +331,8 @@ class EvalScore(_EvalModel):
     threshold: float | None = None
     hard_gate: bool = False
     reason_code: str | None = Field(default=None, max_length=160)
+    reason: str | None = Field(default=None, max_length=2000)
+    metric_version: str = Field(default="1", min_length=1, max_length=80)
     evidence_refs: tuple[str, ...] = ()
 
 

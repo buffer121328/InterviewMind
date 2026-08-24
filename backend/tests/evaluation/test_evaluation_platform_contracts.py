@@ -11,7 +11,12 @@ from pydantic import ValidationError
 from ai.runtime.agent_runs.policies import allows_whole_run_retry
 from ai.workflows.agent_runs.catalog import get_production_catalog
 from app.config import AppSettings
-from app.db.models.evaluation import EvaluationCaseModel, EvaluationCaseRunModel, EvaluationRunModel
+from app.db.models.evaluation import (
+    EvaluationCaseModel,
+    EvaluationCaseRunModel,
+    EvaluationRunModel,
+    EvaluationScoreModel,
+)
 from app.db.repositories.evaluation.run_repository import RunRepositoryMixin
 from app.domain.agent_runs import TASK_TYPE_INTERVIEW_START
 from app.schemas.evaluation.evaluations import (
@@ -678,9 +683,17 @@ async def test_save_case_result_keeps_review_flag_and_status_consistent() -> Non
             review_reasons=("trace_incomplete",),
         )
     })
+    score = AgentEvalRunner.passing_score_for_test(
+        source=ScoreSource.DETERMINISTIC
+    ).model_copy(
+        update={
+            "reason": "sanitized judge reason",
+            "metric_version": "deepeval-4.1.10:FakeMetric",
+        }
+    )
     result = EvaluationCaseResult(
         record=record,
-        scores=(AgentEvalRunner.passing_score_for_test(source=ScoreSource.DETERMINISTIC),),
+        scores=(score,),
     )
     session = _NewCaseRunSession()
 
@@ -694,3 +707,8 @@ async def test_save_case_result_keeps_review_flag_and_status_consistent() -> Non
 
     assert row.needs_review is True
     assert row.review_status == "pending"
+    saved_score = next(
+        item for item in session.added if isinstance(item, EvaluationScoreModel)
+    )
+    assert saved_score.reason_sanitized == "sanitized judge reason"
+    assert saved_score.metric_version == "deepeval-4.1.10:FakeMetric"

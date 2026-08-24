@@ -28,8 +28,15 @@ class DeterministicHardGateEvaluator:
     name = "deterministic_hard_gates"
     kind = EvaluatorKind.DETERMINISTIC
 
-    def evaluate(self, record: AgentEvalRecord) -> list[EvalScore]:
+    def evaluate(
+        self,
+        record: AgentEvalRecord,
+        *,
+        case: object | None = None,
+    ) -> list[EvalScore]:
         """为每个硬门禁生成独立 Score，保证失败项可审计且无法被均分覆盖。"""
+
+        del case
 
         extractors: dict[HardGateCategory, EvidenceExtractor] = {
             HardGateCategory.CROSS_USER_ACCESS: _cross_user_access,

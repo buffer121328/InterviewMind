@@ -60,6 +60,8 @@ const METRIC_PRESENTATIONS: Record<string, EvaluationMetricPresentation> = {
     'hard_gate.post_cancel_external_write': { label: '取消后外部写入', group: '安全门禁', description: '任务取消后是否仍发生外部写入。' },
     'hard_gate.checkpoint_integrity_violation': { label: 'Checkpoint 完整性', group: '安全门禁', description: '检查点数据是否发生完整性违规。' },
     'hard_gate.evaluation_data_contamination': { label: '评测数据污染', group: '安全门禁', description: '评测运行是否污染了生产或其他案例数据。' },
+    'deepeval.tool_correctness': { label: 'DeepEval 工具正确性', group: 'DeepEval Judge', description: '实际工具调用是否符合案例声明的必需工具和关键参数。' },
+    'deepeval.business_rubric': { label: 'DeepEval 业务目标符合度', group: 'DeepEval Judge', description: '实际输出是否满足案例业务目标，并保持在 Golden 事实边界内。' },
 };
 
 function humanizeMetricName(metricName: string): string {

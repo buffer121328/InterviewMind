@@ -30,6 +30,8 @@ import { formatChinaDateTime } from '@/lib/chinaTime';
 import { summarizeEvaluationSemanticStatus } from '@/lib/evaluationCaseDetail';
 import { toast } from 'sonner';
 import { EvaluationCaseDetail } from './EvaluationCaseDetail';
+import { buildAdvancedEvaluationRunRequest } from '@/lib/evaluationRunRequest';
+import { useInterviewStore } from '@/store/useInterviewStore';
 
 interface Props {
     runs: EvaluationRun[];
@@ -54,6 +56,7 @@ interface RunForm {
 
 /** Provides bounded run creation, lifecycle actions and a three-column case drill-down. */
 export function EvaluationRunsPanel({ runs, suites, focusRunId, onRefresh, onOpenAnnotations }: Props) {
+    const getApiConfigForRequest = useInterviewStore(state => state.getApiConfigForRequest);
     const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
     const [cases, setCases] = useState<EvaluationCaseRun[]>([]);
     const [selectedCaseRunId, setSelectedCaseRunId] = useState<string | null>(null);
@@ -132,23 +135,29 @@ export function EvaluationRunsPanel({ runs, suites, focusRunId, onRefresh, onOpe
         const productionBaseline = runs.find((run) => run.status === 'succeeded' && run.prompt_name === form.prompt_name && String(run.prompt_version) !== form.prompt_version);
         const baselineRunId = form.baseline_run_id === '__production__' ? productionBaseline?.id ?? null : form.baseline_run_id || null;
         if (form.baseline_run_id === '__production__' && !baselineRunId) return toast.error('没有找到可用的 Production 基线运行');
+        let payload;
+        try {
+            payload = buildAdvancedEvaluationRunRequest({
+                suiteId: effectiveSuiteId,
+                agentVersion: 'production',
+                promptName: form.prompt_name || null,
+                promptVersion: form.prompt_version || null,
+                baselineRunId,
+                modelConfigHash: form.model_config_hash,
+                apiConfig: getApiConfigForRequest(),
+                repetitionCount: Number(form.repetition_count),
+                maxConcurrency: Number(form.max_concurrency),
+                maxBudgetUsd: Number(form.max_budget_usd),
+                caseIds: [...selectedCaseIds],
+                includeJudges: form.include_judges,
+                humanReviewRate: Number(form.human_review_rate) / 100,
+            });
+        } catch (error) {
+            return toast.error(error instanceof Error ? error.message : '模型配置不可用');
+        }
         setBusy(true);
         try {
-            await evaluationApi.createRun({
-                suite_id: effectiveSuiteId,
-                agent_version: 'production',
-                prompt_name: form.prompt_name || null,
-                prompt_version: form.prompt_version || null,
-                baseline_run_id: baselineRunId,
-                model_config_hash: form.model_config_hash,
-                api_config: {},
-                repetition_count: Number(form.repetition_count),
-                max_concurrency: Number(form.max_concurrency),
-                max_budget_usd: Number(form.max_budget_usd),
-                case_ids: [...selectedCaseIds],
-                include_judges: form.include_judges,
-                human_review_rate: Number(form.human_review_rate) / 100,
-            });
+            await evaluationApi.createRun(payload);
             localStorage.removeItem('evaluationPromptCandidate');
             toast.success(selectedCaseIds.size ? `已提交 ${selectedCaseIds.size} 个选中案例` : '评测任务已进入 AgentRun 队列');
             await onRefresh();
@@ -243,7 +252,7 @@ export function EvaluationRunsPanel({ runs, suites, focusRunId, onRefresh, onOpe
                 <Field label="最大并发"><Input type="number" min="1" max="10" value={form.max_concurrency} onChange={(event) => setForm({ ...form, max_concurrency: event.target.value })} /></Field>
                 <Field label="预算 USD"><Input type="number" min="0.01" max="1000" step="0.01" value={form.max_budget_usd} onChange={(event) => setForm({ ...form, max_budget_usd: event.target.value })} /></Field>
                 <Field label="人工抽检比例 %"><Input type="number" min="0" max="100" step="1" value={form.human_review_rate} onChange={(event) => setForm({ ...form, human_review_rate: event.target.value })} /></Field>
-                <label className="flex h-10 items-center gap-2 self-end rounded-md border px-3 text-sm"><Checkbox checked={form.include_judges} onCheckedChange={(checked) => setForm({ ...form, include_judges: checked })} />启用 LLM Judge</label>
+                <label className="flex h-10 items-center gap-2 self-end rounded-md border px-3 text-sm"><Checkbox checked={form.include_judges} onCheckedChange={(checked) => setForm({ ...form, include_judges: checked })} />启用 DeepEval Judge</label>
             </div>
             {visibleDataset && <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50/70 p-3"><div className="flex flex-wrap items-center justify-between gap-2"><div><div className="text-sm font-medium">只运行选中案例（可选）</div><div className="text-xs text-slate-500">{visibleDataset.name} · {visibleDataset.version} · {visibleDataset.case_count} cases；未选择时运行全部案例。</div></div><div className="flex gap-2"><Button size="sm" variant="ghost" onClick={() => setSelectedCaseIds(new Set(visibleDataset.cases.map((item) => item.id)))}>全选</Button><Button size="sm" variant="ghost" onClick={() => setSelectedCaseIds(new Set())}>清空</Button></div></div><div className="mt-3 grid max-h-44 gap-2 overflow-auto sm:grid-cols-2 lg:grid-cols-3">{visibleDataset.cases.map((item) => <label key={item.id} className="flex items-start gap-2 rounded-lg border bg-white p-2 text-xs"><Checkbox checked={selectedCaseIds.has(item.id)} onCheckedChange={(checked) => toggleDatasetCase(item.id, checked)} /><span><span className="font-medium text-slate-800">{item.case_key}</span><span className="block text-slate-500">{item.category} · {item.severity}</span></span></label>)}</div></div>}
             <Button className="mt-4" onClick={() => void createRun()} disabled={busy}>{busy ? <Loader2 className="animate-spin" /> : <Play />}运行真实 Agent{selectedCaseIds.size ? `（${selectedCaseIds.size} 个案例）` : ''}</Button>

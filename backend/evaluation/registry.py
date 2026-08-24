@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import inspect
 from enum import Enum
 from threading import RLock
-from typing import Protocol, Sequence
+from typing import TYPE_CHECKING, Awaitable, Protocol, Sequence
 
 from evaluation.schemas import AgentEvalRecord, EvalScore
+
+if TYPE_CHECKING:
+    from evaluation.runners.base import EvaluationCaseSpec
 
 
 class EvaluatorKind(str, Enum):
@@ -22,7 +26,12 @@ class Evaluator(Protocol):
     name: str
     kind: EvaluatorKind
 
-    def evaluate(self, record: AgentEvalRecord) -> Sequence[EvalScore]:
+    def evaluate(
+        self,
+        record: AgentEvalRecord,
+        *,
+        case: EvaluationCaseSpec | None = None,
+    ) -> Sequence[EvalScore] | Awaitable[Sequence[EvalScore]]:
         """基于不可变评测记录返回可追溯分数。"""
 
 
@@ -65,10 +74,11 @@ class EvaluatorRegistry:
                 if kind is None or evaluator.kind is kind
             )
 
-    def evaluate(
+    async def evaluate(
         self,
         record: AgentEvalRecord,
         *,
+        case: EvaluationCaseSpec | None = None,
         include_judges: bool = False,
     ) -> list[EvalScore]:
         """先运行全部确定性规则，仅在显式启用时再运行 Judge。"""
@@ -84,17 +94,22 @@ class EvaluatorRegistry:
         for kind in kinds:
             for evaluator in evaluators:
                 if evaluator.kind is kind:
-                    scores.extend(evaluator.evaluate(record))
+                    result = evaluator.evaluate(record, case=case)
+                    if inspect.isawaitable(result):
+                        result = await result
+                    scores.extend(result)
         return scores
 
 
 def build_default_evaluator_registry() -> EvaluatorRegistry:
-    """构造只包含安全确定性规则的默认注册表，不隐式加载任何 Judge。"""
+    """构造硬门禁与惰性 Judge 注册表，构造时不调用模型。"""
 
     from evaluation.evaluators.deterministic.hard_gates import (
         DeterministicHardGateEvaluator,
     )
+    from evaluation.evaluators.judges.deepeval import DeepEvalJudgeEvaluator
 
     registry = EvaluatorRegistry()
     registry.register(DeterministicHardGateEvaluator())
+    registry.register(DeepEvalJudgeEvaluator())
     return registry

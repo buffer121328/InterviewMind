@@ -380,7 +380,7 @@ function ModeCard({
             <span className="rounded bg-white px-2 py-1"><Coins className="mr-1 inline h-3 w-3" />预算 ${mode.max_budget_usd}</span>
             <span className="rounded bg-white px-2 py-1"><Gauge className="mr-1 inline h-3 w-3" />并发 {mode.max_concurrency}</span>
             <span className="rounded bg-white px-2 py-1">{mode.max_cases == null ? '完整数据集' : `最多 ${mode.max_cases} 案例`}</span>
-            <span className="rounded bg-white px-2 py-1">{mode.include_judges ? '启用 Judge' : '规则评测'}</span>
+            <span className="rounded bg-white px-2 py-1">{mode.include_judges ? '启用 DeepEval Judge' : '规则评测'}</span>
         </div>
     </button>;
 }

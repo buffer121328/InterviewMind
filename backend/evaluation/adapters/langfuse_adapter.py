@@ -54,7 +54,9 @@ class LangfuseScoreAdapter:
                     "agent_name": record.agent_name,
                     "agent_version": record.agent_version,
                     "prompt_version": record.prompt_version,
+                    "metric_version": score.metric_version,
                 },
+                "reason": score.reason or score.reason_code,
             }
             try:
                 if self._reporter(payload):
@@ -79,6 +81,7 @@ def _default_reporter(payload: dict[str, Any]) -> bool:
         name=str(payload["name"]),
         value=payload["value"],
         trace_id=payload.get("trace_id"),
+        comment=str(payload.get("reason") or "")[:1000] or None,
         metadata=dict(payload.get("metadata") or {}),
     )
     return report_score(score)
