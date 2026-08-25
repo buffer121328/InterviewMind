@@ -49,7 +49,7 @@ _FAST_FAILOVER_FAILURES = frozenset({
     FailureType.TIMEOUT,
     FailureType.PROVIDER_REJECTION,
 })
-_STRUCTURED_REPAIR_TIMEOUT_SECONDS = 70.0
+_STRUCTURED_REPAIR_TIMEOUT_SECONDS = 90.0
 _STRUCTURED_REPAIR_MINIMUM_SECONDS = 2.0
 _REPAIR_SECRET_FIELD_PATTERN = re.compile(
     r'(["\']?(?:api[_-]?key|apikey|authorization|token|secret|password)["\']?\s*:\s*["\']?)([^,}\s"\']+)',

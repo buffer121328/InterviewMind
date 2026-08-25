@@ -6,6 +6,7 @@ import pytest
 from pydantic import BaseModel
 
 from ai.llm import llms
+from ai.llm import llm_utils
 from ai.llm.llm_utils import invoke_structured
 from ai.runtime.execution import deadlines
 from ai.runtime.execution.deadlines import (
@@ -76,6 +77,22 @@ def test_task_deadline_scope_exposes_same_instance():
         assert get_current_task_deadline() is deadline
 
     assert get_current_task_deadline() is None
+
+
+def test_structured_repair_window_is_ninety_seconds_and_deadline_clipped(monkeypatch):
+    """格式修复可等待 90 秒，但不会超出所属任务的剩余预算。"""
+    current = {"value": 10.0}
+    monkeypatch.setattr(deadlines, "monotonic", lambda: current["value"])
+
+    assert llm_utils._STRUCTURED_REPAIR_TIMEOUT_SECONDS == 90.0
+    assert TaskDeadline(total_timeout=120.0, started_at=10.0).timeout_for_next_attempt(
+        llm_utils._STRUCTURED_REPAIR_TIMEOUT_SECONDS,
+        minimum_required=llm_utils._STRUCTURED_REPAIR_MINIMUM_SECONDS,
+    ) == 90.0
+    assert TaskDeadline(total_timeout=45.0, started_at=10.0).timeout_for_next_attempt(
+        llm_utils._STRUCTURED_REPAIR_TIMEOUT_SECONDS,
+        minimum_required=llm_utils._STRUCTURED_REPAIR_MINIMUM_SECONDS,
+    ) == 45.0
 
 
 @pytest.mark.asyncio
