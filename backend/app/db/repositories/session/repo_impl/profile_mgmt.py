@@ -1,12 +1,13 @@
 import logging
-from typing import Optional, Dict, Any, List
 from datetime import datetime
+from typing import Any, Dict, List, Optional
 
 from sqlalchemy import select, update
 
-from app.db.models import async_session, SessionModel, UserProfileModel
-from .base import BaseService
 from app.clock import utc_now
+from app.db.models import SessionModel, UserProfileModel, async_session
+
+from .base import BaseService
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +51,38 @@ def build_recent_company_profile_records_stmt(*, limit: int, user_id: str):
 
 class ProfileService(BaseService):
     """画像管理服务：负责单轮、公司和用户综合画像。"""
+
+    async def get_ability_profile_progress_rows(self, user_id: str) -> List[Dict[str, Any]]:
+        """按 owner 读取画像准备度所需的已完成轮次和公司画像元数据。"""
+        async with async_session() as db:
+            rows = (
+                await db.execute(
+                    select(
+                        SessionModel.series_id,
+                        SessionModel.round_index,
+                        SessionModel.status,
+                        SessionModel.candidate_profile,
+                        SessionModel.company_profile,
+                        SessionModel.updated_at,
+                    )
+                    .where(
+                        SessionModel.user_id == user_id,
+                        SessionModel.status == "completed",
+                    )
+                    .order_by(SessionModel.updated_at.desc())
+                )
+            ).all()
+            return [
+                {
+                    "series_id": row.series_id,
+                    "round_index": row.round_index or 1,
+                    "status": row.status,
+                    "candidate_profile": row.candidate_profile,
+                    "company_profile": row.company_profile,
+                    "updated_at": row.updated_at.isoformat() if isinstance(row.updated_at, datetime) else row.updated_at,
+                }
+                for row in rows
+            ]
 
     async def save_profile(self, session_id: str, profile_data: Dict[str, Any], user_id: str) -> bool:
         """按 owner 保存单轮画像；资源不可见或写入失败时返回 ``False``。"""

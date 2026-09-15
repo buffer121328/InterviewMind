@@ -5,7 +5,6 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 ArtifactFormat = Literal["html", "pdf"]  # 支持的产物格式
-ArtifactMode = Literal["default", "standard", "deep"]
 ArtifactSourceType = Literal[  # 产物来源：生成的简历/Agent 运行/简历结果/JD 分析/短板报告/面试报告
     "generated_resume",
     "agent_run",
@@ -22,7 +21,6 @@ class ArtifactExportRequest(BaseModel):
     source_type: ArtifactSourceType = Field(..., description="产物来源类型")
     source_id: str = Field(min_length=1, max_length=128, description="来源记录 ID")
     format: ArtifactFormat = Field(..., description="导出格式：html/pdf")
-    artifact_mode: ArtifactMode | None = Field(default=None, description="面试报告模式；非面试产物固定为 default")
     report_source_version: str | None = Field(default=None, max_length=128, description="报告权威来源版本")
 
 
@@ -38,5 +36,4 @@ class ArtifactResponse(BaseModel):
     size_bytes: int = Field(..., description="文件大小（字节）")
     created_at: str = Field(..., description="创建时间")
     download_url: str = Field(..., description="下载地址")
-    artifact_mode: ArtifactMode = Field(default="default", description="产物模式")
     report_source_version: str = Field(default="legacy", description="报告权威来源版本")

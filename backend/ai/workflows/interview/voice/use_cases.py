@@ -97,7 +97,6 @@ class VoiceInterviewUseCases:
                 job_context_snapshot=job_context_snapshot,
                 max_questions=request.max_questions,
                 round_type=request.round_type,
-                report_mode=request.report_mode,
                 user_id=user_id,
             )
             session = await self._session_repo.get_session(session_id, include_resume_content=True)

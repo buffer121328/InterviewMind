@@ -70,7 +70,7 @@ AUTO_CREATE_TABLES=true
 # LLM 网关、模型池与请求限制
 # 注意：具体模型成员由前端配置，不使用 FAST_LLM_* / SMART_LLM_* 环境变量。
 # ----------------------------------------------------------------------------
-LLM_REQUEST_TIMEOUT_SECONDS=70
+LLM_REQUEST_TIMEOUT_SECONDS=90
 # 同一任务跨重试/fallback 的总时间预算；默认对未显式传 deadline 的模型调用也启用。
 LLM_TASK_TIMEOUT_SECONDS=150
 # 剩余时间低于此值时不再启动新的 attempt 或备用模型。
@@ -80,6 +80,11 @@ LLM_MAX_TOKENS=8000
 INTERACTIVE_INTERVIEW_MAX_OUTPUT_TOKENS=1200
 INTERVIEW_STANDARD_REPORT_MAX_OUTPUT_TOKENS=3500
 INTERVIEW_DEEP_REPORT_MAX_OUTPUT_TOKENS=4000
+# 深度报告按已持久化问答数动态推导输出与时间：8 题为 6000 token/120s/600s，20 题为 8000 token/150s/900s。
+INTERVIEW_REPORT_MIN_OUTPUT_TOKENS=6000
+INTERVIEW_REPORT_OUTPUT_TOKENS_PER_QUESTION=400
+INTERVIEW_REPORT_MAX_OUTPUT_TOKENS=12000
+INTERVIEW_REPORT_REVIEWER_MAX_OUTPUT_TOKENS=3000
 # 岗位卡片评分只需紧凑 JSON；独立限制输出，避免回退前消耗过多等待时间。
 JOB_CARD_SCORING_MAX_TOKENS=3000
 # 只用于安全观测的 token 粗估，不替代供应商返回的实际 usage。
@@ -104,6 +109,11 @@ INTERVIEW_REPORT_CONTEXT_TOTAL_CHARS=40000
 INTERVIEW_REPORT_RESUME_CHAR_BUDGET=10000
 INTERVIEW_REPORT_CHUNK_SIZE=5
 INTERVIEW_REPORT_TASK_TIMEOUT_SECONDS=600
+INTERVIEW_REPORT_TASK_TIMEOUT_PER_QUESTION_SECONDS=30
+INTERVIEW_REPORT_TASK_TIMEOUT_CAP_SECONDS=1200
+INTERVIEW_REPORT_REQUEST_TIMEOUT_SECONDS=120
+INTERVIEW_REPORT_REQUEST_TIMEOUT_PER_QUESTION_SECONDS=3
+INTERVIEW_REPORT_REQUEST_TIMEOUT_CAP_SECONDS=180
 # Resume Workspace、交互式生成、岗位资产与画像各自共享的任务总预算。
 RESUME_WORKSPACE_TASK_TIMEOUT_SECONDS=240
 RESUME_GENERATION_TASK_TIMEOUT_SECONDS=240
@@ -158,17 +168,6 @@ MEM0_TELEMETRY=False
 DEEPEVAL_TELEMETRY_OPT_OUT=true
 DEEPEVAL_TELEMETRY_ENABLED=false
 ERROR_REPORTING=false
-
-# ----------------------------------------------------------------------------
-# RAG Embedding（OpenAI-compatible）
-# 优先使用前端「设置 → RAG / 长期记忆模型」；以下仅作服务端兜底。
-# ----------------------------------------------------------------------------
-OPENAI_API_KEY=
-OPENAI_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
-EMBEDDING_MODEL=text-embedding-v4
-# 必须与模型输出以及 PostgreSQL public.rag_chunks.embedding 的 vector(n) 一致。
-# 开发启动和 deployment readiness 会在首次索引前 fail closed，但不会自动改列或重建索引。
-EMBEDDING_DIM=1536
 
 # ----------------------------------------------------------------------------
 # 面试 RAG 与有界 Agentic Retrieval
@@ -258,26 +257,13 @@ BOSS_CAPTURE_MAX_CANDIDATE_CARDS=20
 
 # ----------------------------------------------------------------------------
 # mem0 长期记忆
-# 前端携带 mem0_llm/mem0_embedder 时可启用；模型变量仅作服务端兜底。
+# 模型名、地址、维度由前端请求提供，API Key 仅从 Redis owner 密文凭据水合。
 # pgvector 默认严格复用 DATABASE_URL，避免数据库账号漂移。只有确需独立库时才填写完整 DSN。
 # ----------------------------------------------------------------------------
 MEM0_ENABLED=true
 MEM0_VECTOR_PROVIDER=pgvector
 MEM0_PGVECTOR_COLLECTION=mem0_memories
 MEM0_PGVECTOR_URL=
-
-# mem0 记忆提取模型
-MEM0_LLM_PROVIDER=openai
-MEM0_LLM_MODEL=deepseek-v4-flash
-MEM0_LLM_API_KEY=
-MEM0_LLM_BASE_URL=https://api.deepseek.com/v1
-
-# mem0 语义检索模型
-MEM0_EMBEDDER_PROVIDER=openai
-MEM0_EMBEDDER_MODEL=text-embedding-v4
-MEM0_EMBEDDER_API_KEY=
-MEM0_EMBEDDER_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
-MEM0_EMBEDDING_DIMS=1536
 
 MEM0_SEARCH_LIMIT=5
 MEM0_CONTEXT_CHAR_LIMIT=1200

@@ -43,6 +43,24 @@ export interface SatisfactionStats {
     dissatisfied_frequencies: SatisfactionFrequency[];
 }
 
+export interface SatisfactionFeedbackItem {
+    id: string;
+    agent_type: SatisfactionAgentType;
+    ref_key: string;
+    rating: number | null;
+    satisfied_aspects: string[];
+    dissatisfied_aspects: string[];
+    comment: string | null;
+    source_verified: boolean;
+    review_status: 'not_required' | 'pending' | 'resolved' | 'promoted';
+    review_note: string | null;
+    candidate_dataset_id: string | null;
+    created_at: string;
+}
+
+export interface SatisfactionFeedbackPage { items: SatisfactionFeedbackItem[]; total: number; page: number; limit: number }
+export interface SatisfactionFilters { agent_type?: SatisfactionAgentType; review_status?: SatisfactionFeedbackItem['review_status']; created_from?: string; created_to?: string }
+
 /** localStorage 去重 key 前缀 */
 const SATISFACTION_ASKED_PREFIX = 'satisfaction.asked.';
 
@@ -85,12 +103,38 @@ export async function submitSatisfaction(payload: SatisfactionSubmission): Promi
 }
 
 /** 拉取当前用户的满意度统计汇总。 */
-export async function getSatisfactionStats(): Promise<SatisfactionStats> {
-    return apiRequest<SatisfactionStats>('/api/satisfaction/stats');
+export async function getSatisfactionStats(filters: SatisfactionFilters = {}): Promise<SatisfactionStats> {
+    const query = new URLSearchParams();
+    if (filters.agent_type) query.set('agent_type', filters.agent_type);
+    if (filters.created_from) query.set('created_from', filters.created_from);
+    if (filters.created_to) query.set('created_to', filters.created_to);
+    return apiRequest<SatisfactionStats>(`/api/satisfaction/stats${query.size ? `?${query}` : ''}`);
+}
+
+export async function getSatisfactionFeedback(filters: SatisfactionFilters = {}): Promise<SatisfactionFeedbackPage> {
+    const query = new URLSearchParams();
+    Object.entries(filters).forEach(([key, value]) => { if (value) query.set(key, value); });
+    return apiRequest<SatisfactionFeedbackPage>(`/api/satisfaction/feedback${query.size ? `?${query}` : ''}`);
+}
+
+export async function resolveSatisfactionFeedback(id: string, note: string): Promise<SatisfactionFeedbackItem> {
+    return apiRequest<SatisfactionFeedbackItem>(`/api/satisfaction/feedback/${encodeURIComponent(id)}/review`, { method: 'POST', body: JSON.stringify({ status: 'resolved', note }) });
+}
+
+export async function linkSatisfactionPromotion(id: string, datasetId: string, capability: 'interview_planner' | 'resume_optimizer'): Promise<SatisfactionFeedbackItem> {
+    return apiRequest<SatisfactionFeedbackItem>(`/api/satisfaction/feedback/${encodeURIComponent(id)}/promotion-link`, { method: 'POST', body: JSON.stringify({ dataset_id: datasetId, capability }) });
+}
+
+export async function promoteSatisfactionFeedback(id: string, capability: 'interview_planner' | 'resume_optimizer', confirmation: Record<string, unknown>): Promise<{ id: string; name: string; version: string; status: string }> {
+    return apiRequest(`/api/satisfaction/feedback/${encodeURIComponent(id)}/promote`, { method: 'POST', body: JSON.stringify({ capability, confirmation }) });
 }
 
 /** 满意度 API 客户端对象 */
 export const satisfactionApi = {
     submit: submitSatisfaction,
     stats: getSatisfactionStats,
+    feedback: getSatisfactionFeedback,
+    resolve: resolveSatisfactionFeedback,
+    linkPromotion: linkSatisfactionPromotion,
+    promote: promoteSatisfactionFeedback,
 };

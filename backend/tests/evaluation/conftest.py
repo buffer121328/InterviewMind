@@ -69,11 +69,6 @@ TEST_API_CONFIG: dict = {
         "api_key": "test-key-fast",
         "model": "gpt-4o-mini",
     },
-    "general": {
-        "base_url": "https://test.openai.com/v1",
-        "api_key": "test-key-general",
-        "model": "gpt-4o-mini",
-    },
 }
 
 

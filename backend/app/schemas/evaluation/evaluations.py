@@ -68,6 +68,25 @@ class EvaluationDatasetCreateRequest(_EvaluationRequest):
     cases: list[EvaluationCaseCreateRequest] = Field(min_length=1, max_length=5000, description="案例列表")
 
 
+class ProductionHistoryConfirmRequest(_EvaluationRequest):
+    """人工确认一条生产历史来源；input 始终由服务端重建。"""
+
+    name: str = Field(min_length=1, max_length=160)
+    version: str = Field(min_length=1, max_length=80)
+    source_hash: str = Field(min_length=64, max_length=64)
+    reviewed: bool
+    expected_output: JsonValue | None = None
+    expected_facts: list[JsonValue] = Field(default_factory=list, max_length=200)
+    forbidden_claims: list[JsonValue] = Field(default_factory=list, max_length=200)
+    expected_tool_calls: list[str] = Field(default_factory=list, max_length=100)
+    allowed_tool_calls: list[str] = Field(default_factory=list, max_length=100)
+    quality_rubric: dict[str, JsonValue] = Field(default_factory=dict)
+    tags: list[str] = Field(default_factory=list, max_length=40)
+    severity: Literal["low", "medium", "high", "critical"] = "medium"
+    latency_budget_ms: int | None = Field(default=None, ge=1, le=3_600_000)
+    token_budget: int | None = Field(default=None, ge=1, le=10_000_000)
+
+
 class EvaluationDatasetStatusRequest(_EvaluationRequest):
     """推进 Dataset Version 生命周期，但不允许回退或原地修改案例。"""
 
@@ -195,7 +214,7 @@ class EvaluationAdjudicationRequest(_EvaluationRequest):
     """专家对 conflicted 标注追加裁决 revision。"""
 
     metric_name: str = Field(min_length=1, max_length=200, description="指标名称")
-    value: JsonValue = Field(description="裁决值")
+    value: bool = Field(strict=True, description="二元裁决值：通过或不通过")
     comment: str | None = Field(default=None, max_length=2000, description="裁决备注")
 
 

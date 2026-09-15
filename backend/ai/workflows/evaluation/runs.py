@@ -388,6 +388,8 @@ class RunUseCasesMixin(QuickRunUseCasesMixin):
                 )
             except LookupError as exc:
                 raise EvaluationUseCaseError(str(exc), status_code=404) from exc
+            except ValueError as exc:
+                raise EvaluationUseCaseError(str(exc), status_code=409) from exc
             return _dataset(row)
 
     async def cancel_run(self, *, user_id: str, run_id: str) -> dict[str, Any]:

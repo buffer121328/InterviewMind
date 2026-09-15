@@ -36,7 +36,7 @@ const sections: Array<{
     title: "模拟面试",
     summary: "根据简历、JD、公司信息、个人题库和面经候选题生成定向面试。",
     icon: Bot,
-    steps: ["配置 Smart / Fast 通道", "上传简历并填写目标 JD", "选择轮次、题数与文字/语音模式", "完成后生成能力画像和短板报告"],
+    steps: ["配置主模型、Fast 模型与回退池", "上传简历并填写目标 JD", "选择轮次、题数与文字/语音模式", "完成后生成能力画像和短板报告"],
   },
   {
     view: "resume",
@@ -118,7 +118,7 @@ export function GuidePage({ onBack, onNavigate, onOpenSettings }: GuidePageProps
 
         <section className="mt-12 grid gap-4 md:grid-cols-3">
           {[
-            ["1", "连接模型", "至少配置 Smart 与 Fast；其余通道可按能力独立分配。"],
+            ["1", "连接模型", "至少配置主模型与 Fast 模型；其余阶段可按能力独立分配。"],
             ["2", "建立资料", "导入简历、JD、题库和面试经历，形成候选人上下文。"],
             ["3", "执行与复盘", "通过任务运行查看进度，把报告、记忆和投递事件继续沉淀。"],
           ].map(([number, title, text]) => (

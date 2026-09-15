@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 from hashlib import sha256
 from threading import RLock
 from time import perf_counter, time
@@ -122,9 +121,11 @@ def create_llm_from_config(
     }
     output_token_limit = max_tokens or settings.llm_max_tokens
     if metadata.get("model_provider") == "mimo":
-        # MiMo's OpenAI-compatible API documents max_completion_tokens and
-        # rejects the legacy max_tokens field.
+        # MiMo documents max_completion_tokens and its official thinking switch.
+        # Disable thinking for this latency-sensitive path; no granular level
+        # (low/medium/high) is documented by the provider.
         common_options["max_completion_tokens"] = output_token_limit
+        common_options["extra_body"] = {"thinking": {"type": "disabled"}}
     else:
         common_options["max_tokens"] = output_token_limit
     if callbacks:
@@ -143,16 +144,11 @@ def create_llm_from_config(
 
 
 def _resolve_channel_config(api_config: dict, channel: str) -> dict:
-    """按通道定义解析最后一道兼容回退；General 仅属于简历专家路由。"""
+    """Resolve one direct model while keeping the main model as the universal fallback."""
     import logging
 
     logger = logging.getLogger(__name__)
-    if channel == "fast":
-        fallback_chain = ["fast", "smart"]
-    elif channel == "smart":
-        fallback_chain = ["smart", "fast"]
-    else:
-        fallback_chain = [channel, "general", "smart", "fast"]
+    fallback_chain = ["smart", "fast"] if channel in {"smart", "fast", "general"} else [channel, "smart", "fast"]
     for ch in fallback_chain:
         config = api_config.get(ch)
         if config and config.get("api_key"):
@@ -172,15 +168,15 @@ def _valid_model_channel(config: dict | None) -> dict | None:
 
 
 def resolve_embedding_dimensions(value: object | None = None) -> int:
-    """Resolve a validated embedding dimension with the environment as legacy fallback."""
-    candidate = int(os.getenv("EMBEDDING_DIM", "1536")) if value is None else value
+    """Validate the dimension declared by the request-level embedding connection."""
+    candidate = value
     if isinstance(candidate, bool) or not isinstance(candidate, int) or not 1 <= candidate <= 16_000:
         raise ValueError("Embedding dimensions must be an integer between 1 and 16000")
     return candidate
 
 
 def get_embedding_client_config_from_api_config(api_config: dict | None = None) -> dict:
-    """获取嵌入客户端配置来源API配置相关后端逻辑。"""
+    """从已由 Redis 凭据水合的请求配置取得嵌入客户端配置。"""
     request_config = _valid_model_channel((api_config or {}).get("rag_embedding"))
     if request_config:
         return {
@@ -189,12 +185,7 @@ def get_embedding_client_config_from_api_config(api_config: dict | None = None) 
             "model": request_config["model"],
             "dimensions": resolve_embedding_dimensions(request_config.get("dimensions")),
         }
-    return {
-        "api_key": os.getenv("OPENAI_API_KEY", ""),
-        "base_url": os.getenv("OPENAI_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
-        "model": os.getenv("EMBEDDING_MODEL", "text-embedding-v4"),
-        "dimensions": resolve_embedding_dimensions(),
-    }
+    raise ValueError("未检测到 RAG Embedding 模型配置。请在设置中配置并保存该模型 API Key。")
 
 
 class ModelGateway:
@@ -236,7 +227,7 @@ class ModelGateway:
             return self._candidate_identities.pop(id(llm), None)
 
     @staticmethod
-    def _pool(api_config: dict, name: str, fallback_channel: str) -> list[dict]:
+    def _pool(api_config: dict, name: str, fallback_channel: str | None = None) -> list[dict]:
         """返回按名称选择的模型池，并集中应用池为空和配置缺失时的 fallback。
 
         Args:
@@ -247,7 +238,7 @@ class ModelGateway:
         configured = [dict(item) for item in api_config.get(name, []) if item and item.get("api_key")]
         if configured:
             return configured
-        fallback = api_config.get(fallback_channel)
+        fallback = api_config.get(fallback_channel) if fallback_channel else None
         return [dict(fallback)] if fallback and fallback.get("api_key") else []
 
     @staticmethod
@@ -259,45 +250,17 @@ class ModelGateway:
         return []
 
     def _candidate_groups(self, api_config: dict, channel: str) -> list[tuple[str, list[dict]]]:
-        """Build ordered candidates while keeping core and expert routing separate.
-
-        Smart/Fast are core execution channels. General is intentionally limited
-        to resume-expert fallback so its UI placement and runtime semantics match.
-        Pool members are still ordered by the scheduler; duplicate identities are
-        removed later by ``_candidate_configs``.
-        """
+        """Build one hierarchy: stage choice (or main), Fast Pool, Reasoning Pool."""
         fast_pool = self._pool(api_config, "fast_pool", "fast")
-        reasoning_pool = self._pool(api_config, "reasoning_pool", "smart")
+        reasoning_pool = self._pool(api_config, "reasoning_pool")
         smart = self._single_channel(api_config, "smart")
-        fast = self._single_channel(api_config, "fast")
-        general = self._single_channel(api_config, "general")
-
-        if channel == "fast":
-            return [
-                ("fast_pool", fast_pool),
-                ("channel:fast", fast),
-                ("reasoning_pool", reasoning_pool),
-                ("channel:smart", smart),
-            ]
-        if channel == "smart":
-            return [
-                ("reasoning_pool", reasoning_pool),
-                ("channel:smart", smart),
-                ("fast_pool", fast_pool),
-                ("channel:fast", fast),
-            ]
-
-        direct = self._single_channel(api_config, channel)
-        groups = [(f"channel:{channel}", direct)]
-        if channel != "general":
-            groups.append(("channel:general", general))
-        groups.extend([
-            ("reasoning_pool", reasoning_pool),
-            ("channel:smart", smart),
+        direct = [] if channel in {"smart", "fast", "general"} else self._single_channel(api_config, channel)
+        primary = direct or smart
+        return [
+            (f"channel:{channel}" if direct else "channel:smart", primary),
             ("fast_pool", fast_pool),
-            ("channel:fast", fast),
-        ])
-        return groups
+            ("reasoning_pool", reasoning_pool),
+        ]
 
     def _candidate_configs(self, api_config: dict, channel: str) -> tuple[list[dict], str | None]:
         """从请求配置解析可用模型候选，并保留模型网关的 URL、超时和冷却约束。
@@ -340,7 +303,7 @@ class ModelGateway:
             api_config: api 配置。
             channel: 经过类型边界校验的 `channel`；其格式和可选值由参数类型及调用流程约束。
             max_tokens: 可选的单次输出 Token 上限；省略时使用全局默认值。
-            preferred_provider: 可选的候选提供商偏好；只重排已有候选，不新增调用目标。
+            preferred_provider: 保留的兼容参数；固定层级下不跨层重排候选。
         """
         if max_tokens is not None and max_tokens < 1:
             raise ValueError("max_tokens must be positive")
@@ -350,20 +313,8 @@ class ModelGateway:
         if not configs:
             configs = [_resolve_channel_config(api_config, channel)]
             configs, reserved_identity = self.scheduler.reserve_order(f"channel:{channel}", configs)
-        normalized_preferred_provider = str(preferred_provider or "").strip().lower()
-        if normalized_preferred_provider:
-            configs = sorted(
-                configs,
-                key=lambda config: (
-                    provider_observability_metadata(config).get("model_provider")
-                    != normalized_preferred_provider
-                ),
-            )
-            preferred_identity = _identity(configs[0])
-            if reserved_identity and reserved_identity != preferred_identity:
-                self.scheduler.finish(reserved_identity)
-                self.scheduler.start(preferred_identity)
-                reserved_identity = preferred_identity
+        # Provider hints must not move a model across the user-visible hierarchy.
+        # Pool membership and pool-local scheduling express priority instead.
 
         candidates: list[BaseChatModel] = []
         candidate_count = len(configs)
@@ -430,10 +381,9 @@ class ModelGateway:
             model: 模型对象。
             dimensions: 经过类型边界校验的 `dimensions`；其格式和可选值由参数类型及调用流程约束。
         """
-        return {
-            "model": model or os.getenv("EMBEDDING_MODEL", "text-embedding-v4"),
-            "dimensions": resolve_embedding_dimensions(dimensions),
-        }
+        if not model:
+            raise ValueError("未检测到 Embedding 模型配置。请在设置中配置 RAG Embedding 模型。")
+        return {"model": model, "dimensions": resolve_embedding_dimensions(dimensions)}
 
     def get_embedding_client_config(
         self,

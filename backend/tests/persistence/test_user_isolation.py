@@ -213,3 +213,39 @@ class TestDependsUserId:
 
         result = get_current_user_id(x_user_id=USER_A)
         assert result == USER_A
+
+
+@pytest.mark.asyncio
+async def test_ability_profile_progress_rows_are_scoped_to_owner_and_completed_status(monkeypatch):
+    from sqlalchemy.dialects import postgresql
+    from app.db.repositories.session.repo_impl import profile_mgmt
+
+    class CapturingResult:
+        def all(self):
+            return []
+
+    class CapturingDb:
+        def __init__(self):
+            self.statement = None
+
+        async def execute(self, statement):
+            self.statement = statement
+            return CapturingResult()
+
+    class Context:
+        def __init__(self, db):
+            self.db = db
+
+        async def __aenter__(self):
+            return self.db
+
+        async def __aexit__(self, *_args):
+            return False
+
+    db = CapturingDb()
+    monkeypatch.setattr(profile_mgmt, "async_session", lambda: Context(db))
+
+    assert await profile_mgmt.ProfileService().get_ability_profile_progress_rows(USER_A) == []
+    sql = str(db.statement.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}))
+    assert f"sessions.user_id = '{USER_A}'" in sql
+    assert "sessions.status = 'completed'" in sql

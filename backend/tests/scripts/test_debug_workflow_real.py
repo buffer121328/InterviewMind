@@ -14,16 +14,13 @@ def test_credential_reference_config_covers_chat_embedding_and_memory_channels(
 ) -> None:
     """真实链路应像前端一样提交聊天、RAG 与 mem0 的独立模型引用。"""
 
-    monkeypatch.setattr(workflow, "MODEL_NAME", "chat-model")
-    monkeypatch.setattr(workflow, "MODEL_BASE_URL", "https://chat.example.test/v1")
-    monkeypatch.setattr(workflow, "EMBEDDING_MODEL_NAME", "embedding-model")
-    monkeypatch.setattr(
-        workflow,
-        "EMBEDDING_BASE_URL",
-        "https://embedding.example.test/v1",
+    config = workflow.credential_reference_config(
+        chat_model="chat-model",
+        chat_base_url="https://chat.example.test/v1",
+        embedding_model="embedding-model",
+        embedding_base_url="https://embedding.example.test/v1",
+        embedding_dimensions=1024,
     )
-
-    config = workflow.credential_reference_config()
 
     assert set(config) == {
         "smart",
@@ -36,6 +33,7 @@ def test_credential_reference_config_covers_chat_embedding_and_memory_channels(
     assert config["mem0_llm"]["model"] == "chat-model"
     assert config["rag_embedding"]["model"] == "embedding-model"
     assert config["mem0_embedder"]["model"] == "embedding-model"
+    assert config["rag_embedding"]["dimensions"] == 1024
     assert all(channel["api_key"] == "" for channel in config.values())
 
 
@@ -44,17 +42,6 @@ async def test_hydrate_api_config_resolves_every_missing_channel_from_store(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """没有显式环境凭据时，五个通道都必须经生产凭据用例水合。"""
-
-    for name in (
-        "INTERVIEW_API_KEY",
-        "MEM0_LLM_API_KEY",
-        "DEEPSEEK_API_KEY",
-        "INTERVIEW_EMBEDDING_API_KEY",
-        "MEM0_EMBEDDER_API_KEY",
-        "DASHSCOPE_API_KEY",
-        "OPENAI_API_KEY",
-    ):
-        monkeypatch.delenv(name, raising=False)
 
     calls: list[tuple[str, frozenset[str] | None]] = []
 
@@ -77,7 +64,14 @@ async def test_hydrate_api_config_resolves_every_missing_channel_from_store(
     monkeypatch.setattr(workflow, "ModelCredentialUseCases", FakeUseCases)
     monkeypatch.setattr(workflow, "get_model_credential_store", lambda: object())
 
-    config = await workflow.hydrate_api_config("debug-user")
+    config = await workflow.hydrate_api_config(
+        "debug-user",
+        chat_model="chat-model",
+        chat_base_url="https://chat.example.test/v1",
+        embedding_model="embedding-model",
+        embedding_base_url="https://embedding.example.test/v1",
+        embedding_dimensions=1024,
+    )
     payload = config.model_dump()
 
     assert calls == [
@@ -98,10 +92,10 @@ async def test_hydrate_api_config_resolves_every_missing_channel_from_store(
 
 
 @pytest.mark.asyncio
-async def test_hydrate_api_config_only_resolves_channels_without_environment_keys(
+async def test_hydrate_api_config_never_reads_environment_keys(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """聊天和 Embedding 环境凭据互不串用，凭据仓库只补齐缺失通道。"""
+    """环境中即使存在模型 Key，调试预检仍只从凭据仓库水合。"""
 
     monkeypatch.setenv("INTERVIEW_API_KEY", "chat-secret")
     monkeypatch.setenv("INTERVIEW_EMBEDDING_API_KEY", "embedding-secret")
@@ -111,17 +105,30 @@ async def test_hydrate_api_config_only_resolves_channels_without_environment_key
     monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 
-    class UnexpectedUseCases:
+    class RedisOnlyUseCases:
         def __init__(self, _store: Any) -> None:
-            raise AssertionError("完整环境配置不应访问生产凭据仓库")
+            pass
 
-    monkeypatch.setattr(workflow, "ModelCredentialUseCases", UnexpectedUseCases)
+        async def hydrate_request(self, payload, _user_id, *, allowed_channels):
+            for channel in allowed_channels:
+                payload["api_config"][channel]["api_key"] = f"redis-{channel}"
+            return payload
 
-    config = await workflow.hydrate_api_config("debug-user")
+    monkeypatch.setattr(workflow, "ModelCredentialUseCases", RedisOnlyUseCases)
+    monkeypatch.setattr(workflow, "get_model_credential_store", lambda: object())
+
+    config = await workflow.hydrate_api_config(
+        "debug-user",
+        chat_model="chat-model",
+        chat_base_url="https://chat.example.test/v1",
+        embedding_model="embedding-model",
+        embedding_base_url="https://embedding.example.test/v1",
+        embedding_dimensions=1024,
+    )
     payload = config.model_dump()
 
-    assert payload["smart"]["api_key"] == "chat-secret"
-    assert payload["fast"]["api_key"] == "chat-secret"
-    assert payload["mem0_llm"]["api_key"] == "chat-secret"
-    assert payload["rag_embedding"]["api_key"] == "embedding-secret"
-    assert payload["mem0_embedder"]["api_key"] == "embedding-secret"
+    assert payload["smart"]["api_key"] == "redis-smart"
+    assert payload["fast"]["api_key"] == "redis-fast"
+    assert payload["mem0_llm"]["api_key"] == "redis-mem0_llm"
+    assert payload["rag_embedding"]["api_key"] == "redis-rag_embedding"
+    assert payload["mem0_embedder"]["api_key"] == "redis-mem0_embedder"

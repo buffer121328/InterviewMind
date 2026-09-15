@@ -49,13 +49,11 @@ export interface ApiConfigActions {
     getReflectorModel: () => ModelConfig | null;
     getHrReviewerModel: () => ModelConfig | null;
     // 简历工具专家模型
-    setGeneralModel: (id: string) => boolean;
     setContentWriterModel: (id: string) => boolean;
     setMimoModel: (id: string) => boolean;
     setRagEmbeddingModel: (id: string) => boolean;
     setMem0LlmModel: (id: string) => boolean;
     setMem0EmbedderModel: (id: string) => boolean;
-    getGeneralModel: () => ModelConfig | null;
     getContentWriterModel: () => ModelConfig | null;
     getMimoModel: () => ModelConfig | null;
     getRagEmbeddingModel: () => ModelConfig | null;
@@ -68,7 +66,6 @@ export interface ApiConfigActions {
         fast: ModelRequestConfig;
         technical_depth: ModelRequestConfig | null;
         communication: ModelRequestConfig | null;
-        general: ModelRequestConfig | null;
         match_analyst: ModelRequestConfig | null;
         content_writer: ModelRequestConfig | null;
         hr_reviewer: ModelRequestConfig | null;
@@ -111,7 +108,7 @@ export const createApiConfigSlice = (set: SetState, get: GetState): ApiConfigSli
             models: [...apiConfig.models, newModel],
         };
 
-        // 只有文本连接可自动成为核心 Smart/Fast 通道；专家通道保持未单独配置，交给 General 回退。
+        // 只有文本连接可自动成为主模型/Fast 通道；专家通道保持未单独配置。
         if (apiConfig.models.length === 0 && newModel.kind !== 'voice') {
             newConfig.smartModelId = newModel.id;
             newConfig.fastModelId = newModel.id;
@@ -150,7 +147,6 @@ export const createApiConfigSlice = (set: SetState, get: GetState): ApiConfigSli
             matchAnalystModelId: apiConfig.matchAnalystModelId === id ? '' : apiConfig.matchAnalystModelId,
             reflectorModelId: apiConfig.reflectorModelId === id ? '' : apiConfig.reflectorModelId,
             hrReviewerModelId: apiConfig.hrReviewerModelId === id ? '' : apiConfig.hrReviewerModelId,
-            generalModelId: apiConfig.generalModelId === id ? '' : apiConfig.generalModelId,
             contentWriterModelId: apiConfig.contentWriterModelId === id ? '' : apiConfig.contentWriterModelId,
             mimoModelId: apiConfig.mimoModelId === id ? '' : apiConfig.mimoModelId,
             ragEmbeddingModelId: apiConfig.ragEmbeddingModelId === id ? '' : apiConfig.ragEmbeddingModelId,
@@ -235,13 +231,6 @@ export const createApiConfigSlice = (set: SetState, get: GetState): ApiConfigSli
     },
 
     // 简历工具专家模型 setters
-    setGeneralModel: (id) => {
-        const { apiConfig } = get();
-        if (id && !apiConfig.models.find(m => m.id === id)) return false;
-        set({ apiConfig: { ...apiConfig, generalModelId: id } });
-        return true;
-    },
-
     setContentWriterModel: (id) => {
         const { apiConfig } = get();
         if (id && !apiConfig.models.find(m => m.id === id)) return false;
@@ -313,11 +302,6 @@ export const createApiConfigSlice = (set: SetState, get: GetState): ApiConfigSli
         return apiConfig.models.find(m => m.id === apiConfig.hrReviewerModelId) || null;
     },
 
-    getGeneralModel: () => {
-        const { apiConfig } = get();
-        return apiConfig.models.find(m => m.id === apiConfig.generalModelId) || null;
-    },
-
     getContentWriterModel: () => {
         const { apiConfig } = get();
         return apiConfig.models.find(m => m.id === apiConfig.contentWriterModelId) || null;
@@ -355,7 +339,6 @@ export const createApiConfigSlice = (set: SetState, get: GetState): ApiConfigSli
         const fastModel = get().getFastModel();
         const technicalDepthModel = get().getTechnicalDepthModel();
         const communicationModel = get().getCommunicationModel();
-        const generalModel = get().getGeneralModel();
         const matchAnalystModel = get().getMatchAnalystModel();
         const contentWriterModel = get().getContentWriterModel();
         const hrReviewerModel = get().getHrReviewerModel();
@@ -375,7 +358,7 @@ export const createApiConfigSlice = (set: SetState, get: GetState): ApiConfigSli
         };
 
         /** Provides the get pool config store helper; request-scoped configuration and session state stay centralized in Zustand, while backend persistence remains in the API layer. */
-        const getPoolConfig = (ids: string[] | undefined, fallback: ModelConfig) => {
+        const getPoolConfig = (ids: string[] | undefined, fallback: ModelConfig | null = null) => {
             const selected = (ids || [])
                 .map(id => get().apiConfig.models.find(model => model.id === id))
                 .filter((model): model is ModelConfig => Boolean(model?.credentialStored));
@@ -387,7 +370,6 @@ export const createApiConfigSlice = (set: SetState, get: GetState): ApiConfigSli
             fast: getModelConfig(fastModel),
             technical_depth: optionalModelConfigForRequest(technicalDepthModel),
             communication: optionalModelConfigForRequest(communicationModel),
-            general: optionalModelConfigForRequest(generalModel),
             match_analyst: optionalModelConfigForRequest(matchAnalystModel),
             content_writer: optionalModelConfigForRequest(contentWriterModel),
             hr_reviewer: optionalModelConfigForRequest(hrReviewerModel),
@@ -396,7 +378,7 @@ export const createApiConfigSlice = (set: SetState, get: GetState): ApiConfigSli
             rag_embedding: ragEmbeddingModel ? getModelConfig(ragEmbeddingModel) : null,
             mem0_llm: mem0LlmModel ? getModelConfig(mem0LlmModel) : null,
             mem0_embedder: mem0EmbedderModel ? getModelConfig(mem0EmbedderModel) : null,
-            reasoning_pool: getPoolConfig(get().apiConfig.reasoningPoolModelIds, smartModel),
+            reasoning_pool: getPoolConfig(get().apiConfig.reasoningPoolModelIds),
             fast_pool: getPoolConfig(get().apiConfig.fastPoolModelIds, fastModel),
         };
     },

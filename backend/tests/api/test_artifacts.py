@@ -145,7 +145,7 @@ def test_export_route_sanitizes_storage_failures(monkeypatch):
     assert "/app/" not in response.text
 
 
-def test_standard_report_pdf_embeds_cjk_font_and_renders_multpage_body_with_poppler(tmp_path: Path):
+def test_interview_report_pdf_embeds_cjk_font_and_renders_multpage_body_with_poppler(tmp_path: Path):
     """The report PDF is self-contained: text extracts and an independent renderer sees Chinese body text."""
     import shutil
     import subprocess
@@ -170,17 +170,17 @@ def test_standard_report_pdf_embeds_cjk_font_and_renders_multpage_body_with_popp
     finally:
         document.close()
 
-    pdf_path = tmp_path / "standard-report.pdf"
+    pdf_path = tmp_path / "interview-report.pdf"
     pdf_path.write_bytes(pdf_bytes)
     pdftotext = shutil.which("pdftotext")
     pdftoppm = shutil.which("pdftoppm")
     if pdftotext is None or pdftoppm is None:
         pytest.skip("independent PDF rendering requires Poppler; the backend image provides it")
-    text_path = tmp_path / "standard-report.txt"
+    text_path = tmp_path / "interview-report.txt"
     subprocess.run([pdftotext, "-enc", "UTF-8", str(pdf_path), str(text_path)], check=True)  # noqa: S603
     assert "中文面试报告" in text_path.read_text(encoding="utf-8")
-    image_prefix = tmp_path / "standard-report-page"
+    image_prefix = tmp_path / "interview-report-page"
     subprocess.run([pdftoppm, "-f", "1", "-l", "1", "-png", str(pdf_path), str(image_prefix)], check=True)  # noqa: S603
-    rendered = tmp_path / "standard-report-page-1.png"
+    rendered = tmp_path / "interview-report-page-1.png"
     assert rendered.is_file()
     assert rendered.stat().st_size > 10_000

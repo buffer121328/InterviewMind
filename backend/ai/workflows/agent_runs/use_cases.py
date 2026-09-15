@@ -29,7 +29,6 @@ from app.domain.agent_runs import (
 )
 from app.domain.interview_report_modes import (
     build_authoritative_report_source_version,
-    normalize_report_mode,
     scope_report_idempotency_key,
 )
 
@@ -295,16 +294,13 @@ class AgentRunUseCases:
         if session is None:
             raise AgentRunNotFound("会话不存在或无权访问", status_code=404)
         normalized_payload = dict(payload)
-        report_mode = normalize_report_mode(normalized_payload.get("report_mode"))
         report_source_version = build_authoritative_report_source_version(session)
-        normalized_payload["report_mode"] = report_mode.value
         normalized_payload["report_source_version"] = report_source_version
 
-        # 只持久化可安全索引的模式和哈希版本；不把问答或简历正文写入 AgentRun 元数据。
+        # 只持久化来源哈希版本；不把问答或简历正文写入会话元数据。
         await self._session_repo.update_session(
             session_id=session_id,
             metadata_updates={
-                "report_mode": report_mode.value,
                 "report_source_version": report_source_version,
             },
             user_id=user_id,
@@ -316,7 +312,6 @@ class AgentRunUseCases:
             idempotency_key=scope_report_idempotency_key(
                 idempotency_key,
                 session_id=session_id,
-                report_mode=report_mode,
                 source_version=report_source_version,
             ),
             session_id=session_id,

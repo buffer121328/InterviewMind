@@ -1,9 +1,9 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Loader2, RefreshCw, AlertCircle, CheckCircle2, Check, Brain, Wand2, Lightbulb } from 'lucide-react';
-import { getOverallProfile, generateProfile, type AbilityProfile, type AbilityProfileSource } from '@/lib/api/profile';
-import { normalizeAbilityGrowth } from '@/lib/abilityGrowth';
+import { Loader2, RefreshCw, AlertCircle, CheckCircle2, Check, Brain, Wand2, Lightbulb, Target } from 'lucide-react';
+import { getOverallProfile, generateProfile, type AbilityProfile, type AbilityProfileProgress, type AbilityProfileSource } from '@/lib/api/profile';
+import { normalizeAbilityGrowth, type AbilityGrowthRecord } from '@/lib/abilityGrowth';
 import { AbilityRadarChart } from './RadarChart';
 import { Button } from './ui/button';
 import { getRequestApiConfig } from '@/store/interviewFacade';
@@ -24,6 +24,86 @@ const PROFILE_DIMENSIONS: Array<{
     { key: 'collaboration', label: '协作能力' },
 ];
 
+function AbilityProfileProgressCard({ progress }: { progress: AbilityProfileProgress }) {
+    const visibleRounds = progress.ready_to_generate
+        ? progress.required_rounds
+        : progress.eligible_rounds;
+    const percent = Math.min(
+        100,
+        Math.round((visibleRounds / Math.max(1, progress.required_rounds)) * 100),
+    );
+    const isReady = progress.ready_to_generate;
+    const degradedRounds = progress.degraded_round_indexes.join('、');
+    const statusText = isReady
+        ? `已有 ${progress.company_profile_count} 份公司三轮总画像，可以生成综合能力画像。`
+        : progress.blocker === 'degraded_round_reports'
+            ? `已完成 ${progress.completed_rounds} 轮面试，但当前系列第 ${degradedRounds || '部分'} 轮报告未形成有效评分。`
+            : progress.blocker === 'company_profile_pending'
+                ? '三轮有效评分已经齐全，但公司三轮总画像尚未生成。'
+                : `已完成 ${progress.completed_rounds} 轮面试；需要在同一公司系列内完成三轮并生成有效评分。`;
+    const actionText = progress.blocker === 'degraded_round_reports'
+        ? `请在历史面试中重新生成第 ${degradedRounds || '对应'} 轮深度报告，最后重新生成第 3 轮报告。`
+        : progress.blocker === 'company_profile_pending'
+            ? '请在历史面试中重新生成第 3 轮深度报告。'
+            : null;
+
+    return (
+        <section
+            className={`rounded-2xl border p-5 ${isReady ? 'border-teal-200 bg-teal-50/70' : 'border-amber-200 bg-amber-50/70'}`}
+            aria-label="综合能力画像生成进度"
+        >
+            <div className="flex items-start justify-between gap-4">
+                <div className="flex items-start gap-3">
+                    <div className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${isReady ? 'bg-teal-100 text-teal-700' : 'bg-amber-100 text-amber-700'}`}>
+                        {isReady ? <CheckCircle2 className="h-5 w-5" /> : <Target className="h-5 w-5" />}
+                    </div>
+                    <div>
+                        <h3 className="text-sm font-semibold text-slate-900">公司三轮画像准备度</h3>
+                        <p className={`mt-1 text-xs leading-5 ${isReady ? 'text-teal-700' : 'text-amber-800'}`}>
+                            {statusText}
+                        </p>
+                    </div>
+                </div>
+                <span className={`shrink-0 text-sm font-bold ${isReady ? 'text-teal-700' : 'text-amber-800'}`}>
+                    {visibleRounds}/{progress.required_rounds} 有效轮次
+                </span>
+            </div>
+            <div className="mt-4" role="progressbar" aria-valuemin={0} aria-valuemax={progress.required_rounds} aria-valuenow={visibleRounds} aria-label={`已有 ${visibleRounds} 轮有效评分，目标 ${progress.required_rounds} 轮`}>
+                <div className="h-2 overflow-hidden rounded-full bg-white/80">
+                    <div
+                        className={`h-full rounded-full transition-[width] duration-500 ${isReady ? 'bg-teal-500' : 'bg-amber-500'}`}
+                        style={{ width: `${percent}%` }}
+                    />
+                </div>
+            </div>
+            <div className={`mt-2 flex justify-between gap-4 text-[11px] ${isReady ? 'text-teal-700' : 'text-amber-800'}`}>
+                <span>累计完成 {progress.completed_rounds} 轮面试</span>
+                <span>{isReady ? `可用公司画像 ${progress.company_profile_count} 份` : `还差 ${progress.remaining_rounds} 轮有效评分`}</span>
+            </div>
+            {actionText && (
+                <p className="mt-3 rounded-lg bg-white/70 px-3 py-2 text-xs leading-5 text-amber-900">
+                    {actionText}
+                </p>
+            )}
+        </section>
+    );
+}
+
+function applyGrowthRecord(
+    record: AbilityGrowthRecord,
+    setProfile: (profile: AbilityProfile | null) => void,
+    setGeneratedAt: (value: string | null) => void,
+    setSources: (value: AbilityProfileSource[]) => void,
+    setDimensionChanges: (value: Record<string, number>) => void,
+    setSampleCount: (value: number) => void,
+) {
+    setProfile(record.profile);
+    setGeneratedAt(record.generatedAt);
+    setSources(record.sources);
+    setDimensionChanges(record.dimensionChanges);
+    setSampleCount(record.sampleCount);
+}
+
 /** Renders the ability profile view UI and coordinates its typed props, local state, and approved backend interactions. */
 export function AbilityProfileView() {
     const [profile, setProfile] = useState<AbilityProfile | null>(null);
@@ -33,6 +113,16 @@ export function AbilityProfileView() {
     const [sources, setSources] = useState<AbilityProfileSource[]>([]);
     const [dimensionChanges, setDimensionChanges] = useState<Record<string, number>>({});
     const [sampleCount, setSampleCount] = useState(0);
+    const [progress, setProgress] = useState<AbilityProfileProgress>({
+        completed_rounds: 0,
+        eligible_rounds: 0,
+        required_rounds: 3,
+        remaining_rounds: 3,
+        company_profile_count: 0,
+        degraded_round_indexes: [],
+        ready_to_generate: false,
+        blocker: 'incomplete_series',
+    });
     const [error, setError] = useState<string | null>(null);
     const [runStage, setRunStage] = useState<string | null>(null);
 
@@ -43,11 +133,8 @@ export function AbilityProfileView() {
             if (!active) return;
 
             const growth = normalizeAbilityGrowth(response);
-            setProfile(growth.profile);
-            setGeneratedAt(growth.generatedAt);
-            setSources(growth.sources);
-            setDimensionChanges(growth.dimensionChanges);
-            setSampleCount(growth.sampleCount);
+            applyGrowthRecord(growth, setProfile, setGeneratedAt, setSources, setDimensionChanges, setSampleCount);
+            setProgress(growth.progress);
             setLoading(false);
         });
 
@@ -58,6 +145,7 @@ export function AbilityProfileView() {
 
     /** Handles generate; updates local UI state first and delegates server mutations through the approved API boundary. */
     async function handleGenerate() {
+        if (!progress.ready_to_generate) return;
         setGenerating(true);
         setError(null);
 
@@ -76,11 +164,10 @@ export function AbilityProfileView() {
 
         if (response.success && response.profile) {
             const refreshed = normalizeAbilityGrowth(await getOverallProfile());
+            applyGrowthRecord(refreshed, setProfile, setGeneratedAt, setSources, setDimensionChanges, setSampleCount);
             setProfile(refreshed.profile || response.profile);
             setGeneratedAt(refreshed.generatedAt || new Date().toISOString());
-            setSources(refreshed.sources);
-            setDimensionChanges(refreshed.dimensionChanges);
-            setSampleCount(refreshed.sampleCount);
+            setProgress(refreshed.progress);
         } else {
             setError(response.message || '生成失败，请稍后重试');
         }
@@ -107,12 +194,15 @@ export function AbilityProfileView() {
                 </div>
                 <h3 className="text-lg font-semibold text-gray-900 mb-2">尚未生成成长档案</h3>
                 <p className="text-sm text-gray-500 text-center mb-6 max-w-sm">
-                    完成公司系列面试后，可显式生成综合能力画像并在这里持续查看来源与变化
+                    完成足够的面试轮数后，可显式生成综合能力画像并在这里持续查看来源与变化
                 </p>
+                <div className="w-full max-w-md mb-5">
+                    <AbilityProfileProgressCard progress={progress} />
+                </div>
                 <Button
                     onClick={handleGenerate}
-                    disabled={generating}
-                    className="bg-teal-600 hover:bg-teal-700 text-white px-6 py-2 rounded-lg flex items-center gap-2"
+                    disabled={generating || !progress.ready_to_generate}
+                    className="bg-teal-600 hover:bg-teal-700 text-white px-6 py-2 rounded-lg flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                     {generating ? (
                         <>
@@ -152,7 +242,7 @@ export function AbilityProfileView() {
                     </div>
                     <Button
                         onClick={handleGenerate}
-                        disabled={generating}
+                        disabled={generating || !progress.ready_to_generate}
                         variant="outline"
                         size="sm"
                         className="flex items-center gap-2"
@@ -177,6 +267,8 @@ export function AbilityProfileView() {
                         {error}
                     </div>
                 )}
+
+                <AbilityProfileProgressCard progress={progress} />
 
                 <div className="grid gap-4 md:grid-cols-[180px_1fr]">
                     <div className="rounded-2xl border border-teal-100 bg-teal-50/70 p-5">

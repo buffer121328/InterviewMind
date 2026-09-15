@@ -26,7 +26,6 @@ export interface ApiChannelConfig {
 export interface ApiConfig {
     smart?: ApiChannelConfig;
     fast?: ApiChannelConfig;
-    general?: ApiChannelConfig | null;
     match_analyst?: ApiChannelConfig | null;
     content_writer?: ApiChannelConfig | null;
     hr_reviewer?: ApiChannelConfig | null;

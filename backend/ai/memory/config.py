@@ -1,7 +1,7 @@
 """
 mem0 配置构造模块
 
-从环境变量读取配置，构造 mem0 初始化所需的 config 字典。
+从请求级模型配置与部署基础设施配置构造 mem0 初始化所需的 config 字典。
 """
 
 import os
@@ -39,15 +39,13 @@ def _request_channel(api_config: Optional[dict[str, Any]], name: str) -> Optiona
     return None
 
 
-def _embedding_dimensions(channel: Optional[dict[str, Any]]) -> int:
-    """Resolve a safe request-level dimension while preserving the env fallback.
+def _embedding_dimensions(channel: dict[str, Any]) -> int:
+    """解析并校验请求级 Embedding 维度。
 
     Args:
         channel: 模型通道名称。
     """
-    value: object = (channel or {}).get("dimensions")
-    if value is None:
-        value = int(_env("MEM0_EMBEDDING_DIMS", _env("EMBEDDING_DIM", "1536")))
+    value: object = channel.get("dimensions")
     if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 16_000:
         raise ValueError("mem0 embedding dimensions must be an integer between 1 and 16000")
     return value
@@ -117,11 +115,11 @@ def get_mem0_config(api_config: Optional[dict[str, Any]] = None) -> Optional[dic
     """
     构造 mem0 配置字典
 
-    从环境变量读取 LLM、embedding、pgvector 配置，
+    从请求级 LLM、Embedding 配置和部署级 pgvector 配置读取，
     返回 mem0 Memory.from_config() 所需的 config。
 
     Returns:
-        dict: mem0 配置字典；未启用或 OpenAI-compatible 通道凭据不完整时返回 None。
+        dict: mem0 配置字典；未启用或请求模型通道不完整时返回 None。
 
     Args:
         api_config: 前端请求携带的模型通道配置。
@@ -129,15 +127,21 @@ def get_mem0_config(api_config: Optional[dict[str, Any]] = None) -> Optional[dic
     request_llm = _request_channel(api_config, "mem0_llm")
     request_embedder = _request_channel(api_config, "mem0_embedder") or _request_channel(api_config, "rag_embedding")
     request_configured = bool(request_llm and request_embedder)
+    if not request_configured:
+        logger.info("mem0 等待请求级模型配置与 Redis 凭据水合")
+        return None
+
+    assert request_llm is not None
+    assert request_embedder is not None
     embedding_dimensions = _embedding_dimensions(request_embedder)
     collection_name = _env("MEM0_PGVECTOR_COLLECTION", "mem0_memories")
     if request_embedder is not None:
         collection_name = f"{collection_name}_d{embedding_dimensions}"
 
-    # 检查是否启用：服务端 .env 可显式启用；前端请求携带完整 mem0 通道时也启用。
+    # mem0 是部署级功能开关；模型连接本身只接受请求级配置。
     enabled = _env("MEM0_ENABLED", "true").lower()
-    if enabled not in ("true", "1", "yes") and not request_configured:
-        logger.info("mem0 已禁用（MEM0_ENABLED=false 且请求未携带 mem0 前端配置）")
+    if enabled not in ("true", "1", "yes"):
+        logger.info("mem0 已禁用（MEM0_ENABLED=false）")
         return None
 
     # pgvector 默认与主数据库共用 DATABASE_URL；只有完整的 MEM0_PGVECTOR_URL 才能显式分离。
@@ -151,34 +155,14 @@ def get_mem0_config(api_config: Optional[dict[str, Any]] = None) -> Optional[dic
         },
     }
 
-    mem0_llm_api_key = (request_llm or {}).get("api_key") or _env("MEM0_LLM_API_KEY") or _env("DEEPSEEK_API_KEY")
-    mem0_llm_base_url = (request_llm or {}).get("base_url") or _env("MEM0_LLM_BASE_URL", "https://api.deepseek.com/v1")
-    mem0_llm_model = (request_llm or {}).get("model") or _env("MEM0_LLM_MODEL", "deepseek-v4-flash")
-    mem0_embedder_api_key = (request_embedder or {}).get("api_key") or _env("MEM0_EMBEDDER_API_KEY") or _env("OPENAI_API_KEY")
-    mem0_embedder_base_url = (
-        (request_embedder or {}).get("base_url")
-        or _env("MEM0_EMBEDDER_BASE_URL")
-        or _env("OPENAI_BASE_URL")
-        or "https://dashscope.aliyuncs.com/compatible-mode/v1"
-    )
-    mem0_embedder_model = (request_embedder or {}).get("model") or _env("MEM0_EMBEDDER_MODEL", "text-embedding-v4")
-    llm_provider = _env("MEM0_LLM_PROVIDER", "openai")
-    embedder_provider = _env("MEM0_EMBEDDER_PROVIDER", "openai")
-
-    # 默认使用 OpenAI-compatible provider；缺少凭据时直接禁用，避免 mem0 在应用启动阶段抛出认证异常。
-    missing_channels = []
-    if llm_provider != "ollama" and not mem0_llm_api_key:
-        missing_channels.append("LLM")
-    if embedder_provider != "ollama" and not mem0_embedder_api_key:
-        missing_channels.append("Embedding")
-    if missing_channels:
-        log = logger.info if api_config is None else logger.warning
-        log(
-            "mem0 尚未初始化：%s 通道缺少 API Key%s",
-            "、".join(missing_channels),
-            "，等待前端请求携带模型设置" if api_config is None else "",
-        )
-        return None
+    mem0_llm_api_key = request_llm["api_key"]
+    mem0_llm_base_url = request_llm["base_url"]
+    mem0_llm_model = request_llm["model"]
+    mem0_embedder_api_key = request_embedder["api_key"]
+    mem0_embedder_base_url = request_embedder["base_url"]
+    mem0_embedder_model = request_embedder["model"]
+    llm_provider = str(request_llm.get("provider") or "openai")
+    embedder_provider = str(request_embedder.get("provider") or "openai")
 
     # LLM 配置（用于记忆提取和冲突判断）
     llm_config = {

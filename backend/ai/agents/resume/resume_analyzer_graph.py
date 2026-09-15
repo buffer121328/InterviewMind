@@ -157,7 +157,7 @@ async def node_analyze(state: ResumeAnalyzerState) -> dict:
             prompt,
             ResumeAnalysisOutput,
             api_config,
-            channel="general",
+            channel="smart",
             deadline=state.get("deadline"),
             call_metadata={
                 **assembled.model_event_fields(),

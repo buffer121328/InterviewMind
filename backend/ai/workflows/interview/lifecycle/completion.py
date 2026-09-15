@@ -18,7 +18,6 @@ from app.db.repositories.session.session_repo import SessionRepo
 from app.domain.agent_runs import TASK_TYPE_INTERVIEW_REPORT
 from app.domain.interview_report_modes import (
     build_authoritative_report_source_version,
-    normalize_report_mode,
     scope_report_idempotency_key,
 )
 
@@ -97,12 +96,10 @@ async def queue_or_run_session_reports(
     if session is None:
         logger.warning("[InterviewComplete] 跳过不存在或无权会话的报告任务: session=%s", session_id)
         return
-    report_mode = normalize_report_mode(getattr(session.metadata, "report_mode", None))
     report_source_version = build_authoritative_report_source_version(session)
     await session_repo.update_session(
         session_id=session_id,
         metadata_updates={
-            "report_mode": report_mode.value,
             "report_source_version": report_source_version,
         },
         user_id=user_id,
@@ -110,13 +107,11 @@ async def queue_or_run_session_reports(
     report_payload = {
         "session_id": session_id,
         "api_config": api_config,
-        "report_mode": report_mode.value,
         "report_source_version": report_source_version,
     }
     report_idempotency_key = scope_report_idempotency_key(
         "auto-report",
         session_id=session_id,
-        report_mode=report_mode,
         source_version=report_source_version,
     )
     queued = False
@@ -156,8 +151,6 @@ async def queue_or_run_session_reports(
                 session_id,
                 api_config,
                 user_id=user_id,
-                report_mode=report_mode.value,
-                report_source_version=report_source_version,
             ),
             name=f"interview-reports:{session_id}",
         )
@@ -171,8 +164,7 @@ async def generate_session_reports(
     raise_on_error: bool = False,
     report_checkpoint: Mapping[str, Any] | None = None,
     checkpoint_callback: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
-    report_mode: str = "deep",
-    report_source_version: str | None = None,
+    progress_callback: Callable[[str], Awaitable[None]] | None = None,
 ) -> None:
     """触发单场面试报告分析任务（可带报告检查点与回调）。
 
@@ -191,9 +183,8 @@ async def generate_session_reports(
         optional["report_checkpoint"] = report_checkpoint
     if checkpoint_callback is not None:
         optional["checkpoint_callback"] = checkpoint_callback
-    if report_mode != "deep" or report_source_version is not None:
-        optional["report_mode"] = report_mode
-        optional["report_source_version"] = report_source_version
+    if progress_callback is not None:
+        optional["progress_callback"] = progress_callback
     await trigger_session_report_analysis(
         session_id,
         api_config,

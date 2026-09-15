@@ -213,7 +213,7 @@ def build_interview_release_benchmark(dataset_path: Path | None = None) -> dict[
             "after": {
                 "deep_logical_model_calls": deep_logical_calls,
                 "standard_logical_model_calls": 1,
-                "standard_channel": "general",
+                "standard_channel": "smart",
             },
             "physical_attempts": {
                 "status": "not_measured",

@@ -113,7 +113,6 @@ class SessionAdvancedService(BaseService):
                 source_job_id=parent.metadata.source_job_id, job_context_snapshot=parent.metadata.job_context_snapshot.model_dump() if parent.metadata.job_context_snapshot else None,
                 question_count=0, max_questions=resolved_max_questions, status='active', pinned=False,
                 series_id=series_id, round_index=new_round_index, round_type=new_round_type,
-                report_mode=parent.metadata.report_mode.value,
                 report_source_version=parent.metadata.report_source_version,
                 round_strategy_version=parent.metadata.round_strategy_version,
                 parent_session_id=parent_session_id
@@ -172,7 +171,6 @@ class SessionAdvancedService(BaseService):
                 source_job_id=source.metadata.source_job_id, job_context_snapshot=source.metadata.job_context_snapshot.model_dump() if source.metadata.job_context_snapshot else None,
                 question_count=source.metadata.question_count, max_questions=max_questions or source.metadata.max_questions, status='active', pinned=False,
                 series_id=source.metadata.series_id, round_index=source.metadata.round_index, round_type=source.metadata.round_type,
-                report_mode=source.metadata.report_mode.value,
                 report_source_version=source.metadata.report_source_version,
                 round_strategy_version=source.metadata.round_strategy_version,
                 stable_context_version=source.metadata.stable_context_version,

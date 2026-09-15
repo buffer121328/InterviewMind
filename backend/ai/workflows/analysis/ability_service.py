@@ -39,6 +39,17 @@ class AbilityAnalysisService:
         self._last_generate_time = {}  # 说明：user_id -> timestamp
         self._cooldown_seconds = 60    # 60秒冷却时间
 
+    async def get_profile_progress(self, user_id: str) -> Dict[str, Any]:
+        """返回与公司三轮总画像生成条件一致的 owner-scoped 准备度。"""
+        from app.domain.ability_growth import build_ability_profile_progress
+
+        try:
+            rows = await self.session_repo.get_ability_profile_progress_rows(user_id)
+            return build_ability_profile_progress(rows)
+        except Exception as exc:
+            logger.error("读取综合能力画像准备度失败: %s", type(exc).__name__)
+            return build_ability_profile_progress([])
+
     async def get_overall_profile(self, user_id: str) -> Optional[Dict[str, Any]]:
         """
         获取用户综合能力画像（从数据库读取）

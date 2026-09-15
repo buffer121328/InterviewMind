@@ -95,7 +95,6 @@ export default function InterviewPage() {
     maxQuestions,
     interviewType,
     questionBankCount,
-    reportMode,
     currentSession,
     showAbilityProfile,
     apiConfig, // 订阅 apiConfig 以便配置更新时自动刷新
@@ -113,7 +112,6 @@ export default function InterviewPage() {
     setMaxQuestions,
     setInterviewType,
     setQuestionBankCount,
-    setReportMode,
     uploadResume,
     startInterview,
     sendMessage,
@@ -183,10 +181,10 @@ export default function InterviewPage() {
   }, [getMimoModel]);
 
   /** Handles start interview; updates local UI state first and delegates server mutations through the approved API boundary. */
-  const handleStartInterview = async (mode: 'text' | 'voice' = 'text', options?: { interviewType: 'tech_initial' | 'tech_deep' | 'hr_comprehensive'; maxQuestions: number; reportMode: 'standard' | 'deep' }) => {
+  const handleStartInterview = async (mode: 'text' | 'voice' = 'text', options?: { interviewType: 'tech_initial' | 'tech_deep' | 'hr_comprehensive'; maxQuestions: number }) => {
     try {
       if (options) {
-        useInterviewStore.setState({ interviewType: options.interviewType, maxQuestions: options.maxQuestions, reportMode: options.reportMode });
+        useInterviewStore.setState({ interviewType: options.interviewType, maxQuestions: options.maxQuestions });
       }
       if (mode === 'voice') {
         // 语音模式：仅进行本地状态初始化，不触发文字版后端
@@ -732,8 +730,6 @@ export default function InterviewPage() {
                 onInterviewTypeChange={setInterviewType}
                 questionBankCount={questionBankCount}
                 onQuestionBankCountChange={setQuestionBankCount}
-                reportMode={reportMode}
-                onReportModeChange={setReportMode}
                 isLoading={isLoading}
                 hasApiConfig={hasApiConfig}
                 onStartInterview={handleStartInterview}

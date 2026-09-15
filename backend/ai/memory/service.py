@@ -1214,8 +1214,8 @@ async def get_agent_memory_service(api_config: Optional[dict[str, Any]] = None) 
     """
     获取 AgentMemoryService。
 
-    无 api_config 时返回服务端 .env 单例；有前端配置时按配置缓存实例，
-    支持不同用户/浏览器使用不同的 mem0 LLM 和 Embedding Key。
+    模型连接只由已水合的请求级配置创建；按配置缓存实例，支持不同用户/浏览器
+    使用不同的 mem0 LLM 和 Embedding Key。
 
     Args:
         api_config: 前端请求携带的模型通道配置。
@@ -1224,17 +1224,8 @@ async def get_agent_memory_service(api_config: Optional[dict[str, Any]] = None) 
 
     config = get_mem0_config(api_config)
     if api_config is None:
-        if _agent_memory_service is not None and _agent_memory_service.is_enabled:
-            return _agent_memory_service
-        candidate = AgentMemoryService(config)
-        await candidate.initialize()
-        # 初始化失败不应永久污染进程单例。
-        # 后续请求可能在 PostgreSQL 或模型配置恢复后到达。
+        candidate = AgentMemoryService(None)
         _last_memory_readiness_category = candidate.readiness_category
-        if candidate.is_enabled:
-            _agent_memory_service = candidate
-        else:
-            _agent_memory_service = None
         return candidate
 
     cache_key = _memory_config_cache_key(config)
@@ -1253,7 +1244,7 @@ async def get_agent_memory_service(api_config: Optional[dict[str, Any]] = None) 
 
 def get_agent_memory_runtime_status() -> dict[str, Any]:
     """返回当前进程中 mem0 就绪状态的无凭据快照。"""
-    server_ready = bool(_agent_memory_service and _agent_memory_service.is_enabled)
+    server_ready = False
     request_scoped_ready = sum(
         1 for service in _agent_memory_services.values() if service.is_enabled
     )
@@ -1264,14 +1255,7 @@ def get_agent_memory_runtime_status() -> dict[str, Any]:
     elif _last_memory_readiness_category:
         readiness_category = _last_memory_readiness_category
     else:
-        try:
-            readiness_category = (
-                "model_channels_missing"
-                if get_mem0_config() is None
-                else "not_initialized"
-            )
-        except Exception:
-            readiness_category = "initialization_failed"
+        readiness_category = "model_channels_missing"
     return {
         "mode": "server" if server_ready else "request_scoped",
         "server_ready": server_ready,

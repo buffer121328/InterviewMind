@@ -7,7 +7,6 @@
 import { JsonObject, ResumeResultData } from '@/lib/api/resume';
 import { API_BASE_URL as NORMALIZED_API_BASE_URL } from '@/lib/api/config';
 import type { JobContextSnapshot } from '@/lib/jobContextHandoff';
-import type { InterviewReportMode } from '@/lib/interviewReportMode';
 
 // ============================================================================
 // 类型定义
@@ -38,7 +37,6 @@ export interface SessionMetadata {
     source_job_id?: number | null;
     job_context_snapshot?: JobContextSnapshot | null;
     company_profile?: Record<string, unknown> | null;
-    report_mode?: InterviewReportMode;
     interview_plan?: Array<Record<string, unknown>>;
 }
 
@@ -68,7 +66,6 @@ export interface SessionListItem {
     company_info?: string;
     max_questions: number;
     has_company_profile?: boolean;
-    report_mode?: InterviewReportMode;
 }
 
 export interface ResumeInfo {
@@ -106,7 +103,6 @@ export interface ApiConfig {
     reflectorModelId: string;      // 事实风险评审
     hrReviewerModelId: string;     // 报告叙事汇总
     // 简历工具专家模型
-    generalModelId: string;        // 通用任务（简历分析 + 主持人）
     contentWriterModelId: string;  // 内容优化师
     mimoModelId: string;           // MiMo ASR / 文本对话 / TTS 拆分语音链路
     ragEmbeddingModelId: string;   // RAG 向量检索 Embedding
@@ -384,7 +380,6 @@ export const DEFAULT_API_CONFIG: ApiConfig = {
     matchAnalystModelId: '',
     reflectorModelId: '',
     hrReviewerModelId: '',
-    generalModelId: '',
     contentWriterModelId: '',
     mimoModelId: '',
     ragEmbeddingModelId: '',

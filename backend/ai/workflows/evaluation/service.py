@@ -18,16 +18,20 @@ from ai.workflows.evaluation.interview_history_use_cases import (
     InterviewHistoryEvaluationUseCasesMixin,
 )
 from ai.workflows.evaluation.reporting import ReportingUseCasesMixin
+from ai.workflows.evaluation.production_history import ProductionHistoryUseCasesMixin
 from ai.workflows.evaluation.runs import RunUseCasesMixin
 from ai.workflows.evaluation.suites import SuiteUseCasesMixin
 from app.config import get_settings
 from app.db.models import async_session
 from app.db.repositories.evaluation import EvaluationRepository
 from app.db.unit_of_work import UnitOfWork
+from app.schemas.evaluation.evaluations import EvaluationOnlineSampleRequest
 from evaluation.builtins import public_evaluation_catalog
+from evaluation.online import sampling_decision, sanitize_production_trace
 
 
 class EvaluationUseCases(
+    ProductionHistoryUseCasesMixin,
     InterviewHistoryEvaluationUseCasesMixin,
     DatasetUseCasesMixin,
     SuiteUseCasesMixin,
@@ -81,6 +85,27 @@ class EvaluationUseCases(
                 )
                 agent["latest_successful_run_id"] = baseline.id if baseline else None
         return payload
+
+    def online_sample(self, *, request: EvaluationOnlineSampleRequest) -> dict[str, Any]:
+        """Sanitize one production trace and return a deterministic sampling decision.
+
+        The endpoint is intentionally non-persistent: retaining production traces
+        requires a separate owner/retention contract instead of an implicit API side
+        effect.
+        """
+
+        self._ensure_center_enabled()
+        if not get_settings().evaluation_online_sampling_enabled:
+            raise EvaluationUseCaseError("评测在线抽样未启用", status_code=403)
+        return {
+            "trace_id": request.trace_id,
+            "risk_level": request.risk_level,
+            "trace": sanitize_production_trace(request.trace),
+            "decision": sampling_decision(
+                trace_id=request.trace_id,
+                risk_level=request.risk_level,
+            ),
+        }
 
     @staticmethod
     def _not_found(message: str) -> NoReturn:

@@ -64,14 +64,13 @@ async def test_validate_rag_vector_connection_queries_catalog_before_writes() ->
     assert "pg_catalog.pg_attribute" in str(calls[0])
 
 
-def test_configured_embedding_dimension_rejects_invalid_environment(monkeypatch) -> None:
-    """Invalid EMBEDDING_DIM values fail with a stable configuration error."""
+def test_dynamic_rag_schema_does_not_read_embedding_dimension_environment(monkeypatch) -> None:
+    """Schema readiness is independent of a backend model connection dimension."""
 
-    from app.db.rag_schema import RagVectorSchemaError, configured_embedding_dimension
+    from app.db.rag_schema import validate_rag_vector_type
 
     monkeypatch.setenv("EMBEDDING_DIM", "secret-invalid-value")
-    with pytest.raises(RagVectorSchemaError, match="positive integer"):
-        configured_embedding_dimension()
+    assert validate_rag_vector_type("vector") is None
 
 
 def test_deployment_readiness_reports_vector_mismatch_as_schema_failure(monkeypatch) -> None:
@@ -101,7 +100,6 @@ def test_deployment_readiness_reports_vector_mismatch_as_schema_failure(monkeypa
 
     monkeypatch.setenv("DATABASE_URL", "postgresql://user:secret@db.example/test")
     monkeypatch.setenv("REDIS_URL", "redis://cache.example/0")
-    monkeypatch.setenv("EMBEDDING_DIM", "1536")
     monkeypatch.setattr(deployment, "expected_revision", lambda: "head-revision")
     monkeypatch.setattr(deployment.psycopg, "connect", lambda *_args, **_kwargs: Connection())
     monkeypatch.setattr(

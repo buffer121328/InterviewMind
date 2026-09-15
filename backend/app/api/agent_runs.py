@@ -176,7 +176,7 @@ async def create_interview_report_run(
     Args:
         request: 面试报告生成请求体。
         user_id: 当前用户 ID。
-        idempotency_key: 可选客户端幂等键；服务端会追加模式和来源版本隔离维度。
+    idempotency_key: 可选客户端幂等键；服务端会追加来源版本隔离维度。
     """
     try:
         result = await agent_run_use_cases.create_interview_report(

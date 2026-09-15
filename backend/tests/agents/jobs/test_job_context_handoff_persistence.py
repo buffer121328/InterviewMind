@@ -146,7 +146,6 @@ async def test_interview_start_persists_actual_job_snapshot(monkeypatch):
         {
             "thread_id": "mock-1",
             "mode": "mock",
-            "report_mode": "standard",
             "job_description": "编辑后的 JD",
             "company_info": "编辑后的公司",
             "job_context_snapshot": EDITED_SNAPSHOT,
@@ -158,7 +157,6 @@ async def test_interview_start_persists_actual_job_snapshot(monkeypatch):
     assert created["source_job_id"] == 42
     assert created["job_context_snapshot"]["job_title"] == "编辑后的岗位"
     assert created["job_context_snapshot"]["job_description"] == "编辑后的 JD"
-    assert created["report_mode"] == "standard"
     assert title_args["started_at"] == fixed_now
 
 
@@ -198,7 +196,6 @@ async def test_voice_start_persists_actual_job_snapshot(monkeypatch):
             thread_id="voice-1",
             api_config={},
             max_questions=5,
-            report_mode="standard",
             job_context_snapshot=EDITED_SNAPSHOT,
         ),
         user_id="owner-1",
@@ -206,7 +203,6 @@ async def test_voice_start_persists_actual_job_snapshot(monkeypatch):
 
     assert created["source_job_id"] == 42
     assert created["job_context_snapshot"]["company_name"] == "编辑后的公司"
-    assert created["report_mode"].value == "standard"
 
 
 @pytest.mark.asyncio

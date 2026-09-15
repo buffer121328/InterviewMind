@@ -27,6 +27,7 @@ import {
     parseInterviewQualityRubric,
     type InterviewEvaluationReviewCase as ReviewCase,
 } from '@/lib/interviewHistoryEvaluation';
+import { ProductionHistoryEvaluationPanel } from './ProductionHistoryEvaluationPanel';
 
 interface Props {
     sessionId: string;
@@ -109,7 +110,7 @@ export function InterviewHistoryEvaluationPanel({ sessionId, completed, onOpenEv
         if (!selected.length) return;
         const apiConfig = getRequestApiConfig();
         if (!apiConfig) {
-            toast.error('请先在设置中保存 Smart 与 Fast 模型配置');
+            toast.error('请先在设置中保存主模型与 Fast 模型配置');
             return;
         }
         setSubmitting(true);
@@ -186,11 +187,15 @@ export function InterviewHistoryEvaluationPanel({ sessionId, completed, onOpenEv
         source,
         ineligibilityMessage: source ? REASON_LABELS[source.ineligibility_reason || ''] : undefined,
     });
-    if (sourceView.state !== 'ready') return <Empty text={sourceView.message} loading={sourceView.state === 'loading'} />;
+    if (sourceView.state !== 'ready') return <div className="space-y-4 p-6">
+        {completed && <ProductionHistoryEvaluationPanel capability="interview_planner" sourceId={sessionId} />}
+        <Empty text={sourceView.message} loading={sourceView.state === 'loading'} />
+    </div>;
     if (!source) return null;
 
     const draftResult = interviewDraftResult(run);
     return <div className="space-y-5 p-6">
+        <ProductionHistoryEvaluationPanel capability="interview_planner" sourceId={sessionId} />
         <section className="rounded-xl border border-teal-200 bg-teal-50/60 p-4">
             <div className="flex items-start gap-3">
                 <ShieldCheck className="mt-0.5 h-5 w-5 text-teal-700" />

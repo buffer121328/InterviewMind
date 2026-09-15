@@ -6,11 +6,12 @@ import rehypeHighlight from 'rehype-highlight';
 import 'highlight.js/styles/atom-one-dark.css';
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import { Copy, FileDown, Check, X, FileText, Edit3, Eye, ImagePlus, Trash2, Save, Printer, Loader2 } from "lucide-react";
+import { Copy, Database, FileDown, Check, X, FileText, Edit3, Eye, ImagePlus, Trash2, Save, Printer, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Textarea } from "@/components/ui/textarea";
 import { buildStandaloneResumeHtml, RESUME_SHEET_STYLES } from "@/lib/resumeExport";
+import { ProductionHistoryEvaluationPanel } from "@/components/evaluations/ProductionHistoryEvaluationPanel";
 
 interface ResumePreviewDialogProps {
     isOpen: boolean;
@@ -40,6 +41,7 @@ export function ResumePreviewDialog({
     onClose,
     title,
     content,
+    resumeId,
     onContentChange
 }: ResumePreviewDialogProps) {
     const [isCopied, setIsCopied] = useState(false);
@@ -51,6 +53,7 @@ export function ResumePreviewDialog({
     const [isSaving, setIsSaving] = useState(false);
     const [saveError, setSaveError] = useState<string | null>(null);
     const [pageFit, setPageFit] = useState<"one" | "two" | "overflow">("one");
+    const [showEvaluation, setShowEvaluation] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const previewSheetRef = useRef<HTMLDivElement>(null);
 
@@ -269,6 +272,7 @@ export function ResumePreviewDialog({
                             {isCopied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
                             {isCopied ? "已复制" : "复制"}
                         </Button>
+                        {resumeId != null && <Button variant="outline" size="sm" onClick={() => setShowEvaluation(current => !current)} className="gap-2"><Database className="h-4 w-4" />加入评测</Button>}
                         <Button variant="outline" size="sm" onClick={handleExportHtml} disabled={isEditMode} className="gap-2" aria-label="导出简历 HTML">
                             <FileDown className="w-4 h-4" />
                             导出 HTML
@@ -285,6 +289,7 @@ export function ResumePreviewDialog({
 
                 {/* Content Area */}
                 <div className="flex-1 overflow-auto bg-gray-100/50 p-6">
+                    {showEvaluation && resumeId != null && <div className="mx-auto mb-6 max-w-3xl"><ProductionHistoryEvaluationPanel capability="resume_generator" sourceId={String(resumeId)} /></div>}
                     <style>{RESUME_SHEET_STYLES}</style>
                     <div ref={previewSheetRef} id="resume-preview-content" className="resume-preview-sheet">
                         {/* 照片显示区域 */}

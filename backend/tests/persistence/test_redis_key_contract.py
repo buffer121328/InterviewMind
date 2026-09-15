@@ -27,7 +27,6 @@ def test_application_redis_keys_use_versioned_readable_namespace() -> None:
 
     user_id = "user@example.test"
     owner_hash = hashlib.sha256(user_id.encode()).hexdigest()
-    model_id = "model-1"
     memory_id = "memory-1"
     config = _model_config()
     scheduler = ModelPoolScheduler(redis_client=None)

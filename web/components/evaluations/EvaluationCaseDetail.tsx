@@ -41,6 +41,7 @@ interface Props {
     onCandidateVersion: (value: string) => void;
     onCreateCandidate: () => Promise<void>;
     includeJudges: boolean;
+    candidateEligible: boolean;
 }
 
 /** Renders a conclusion-first, collapsible drill-down for a single evaluation case. */
@@ -52,6 +53,7 @@ export function EvaluationCaseDetail({
     onCandidateVersion,
     onCreateCandidate,
     includeJudges,
+    candidateEligible,
 }: Props) {
     const outcome = useMemo(() => summarizeEvaluationCaseOutcome(detail), [detail]);
     const scoreSummaries = useMemo(() => summarizeEvaluationScores(detail.scores), [detail.scores]);
@@ -134,7 +136,7 @@ export function EvaluationCaseDetail({
         <div className="mt-3 rounded-xl border border-dashed border-teal-200 bg-teal-50/50 p-3">
             <div className="flex flex-col justify-between gap-3 md:flex-row md:items-end">
                 <div><div className="flex items-center gap-2 text-sm font-medium text-teal-900"><FlaskConical className="h-4 w-4" />失败案例沉淀</div><p className="mt-1 text-xs text-teal-700">创建新的 Candidate Dataset Version，不修改已锁定版本。</p></div>
-                <div className="grid gap-2 sm:grid-cols-[220px_150px_auto]"><Input value={candidateName} onChange={(event) => onCandidateName(event.target.value)} placeholder="Dataset 名称" /><Input value={candidateVersion} onChange={(event) => onCandidateVersion(event.target.value)} placeholder="版本" /><Button onClick={() => void onCreateCandidate()}><CheckCircle2 />加入回归集</Button></div>
+                {candidateEligible ? <div className="grid gap-2 sm:grid-cols-[220px_150px_auto]"><Input value={candidateName} onChange={(event) => onCandidateName(event.target.value)} placeholder="Dataset 名称" /><Input value={candidateVersion} onChange={(event) => onCandidateVersion(event.target.value)} placeholder="版本" /><Button onClick={() => void onCreateCandidate()}><CheckCircle2 />加入回归集</Button></div> : <p className="max-w-md text-xs text-amber-800">仅“人工确认不通过”且自动运行、硬门禁或自动评分确实失败的案例可以加入回归集。</p>}
             </div>
         </div>
     </div>;

@@ -23,7 +23,6 @@ def _response(artifact) -> ArtifactResponse:
         size_bytes=artifact.size_bytes,
         created_at=artifact.created_at.isoformat(),
         download_url=f"/api/artifacts/{artifact.id}/download",
-        artifact_mode=artifact.artifact_mode,
         report_source_version=artifact.report_source_version,
     )
 

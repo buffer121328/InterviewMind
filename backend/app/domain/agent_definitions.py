@@ -280,7 +280,8 @@ _DEFINITIONS = (
         steps=(
             ("queued", "等待执行资源"),
             ("loading_session", "读取面试问答"),
-            ("generating_reports", "生成能力画像与短板地图"),
+            ("assembling_evidence", "整理面试证据"),
+            ("generating_assessment", "生成综合评估"),
             ("saving_report", "保存报告"),
         ),
         checkpoint_policy="durable",

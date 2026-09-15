@@ -213,6 +213,171 @@ def test_budget_monitor_reports_actual_usage_for_completed_stage():
     assert snapshot["outcome"] == "succeeded"
 
 
+def test_budget_monitor_exposes_ordered_candidate_attempts_without_raw_errors():
+    from ai.runtime.agent_runs.performance import build_run_budget_monitor
+
+    started_at = datetime(2026, 8, 18, 10, 0, tzinfo=timezone.utc)
+    run = _run(status="completed")
+    run.finished_at = started_at + timedelta(milliseconds=500)
+    events = [
+        _event(
+            "llm.request.started",
+            "session_report.review.job_fit",
+            started_at,
+            1,
+            candidate_index=0,
+            fallback_index=0,
+            attempt=1,
+            model_name="primary-model",
+            model_provider="provider-a",
+        ),
+        _event(
+            "llm.request.failed",
+            "session_report.review.job_fit",
+            started_at + timedelta(milliseconds=200),
+            2,
+            candidate_index=0,
+            fallback_index=0,
+            attempt=1,
+            failure_type="timeout",
+            error_message="PRIVATE_PROVIDER_ERROR",
+            usage_status="unavailable",
+        ),
+        _event(
+            "llm.request.started",
+            "session_report.review.job_fit",
+            started_at + timedelta(milliseconds=210),
+            3,
+            candidate_index=1,
+            fallback_index=1,
+            attempt=1,
+            model_name="fallback-model",
+            model_provider="provider-b",
+        ),
+        _event(
+            "llm.request.completed",
+            "session_report.review.job_fit",
+            started_at + timedelta(milliseconds=500),
+            4,
+            candidate_index=1,
+            fallback_index=1,
+            attempt=1,
+            input_tokens=20,
+            output_tokens=5,
+            total_tokens=25,
+        ),
+    ]
+
+    attempts = build_run_budget_monitor(run, events, now=run.finished_at)["stages"][0]["attempts"]
+    assert [item["model_name"] for item in attempts] == ["primary-model", "fallback-model"]
+    assert attempts[0]["status"] == "failed"
+    assert attempts[0]["failure_type"] == "timeout"
+    assert attempts[1]["status"] == "succeeded"
+    assert attempts[1]["total_tokens"] == 25
+    assert build_run_budget_monitor(run, events, now=run.finished_at)["stages"][0]["final_model_name"] == "fallback-model"
+    assert "PRIVATE_PROVIDER_ERROR" not in str(attempts)
+
+
+def test_budget_monitor_closes_cross_stage_repair_attempt_for_completed_run():
+    from ai.runtime.agent_runs.performance import build_run_budget_monitor
+
+    started_at = datetime(2026, 8, 18, 10, 0, tzinfo=timezone.utc)
+    run = _run(status="succeeded")
+    run.finished_at = started_at + timedelta(milliseconds=900)
+    run.updated_at = run.finished_at
+    events = [
+        _event(
+            "llm.request.started",
+            "session_report.narrative_composer",
+            started_at,
+            1,
+            candidate_index=0,
+            fallback_index=0,
+            attempt=1,
+            model_name="primary-model",
+        ),
+        _event(
+            "llm.request.failed",
+            "session_report.narrative_composer",
+            started_at + timedelta(milliseconds=100),
+            2,
+            candidate_index=0,
+            fallback_index=0,
+            attempt=1,
+            model_name="primary-model",
+            failure_type="request",
+        ),
+        _event(
+            "llm.request.repair.started",
+            "session_report.narrative_composer",
+            started_at + timedelta(milliseconds=150),
+            3,
+            candidate_index=0,
+            fallback_index=0,
+            attempt=1,
+            model_name="primary-model",
+        ),
+        _event(
+            "llm.request.started",
+            "saving_report",
+            started_at + timedelta(milliseconds=200),
+            4,
+            candidate_index=0,
+            fallback_index=0,
+            attempt=1,
+            model_name="primary-model",
+        ),
+        _event(
+            "llm.request.repair.failed",
+            "session_report.narrative_composer",
+            started_at + timedelta(milliseconds=400),
+            5,
+            candidate_index=0,
+            fallback_index=0,
+            attempt=1,
+            model_name="primary-model",
+            failure_type="request",
+        ),
+    ]
+
+    snapshot = build_run_budget_monitor(run, events, now=run.finished_at)
+    saving = next(stage for stage in snapshot["stages"] if stage["stage"] == "saving_report")
+
+    assert saving["attempts"][0]["status"] == "failed"
+    assert saving["attempts"][0]["repair_outcome"] == "failed"
+    assert all(
+        attempt["status"] != "running"
+        for stage in snapshot["stages"]
+        for attempt in stage["attempts"]
+    )
+
+
+def test_budget_monitor_marks_unfinished_attempt_unknown_after_run_terminal():
+    from ai.runtime.agent_runs.performance import build_run_budget_monitor
+
+    started_at = datetime(2026, 8, 18, 10, 0, tzinfo=timezone.utc)
+    run = _run(status="succeeded")
+    run.finished_at = started_at + timedelta(milliseconds=300)
+    run.updated_at = run.finished_at
+    events = [
+        _event(
+            "llm.request.started",
+            "saving_report",
+            started_at,
+            1,
+            candidate_index=0,
+            fallback_index=0,
+            attempt=1,
+            model_name="primary-model",
+        ),
+    ]
+
+    snapshot = build_run_budget_monitor(run, events, now=run.finished_at)
+
+    assert snapshot["stages"][0]["status"] == "unknown"
+    assert snapshot["stages"][0]["attempts"][0]["status"] == "unknown"
+
+
 def test_context_protection_is_a_warning_not_a_failure_for_successful_run():
     from ai.runtime.agent_runs.performance import build_run_budget_monitor
 

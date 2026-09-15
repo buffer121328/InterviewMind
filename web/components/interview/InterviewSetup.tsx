@@ -16,7 +16,6 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { JobLibraryPickerDialog } from "@/components/interview/JobLibraryPickerDialog";
 import type { InterviewJobSelection } from "@/lib/interviewJobSelection";
-import { getInterviewReportDisplayPolicy, type InterviewReportMode } from "@/lib/interviewReportMode";
 
 type InterviewMode = "text" | "voice";
 type InterviewType = "tech_initial" | "tech_deep" | "hr_comprehensive";
@@ -47,11 +46,9 @@ interface InterviewSetupProps {
     onInterviewTypeChange: (value: InterviewType) => void;
     questionBankCount: number;
     onQuestionBankCountChange: (value: number) => void;
-    reportMode: InterviewReportMode;
-    onReportModeChange: (value: InterviewReportMode) => void;
     isLoading: boolean;
     hasApiConfig: boolean;
-    onStartInterview: (mode: InterviewMode, options?: { interviewType: InterviewType; maxQuestions: number; reportMode: InterviewReportMode }) => Promise<void>;
+    onStartInterview: (mode: InterviewMode, options?: { interviewType: InterviewType; maxQuestions: number }) => Promise<void>;
     onConfigureApi: () => void;
     onOpenJobLibrary?: () => void;
     hasVoiceConfig?: boolean;  // 是否配置了语音模型
@@ -73,8 +70,6 @@ export function InterviewSetup({
     onInterviewTypeChange,
     questionBankCount,
     onQuestionBankCountChange,
-    reportMode,
-    onReportModeChange,
     isLoading,
     hasApiConfig,
     onStartInterview,
@@ -136,7 +131,6 @@ export function InterviewSetup({
         await onStartInterview(selectedMode, {
             interviewType: draftInterviewType,
             maxQuestions: finalQuestionCount,
-            reportMode,
         });
     };
 
@@ -418,45 +412,6 @@ export function InterviewSetup({
                             )}
                         </button>
                     </div>
-                </div>
-
-                {/* 5. 报告模式选择 */}
-                <div className="space-y-3">
-                    <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
-                        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-teal-100 text-xs font-bold text-teal-600">5</span>
-                        面试报告
-                    </label>
-                    <div className="grid gap-3 sm:grid-cols-2">
-                        {(['standard', 'deep'] as const).map((mode) => {
-                            const policy = getInterviewReportDisplayPolicy(mode);
-                            const selected = reportMode === mode;
-                            return (
-                                <button
-                                    key={mode}
-                                    type="button"
-                                    onClick={() => onReportModeChange(mode)}
-                                    className={cn(
-                                        "relative rounded-xl border-2 p-4 text-left transition-all",
-                                        selected
-                                            ? "border-teal-500 bg-teal-50 ring-2 ring-teal-100"
-                                            : "border-gray-200 bg-white hover:border-teal-200",
-                                    )}
-                                >
-                                    <div className="flex items-start justify-between gap-3">
-                                        <div>
-                                            <h4 className="font-semibold text-gray-800">{policy.label}</h4>
-                                            <p className="mt-1 text-xs leading-5 text-gray-500">{policy.description}</p>
-                                        </div>
-                                        {selected && <CheckCircle2 className="h-5 w-5 shrink-0 text-teal-600" />}
-                                    </div>
-                                    {mode === 'standard' && (
-                                        <p className="mt-3 text-xs font-medium text-teal-700">推荐：完成后提供快速 PDF。</p>
-                                    )}
-                                </button>
-                            );
-                        })}
-                    </div>
-                    <p className="text-xs text-gray-400">报告模式仅决定本次面试完成后的产物；深度报告可在历史详情中按需补充生成。</p>
                 </div>
 
                 {/* 本次面试共享上下文 */}

@@ -172,6 +172,14 @@ async def test_vector_search_timeout_degrades_without_blocking_other_retrieval(m
         repo=Repo(),
         user_id="owner-a",
         queries=[RetrievalQuery(text="Python backend query long enough")],
+        api_config={
+            "rag_embedding": {
+                "api_key": "request-key",
+                "base_url": "https://embedding.example.test/v1",
+                "model": "embedding-model",
+                "dimensions": 2,
+            }
+        },
     )
 
     assert result == []

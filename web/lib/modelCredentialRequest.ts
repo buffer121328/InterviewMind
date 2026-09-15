@@ -47,12 +47,12 @@ export function optionalModelConfigForRequest(
 }
 
 
-/** Serializes a pool while preserving its single-core-model compatibility fallback. */
+/** Serializes a pool and applies a core fallback only when that layer defines one. */
 export function modelPoolConfigForRequest(
     models: ModelCredentialReferenceSource[],
-    fallback: ModelCredentialReferenceSource,
+    fallback: ModelCredentialReferenceSource | null = null,
 ): Array<ModelCredentialRequestConfig & { name: string; weight: number }> {
-    const members = models.length > 0 ? models : [fallback];
+    const members = models.length > 0 ? models : fallback ? [fallback] : [];
     return members.map(model => ({
         ...modelConfigForRequest(model),
         name: model.name,

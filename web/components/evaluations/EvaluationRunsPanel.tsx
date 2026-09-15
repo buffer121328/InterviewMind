@@ -30,6 +30,7 @@ import { formatChinaDateTime } from '@/lib/chinaTime';
 import { summarizeEvaluationSemanticStatus } from '@/lib/evaluationCaseDetail';
 import { toast } from 'sonner';
 import { EvaluationCaseDetail } from './EvaluationCaseDetail';
+import { canPromoteCandidateDataset } from '@/lib/evaluationAnnotations';
 import { buildAdvancedEvaluationRunRequest } from '@/lib/evaluationRunRequest';
 import { useInterviewStore } from '@/store/useInterviewStore';
 
@@ -283,7 +284,7 @@ export function EvaluationRunsPanel({ runs, suites, focusRunId, onRefresh, onOpe
                 {!selected && <Empty text="选择一个运行查看案例。" />}
 
                 {detailBusy && <div className="mt-5 flex items-center justify-center rounded-xl border border-dashed p-10 text-sm text-slate-500"><Loader2 className="mr-2 animate-spin" />加载案例详情…</div>}
-                {caseDetail && !detailBusy && <EvaluationCaseDetail key={caseDetail.id} detail={caseDetail} includeJudges={Boolean(selected?.include_judges)} candidateName={candidateName} candidateVersion={candidateVersion} onCandidateName={setCandidateName} onCandidateVersion={setCandidateVersion} onCreateCandidate={createCandidateDataset} />}
+                {caseDetail && !detailBusy && <EvaluationCaseDetail key={caseDetail.id} detail={caseDetail} includeJudges={Boolean(selected?.include_judges)} candidateEligible={canPromoteCandidateDataset(caseDetail)} candidateName={candidateName} candidateVersion={candidateVersion} onCandidateName={setCandidateName} onCandidateVersion={setCandidateVersion} onCreateCandidate={createCandidateDataset} />}
             </section>
         </div>
     </div>;

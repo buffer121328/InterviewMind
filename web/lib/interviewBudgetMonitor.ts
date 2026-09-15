@@ -1,4 +1,4 @@
-import type { InterviewBudgetStageStatus } from './api/agentRunTypes';
+import type { InterviewBudgetStage, InterviewBudgetStageStatus } from './api/agentRunTypes';
 
 const STAGE_LABELS: Record<string, string> = {
     'session_report.reviewer_context.technical_depth': '技术深度评审 · 上下文组装',
@@ -11,8 +11,7 @@ const STAGE_LABELS: Record<string, string> = {
     'session_report.review.factual_risk': '事实风险评审',
     'session_report.narrative_composer': '报告叙事汇总',
     'session_report.context_assembly': '报告上下文组装',
-    'interview_report.context_assembly': '普通报告 · 上下文组装',
-    'interview_report.standard.general': '普通报告 · 通用模型评审',
+    'interview_report.context_assembly': '报告 · 上下文组装',
     'unattributed': '未归属阶段',
 };
 
@@ -108,9 +107,38 @@ export function formatBudgetNumber(value: number | null | undefined): string {
     return Math.max(0, Math.round(value)).toLocaleString('zh-CN');
 }
 
+export interface VisibleBudgetMetric {
+    label: string;
+    value: string;
+}
+
+/** Returns only metrics backed by an observation or a non-zero input estimate. */
+export function getVisibleStageMetrics(stage: InterviewBudgetStage): VisibleBudgetMetric[] {
+    const metrics: VisibleBudgetMetric[] = [];
+    const elapsed = stage.elapsed_ms ?? stage.duration_ms;
+    if (Number.isFinite(elapsed) && (elapsed ?? 0) > 0) {
+        metrics.push({ label: '本阶段耗时', value: formatBudgetDuration(elapsed) });
+    }
+    if (Number.isFinite(stage.estimated_input_tokens) && stage.estimated_input_tokens > 0) {
+        metrics.push({ label: '输入估算', value: formatBudgetTokens(null, stage.estimated_input_tokens) });
+    }
+    if (stage.total_tokens !== null && stage.total_tokens !== undefined && Number.isFinite(stage.total_tokens)) {
+        metrics.push({ label: '已确认 tokens', value: formatBudgetTokens(stage.total_tokens, null) });
+    }
+    if (Number.isFinite(stage.model_duration_ms) && stage.model_duration_ms > 0) {
+        metrics.push({ label: '模型耗时', value: formatBudgetDuration(stage.model_duration_ms) });
+    }
+    return metrics;
+}
+
 /** Returns the stable label used by stage status badges. */
 export function getBudgetStatusLabel(status: InterviewBudgetStageStatus): string {
     return STATUS_LABELS[status] || STATUS_LABELS.unknown;
+}
+
+/** Identifies a run that has not yet reached any model execution stage. */
+export function isQueuedBudgetStatus(status: string | null | undefined): boolean {
+    return status === 'queued' || status === 'retrying';
 }
 
 export const REVIEWER_STAGE_PERSPECTIVES = [

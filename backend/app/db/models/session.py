@@ -38,7 +38,6 @@ class SessionModel(Base):
     series_id: Mapped[str | None] = mapped_column(String, nullable=True)
     round_index: Mapped[int] = mapped_column(Integer, default=1)
     round_type: Mapped[str] = mapped_column(String, default="tech_initial")
-    report_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="deep")
     report_source_version: Mapped[str | None] = mapped_column(String(128), nullable=True)
     stable_context_version: Mapped[str | None] = mapped_column(String(128), nullable=True)
     stable_context_fingerprint: Mapped[str | None] = mapped_column(String(128), nullable=True)

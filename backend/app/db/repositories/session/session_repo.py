@@ -11,7 +11,6 @@ from app.db.repositories.session.repo_impl.message_mgmt import MessageService
 from app.db.repositories.session.repo_impl.profile_mgmt import ProfileService
 from app.db.repositories.session.repo_impl.session_advanced import SessionAdvancedService
 from app.db.repositories.session.repo_impl.session_mgmt import SessionManagementService
-from app.domain.interview_report_modes import InterviewReportMode
 from app.schemas.interview.session import InterviewSession, SessionListItem
 
 logger = logging.getLogger(__name__)
@@ -46,7 +45,6 @@ class SessionRepo:
         job_context_snapshot: Optional[Dict[str, Any]] = None,
         max_questions: int | None = None,
         round_type: str = "tech_initial",
-        report_mode: InterviewReportMode | str | None = None,
         user_id: str = "default_user"
     ) -> InterviewSession:
         """创建 session，在写入前沿用请求的 owner、审批和输入校验边界，并返回调用方可继续处理的结果。
@@ -77,7 +75,6 @@ class SessionRepo:
             job_context_snapshot=job_context_snapshot,
             max_questions=max_questions,
             round_type=round_type,
-            report_mode=report_mode,
             user_id=user_id
         )
 
@@ -285,6 +282,10 @@ class SessionRepo:
         return await self.message.get_session_conversations(session_id, user_id)
 
     # --- 画像管理 (ProfileService) ---
+
+    async def get_ability_profile_progress_rows(self, user_id: str) -> List[Dict[str, Any]]:
+        """读取当前用户画像准备度所需的持久化轮次元数据。"""
+        return await self.profile.get_ability_profile_progress_rows(user_id)
 
     async def save_profile(
         self,

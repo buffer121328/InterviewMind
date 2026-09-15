@@ -163,7 +163,6 @@ export function SessionSidebar({
         apiConfig.fastModelId,
         apiConfig.technicalDepthModelId,
         apiConfig.communicationModelId,
-        apiConfig.generalModelId,
         apiConfig.matchAnalystModelId,
         apiConfig.contentWriterModelId,
         apiConfig.hrReviewerModelId,
@@ -327,7 +326,7 @@ export function SessionSidebar({
                                         <div className="text-xs font-medium text-slate-800">本地候选人工作区</div>
                                         <div className={`mt-0.5 flex items-center gap-1 text-[10px] ${coreReady ? 'text-emerald-700' : 'text-amber-700'}`}>
                                             <ShieldCheck className="h-3 w-3" />
-                                            {coreReady ? `${assignedModels} 个模型连接已分配` : 'Smart / Fast 尚未就绪'}
+                                            {coreReady ? `${assignedModels} 个模型连接已分配` : '主模型 / Fast 模型尚未就绪'}
                                         </div>
                                     </div>
                                 </div>

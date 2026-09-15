@@ -52,7 +52,6 @@ class SessionManagementUseCases:
             job_description=request.job_description,
             max_questions=request.max_questions,
             round_type=request.round_type,
-            report_mode=request.report_mode,
             user_id=user_id,
         )
 

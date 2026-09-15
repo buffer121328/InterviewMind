@@ -25,12 +25,12 @@ test('business model config uses technical model name and never sends plaintext 
 });
 
 
-test('unassigned expert model remains null so backend can fall back to General', () => {
+test('unassigned expert model remains null so backend can use the main model', () => {
     assert.equal(optionalModelConfigForRequest(null), null);
 });
 
 
-test('empty pools retain the corresponding Smart/Fast single-model fallback', () => {
+test('empty Fast Pool uses Fast while empty Reasoning Pool stays empty', () => {
     const smart = {
         id: 'smart-id',
         name: 'Smart',
@@ -41,6 +41,7 @@ test('empty pools retain the corresponding Smart/Fast single-model fallback', ()
     };
     const fast = { ...smart, id: 'fast-id', name: 'Fast', model: 'fast-model' };
 
-    assert.equal(modelPoolConfigForRequest([], smart)[0].model, 'smart-model');
     assert.equal(modelPoolConfigForRequest([], fast)[0].model, 'fast-model');
+    assert.deepEqual(modelPoolConfigForRequest([], null), []);
+    assert.equal(modelPoolConfigForRequest([smart], null)[0].model, 'smart-model');
 });

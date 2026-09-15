@@ -195,6 +195,26 @@ export interface InterviewBudgetSourceUsage {
     estimated_raw_input_tokens?: number | null;
 }
 
+export interface InterviewBudgetAttempt {
+    candidate_index: number | null;
+    fallback_index: number;
+    attempt: number;
+    model_name: string | null;
+    model_provider: string | null;
+    status: InterviewBudgetStageStatus;
+    failure_type: string | null;
+    failure_types: string[];
+    repair_outcome: 'started' | 'completed' | 'failed' | null;
+    usage_status: string | null;
+    duration_ms: number | null;
+    model_duration_ms: number | null;
+    input_tokens: number | null;
+    output_tokens: number | null;
+    total_tokens: number | null;
+    started_at: string | null;
+    finished_at: string | null;
+}
+
 /** Safe aggregate for one report-generation stage; it never contains prompt or response text. */
 export interface InterviewBudgetStage {
     stage: string;
@@ -227,6 +247,8 @@ export interface InterviewBudgetStage {
     /** Safe source identifiers affected by context protection; never source text. */
     context_protection_sources?: string[];
     model_names: string[];
+    final_model_name?: string | null;
+    attempts?: InterviewBudgetAttempt[];
     first_event_at: string | null;
     last_event_at: string | null;
 }

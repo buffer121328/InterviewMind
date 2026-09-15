@@ -535,6 +535,9 @@ function withQuery(path: string, values: object): string {
 }
 
 export const evaluationApi = {
+    productionHistorySources: (capability: ProductionHistoryCapability) => apiRequest<{ items: ProductionHistorySourceSummary[]; total: number; capability: string }>(`/api/evaluations/production-history/sources?capability=${encodeURIComponent(capability)}&limit=100`),
+    productionHistorySource: (capability: ProductionHistoryCapability, sourceId: string) => apiRequest<ProductionHistorySource>(`/api/evaluations/production-history/sources/${encodeURIComponent(capability)}/${encodeURIComponent(sourceId)}`),
+    confirmProductionHistorySource: (capability: ProductionHistoryCapability, sourceId: string, payload: Record<string, unknown>) => apiRequest<EvaluationDataset>(`/api/evaluations/production-history/sources/${encodeURIComponent(capability)}/${encodeURIComponent(sourceId)}/confirm`, { method: 'POST', body: JSON.stringify(payload) }),
     /** Lists only persisted attempts from owner-scoped completed interview sessions. */
     interviewHistorySources: (sessionId?: string) => apiRequest<Page<InterviewEvaluationSourceSession>>(
         `/api/evaluations/interview-history/sources?limit=100&offset=0${sessionId ? `&session_id=${encodeURIComponent(sessionId)}` : ''}`,
@@ -625,6 +628,22 @@ export async function downloadEvaluationReport(runId: string): Promise<void> {
 }
 
 export type InterviewEvaluationCapability = 'interview_turn' | 'interview_scoring';
+export type ProductionHistoryCapability = 'interview_planner' | InterviewEvaluationCapability | 'resume_optimizer' | 'resume_analyzer' | 'resume_generator';
+
+export interface ProductionHistorySourceSummary {
+    capability: ProductionHistoryCapability;
+    source_id: string;
+    title: string;
+    created_at: string;
+    eligible: boolean;
+    ineligibility_reason: string | null;
+    source_hash: string;
+}
+
+export interface ProductionHistorySource extends ProductionHistorySourceSummary {
+    input: Record<string, unknown>;
+    suggested_expected_output: unknown;
+}
 export type InterviewEvaluationValidationStatus = 'valid' | 'needs_review' | 'failed';
 
 export interface InterviewEvaluationAttemptSummary {

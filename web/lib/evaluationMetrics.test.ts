@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { formatEvaluationRate, formatObservedEventRate, formatSignedRate, groupScoresBySource, overviewCards, runProgress } from './evaluationMetrics.ts';
 import { passesGateThreshold } from './evaluationGates.ts';
-import { deriveAnnotationState } from './evaluationAnnotations.ts';
+import { canPromoteCandidateDataset, deriveAnnotationState } from './evaluationAnnotations.ts';
 
 test('evaluation rates and progress remain bounded', () => {
     assert.equal(formatEvaluationRate(0.875), '87.5%');
@@ -100,4 +100,12 @@ test('dual blind review conflicts until adjudicated', () => {
         { ...base, reviewer_key: 'B', value: false },
         { ...base, reviewer_key: 'adjudicator', value: true, adjudication: true },
     ] as never), 'adjudicated');
+});
+
+test('candidate promotion requires a rejected automatic failure', () => {
+    const base = { review_status: 'rejected', status: 'succeeded', hard_gate_passed: true, scores: [] };
+    assert.equal(canPromoteCandidateDataset(base as never), false);
+    assert.equal(canPromoteCandidateDataset({ ...base, review_status: 'approved', status: 'failed' } as never), false);
+    assert.equal(canPromoteCandidateDataset({ ...base, scores: [{ source: 'rule', status: 'failed' }] } as never), true);
+    assert.equal(canPromoteCandidateDataset({ ...base, hard_gate_passed: false } as never), true);
 });

@@ -43,6 +43,23 @@ export interface AbilityProfileSource {
 }
 
 // API 响应接口
+export type AbilityProfileProgressBlocker =
+    | 'none'
+    | 'incomplete_series'
+    | 'degraded_round_reports'
+    | 'company_profile_pending';
+
+export interface AbilityProfileProgress {
+    completed_rounds: number;
+    eligible_rounds: number;
+    required_rounds: number;
+    remaining_rounds: number;
+    company_profile_count: number;
+    degraded_round_indexes: number[];
+    ready_to_generate: boolean;
+    blocker: AbilityProfileProgressBlocker;
+}
+
 export interface ProfileResponse {
     success: boolean;
     profile?: AbilityProfile;
@@ -50,6 +67,7 @@ export interface ProfileResponse {
     sample_count?: number;
     sources?: AbilityProfileSource[];
     dimension_changes?: Record<string, number>;
+    progress?: AbilityProfileProgress;
     message?: string;
 }
 

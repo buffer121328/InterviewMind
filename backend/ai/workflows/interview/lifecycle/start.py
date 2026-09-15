@@ -76,7 +76,6 @@ class InterviewStartUseCases:
                     company_info=getattr(request, "company_info", "未知"),
                     max_questions=request.max_questions,
                     round_type=request.round_type,
-                    report_mode=request.report_mode,
                     user_id=user_id,
                 )
                 session_created = True

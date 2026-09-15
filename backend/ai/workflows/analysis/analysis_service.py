@@ -16,6 +16,10 @@ from ai.runtime.context.assembler import (
     ContextSource,
 )
 from ai.runtime.execution.deadlines import TaskDeadline
+from ai.workflows.analysis.report_budget import (
+    ReportExecutionBudget,
+    build_report_execution_budget,
+)
 from ai.workflows.analysis.report_records import (
     REPORT_CHECKPOINT_VERSION,
     answer_points_by_question,
@@ -23,14 +27,13 @@ from ai.workflows.analysis.report_records import (
     chunk_idempotency_key,
     format_answer_points,
     format_qa,
-    message_version as calculate_message_version,
     normalize_evidence,
     to_candidate_profile,
 )
+from ai.workflows.analysis.report_records import message_version as calculate_message_version
 from app.config import get_settings
 from app.schemas.interview.candidate_profile import CandidateProfile
 from app.schemas.llm_outputs import (
-    CandidateProfileOutput,
     EvidenceChunkOutput,
     QuestionEvidence,
     SessionInterviewReportOutput,
@@ -39,6 +42,7 @@ from app.schemas.llm_outputs import (
 logger = logging.getLogger(__name__)
 
 ReportCheckpointCallback = Callable[[dict[str, Any]], Awaitable[None]]
+ReportProgressCallback = Callable[[str], Awaitable[None]]
 
 _REPORT_CONTEXT_TOTAL_CHARS = 40_000
 _REPORT_BASE_CONTEXT_TOTAL_CHARS = 7_500
@@ -60,18 +64,22 @@ class SessionReportAnalysisService:
         api_config: Optional[Dict[str, Any]] = None,
         report_checkpoint: Mapping[str, Any] | None = None,
         checkpoint_callback: ReportCheckpointCallback | None = None,
+        progress_callback: ReportProgressCallback | None = None,
     ) -> tuple[CandidateProfile, Dict[str, Any]]:
         """生成会话报告相关后端逻辑。"""
         if not qa_history:
             raise ValueError("qa_history must not be empty")
 
         settings = get_settings()
-        deadline = TaskDeadline(settings.interview_report_task_timeout_seconds)
+        execution_budget = build_report_execution_budget(len(qa_history), settings)
+        deadline = TaskDeadline(execution_budget.task_timeout_seconds)
         # The direct-path threshold must account for internal answer points as
         # well as visible Q&A because they are part of the scoring context.
         qa_chars = len(format_qa(qa_history))
         try:
             if qa_chars <= settings.interview_report_qa_char_budget:
+                if progress_callback is not None:
+                    await progress_callback("generating_assessment")
                 result, evidence, reviewer_assessments = await self._generate_single_call(
                     resume=resume,
                     job_description=job_description,
@@ -79,18 +87,24 @@ class SessionReportAnalysisService:
                     qa_history=qa_history,
                     api_config=api_config,
                     deadline=deadline,
+                    execution_budget=execution_budget,
                 )
                 mode = "single"
             else:
+                if progress_callback is not None:
+                    await progress_callback("assembling_evidence")
                 evidence = await self._generate_evidence_chunks(
                     session_id=session_id,
                     qa_history=qa_history,
                     api_config=api_config,
                     deadline=deadline,
                     chunk_size=settings.interview_report_chunk_size,
+                    execution_budget=execution_budget,
                     report_checkpoint=report_checkpoint,
                     checkpoint_callback=checkpoint_callback,
                 )
+                if progress_callback is not None:
+                    await progress_callback("generating_assessment")
                 result, reviewer_assessments = await self._generate_from_evidence(
                     resume=resume,
                     job_description=job_description,
@@ -99,6 +113,7 @@ class SessionReportAnalysisService:
                     qa_history=qa_history,
                     api_config=api_config,
                     deadline=deadline,
+                    execution_budget=execution_budget,
                 )
                 mode = "chunked"
         except RuntimeError as exc:
@@ -165,6 +180,7 @@ class SessionReportAnalysisService:
         qa_history: List[Dict[str, Any]],
         api_config: Optional[Dict[str, Any]],
         deadline: TaskDeadline,
+        execution_budget: ReportExecutionBudget,
     ) -> tuple[SessionInterviewReportOutput, list[QuestionEvidence], list[dict[str, Any]]]:
         """生成分析服务相关后端逻辑。"""
         from ai.workflows.analysis.reviewers.multi_reviewer import run_multi_reviewer_map_reduce
@@ -201,7 +217,14 @@ class SessionReportAnalysisService:
             review_contexts=reviewer_contexts,
             api_config=api_config,
             deadline=deadline,
-            call_metadata={**assembled.model_event_fields(), "review_context_policy": "perspective_specific.v1"},
+            call_metadata={
+                **assembled.model_event_fields(),
+                **execution_budget.model_event_fields(),
+                "review_context_policy": "perspective_specific.v1",
+            },
+            reviewer_output_tokens=execution_budget.reviewer_output_tokens,
+            report_output_tokens=execution_budget.output_tokens,
+            request_timeout_seconds=execution_budget.request_timeout_seconds,
         )
         result = SessionInterviewReportOutput.model_validate(review_result.output)
         evidence = normalize_evidence(result.question_evidence, qa_history)
@@ -215,6 +238,7 @@ class SessionReportAnalysisService:
         qa_history: List[Dict[str, Any]],
         api_config: Optional[Dict[str, Any]],
         deadline: TaskDeadline,
+        execution_budget: ReportExecutionBudget,
         chunk_size: int,
         report_checkpoint: Mapping[str, Any] | None,
         checkpoint_callback: ReportCheckpointCallback | None,
@@ -266,9 +290,14 @@ class SessionReportAnalysisService:
                 api_config=api_config,
                 channel="smart",
                 max_retries=0,
-                max_tokens=get_settings().interview_deep_report_max_output_tokens,
+                max_tokens=execution_budget.evidence_chunk_output_tokens(len(chunk)),
+                timeout=execution_budget.request_timeout_seconds,
                 deadline=deadline,
-                call_metadata=assembled.model_event_fields(),
+                call_metadata={
+                    **assembled.model_event_fields(),
+                    **execution_budget.model_event_fields(),
+                    "report_chunk_question_count": len(chunk),
+                },
             )
             normalized = normalize_evidence(
                 output.items,
@@ -300,6 +329,7 @@ class SessionReportAnalysisService:
         qa_history: List[Dict[str, Any]],
         api_config: Optional[Dict[str, Any]],
         deadline: TaskDeadline,
+        execution_budget: ReportExecutionBudget,
     ) -> tuple[SessionInterviewReportOutput, list[dict[str, Any]]]:
         """生成来源证据相关后端逻辑。"""
         from ai.workflows.analysis.reviewers.multi_reviewer import run_multi_reviewer_map_reduce
@@ -369,7 +399,14 @@ class SessionReportAnalysisService:
             review_contexts=reviewer_contexts,
             api_config=api_config,
             deadline=deadline,
-            call_metadata={**final_context.model_event_fields(), "review_context_policy": "perspective_specific.v1"},
+            call_metadata={
+                **final_context.model_event_fields(),
+                **execution_budget.model_event_fields(),
+                "review_context_policy": "perspective_specific.v1",
+            },
+            reviewer_output_tokens=execution_budget.reviewer_output_tokens,
+            report_output_tokens=execution_budget.output_tokens,
+            request_timeout_seconds=execution_budget.request_timeout_seconds,
         )
         result = SessionInterviewReportOutput.model_validate(review_result.output)
         assessments = [item.model_dump(exclude_none=True) for item in review_result.assessments]

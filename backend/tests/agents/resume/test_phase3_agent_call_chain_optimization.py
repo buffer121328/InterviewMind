@@ -112,11 +112,19 @@ async def test_embedding_batch_deduplicates_and_reuses_cache(monkeypatch):
 
     monkeypatch.setattr(embedding_service.llms.model_gateway, "create_embeddings", fake_create)
     monkeypatch.setattr(embedding_service, "get_settings", lambda: SimpleNamespace(embedding_timeout_seconds=8.0))
+    api_config = {
+        "rag_embedding": {
+            "api_key": "request-key",
+            "base_url": "https://embedding.example.test/v1",
+            "model": "m",
+            "dimensions": 2,
+        }
+    }
     first = await embedding_service.generate_embeddings_batch(
-        ["alpha", "alpha", "beta"], model="m", dimensions=2, batch_size=10
+        ["alpha", "alpha", "beta"], model="m", dimensions=2, batch_size=10, api_config=api_config
     )
     second = await embedding_service.generate_embeddings_batch(
-        ["beta", "alpha"], model="m", dimensions=2, batch_size=10
+        ["beta", "alpha"], model="m", dimensions=2, batch_size=10, api_config=api_config
     )
     assert first[0] == first[1]
     assert second == [first[2], first[0]]

@@ -239,7 +239,7 @@ def order_drafting_model_references(
         *scheduler.order("interview_evaluation_draft:deepseek_flash", preferred),
         *scheduler.order("fast_pool", remaining),
     ]
-    for channel in ("fast", "general", "smart"):
+    for channel in ("fast", "smart"):
         item = api_config.get(channel)
         if isinstance(item, Mapping):
             ordered.append(dict(item))

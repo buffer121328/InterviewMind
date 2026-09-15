@@ -199,7 +199,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                             </div>
                             <div className={`inline-flex w-fit items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium ${coreReady ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-800'}`}>
                                 {coreReady ? <CheckCircle2 className="h-3.5 w-3.5" /> : <ShieldAlert className="h-3.5 w-3.5" />}
-                                {coreReady ? '核心通道已就绪' : '需要配置 Smart 与 Fast'}
+                                {coreReady ? '核心模型已就绪' : '需要配置主模型与 Fast 模型'}
                             </div>
                         </div>
                     </DialogHeader>
@@ -230,7 +230,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                                 <button type="button" onClick={handleAdd} className="mt-4 flex min-h-40 w-full flex-col items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-slate-50 text-center transition hover:border-teal-400 hover:bg-teal-50/40">
                                     <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white text-teal-700 shadow-sm"><Plus className="h-5 w-5" /></div>
                                     <div className="mt-3 text-sm font-medium text-slate-900">添加第一个模型连接</div>
-                                    <div className="mt-1 text-xs text-slate-500">至少准备 Smart 与 Fast 两个通道，也可以先复用同一个连接。</div>
+                                    <div className="mt-1 text-xs text-slate-500">至少准备主模型与 Fast 模型，也可以先复用同一个连接。</div>
                                 </button>
                             ) : (
                                 <div className="mt-4 grid gap-3 md:grid-cols-2">
@@ -275,7 +275,6 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                                     onToggleFastPoolModel={store.toggleFastPoolModel}
                                     onSetTechnicalDepthModel={store.setTechnicalDepthModel}
                                     onSetCommunicationModel={store.setCommunicationModel}
-                                    onSetGeneralModel={store.setGeneralModel}
                                     onSetMatchAnalystModel={store.setMatchAnalystModel}
                                     onSetContentWriterModel={store.setContentWriterModel}
                                     onSetHrReviewerModel={store.setHrReviewerModel}

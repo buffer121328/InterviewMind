@@ -1,6 +1,6 @@
 """Acceptance contracts for the remaining Phase 2 result-consumption loop."""
 
-from app.domain.ability_growth import build_ability_growth_record
+from app.domain.ability_growth import build_ability_growth_record, build_ability_profile_progress
 
 
 def _profile(score: float) -> dict:
@@ -238,3 +238,78 @@ async def test_needs_input_accepts_complete_answers_for_owner_waiting_session(mo
     )
 
     run_service.create_inline_or_get.assert_not_awaited()
+
+
+def test_ability_profile_progress_uses_effective_company_series_rounds() -> None:
+    rows = [
+        {
+            "status": "completed",
+            "series_id": "series-1",
+            "round_index": 1,
+            "candidate_profile": {"generation_mode": "degraded_evidence_only"},
+            "company_profile": None,
+            "updated_at": "2026-08-18T10:00:00",
+        },
+        {
+            "status": "completed",
+            "series_id": "series-1",
+            "round_index": 2,
+            "candidate_profile": {"generation_mode": "degraded_evidence_only"},
+            "company_profile": None,
+            "updated_at": "2026-08-18T11:00:00",
+        },
+        {
+            "status": "completed",
+            "series_id": "series-1",
+            "round_index": 3,
+            "candidate_profile": {"generation_mode": "model_reviewed"},
+            "company_profile": None,
+            "updated_at": "2026-08-19T10:00:00",
+        },
+        *[
+            {
+                "status": "completed",
+                "series_id": None,
+                "round_index": 1,
+                "candidate_profile": {"generation_mode": "model_reviewed"},
+                "company_profile": None,
+                "updated_at": f"2026-08-{day:02d}T10:00:00",
+            }
+            for day in range(20, 24)
+        ],
+    ]
+
+    progress = build_ability_profile_progress(rows)
+
+    assert progress == {
+        "completed_rounds": 7,
+        "eligible_rounds": 1,
+        "required_rounds": 3,
+        "remaining_rounds": 2,
+        "company_profile_count": 0,
+        "degraded_round_indexes": [1, 2],
+        "ready_to_generate": False,
+        "blocker": "degraded_round_reports",
+    }
+
+
+def test_ability_profile_progress_is_ready_only_with_company_profile() -> None:
+    rows = [
+        {
+            "status": "completed",
+            "series_id": "series-ready",
+            "round_index": index,
+            "candidate_profile": {"generation_mode": "model_reviewed"},
+            "company_profile": {"profile": {"overall_assessment": "ready"}} if index == 3 else None,
+            "updated_at": f"2026-08-2{index}T10:00:00",
+        }
+        for index in (1, 2, 3)
+    ]
+
+    progress = build_ability_profile_progress(rows)
+
+    assert progress["eligible_rounds"] == 3
+    assert progress["company_profile_count"] == 1
+    assert progress["remaining_rounds"] == 0
+    assert progress["ready_to_generate"] is True
+    assert progress["blocker"] == "none"

@@ -1,4 +1,4 @@
-export const MISSING_EVALUATION_MODEL_CONFIG_MESSAGE = '请先在模型设置中配置 Smart 与 Fast 通道';
+export const MISSING_EVALUATION_MODEL_CONFIG_MESSAGE = '请先在模型设置中配置主模型与 Fast 模型';
 
 export interface AdvancedEvaluationRunRequestInput<TApiConfig extends object> {
     suiteId: string;

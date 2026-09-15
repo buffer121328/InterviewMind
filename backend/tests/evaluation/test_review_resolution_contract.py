@@ -1,9 +1,14 @@
 """Review-resolution and calibration safety contract regression tests."""
 
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
+
 import pytest
 from pydantic import ValidationError
 
+from app.db.repositories.evaluation import EvaluationRepository
 from app.schemas.evaluation.evaluations import (
+    EvaluationAdjudicationRequest,
     EvaluationAnnotationCreateRequest,
     EvaluationCalibrationCreateRequest,
     EvaluationReviewResolutionRequest,
@@ -32,6 +37,92 @@ def test_new_annotations_default_to_the_single_owner_expert() -> None:
     )
     assert request.reviewer_key == "owner-expert"
     assert request.blind is False
+
+
+def test_adjudication_contract_requires_a_binary_verdict() -> None:
+    request = EvaluationAdjudicationRequest(
+        metric_name="quality.overall", value=False, comment="证据不足"
+    )
+    assert request.value is False
+    with pytest.raises(ValidationError):
+        EvaluationAdjudicationRequest(
+            metric_name="quality.overall", value="factual_omission"
+        )
+
+
+@pytest.mark.asyncio
+async def test_failed_adjudication_rejects_case_and_refreshes_run() -> None:
+    repository = EvaluationRepository()
+    case_run = SimpleNamespace(
+        id="case-run-1",
+        evaluation_run_id="run-1",
+        status="succeeded",
+        hard_gate_passed=True,
+        review_status="pending",
+        review_resolver_key=None,
+        review_resolved_at=None,
+        review_resolution_note=None,
+    )
+    repository.get_case_run = AsyncMock(return_value=case_run)
+    repository._refresh_run_review_state = AsyncMock()
+    session = SimpleNamespace(
+        scalar=AsyncMock(return_value=0),
+        add=Mock(),
+        flush=AsyncMock(),
+    )
+
+    row = await repository.add_annotation(
+        session,
+        case_run_id="case-run-1",
+        user_id="owner-1",
+        request=EvaluationAnnotationCreateRequest(
+            rubric_version="v1",
+            annotation_type="binary",
+            metric_name="quality.overall",
+            value=False,
+            reviewer_key="adjudicator",
+        ),
+        adjudication=True,
+    )
+
+    assert row.adjudication is True
+    assert case_run.review_status == "rejected"
+    repository._refresh_run_review_state.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_adjudication_cannot_pass_runtime_or_hard_gate_failure() -> None:
+    repository = EvaluationRepository()
+    repository.get_case_run = AsyncMock(
+        return_value=SimpleNamespace(
+            id="case-run-1",
+            evaluation_run_id="run-1",
+            status="failed",
+            hard_gate_passed=False,
+        )
+    )
+    session = SimpleNamespace(
+        scalar=AsyncMock(return_value=0),
+        add=Mock(),
+        flush=AsyncMock(),
+    )
+
+    with pytest.raises(ValueError, match="不能通过"):
+        await repository.add_annotation(
+            session,
+            case_run_id="case-run-1",
+            user_id="owner-1",
+            request=EvaluationAnnotationCreateRequest(
+                rubric_version="v1",
+                annotation_type="binary",
+                metric_name="quality.overall",
+                value=True,
+                reviewer_key="adjudicator",
+            ),
+            adjudication=True,
+        )
+
+    session.add.assert_not_called()
 
 
 def test_calibration_rejects_severe_flags_on_human_negative_cases() -> None:

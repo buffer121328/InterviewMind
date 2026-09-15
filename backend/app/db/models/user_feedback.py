@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -26,10 +26,20 @@ class UserFeedbackModel(Base):
         JSONB, nullable=False, default=list
     )
     comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    review_status: Mapped[str] = mapped_column(String(32), nullable=False, default="not_required")
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    reviewer_key: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    review_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    candidate_dataset_id: Mapped[str | None] = mapped_column(
+        ForeignKey("evaluation_dataset_versions.id", ondelete="SET NULL"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
     __table_args__ = (
         UniqueConstraint(
             "user_id", "agent_type", "ref_key", name="uq_user_feedback_owner_ref"
         ),
+        Index("idx_user_feedback_owner_agent_created", "user_id", "agent_type", "created_at"),
+        Index("idx_user_feedback_owner_review", "user_id", "review_status", "created_at"),
     )

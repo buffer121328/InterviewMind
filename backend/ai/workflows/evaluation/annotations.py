@@ -105,7 +105,7 @@ class AnnotationUseCasesMixin:
                 self._not_found("标注不存在或无权访问")
             annotation_request = EvaluationAnnotationCreateRequest(
                 rubric_version=source.rubric_version,
-                annotation_type="categorical",
+                annotation_type="binary",
                 metric_name=request.metric_name,
                 value=request.value,
                 comment=request.comment,
@@ -123,6 +123,8 @@ class AnnotationUseCasesMixin:
                 )
             except LookupError as exc:
                 raise EvaluationUseCaseError(str(exc), status_code=404) from exc
+            except ValueError as exc:
+                raise EvaluationUseCaseError(str(exc), status_code=409) from exc
             if get_settings().evaluation_langfuse_reporting_enabled:
                 _mirror_human_annotation(row)
             return _annotation(row)

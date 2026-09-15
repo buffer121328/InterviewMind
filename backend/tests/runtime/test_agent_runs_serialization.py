@@ -168,17 +168,18 @@ def test_failed_run_plan_marks_last_business_stage():
 
 def test_generic_task_plans_are_task_specific():
     resume_plan = build_task_plan(TASK_TYPE_RESUME_OPTIMIZE, "optimizing", "running")
-    report_plan = build_task_plan(TASK_TYPE_INTERVIEW_REPORT, "generating_reports", "running")
+    report_plan = build_task_plan(TASK_TYPE_INTERVIEW_REPORT, "generating_assessment", "running")
 
     assert [step["id"] for step in resume_plan] == ["queued", "preparing", "optimizing", "saving_result"]
     assert resume_plan[2]["status"] == "running"
     assert [step["id"] for step in report_plan] == [
         "queued",
         "loading_session",
-        "generating_reports",
+        "assembling_evidence",
+        "generating_assessment",
         "saving_report",
     ]
-    assert report_plan[2]["status"] == "running"
+    assert report_plan[3]["status"] == "running"
 
 
 @pytest.mark.asyncio

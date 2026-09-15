@@ -6,7 +6,6 @@ Embedding 服务
 import asyncio
 import hashlib
 import logging
-import os
 from collections import OrderedDict
 from time import perf_counter
 from typing import List, Optional
@@ -19,9 +18,6 @@ from observability.runtime_events import ExternalIOObservationEvent, new_runtime
 
 logger = logging.getLogger(__name__)
 
-# 配置（可通过环境变量覆盖）
-EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-v4")
-EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "1536"))
 _EMBEDDING_CACHE_MAX_ITEMS = 512
 _embedding_cache: "OrderedDict[str, List[float]]" = OrderedDict()
 
@@ -36,7 +32,7 @@ def _embedding_cache_key(text: str, *, model: str, dimensions: int, api_config: 
         api_config: 前端模型通道配置。
     """
     channel = (api_config or {}).get("rag_embedding") or {}
-    provider = str(channel.get("base_url") or "environment")
+    provider = str(channel.get("base_url") or "request")
     normalized = " ".join(text.split())
     payload = f"{provider}\0{model}\0{dimensions}\0{normalized}"
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()

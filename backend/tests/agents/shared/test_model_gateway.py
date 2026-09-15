@@ -54,6 +54,18 @@ def test_api_config_preserves_mimo_channel():
     assert config.mimo.model == "mimo-v2.5"
 
 
+def test_api_config_ignores_legacy_general_channel():
+    config = ApiConfig.model_validate(
+        {
+            "smart": _channel("main-model"),
+            "fast": _channel("fast-model"),
+            "general": _channel("legacy-general"),
+        }
+    )
+
+    assert "general" not in config.model_dump()
+
+
 def test_api_config_accepts_fast_and_reasoning_pools():
     config = ApiConfig.model_validate(
         {
@@ -111,8 +123,8 @@ def test_chat_candidates_accept_explicit_output_budget_without_changing_default(
     get_settings.cache_clear()
 
 
-def test_chat_candidates_prefer_requested_provider_without_removing_fallbacks(monkeypatch, local_model_pool):
-    """A task may promote a configured provider while retaining every fallback candidate."""
+def test_provider_hint_does_not_override_fixed_routing_hierarchy(monkeypatch, local_model_pool):
+    """Provider hints cannot move a pool member ahead of the main model."""
     gateway = llms.ModelGateway()
     monkeypatch.setattr(
         llms,
@@ -144,12 +156,12 @@ def test_chat_candidates_prefer_requested_provider_without_removing_fallbacks(mo
         preferred_provider="volcengine",
     )
     assert [candidate.model_name for candidate in preferred] == [
-        "doubao-priority",
-        "fast-primary",
         "smart-fallback",
+        "fast-primary",
+        "doubao-priority",
     ]
-    assert released == [_identity(api_config["fast"])]
-    assert reserved == [_identity(api_config["reasoning_pool"][0])]
+    assert released == []
+    assert reserved == []
 
     unavailable = gateway.get_chat_candidates(
         api_config,
@@ -157,9 +169,9 @@ def test_chat_candidates_prefer_requested_provider_without_removing_fallbacks(mo
         preferred_provider="openai",
     )
     assert [candidate.model_name for candidate in unavailable] == [
+        "smart-fallback",
         "fast-primary",
         "doubao-priority",
-        "smart-fallback",
     ]
 
 
@@ -179,7 +191,7 @@ def test_weighted_pool_rotates_primary_candidate(monkeypatch, local_model_pool):
         ],
     }
 
-    primaries = [gateway.get_chat_candidates(api_config, "fast")[0].model_name for _ in range(3)]
+    primaries = [gateway.get_chat_candidates(api_config, "fast")[1].model_name for _ in range(3)]
 
     assert primaries == ["flash-a", "flash-a", "flash-b"]
 
@@ -203,67 +215,60 @@ def test_failed_pool_member_enters_cooldown(monkeypatch, local_model_pool):
         ],
     }
 
-    first = gateway.get_chat_candidates(api_config, "fast")[0]
+    first = gateway.get_chat_candidates(api_config, "fast")[1]
     gateway.record_chat_failure(first)
-    second = gateway.get_chat_candidates(api_config, "fast")[0]
+    second = gateway.get_chat_candidates(api_config, "fast")[1]
 
     assert first.model_name == "flash-a"
     assert second.model_name == "flash-b"
     get_settings.cache_clear()
 
 
-def test_fast_candidate_chain_uses_fast_pool_then_fast_then_reasoning(local_model_pool):
+def test_fast_channel_uses_main_then_fast_pool_then_reasoning_pool(local_model_pool):
     gateway = llms.ModelGateway()
     candidates, _ = gateway._candidate_configs(
         {
             "smart": _channel("smart-legacy"),
             "fast": _channel("fast-legacy"),
             "fast_pool": [_channel("fast-primary")],
-            "general": _channel("general-not-used"),
             "reasoning_pool": [_channel("reasoning-fallback")],
         },
         "fast",
     )
 
     assert _models(candidates) == [
-        "fast-primary",
-        "fast-legacy",
-        "reasoning-fallback",
         "smart-legacy",
+        "fast-primary",
+        "reasoning-fallback",
     ]
-    assert "general-not-used" not in _models(candidates)
 
 
-def test_reasoning_candidate_chain_uses_reasoning_then_smart_then_fast(local_model_pool):
+def test_smart_channel_uses_main_then_fast_pool_then_reasoning_pool(local_model_pool):
     gateway = llms.ModelGateway()
     candidates, _ = gateway._candidate_configs(
         {
             "smart": _channel("smart-legacy"),
             "fast": _channel("fast-legacy"),
             "reasoning_pool": [_channel("reasoning-primary")],
-            "general": _channel("general-not-used"),
             "fast_pool": [_channel("fast-fallback")],
         },
         "smart",
     )
 
     assert _models(candidates) == [
-        "reasoning-primary",
         "smart-legacy",
         "fast-fallback",
-        "fast-legacy",
+        "reasoning-primary",
     ]
-    assert "general-not-used" not in _models(candidates)
 
 
-def test_resume_expert_chain_uses_direct_then_general_then_core_fallbacks(local_model_pool):
+def test_expert_chain_uses_direct_then_fast_pool_then_reasoning_pool(local_model_pool):
     gateway = llms.ModelGateway()
     candidates, _ = gateway._candidate_configs(
         {
             "smart": _channel("smart-legacy"),
             "fast": _channel("fast-legacy"),
             "content_writer": _channel("writer-primary"),
-            "general": _channel("general-fallback"),
             "reasoning_pool": [_channel("reasoning-fallback")],
             "fast_pool": [_channel("fast-fallback")],
         },
@@ -272,21 +277,17 @@ def test_resume_expert_chain_uses_direct_then_general_then_core_fallbacks(local_
 
     assert _models(candidates) == [
         "writer-primary",
-        "general-fallback",
-        "reasoning-fallback",
-        "smart-legacy",
         "fast-fallback",
-        "fast-legacy",
+        "reasoning-fallback",
     ]
 
 
-def test_unconfigured_resume_expert_starts_with_general(local_model_pool):
+def test_unconfigured_expert_starts_with_main_model(local_model_pool):
     gateway = llms.ModelGateway()
     candidates, _ = gateway._candidate_configs(
         {
             "smart": _channel("smart-legacy"),
             "fast": _channel("fast-legacy"),
-            "general": _channel("general-primary"),
             "reasoning_pool": [_channel("reasoning-fallback")],
             "fast_pool": [_channel("fast-fallback")],
         },
@@ -294,22 +295,19 @@ def test_unconfigured_resume_expert_starts_with_general(local_model_pool):
     )
 
     assert _models(candidates) == [
-        "general-primary",
-        "reasoning-fallback",
         "smart-legacy",
         "fast-fallback",
-        "fast-legacy",
+        "reasoning-fallback",
     ]
 
 
-def test_report_reviewer_chain_prefers_direct_channel_then_general_and_core(local_model_pool):
+def test_report_reviewer_uses_unified_fallback_order(local_model_pool):
     gateway = llms.ModelGateway()
     candidates, _ = gateway._candidate_configs(
         {
             "smart": _channel("smart-legacy"),
             "fast": _channel("fast-legacy"),
             "technical_depth": _channel("technical-primary"),
-            "general": _channel("general-fallback"),
             "reasoning_pool": [_channel("reasoning-fallback")],
             "fast_pool": [_channel("fast-fallback")],
         },
@@ -318,33 +316,32 @@ def test_report_reviewer_chain_prefers_direct_channel_then_general_and_core(loca
 
     assert _models(candidates) == [
         "technical-primary",
-        "general-fallback",
-        "reasoning-fallback",
-        "smart-legacy",
         "fast-fallback",
-        "fast-legacy",
+        "reasoning-fallback",
     ]
 
 
-def test_unconfigured_report_reviewer_uses_general_without_treating_it_as_reviewer(local_model_pool):
+def test_legacy_general_config_is_ignored(local_model_pool):
     gateway = llms.ModelGateway()
     candidates, _ = gateway._candidate_configs(
         {
             "smart": _channel("smart-legacy"),
             "fast": _channel("fast-legacy"),
             "general": _channel("general-fallback"),
+            "reasoning_pool": [_channel("reasoning-fallback")],
         },
         "communication",
     )
 
     assert _models(candidates) == [
-        "general-fallback",
         "smart-legacy",
         "fast-legacy",
+        "reasoning-fallback",
     ]
+    assert "general-fallback" not in _models(candidates)
 
 
-def test_expert_and_general_same_identity_are_tried_once(local_model_pool):
+def test_duplicate_model_identities_are_tried_once_at_earliest_layer(local_model_pool):
     gateway = llms.ModelGateway()
     same_model = _channel("main-model")
     candidates, _ = gateway._candidate_configs(
@@ -352,20 +349,30 @@ def test_expert_and_general_same_identity_are_tried_once(local_model_pool):
             "smart": _channel("smart-legacy"),
             "fast": _channel("fast-legacy"),
             "content_writer": same_model,
-            "general": dict(same_model),
             "reasoning_pool": [_channel("reasoning-fallback")],
-            "fast_pool": [_channel("fast-fallback")],
+            "fast_pool": [dict(same_model), _channel("fast-fallback")],
         },
         "content_writer",
     )
 
     assert _models(candidates) == [
         "main-model",
-        "reasoning-fallback",
-        "smart-legacy",
         "fast-fallback",
-        "fast-legacy",
+        "reasoning-fallback",
     ]
+
+
+def test_empty_reasoning_pool_does_not_repeat_main_model(local_model_pool):
+    gateway = llms.ModelGateway()
+    candidates, _ = gateway._candidate_configs(
+        {
+            "smart": _channel("main-model"),
+            "fast": _channel("fast-model"),
+        },
+        "smart",
+    )
+
+    assert _models(candidates) == ["main-model", "fast-model"]
 
 
 def test_ark_doubao_uses_openai_compatible_client_and_strict_schema_metadata():
@@ -410,6 +417,7 @@ def test_mimo_factory_uses_max_completion_tokens(monkeypatch):
 
     assert created["max_completion_tokens"] == 1234
     assert "max_tokens" not in created
+    assert created["extra_body"] == {"thinking": {"type": "disabled"}}
     assert created["metadata"]["model_provider"] == "mimo"
 
 
@@ -433,6 +441,7 @@ def test_non_mimo_factory_keeps_max_tokens(monkeypatch):
 
     assert created["max_tokens"] == 1234
     assert "max_completion_tokens" not in created
+    assert "extra_body" not in created
 
 
 class _FakeRedis:
@@ -778,27 +787,30 @@ def test_redis_reserve_order_atomically_marks_selected_member_busy():
     assert second_scheduler.get_inflight(second_identity) == 1
 
 
-def test_embedding_options_use_environment(monkeypatch):
+def _embedding_request_config(*, model: str = "request-embed", dimensions: int = 2) -> dict:
+    return {
+        "rag_embedding": {
+            "api_key": "request-key",
+            "base_url": "https://example.invalid/v1",
+            "model": model,
+            "dimensions": dimensions,
+        }
+    }
+
+
+def test_embedding_options_reject_environment_fallback(monkeypatch):
     monkeypatch.setenv("EMBEDDING_MODEL", "embed-small")
     monkeypatch.setenv("EMBEDDING_DIM", "768")
 
-    options = llms.model_gateway.get_embedding_request_options()
+    with pytest.raises(ValueError, match="Embedding 模型配置"):
+        llms.model_gateway.get_embedding_request_options()
 
-    assert options == {"model": "embed-small", "dimensions": 768}
 
-
-def test_embedding_client_config_prefers_request_dimensions(monkeypatch):
+def test_embedding_client_config_uses_request_dimensions(monkeypatch):
     monkeypatch.setenv("EMBEDDING_DIM", "1536")
 
     config = llms.model_gateway.get_embedding_client_config(
-        api_config={
-            "rag_embedding": {
-                "api_key": "request-key",
-                "base_url": "https://example.invalid/v1",
-                "model": "request-embed",
-                "dimensions": 1024,
-            }
-        }
+        api_config=_embedding_request_config(dimensions=1024)
     )
 
     assert config["model"] == "request-embed"
@@ -817,12 +829,15 @@ async def _create_embeddings_case(monkeypatch):
         embeddings = FakeEmbeddings()
 
     monkeypatch.delenv("REDIS_URL", raising=False)
-    monkeypatch.setenv("OPENAI_API_KEY", "embedding-key")
-    monkeypatch.setenv("OPENAI_BASE_URL", "https://example.invalid/v1")
     monkeypatch.setattr(llms, "create_embedding_client", lambda _config: FakeClient())
 
     gateway = llms.ModelGateway()
-    response = await gateway.create_embeddings("hello", model="embed-model", dimensions=2)
+    response = await gateway.create_embeddings(
+        "hello",
+        model="embed-model",
+        dimensions=2,
+        api_config=_embedding_request_config(model="embed-model", dimensions=2),
+    )
 
     return captured, response, gateway
 
@@ -847,7 +862,10 @@ async def _embedding_service_case(monkeypatch):
         return type("EmbeddingResponse", (), {"data": [type("Item", (), {"embedding": [0.3, 0.4]})()]})()
 
     monkeypatch.setattr(embedding_service.llms.model_gateway, "create_embeddings", fake_create_embeddings)
-    embedding = await embedding_service.generate_embedding("hello", model="embed-model", dimensions=2)
+    api_config = _embedding_request_config(model="embed-model", dimensions=2)
+    embedding = await embedding_service.generate_embedding(
+        "hello", model="embed-model", dimensions=2, api_config=api_config
+    )
     return captured, embedding
 
 
@@ -856,7 +874,12 @@ def test_rag_embedding_service_uses_model_gateway(monkeypatch):
 
     captured, embedding = asyncio.run(_embedding_service_case(monkeypatch))
 
-    assert captured == {"input": "hello", "model": "embed-model", "dimensions": 2, "api_config": None}
+    assert captured == {
+        "input": "hello",
+        "model": "embed-model",
+        "dimensions": 2,
+        "api_config": _embedding_request_config(model="embed-model", dimensions=2),
+    }
     assert embedding == [0.3, 0.4]
 
 
@@ -874,14 +897,7 @@ async def test_rag_embedding_service_uses_request_channel_dimensions(monkeypatch
             {"data": [type("Item", (), {"embedding": [0.3, 0.4]})()]},
         )()
 
-    api_config = {
-        "rag_embedding": {
-            "api_key": "request-key",
-            "base_url": "https://example.invalid/v1",
-            "model": "request-embed",
-            "dimensions": 2,
-        }
-    }
+    api_config = _embedding_request_config(dimensions=2)
     monkeypatch.setattr(embedding_service.llms.model_gateway, "create_embeddings", fake_create_embeddings)
 
     embedding = await embedding_service.generate_embedding("hello", api_config=api_config)
@@ -928,6 +944,7 @@ async def test_rag_embedding_service_rejects_provider_dimension_mismatch(monkeyp
             "hello",
             model="embed-model",
             dimensions=2,
+            api_config=_embedding_request_config(model="embed-model", dimensions=2),
         )
 
 
@@ -956,6 +973,7 @@ async def test_rag_embedding_batch_rejects_missing_vectors(monkeypatch):
             model="embed-model",
             dimensions=2,
             batch_size=2,
+            api_config=_embedding_request_config(model="embed-model", dimensions=2),
         )
 
 

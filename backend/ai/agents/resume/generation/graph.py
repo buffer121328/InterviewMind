@@ -127,7 +127,7 @@ async def node_analyze_needs(state: ResumeGenerationState) -> dict:
             prompt,
             NeedsAnalysisOutput,
             api_config,
-            channel="general",
+            channel="smart",
             deadline=_current_deadline(),
             call_metadata=stage_context.call_metadata,
         )

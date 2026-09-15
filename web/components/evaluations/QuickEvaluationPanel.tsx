@@ -115,7 +115,7 @@ export function QuickEvaluationPanel({
     const quickLaunchHint = !catalog?.runs_enabled
         ? '服务端尚未启用真实评测'
         : !modelConfigReady
-            ? '先完成 Smart / Fast 模型设置即可运行'
+            ? '先完成主模型与 Fast 模型设置即可运行'
             : selectedModeName !== 'quick'
                 ? '当前是完整检查模式，请在下方确认配置后运行'
                 : `所选 Agent 冒烟将运行 1 个稳定案例；全 Agent 冒烟将运行 ${catalog?.agents.length ?? 0} 个案例`;
@@ -128,7 +128,7 @@ export function QuickEvaluationPanel({
         }
         const apiConfig = getApiConfigForRequest();
         if (!apiConfig) {
-            toast.error('请先在模型设置中配置 Smart 与 Fast 通道');
+            toast.error('请先在模型设置中配置主模型与 Fast 模型');
             return;
         }
 
@@ -166,7 +166,7 @@ export function QuickEvaluationPanel({
         }
         const apiConfig = getApiConfigForRequest();
         if (!apiConfig) {
-            toast.error('请先在模型设置中配置 Smart 与 Fast 通道');
+            toast.error('请先在模型设置中配置主模型与 Fast 模型');
             return;
         }
 
@@ -218,15 +218,6 @@ export function QuickEvaluationPanel({
                     <ContextualHelpIcon id="credential-boundary" label="凭据安全边界">
                         API Key 不在页面展示；只随本次请求发送，并由后端加密进入任务载荷。
                     </ContextualHelpIcon>
-                    {selectedModeName === 'quick' && <Button
-                        size="lg"
-                        className="min-w-52 bg-teal-600 hover:bg-teal-700"
-                        disabled={!canRun}
-                        onClick={() => void startEvaluation()}
-                    >
-                        <Play className="mr-2 h-4 w-4" />
-                        {submitting ? '正在启动…' : '一键运行快速冒烟'}
-                    </Button>}
                 </div>
             </div>
             <div className="mt-4 flex flex-col gap-3 rounded-xl border border-teal-100 bg-white/80 p-3 sm:flex-row sm:items-center sm:justify-between">
@@ -239,7 +230,7 @@ export function QuickEvaluationPanel({
         </section>
 
         {!catalog.runs_enabled && <Notice tone="warning" text="服务端尚未启用 EVALUATION_RUNS_ENABLED；可以查看目录和历史结果，但暂不能启动真实评测。" />}
-        {!modelConfigReady && <Notice tone="warning" text="尚未配置完整的 Smart / Fast 模型通道。请先前往“模型设置”完成配置，一键评测会自动读取。" />}
+        {!modelConfigReady && <Notice tone="warning" text="尚未配置完整的主模型 / Fast 模型。请先前往“模型设置”完成配置，一键评测会自动读取。" />}
         {matchingCandidate && <Notice tone="info" text={`已识别 Prompt 候选：${matchingCandidate.name} v${matchingCandidate.version}，运行时会自动带入。`} />}
 
         <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -287,8 +278,8 @@ export function QuickEvaluationPanel({
         <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <SectionHeading step="3" title="确认并运行" description="这里只展示自动采用的配置摘要，不展示 API Key 或完整地址。" />
             <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                <SummaryItem icon={<Gauge className="h-4 w-4" />} label="Smart 通道" value={smartModel ? `${smartModel.name} · ${smartModel.model}` : '未配置'} />
-                <SummaryItem icon={<Clock3 className="h-4 w-4" />} label="Fast 通道" value={fastModel ? `${fastModel.name} · ${fastModel.model}` : '未配置'} />
+                <SummaryItem icon={<Gauge className="h-4 w-4" />} label="主模型" value={smartModel ? `${smartModel.name} · ${smartModel.model}` : '未配置'} />
+                <SummaryItem icon={<Clock3 className="h-4 w-4" />} label="Fast 模型" value={fastModel ? `${fastModel.name} · ${fastModel.model}` : '未配置'} />
                 <SummaryItem icon={<Database className="h-4 w-4" />} label="Dataset / Suite" value={selectedScope ? `${selectedScope.dataset_name}:${selectedScope.dataset_version}` : '-'} />
                 <SummaryItem icon={<Scale className="h-4 w-4" />} label="Rubric / Prompt" value={selectedScope && selectedAgent ? `${selectedScope.rubric_version} · ${matchingCandidate?.version ?? selectedAgent.prompt_version}` : '-'} />
             </div>

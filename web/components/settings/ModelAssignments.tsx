@@ -21,7 +21,6 @@ interface ModelAssignmentsProps {
     onToggleFastPoolModel: (id: string) => boolean;
     onSetTechnicalDepthModel: (id: string) => boolean;
     onSetCommunicationModel: (id: string) => boolean;
-    onSetGeneralModel: (id: string) => boolean;
     onSetMatchAnalystModel: (id: string) => boolean;
     onSetContentWriterModel: (id: string) => boolean;
     onSetHrReviewerModel: (id: string) => boolean;
@@ -160,44 +159,43 @@ export function ModelAssignments(props: ModelAssignmentsProps) {
             <Section
                 icon={Gauge}
                 title="核心执行与模型池"
-                description="Smart/Fast 是核心单模型通道；Reasoning/Fast Pool 优先承接对应任务，池为空或成员失败时回退到核心单模型。"
+                description="所有文本任务按首选模型、Fast Pool、Reasoning Pool 的固定层级执行；池内成员由后端按负载、轮询和冷却调度。"
             >
                 <div className="grid gap-5 md:grid-cols-2">
-                    <ModelSelect label="Smart 通道" description="复杂推理、面试规划与报告生成。" value={config.smartModelId} models={primaryModels} onChange={props.onSetSmartModel} required />
-                    <ModelSelect label="Fast 通道" description="实时问答、短反馈与低延迟任务。" value={config.fastModelId} models={primaryModels} onChange={props.onSetFastModel} required />
+                    <ModelSelect label="主模型" description="所有未单独配置阶段的首选模型。" value={config.smartModelId} models={primaryModels} onChange={props.onSetSmartModel} required />
+                    <ModelSelect label="Fast 模型" description="Fast Pool 未选择成员时使用的快速回退模型。" value={config.fastModelId} models={primaryModels} onChange={props.onSetFastModel} required />
                 </div>
                 <div className="grid gap-5 md:grid-cols-2">
-                    <PoolPicker title="Reasoning Pool" description="用于推理任务的加权成员；后端负责调度、冷却和回退。" models={primaryModels} selectedIds={config.reasoningPoolModelIds || []} onToggle={props.onToggleReasoningPoolModel} />
-                    <PoolPicker title="Fast Pool" description="用于快速任务的加权成员；未选择时使用 Fast 通道。" models={primaryModels} selectedIds={config.fastPoolModelIds || []} onToggle={props.onToggleFastPoolModel} />
+                    <PoolPicker title="Fast Pool" description="第二层回退；可选多个模型，未选择时使用 Fast 模型。" models={primaryModels} selectedIds={config.fastPoolModelIds || []} onToggle={props.onToggleFastPoolModel} />
+                    <PoolPicker title="Reasoning Pool" description="最后一层回退；把 Pro 模型勾选在这里。可选多个模型，池内顺序由后端调度。" models={primaryModels} selectedIds={config.reasoningPoolModelIds || []} onToggle={props.onToggleReasoningPoolModel} />
                 </div>
             </Section>
 
             <Section
                 icon={ShieldCheck}
                 title="面试报告专家通道（4 个评审 + 1 个汇总）"
-                description="五个阶段都可以独立选择模型。留空时才按 General → Reasoning/Fast Pool → Smart/Fast 核心通道回退。"
+                description="五个阶段都可独立选择首选模型；留空时使用主模型，之后统一回退到 Fast Pool、Reasoning Pool。"
             >
                 <div className="grid gap-5 md:grid-cols-2">
-                    <ModelSelect label="技术深度评审" description="评估技术原理深度、方案取舍和问题拆解；通常约 4k–8k 输入 token，通道名：Technical Depth。" value={config.technicalDepthModelId} models={primaryModels} onChange={props.onSetTechnicalDepthModel} emptyLabel="未单独配置（使用 General）" />
-                    <ModelSelect label="沟通评审" description="评估表达结构、清晰度和协作沟通；通常约 2k–5k 输入 token，通道名：Communication。" value={config.communicationModelId} models={primaryModels} onChange={props.onSetCommunicationModel} emptyLabel="未单独配置（使用 General）" />
-                    <ModelSelect label="岗位匹配评审" description="根据 JD、简历和面试证据判断岗位匹配度；通常约 4k–8k 输入 token，通道名：Match Analyst。简历工作区的 JD 匹配实际使用 Smart。" value={config.matchAnalystModelId} models={primaryModels} onChange={props.onSetMatchAnalystModel} emptyLabel="未单独配置（使用 General）" />
-                    <ModelSelect label="事实风险评审" description="检查面试回答与简历事实的一致性、夸大和失真风险；通常约 3k–6k 输入 token，通道名：Reflector。简历事实核验也复用此配置。" value={config.reflectorModelId} models={primaryModels} onChange={props.onSetReflectorModel} emptyLabel="未单独配置（使用 General）" />
-                    <ModelSelect label="报告叙事汇总" description="汇总四个 reviewer 的结论并生成最终面试报告；通常约 7k–12k 输入 token，通道名：HR Reviewer。" value={config.hrReviewerModelId} models={primaryModels} onChange={props.onSetHrReviewerModel} emptyLabel="未单独配置（使用 General）" />
+                    <ModelSelect label="技术深度评审" description="评估技术原理深度、方案取舍和问题拆解；通常约 4k–8k 输入 token，通道名：Technical Depth。" value={config.technicalDepthModelId} models={primaryModels} onChange={props.onSetTechnicalDepthModel} emptyLabel="未单独配置（使用主模型）" />
+                    <ModelSelect label="沟通评审" description="评估表达结构、清晰度和协作沟通；通常约 2k–5k 输入 token，通道名：Communication。" value={config.communicationModelId} models={primaryModels} onChange={props.onSetCommunicationModel} emptyLabel="未单独配置（使用主模型）" />
+                    <ModelSelect label="岗位匹配评审" description="根据 JD、简历和面试证据判断岗位匹配度；通常约 4k–8k 输入 token，通道名：Match Analyst。简历工作区的 JD 匹配实际使用主模型。" value={config.matchAnalystModelId} models={primaryModels} onChange={props.onSetMatchAnalystModel} emptyLabel="未单独配置（使用主模型）" />
+                    <ModelSelect label="事实风险评审" description="检查面试回答与简历事实的一致性、夸大和失真风险；通常约 3k–6k 输入 token，通道名：Reflector。简历事实核验也复用此配置。" value={config.reflectorModelId} models={primaryModels} onChange={props.onSetReflectorModel} emptyLabel="未单独配置（使用主模型）" />
+                    <ModelSelect label="报告叙事汇总" description="汇总四个 reviewer 的结论并生成最终面试报告；通常约 7k–12k 输入 token，通道名：HR Reviewer。" value={config.hrReviewerModelId} models={primaryModels} onChange={props.onSetHrReviewerModel} emptyLabel="未单独配置（使用主模型）" />
                 </div>
                 <div className="rounded-xl border border-amber-100 bg-amber-50/70 px-4 py-3">
                     <div className="text-xs font-semibold text-amber-900">回退规则</div>
-                    <p className="mt-1 text-xs leading-5 text-amber-800">五个阶段未单独配置时使用 General；General 也未配置时才进入核心通道兜底。General 是回退角色，不是第五个 reviewer。输入 token 会随简历、JD 和题量变化，以上仅用于选模型容量。</p>
+                    <p className="mt-1 text-xs leading-5 text-amber-800">阶段首选未配置时使用主模型；失败后依次进入 Fast Pool、Reasoning Pool。输入 token 会随简历、JD 和题量变化，以上仅用于选模型容量。</p>
                 </div>
             </Section>
 
             <Section
                 icon={FileText}
                 title="简历专家通道"
-                description="简历区只展示 General 与 Content Writer；JD 匹配实际走 Smart，事实核验复用面试报告的 Reflector。"
+                description="内容优化可单独选择首选模型；其他简历任务默认使用主模型，事实核验复用 Reflector。"
             >
                 <div className="grid gap-5 md:grid-cols-2">
-                    <ModelSelect label="通用 / 主持人" description="简历分析、流程主持与结果汇总；也是其他专家未单独配置时的默认模型。" value={config.generalModelId} models={primaryModels} onChange={props.onSetGeneralModel} emptyLabel="未配置（专家请求将回退到核心链）" />
-                    <ModelSelect label="内容优化师" description="简历流程：改写项目经历、生成定向优化建议和候选版本；留空时使用 General。" value={config.contentWriterModelId} models={primaryModels} onChange={props.onSetContentWriterModel} emptyLabel="未单独配置（使用 General）" />
+                    <ModelSelect label="内容优化师" description="简历流程：改写项目经历、生成定向优化建议和候选版本；留空时使用主模型。" value={config.contentWriterModelId} models={primaryModels} onChange={props.onSetContentWriterModel} emptyLabel="未单独配置（使用主模型）" />
                 </div>
             </Section>
 

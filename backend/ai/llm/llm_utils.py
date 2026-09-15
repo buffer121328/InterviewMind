@@ -326,6 +326,7 @@ async def _invoke_with_fallback(
     *,
     temperature: float = 0.7,
     max_tokens: int | None = None,
+    timeout: float | None = None,
     deadline: TaskDeadline | None = None,
     call_metadata: dict[str, Any] | None = None,
 ) -> T:
@@ -342,7 +343,7 @@ async def _invoke_with_fallback(
         call_metadata: 调用元数据。
     """
     settings = get_settings()
-    attempt_timeout = settings.llm_request_timeout_seconds
+    attempt_timeout = timeout or settings.llm_request_timeout_seconds
     task_deadline = _resolve_deadline(deadline)
     # ``max_retries`` remains source-compatible, but structured calls no longer
     # resend the original prompt to a candidate. A returned invalid response may
@@ -604,6 +605,7 @@ async def invoke_structured(
     max_retries: int = 0,
     temperature: float = 0.7,
     max_tokens: int | None = None,
+    timeout: float | None = None,
     deadline: TaskDeadline | None = None,
     call_metadata: dict[str, Any] | None = None,
 ) -> T:
@@ -638,6 +640,7 @@ async def invoke_structured(
         max_retries,
         temperature=temperature,
         max_tokens=max_tokens,
+        timeout=timeout,
         deadline=deadline,
         call_metadata=call_metadata,
     )
@@ -650,6 +653,7 @@ async def invoke_structured_with_messages(
     channel: str = "smart",
     max_retries: int = 0,
     max_tokens: int | None = None,
+    timeout: float | None = None,
     deadline: TaskDeadline | None = None,
     call_metadata: dict[str, Any] | None = None,
 ) -> T:
@@ -677,6 +681,7 @@ async def invoke_structured_with_messages(
         channel,
         max_retries,
         max_tokens=max_tokens,
+        timeout=timeout,
         deadline=deadline,
         call_metadata=call_metadata,
     )

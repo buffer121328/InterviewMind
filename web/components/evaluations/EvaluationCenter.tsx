@@ -19,7 +19,6 @@ import {
     type EvaluationSuite,
     type EvaluationTrendPoint,
 } from '@/lib/api/evaluations';
-import { satisfactionApi, type SatisfactionStats } from '@/lib/api/satisfaction';
 import { EvaluationOverviewPanel } from './EvaluationOverviewPanel';
 import { EvaluationRunsPanel } from './EvaluationRunsPanel';
 import { AnnotationsPanel, CalibrationPanel, DatasetsPanel, GatesPanel } from './EvaluationGovernancePanels';
@@ -42,7 +41,6 @@ export function EvaluationCenter({ focusDatasetId = null }: { focusDatasetId?: s
     const [queue, setQueue] = useState<Array<EvaluationCaseRun & { agent_name: string }>>([]);
     const [calibrations, setCalibrations] = useState<EvaluationCalibration[]>([]);
     const [gates, setGates] = useState<EvaluationGatePolicy[]>([]);
-    const [satisfactionStats, setSatisfactionStats] = useState<SatisfactionStats | null>(null);
 
     /** Refreshes one-click and governance data while preserving owner-scoped backend boundaries. */
     const refresh = useCallback(async () => {
@@ -59,7 +57,6 @@ export function EvaluationCenter({ focusDatasetId = null }: { focusDatasetId?: s
                 queueResult,
                 calibrationResult,
                 gateResult,
-                satisfactionResult,
             ] = await Promise.all([
                 evaluationApi.catalog(),
                 evaluationApi.overview(),
@@ -71,7 +68,6 @@ export function EvaluationCenter({ focusDatasetId = null }: { focusDatasetId?: s
                 evaluationApi.annotationQueue(),
                 evaluationApi.calibrations(),
                 evaluationApi.gates(),
-                satisfactionApi.stats(),
             ]);
             setCatalog(catalogResult);
             setOverview(overviewResult);
@@ -83,7 +79,6 @@ export function EvaluationCenter({ focusDatasetId = null }: { focusDatasetId?: s
             setQueue(queueResult.items);
             setCalibrations(calibrationResult.items);
             setGates(gateResult.items);
-            setSatisfactionStats(satisfactionResult);
         } catch (error) {
             toast.error(error instanceof Error ? error.message : '评测中心加载失败');
         } finally {
@@ -185,7 +180,7 @@ export function EvaluationCenter({ focusDatasetId = null }: { focusDatasetId?: s
                     <TabsContent value="annotations"><AnnotationsPanel queue={queue} onRefresh={refresh} /></TabsContent>
                     <TabsContent value="calibration"><CalibrationPanel calibrations={calibrations} onRefresh={refresh} /></TabsContent>
                     <TabsContent value="gates"><GatesPanel gates={gates} runs={runs} onRefresh={refresh} /></TabsContent>
-                    <TabsContent value="satisfaction"><SatisfactionStatsPanel stats={satisfactionStats} loading={loading} /></TabsContent>
+                    <TabsContent value="satisfaction"><SatisfactionStatsPanel /></TabsContent>
                 </Tabs>}
         </div>
     </div>;

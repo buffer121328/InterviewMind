@@ -11,10 +11,8 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from ai.workflows.evaluation.service import EvaluationUseCaseError
-from app.db.repositories.evaluation.repository import (
-    EvaluationRepository,
-    _candidate_governance_metadata,
-)
+from app.db.repositories.evaluation.repository import EvaluationRepository
+from app.db.repositories.evaluation.helpers import _candidate_governance_metadata
 from app.db.models.evaluation import EvaluationAnnotationModel
 from app.schemas.evaluation.evaluations import (
     EvaluationAnnotationCreateRequest,
@@ -134,12 +132,15 @@ def test_evaluation_case_rejects_sensitive_candidate_evidence_refs() -> None:
 async def test_candidate_dataset_preserves_safe_tags_and_evidence_refs(monkeypatch) -> None:
     """从失败案例创建新版本时自动保存治理 tags，并把 evidence refs 加密进期望载荷。"""
 
-    from app.db.repositories.evaluation import repository as repository_module
+    from app.db.repositories.evaluation import candidate_dataset_repository as repository_module
 
     repository = EvaluationRepository()
     case_run = SimpleNamespace(
         id="case-run-1",
         case_id="case-1",
+        status="failed",
+        hard_gate_passed=False,
+        review_status="rejected",
         error_category="dependency_failure",
         record_sanitized={
             "tool_calls": [
@@ -172,6 +173,7 @@ async def test_candidate_dataset_preserves_safe_tags_and_evidence_refs(monkeypat
         scalars=AsyncMock(return_value=[score]),
     )
     repository.get_case_run = AsyncMock(return_value=case_run)
+    repository.get_dataset_by_name_version = AsyncMock(return_value=None)
     captured: dict[str, object] = {}
     created = SimpleNamespace(id="dataset-1")
 
@@ -227,9 +229,116 @@ async def test_candidate_dataset_preserves_safe_tags_and_evidence_refs(monkeypat
         "tool-call:call-1:approval",
     ]
 
-    monkeypatch.setattr(repository_module, "encrypt_payload", lambda value: value)
+    from app.db.repositories.evaluation import repository as aggregate_repository_module
+
+    monkeypatch.setattr(aggregate_repository_module, "encrypt_payload", lambda value: value)
     stored = repository._case_model("dataset-1", candidate)
     assert stored.expected_encrypted["evidence_refs"] == candidate.evidence_refs
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("status", "hard_gate_passed", "review_status", "score_status"),
+    [
+        ("succeeded", True, "pending", "passed"),
+        ("succeeded", True, "approved", "passed"),
+        ("succeeded", True, "waived", "passed"),
+        ("failed", False, "rerun_requested", "failed"),
+        ("succeeded", True, "rejected", "passed"),
+    ],
+)
+async def test_candidate_dataset_requires_confirmed_automatic_failure(
+    status: str,
+    hard_gate_passed: bool,
+    review_status: str,
+    score_status: str,
+) -> None:
+    """成功、待处理或没有自动失败事实的案例都不能伪装成回归案例。"""
+
+    repository = EvaluationRepository()
+    repository.get_case_run = AsyncMock(
+        return_value=SimpleNamespace(
+            id="case-run-1",
+            case_id="case-1",
+            status=status,
+            hard_gate_passed=hard_gate_passed,
+            review_status=review_status,
+            error_category=None,
+            record_sanitized={},
+        )
+    )
+    session = SimpleNamespace(
+        scalars=AsyncMock(
+            return_value=[
+                SimpleNamespace(
+                    status=score_status,
+                    source="deterministic",
+                    hard_gate=not hard_gate_passed,
+                    metric_name="quality.semantic",
+                    evidence_refs=[],
+                )
+            ]
+        ),
+        scalar=AsyncMock(),
+    )
+
+    with pytest.raises(ValueError, match="人工确认不通过|自动失败"):
+        await repository.create_candidate_dataset_from_case_run(
+            session,
+            user_id="owner-1",
+            case_run_id="case-run-1",
+            request=EvaluationCandidateDatasetRequest(name="regression", version="v1"),
+        )
+
+    session.scalar.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_candidate_dataset_confirmation_is_idempotent() -> None:
+    """同一失败案例的重复确认返回已有来源版本，不重复复制案例。"""
+
+    repository = EvaluationRepository()
+    existing = SimpleNamespace(
+        id="dataset-existing",
+        source="confirmed_failure:case-run-1",
+    )
+    repository.get_case_run = AsyncMock(
+        return_value=SimpleNamespace(
+            id="case-run-1",
+            case_id="case-1",
+            status="failed",
+            hard_gate_passed=False,
+            review_status="rejected",
+            error_category="runtime_error",
+            record_sanitized={},
+        )
+    )
+    repository.get_dataset_by_name_version = AsyncMock(return_value=existing)
+    repository.create_dataset = AsyncMock(side_effect=AssertionError("must reuse"))
+    session = SimpleNamespace(
+        scalars=AsyncMock(
+            return_value=[
+                SimpleNamespace(
+                    status="failed",
+                    source="deterministic",
+                    hard_gate=True,
+                    metric_name="runtime.success",
+                    evidence_refs=[],
+                )
+            ]
+        ),
+        scalar=AsyncMock(),
+    )
+
+    result = await repository.create_candidate_dataset_from_case_run(
+        session,
+        user_id="owner-1",
+        case_run_id="case-run-1",
+        request=EvaluationCandidateDatasetRequest(name="regression", version="v1"),
+    )
+
+    assert result is existing
+    session.scalar.assert_not_awaited()
 
 
 @pytest.mark.fast
@@ -300,6 +409,67 @@ def test_online_sampling_is_deterministic_and_trace_is_sanitized() -> None:
     assert first["deterministic"] is True
     assert trace["authorization"] == "[REDACTED]"
     assert "sk-" not in trace["message"]
+
+
+@pytest.mark.fast
+def test_online_sample_use_case_returns_sanitized_stable_decision(monkeypatch) -> None:
+    """API 用例必须连接已有抽样领域逻辑，而不是调用缺失方法。"""
+
+    from ai.workflows.evaluation import service as service_module
+    from ai.workflows.evaluation.service import EvaluationUseCases
+    from app.schemas.evaluation.evaluations import EvaluationOnlineSampleRequest
+
+    monkeypatch.setattr(
+        service_module,
+        "get_settings",
+        lambda: SimpleNamespace(
+            evaluation_center_enabled=True,
+            evaluation_online_sampling_enabled=True,
+        ),
+    )
+    request = EvaluationOnlineSampleRequest(
+        trace_id="trace-stable",
+        risk_level="high",
+        trace={
+            "authorization": "Bearer secret",
+            "message": "api_key=sk-12345678901234567890",
+        },
+    )
+
+    first = EvaluationUseCases(repository=SimpleNamespace()).online_sample(request=request)
+    second = EvaluationUseCases(repository=SimpleNamespace()).online_sample(request=request)
+
+    assert first == second
+    assert first["decision"]["deterministic"] is True
+    assert first["trace"]["authorization"] == "[REDACTED]"
+    assert "sk-" not in first["trace"]["message"]
+
+
+@pytest.mark.fast
+def test_online_sample_use_case_rejects_when_disabled(monkeypatch) -> None:
+    """在线抽样关闭时返回受控错误，不得退化为 AttributeError/500。"""
+
+    from ai.workflows.evaluation import service as service_module
+    from ai.workflows.evaluation.service import EvaluationUseCases
+    from app.schemas.evaluation.evaluations import EvaluationOnlineSampleRequest
+
+    monkeypatch.setattr(
+        service_module,
+        "get_settings",
+        lambda: SimpleNamespace(
+            evaluation_center_enabled=True,
+            evaluation_online_sampling_enabled=False,
+        ),
+    )
+
+    with pytest.raises(EvaluationUseCaseError, match="在线抽样") as exc_info:
+        EvaluationUseCases(repository=SimpleNamespace()).online_sample(
+            request=EvaluationOnlineSampleRequest(
+                trace_id="trace-disabled", risk_level="low", trace={}
+            )
+        )
+
+    assert exc_info.value.status_code == 403
 
 
 @pytest.mark.fast

@@ -115,7 +115,7 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: agent_interview_worker
-    restart: on-failure
+    restart: unless-stopped
     # 停止窗口：必须大于 AGENT_RUN_WORKER_SHUTDOWN_TIMEOUT_MS（默认 660000ms），
     # 为 Dramatiq 优雅停止预留额外进程清理缓冲；提高任务预算时同步检查两处。
     stop_grace_period: 720s

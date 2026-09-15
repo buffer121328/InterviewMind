@@ -12,7 +12,6 @@ from app.db.models import (
     SessionModel,
     async_session,
 )
-from app.domain.interview_report_modes import InterviewReportMode, normalize_report_mode
 from app.domain.interview_rounds import resolve_max_questions, resolve_round_type
 from app.domain.interview_session_titles import build_interview_session_title
 from app.schemas.interview.session import (
@@ -42,7 +41,6 @@ class SessionManagementService(BaseService):
         job_context_snapshot: Optional[Dict[str, Any]] = None,
         max_questions: int | None = None,
         round_type: str = "tech_initial",
-        report_mode: InterviewReportMode | str | None = None,
         user_id: str = "default_user"
     ) -> InterviewSession:
         """创建新会话
@@ -63,7 +61,6 @@ class SessionManagementService(BaseService):
         """
         round_type = resolve_round_type(round_type)
         max_questions = resolve_max_questions(round_type, max_questions)
-        report_mode = normalize_report_mode(report_mode).value
         now = utc_now()
         if title is None:
             title = build_interview_session_title(
@@ -92,7 +89,6 @@ class SessionManagementService(BaseService):
                     max_questions=max_questions,
                     status='active',
                     round_type=round_type,
-                    report_mode=report_mode,
                     pinned=False,
                 )
                 db.add(db_obj)
@@ -162,7 +158,6 @@ class SessionManagementService(BaseService):
                 series_id=row.series_id,
                 round_index=row.round_index or 1,
                 round_type=row.round_type,
-                report_mode=normalize_report_mode(getattr(row, "report_mode", None)),
                 report_source_version=getattr(row, "report_source_version", None),
                 stable_context_version=getattr(row, "stable_context_version", None),
                 stable_context_fingerprint=getattr(row, "stable_context_fingerprint", None),
@@ -355,15 +350,13 @@ class SessionManagementService(BaseService):
                 for key, value in metadata_updates.items():
                     if key in [
                         'question_count', 'max_questions', 'resume_filename', 'job_description', 'pinned',
-                        'round_type', 'report_mode', 'report_source_version', 'stable_context_version',
+                        'round_type', 'report_source_version', 'stable_context_version',
                         'stable_context',
                         'stable_context_fingerprint', 'round_strategy_version', 'turn_state_version',
                         'turn_state', 'turn_checkpoint_refs',
                     ]:
                         if key == 'pinned':
                             values[key] = bool(value)
-                        elif key == 'report_mode':
-                            values[key] = normalize_report_mode(value).value
                         else:
                             values[key] = value
             if values:
@@ -408,7 +401,6 @@ class SessionManagementService(BaseService):
                 SessionModel.company_info,
                 SessionModel.max_questions,
                 SessionModel.company_profile,
-                SessionModel.report_mode,
                 func.count(MessageModel.id).label("message_count"),
             ).outerjoin(MessageModel, MessageModel.session_id == SessionModel.session_id).group_by(SessionModel.session_id)
             if status:
@@ -445,7 +437,6 @@ class SessionManagementService(BaseService):
                     company_info=row.company_info,
                     max_questions=row.max_questions or 10,
                     has_company_profile=bool(row.company_profile),
-                    report_mode=normalize_report_mode(getattr(row, "report_mode", None)),
                 ))
 
             return sessions

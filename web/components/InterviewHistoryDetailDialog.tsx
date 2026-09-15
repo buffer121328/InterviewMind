@@ -31,12 +31,7 @@ import { DialogueReview } from '@/components/DialogueReview';
 import { getSessionDetail, type SessionDetail } from '@/lib/api/sessions';
 import { getSessionInterviewReport, saveSessionReportQuestions, type SessionMarkdownReport } from '@/lib/api/interviewReport';
 import { normalizeStructuredInterviewReport } from '@/lib/interviewReportStructured';
-import {
-    getInterviewReportDisplayPolicy,
-    getInterviewReportStatusLabel,
-    normalizeInterviewReportMode,
-    type InterviewReportMode,
-} from '@/lib/interviewReportMode';
+import { getInterviewReportStatusLabel } from '@/lib/interviewReportStatus';
 import {
     createInterviewReportRun,
     listAgentRuns,
@@ -74,22 +69,6 @@ function formatDate(value?: string | null) {
     if (!value) return '-';
     const date = new Date(value);
     return Number.isNaN(date.getTime()) ? value : date.toLocaleString('zh-CN');
-}
-
-/** Maps safe server-side degradation categories to an explanation without exposing provider errors. */
-function getStandardReportQualityMessage(report: SessionMarkdownReport): string {
-    if (report.report_quality === 'degraded_evidence_only') {
-        const reason = report.degradation_reason === 'model_timeout'
-            ? '模型评审在时限内未完成'
-            : report.degradation_reason === 'output_contract_failure'
-                ? '模型返回结果未通过格式校验'
-                : '模型评审暂不可用';
-        return `此 PDF 为证据受限结果：${reason}。它只基于本场问答和确定性证据生成，不包含未完成的模型评分或推断。`;
-    }
-    if (report.report_quality === 'unknown_legacy') {
-        return '这是历史生成的 PDF，系统未保存当时的模型评审状态；请重新生成以获得明确的质量标识和新版排版。';
-    }
-    return '模型评审已完成。标准模式不展示结构化评分、问答证据、Markdown 或 HTML。';
 }
 
 /** Keeps legacy completed sessions consistent with the single approved closing sentence. */
@@ -131,7 +110,6 @@ export function InterviewHistoryDetailDialog({
 }: InterviewHistoryDetailDialogProps) {
     const [session, setSession] = useState<SessionDetail | null>(null);
     const [report, setReport] = useState<SessionMarkdownReport | null>(null);
-    const [activeReportMode, setActiveReportMode] = useState<InterviewReportMode>('deep');
     const [reportView, setReportView] = useState<'structured' | 'markdown'>('structured');
     const [selectedQuestionIndices, setSelectedQuestionIndices] = useState<number[]>([]);
     const [savingQuestions, setSavingQuestions] = useState(false);
@@ -142,19 +120,19 @@ export function InterviewHistoryDetailDialog({
     const [error, setError] = useState<string | null>(null);
     const pollAbortRef = useRef<AbortController | null>(null);
 
-    /** Reloads one persisted report mode after its recoverable task reaches a terminal state. */
-    const loadReport = useCallback(async (reportMode: InterviewReportMode) => {
+    /** Reloads the persisted deep report after its recoverable task reaches a terminal state. */
+    const loadReport = useCallback(async () => {
         if (!sessionId) return;
-        setReport(await getSessionInterviewReport(sessionId, reportMode));
+        setReport(await getSessionInterviewReport(sessionId));
     }, [sessionId]);
 
     /** Follows one recoverable report run and refreshes the matching persisted report mode. */
-    const monitorRun = useCallback(async (runId: string, reportMode: InterviewReportMode, signal: AbortSignal) => {
+    const monitorRun = useCallback(async (runId: string, signal: AbortSignal) => {
         try {
             const completed = await pollAgentRun(runId, setReportRun, signal);
             setReportRun(completed);
             if (completed.status === 'succeeded') {
-                await loadReport(reportMode);
+                await loadReport();
                 setError(null);
             } else {
                 setError(completed.error_message || '面试报告任务执行失败');
@@ -180,10 +158,8 @@ export function InterviewHistoryDetailDialog({
                     setError('无法读取该场面试记录，请稍后重试');
                     return;
                 }
-                const reportMode = normalizeInterviewReportMode(sessionResult.metadata.report_mode);
-                setActiveReportMode(reportMode);
                 const [reportResult, runsResponse] = await Promise.all([
-                    getSessionInterviewReport(sessionId, reportMode),
+                    getSessionInterviewReport(sessionId),
                     listAgentRuns({ taskType: 'interview_report', sessionId, limit: 1 })
                         .catch(() => ({ runs: [], total: 0, limit: 1, offset: 0 })),
                 ]);
@@ -194,7 +170,7 @@ export function InterviewHistoryDetailDialog({
                 setReportRun(latestRun);
                 if (latestRun && ACTIVE_RUN_STATUSES.has(latestRun.status)) {
                     setSubmitting(true);
-                    void monitorRun(latestRun.run_id, reportMode, controller.signal).finally(() => {
+                    void monitorRun(latestRun.run_id, controller.signal).finally(() => {
                         if (!controller.signal.aborted) setSubmitting(false);
                     });
                 }
@@ -212,15 +188,14 @@ export function InterviewHistoryDetailDialog({
         };
     }, [monitorRun, open, sessionId]);
 
-    /** Starts the explicitly selected report-mode AgentRun without retaining API configuration in report state. */
-    const handleGenerateReport = useCallback(async (targetMode: InterviewReportMode) => {
+    /** Starts the deep report AgentRun without retaining API configuration in report state. */
+    const handleGenerateReport = useCallback(async () => {
         if (!sessionId || (reportRun && ACTIVE_RUN_STATUSES.has(reportRun.status))) return;
         const apiConfig = getRequestApiConfig();
         if (!apiConfig) {
             setError('请先在设置中配置 API Key');
             return;
         }
-        setActiveReportMode(targetMode);
         setSubmitting(true);
         setError(null);
         pollAbortRef.current?.abort();
@@ -229,14 +204,13 @@ export function InterviewHistoryDetailDialog({
         try {
             const created = await createInterviewReportRun({
                 session_id: sessionId,
-                report_mode: targetMode,
                 api_config: apiConfig,
             });
             if ('run_id' in created) {
                 setReportRun(created);
-                await monitorRun(created.run_id, targetMode, controller.signal);
+                await monitorRun(created.run_id, controller.signal);
             } else {
-                await loadReport(targetMode);
+                await loadReport();
             }
         } catch (cause) {
             setError(cause instanceof Error ? cause.message : '生成面试报告失败');
@@ -251,22 +225,8 @@ export function InterviewHistoryDetailDialog({
         setExportingFormat(format);
         setError(null);
         try {
-            if (report.report_mode === 'standard' && format === 'pdf' && report.pdf_artifact) {
-                await downloadArtifact({
-                    id: report.pdf_artifact.id,
-                    source_type: 'interview_report',
-                    source_id: sessionId,
-                    title: report.pdf_artifact.title,
-                    format: 'pdf',
-                    mime_type: report.pdf_artifact.mime_type,
-                    size_bytes: report.pdf_artifact.size_bytes,
-                    created_at: report.pdf_artifact.created_at,
-                    download_url: report.pdf_artifact.download_url,
-                });
-            } else {
-                const artifact = await exportArtifact('interview_report', sessionId, format);
-                await downloadArtifact(artifact);
-            }
+            const artifact = await exportArtifact('interview_report', sessionId, format);
+            await downloadArtifact(artifact);
         } catch (cause) {
             setError(cause instanceof Error ? cause.message : '下载报告失败');
         } finally {
@@ -274,8 +234,6 @@ export function InterviewHistoryDetailDialog({
         }
     }, [report, sessionId]);
 
-    const reportMode = activeReportMode;
-    const reportPolicy = getInterviewReportDisplayPolicy(reportMode);
     const structuredReport = useMemo(() => normalizeStructuredInterviewReport(report), [report]);
     const recommendedQuestions = structuredReport.weaknessReport.recommendedQuestions;
     const handleSaveQuestions = useCallback(async () => {
@@ -389,27 +347,26 @@ export function InterviewHistoryDetailDialog({
                                 <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 px-6 py-3">
                                     <div>
                                         <div className="flex items-center gap-2">
-                                            <p className="text-sm font-medium text-gray-900">{reportMode === 'standard' ? '标准面试报告' : '结构化面试复盘'}</p>
-                                            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">{reportPolicy.label} · {generating ? `生成中（${reportRun?.stage || '处理中'}）` : getInterviewReportStatusLabel(report?.report_mode === reportMode ? report.status : undefined)}</span>
+                                            <p className="text-sm font-medium text-gray-900">结构化面试复盘</p>
+                                            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">深度报告 · {generating ? `生成中（${reportRun?.stage || '处理中'}）` : getInterviewReportStatusLabel(report?.status)}</span>
                                         </div>
                                         <p className="text-xs text-gray-500">
-                                            {report?.generated_at ? `更新时间：${formatDate(report.generated_at)}` : reportPolicy.description}
+                                            {report?.generated_at ? `更新时间：${formatDate(report.generated_at)}` : '多视角结构化复盘，包含完整分析与导出'}
                                         </p>
                                     </div>
                                     <div className="flex flex-wrap gap-2">
-                                        <Button variant="outline" size="sm" onClick={() => void handleGenerateReport(reportMode)} disabled={generating || session.metadata.status !== 'completed'}>
+                                        <Button variant="outline" size="sm" onClick={() => void handleGenerateReport()} disabled={generating || session.metadata.status !== 'completed'}>
                                             {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-                                            {report?.success ? `重新生成${reportPolicy.label}` : `生成${reportPolicy.label}`}
+                                            {report?.success ? '重新生成深度报告' : '生成深度报告'}
                                         </Button>
-                                        {reportPolicy.showDeepGenerationAction && <Button variant="outline" size="sm" onClick={() => void handleGenerateReport('deep')} disabled={generating || session.metadata.status !== 'completed'}><BarChart3 className="h-4 w-4" />生成深度报告</Button>}
-                                        {report?.success && reportPolicy.showMarkdown && <Button variant="outline" size="sm" onClick={() => setReportView(value => value === 'structured' ? 'markdown' : 'structured')}>{reportView === 'structured' ? '查看 Markdown' : '查看结构化复盘'}</Button>}
-                                        {report?.success && reportPolicy.showRecommendedQuestions && selectedQuestionIndices.length > 0 && <Button variant="outline" size="sm" onClick={() => void handleSaveQuestions()} disabled={savingQuestions}>{savingQuestions ? '保存中...' : '加入题库'}</Button>}
-                                        {reportPolicy.showHtmlDownload && <Button variant="outline" size="sm" onClick={() => void handleDownload('html')} disabled={!report?.success || exportingFormat !== null}>
+                                        {report?.success && <Button variant="outline" size="sm" onClick={() => setReportView(value => value === 'structured' ? 'markdown' : 'structured')}>{reportView === 'structured' ? '查看 Markdown' : '查看结构化复盘'}</Button>}
+                                        {report?.success && selectedQuestionIndices.length > 0 && <Button variant="outline" size="sm" onClick={() => void handleSaveQuestions()} disabled={savingQuestions}>{savingQuestions ? '保存中...' : '加入题库'}</Button>}
+                                        <Button variant="outline" size="sm" onClick={() => void handleDownload('html')} disabled={!report?.success || exportingFormat !== null}>
                                             {exportingFormat === 'html' ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileCode2 className="h-4 w-4" />}下载 HTML
-                                        </Button>}
-                                        {reportPolicy.showPdf && <Button variant="outline" size="sm" onClick={() => void handleDownload('pdf')} disabled={!report?.success || exportingFormat !== null || (reportMode === 'standard' && !report?.pdf_artifact)}>
+                                        </Button>
+                                        <Button variant="outline" size="sm" onClick={() => void handleDownload('pdf')} disabled={!report?.success || exportingFormat !== null}>
                                             {exportingFormat === 'pdf' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}下载 PDF
-                                        </Button>}
+                                        </Button>
                                     </div>
                                 </div>
                                 {error && (
@@ -417,21 +374,7 @@ export function InterviewHistoryDetailDialog({
                                 )}
                                 <ScrollArea className="min-h-0 flex-1 bg-slate-100/70">
                                     <div className="space-y-1 pt-1">
-                                        {report?.success && reportMode === 'standard' ? (
-                                            <div className="mx-auto my-6 w-[min(100%,720px)] px-4">
-                                                <ReportSection title="标准报告 PDF">
-                                                    <div className="flex flex-wrap items-center justify-between gap-4">
-                                                        <div>
-                                                            <p>标准报告已按当前面试记录生成，可下载 PDF 查看完整复盘。</p>
-                                                            <p className={`mt-2 text-xs ${report.report_quality === 'degraded_evidence_only' ? 'text-amber-700' : 'text-slate-500'}`}>{getStandardReportQualityMessage(report)}</p>
-                                                        </div>
-                                                        <Button onClick={() => void handleDownload('pdf')} disabled={!report.pdf_artifact || exportingFormat !== null}>
-                                                            {exportingFormat === 'pdf' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}下载 PDF
-                                                        </Button>
-                                                    </div>
-                                                </ReportSection>
-                                            </div>
-                                        ) : report?.success && report.markdown ? (
+                                        {report?.success && report.markdown ? (
                                             reportView === 'markdown' ? (
                                                 <article className="prose prose-slate mx-auto my-6 min-h-[297mm] w-[min(100%,210mm)] max-w-none bg-white px-8 py-10 shadow-sm sm:px-14"><ReactMarkdown>{report.markdown}</ReactMarkdown></article>
                                             ) : (
@@ -462,7 +405,6 @@ export function InterviewHistoryDetailDialog({
                                 <div className="pt-6">
                                     <InterviewBudgetMonitor
                                         runId={reportRun?.run_id || null}
-                                        sessionId={session.session_id}
                                         active={Boolean(reportRun && ACTIVE_RUN_STATUSES.has(reportRun.status))}
                                     />
                                 </div>

@@ -12,7 +12,6 @@ from langgraph.types import Send
 from pydantic import BaseModel, Field
 
 from ai.llm import llm_utils
-from app.config import get_settings
 from ai.runtime.execution.deadlines import TaskDeadline
 from app.schemas.llm_outputs import SessionInterviewReportOutput
 from observability import langgraph_langfuse_scope, with_langgraph_langfuse_config
@@ -86,6 +85,9 @@ class _ReviewState(TypedDict, total=False):
     assessments: Annotated[list[ReviewerAssessment], operator.add]  # 已收集的评估（按归约合并）
     api_config: dict[str, Any] | None  # 用户级模型 API 配置
     deadline: TaskDeadline | None  # 任务截止时间
+    reviewer_output_tokens: int | None  # 单个 reviewer 的受限输出预算
+    report_output_tokens: int | None  # 最终叙事的报告级输出预算
+    request_timeout_seconds: float | None  # 单次模型调用超时
     call_metadata: dict[str, Any]  # 调用元数据（用于可观测性）
     output: SessionInterviewReportOutput | AbilityConsensusOutput  # 归约后的汇总输出
 
@@ -105,6 +107,8 @@ def _dispatch_reviewers(state: _ReviewState) -> list[Send]:
                 "reviewer": reviewer,
                 "api_config": state.get("api_config"),
                 "deadline": state.get("deadline"),
+                "reviewer_output_tokens": state.get("reviewer_output_tokens"),
+                "request_timeout_seconds": state.get("request_timeout_seconds"),
                 "call_metadata": state.get("call_metadata", {}),
             },
         )
@@ -139,11 +143,8 @@ async def _review_one(state: _ReviewState) -> dict[str, Any]:
             channel=reviewer.channel,
             temperature=reviewer.temperature,
             max_retries=0,
-            max_tokens=(
-                get_settings().interview_deep_report_max_output_tokens
-                if state["mode"] == "session_report"
-                else None
-            ),
+            max_tokens=(state.get("reviewer_output_tokens") if state["mode"] == "session_report" else None),
+            timeout=state.get("request_timeout_seconds"),
             deadline=state.get("deadline"),
             call_metadata=metadata,
         )
@@ -197,11 +198,8 @@ async def _compose_narrative(state: _ReviewState) -> dict[str, Any]:
         channel="hr_reviewer" if state["mode"] == "session_report" else "smart",
         temperature=0.1,
         max_retries=0,
-        max_tokens=(
-            get_settings().interview_deep_report_max_output_tokens
-            if state["mode"] == "session_report"
-            else None
-        ),
+            max_tokens=(state.get("report_output_tokens") if state["mode"] == "session_report" else None),
+            timeout=state.get("request_timeout_seconds"),
         deadline=state.get("deadline"),
         call_metadata={
             **state.get("call_metadata", {}),
@@ -236,6 +234,9 @@ async def run_multi_reviewer_map_reduce(
     call_metadata: dict[str, Any] | None = None,
     review_contexts: dict[str, str] | None = None,
     reviewer_perspectives: tuple[ReviewPerspective, ...] | None = None,
+    reviewer_output_tokens: int | None = None,
+    report_output_tokens: int | None = None,
+    request_timeout_seconds: float | None = None,
 ) -> ReviewMapReduceResult:
     """运行多评审映射-归约流程，返回汇总输出与各视角评估。
 
@@ -272,6 +273,9 @@ async def run_multi_reviewer_map_reduce(
                 "assessments": [],
                 "api_config": api_config,
                 "deadline": deadline,
+                "reviewer_output_tokens": reviewer_output_tokens,
+                "report_output_tokens": report_output_tokens,
+                "request_timeout_seconds": request_timeout_seconds,
                 "call_metadata": dict(call_metadata or {}),
             },
             config=graph_config,

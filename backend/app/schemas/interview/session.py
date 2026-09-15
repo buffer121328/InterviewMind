@@ -8,10 +8,8 @@ from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, Field, model_validator
 
 from app.clock import utc_now
-from app.domain.interview_report_modes import InterviewReportMode
 from app.domain.interview_rounds import resolve_max_questions, resolve_round_type
 from app.schemas.interview.interview_report import (
-    ReportArtifactMetadata,
     StructuredInterviewProfile,
     StructuredWeaknessReport,
 )
@@ -48,7 +46,6 @@ class SessionMetadata(BaseModel):
     parent_session_id: Optional[str] = Field(None, description="上一轮Session ID")
     interview_plan: List[Dict[str, Any]] = Field(default_factory=list, description="面试计划")
     company_profile: Optional[Dict[str, Any]] = Field(None, description="第三轮生成的公司总画像")
-    report_mode: InterviewReportMode = Field(default=InterviewReportMode.DEEP, description="报告模式")
     report_source_version: Optional[str] = Field(None, description="报告权威来源版本")
     stable_context_version: Optional[str] = Field(None, description="稳定上下文版本")
     stable_context_fingerprint: Optional[str] = Field(None, description="稳定上下文指纹")
@@ -87,7 +84,6 @@ class SessionListItem(BaseModel):
     company_info: Optional[str] = Field(None, description="公司信息")
     max_questions: int = Field(default=10, description="本轮最大主问题数")
     has_company_profile: bool = Field(default=False, description="是否已生成公司总画像")
-    report_mode: InterviewReportMode = Field(default=InterviewReportMode.DEEP, description="报告模式")
 
 
 class SessionCreateRequest(BaseModel):
@@ -98,7 +94,6 @@ class SessionCreateRequest(BaseModel):
     job_description: Optional[str] = Field(None, description="岗位描述")
     max_questions: int | None = Field(default=None, ge=1, le=20, description="最大问题数量；不传时按面试类型默认")
     round_type: str = Field(default="tech_initial", description="面试类型")
-    report_mode: InterviewReportMode = Field(default=InterviewReportMode.DEEP, description="报告模式")
 
     @model_validator(mode="after")
     def resolve_question_defaults(self):
@@ -146,18 +141,14 @@ class SessionDetailResponse(BaseModel):
 
 
 class SessionMarkdownReportResponse(BaseModel):
-    """按报告模式返回单场报告，保持旧深度报告字段兼容。"""
+    """返回唯一深度报告。"""
 
     success: bool = Field(description="能力画像和短板数据是否均已生成")
     session_id: str = Field(description="当前 owner 可见的面试会话 ID")
-    report_mode: InterviewReportMode = Field(default=InterviewReportMode.DEEP, description="报告模式")
     status: Literal["not_ready", "ready", "degraded"] = Field(default="not_ready", description="报告状态")
-    report_quality: Optional[str] = Field(default=None, description="标准报告模型评审质量状态")
-    degradation_reason: Optional[str] = Field(default=None, description="标准报告安全降级原因分类")
     markdown: str = Field(default="", description="用于预览和导出的统一 Markdown")
     generated_at: Optional[str] = Field(default=None, description="报告数据最近更新时间")
     message: Optional[str] = Field(default=None, description="报告尚不可用时的稳定提示")
     company_profile: Optional[Dict[str, Any]] = Field(default=None, description="第三轮对应的公司总画像")
     profile: Optional[StructuredInterviewProfile] = Field(default=None, description="结构化能力画像")
     weakness_report: Optional[StructuredWeaknessReport] = Field(default=None, description="结构化短板、证据与行动")
-    pdf_artifact: Optional[ReportArtifactMetadata] = Field(default=None, description="标准报告 PDF 产物元数据")

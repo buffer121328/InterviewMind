@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from app.schemas.evaluation.evaluations import ProductionHistoryConfirmRequest
 
 
 class _SatisfactionBase(BaseModel):
@@ -46,4 +49,45 @@ class SatisfactionStatsResponse(BaseModel):
     avg_rating: float | None = Field(default=None, description="平均评分")
     rating_distribution: dict[str, int] = Field(description="星级分布")
     satisfied_frequencies: list[SatisfactionAspectFrequency] = Field(description="满意方面频次")
-    dissatisfied_frequencies: list[SatisfactionAspectFrequency] = Field(description="不满意方面频次")
+    dissatisfied_frequencies: list[SatisfactionAspectFrequency] = Field(
+        description="不满意方面频次"
+    )
+
+
+class SatisfactionFeedbackItem(BaseModel):
+    """一条 owner 可见、已脱敏的反馈治理记录。"""
+
+    id: str
+    agent_type: Literal["interview", "resume_optimize"]
+    ref_key: str
+    rating: int | None
+    satisfied_aspects: list[str]
+    dissatisfied_aspects: list[str]
+    comment: str | None
+    source_verified: bool
+    review_status: Literal["not_required", "pending", "resolved", "promoted"]
+    review_note: str | None
+    candidate_dataset_id: str | None
+    created_at: datetime
+
+
+class SatisfactionFeedbackListResponse(BaseModel):
+    items: list[SatisfactionFeedbackItem]
+    total: int
+    page: int
+    limit: int
+
+
+class SatisfactionReviewRequest(_SatisfactionBase):
+    status: Literal["resolved"] = "resolved"
+    note: str = Field(min_length=1, max_length=2000)
+
+
+class SatisfactionPromotionLinkRequest(_SatisfactionBase):
+    dataset_id: str = Field(min_length=1, max_length=160)
+    capability: Literal["interview_planner", "resume_optimizer"]
+
+
+class SatisfactionPromotionRequest(_SatisfactionBase):
+    capability: Literal["interview_planner", "resume_optimizer"]
+    confirmation: ProductionHistoryConfirmRequest

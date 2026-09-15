@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from fastapi import FastAPI
@@ -14,6 +14,7 @@ from app.api.deps import get_current_user_id
 from app.db.models.base import get_session
 from app.db.repositories.evaluation.user_feedback_repository import aggregate_feedback
 from app.schemas.evaluation.satisfaction_schemas import SatisfactionSubmitRequest
+from app.schemas.evaluation.evaluations import ProductionHistoryConfirmRequest
 
 
 @pytest.mark.fast
@@ -277,14 +278,22 @@ def test_post_satisfaction_creates_and_is_idempotent() -> None:
         "dissatisfied_aspects": [],
         "comment": "很好",
     }
-    resp = client.post("/api/satisfaction", json=payload)
+    with patch(
+        "ai.workflows.evaluation.satisfaction.validate_feedback_source",
+        new=AsyncMock(return_value=True),
+    ):
+        resp = client.post("/api/satisfaction", json=payload)
     assert resp.status_code == 200
     body = resp.json()
     assert body["created"] is True
     assert body["id"].startswith("ufb_")
 
     session.scalar.return_value = SimpleNamespace(id="ufb_keep")
-    resp2 = client.post("/api/satisfaction", json=payload)
+    with patch(
+        "ai.workflows.evaluation.satisfaction.validate_feedback_source",
+        new=AsyncMock(return_value=True),
+    ):
+        resp2 = client.post("/api/satisfaction", json=payload)
     assert resp2.status_code == 200
     body2 = resp2.json()
     assert body2["created"] is False
@@ -371,3 +380,155 @@ def test_satisfaction_router_exposes_submit_and_stats_paths() -> None:
     paths = {getattr(route, "path", "") for route in router.routes}
     assert "/api/satisfaction" in paths
     assert "/api/satisfaction/stats" in paths
+    assert "/api/satisfaction/feedback" in paths
+    assert "/api/satisfaction/feedback/{feedback_id}/review" in paths
+    assert "/api/satisfaction/feedback/{feedback_id}/promotion-link" in paths
+    assert "/api/satisfaction/feedback/{feedback_id}/promote" in paths
+
+
+@pytest.mark.fast
+def test_post_satisfaction_rejects_missing_or_cross_owner_source() -> None:
+    """伪造或跨 owner 的业务引用必须在写入前返回 404。"""
+
+    session = AsyncMock()
+    client = _make_client(session)
+    with patch(
+        "ai.workflows.evaluation.satisfaction.validate_feedback_source",
+        new=AsyncMock(return_value=False),
+    ):
+        response = client.post(
+            "/api/satisfaction",
+            json={"agent_type": "interview", "ref_key": "other-user-session", "rating": 1},
+        )
+    assert response.status_code == 404
+    session.add.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_submit_marks_negative_feedback_pending_and_verified() -> None:
+    """低分或负面方面进入人工复核队列，且新记录标记为已验证来源。"""
+
+    from app.db.repositories.evaluation import user_feedback_repository as repo_module
+
+    session = AsyncMock()
+    session.add = Mock()
+    session.scalar.return_value = None
+    record, created = await repo_module.submit(
+        session, user_id="u-1", agent_type="interview", ref_key="s-1", rating=2,
+        satisfied_aspects=[], dissatisfied_aspects=["事实错误"], comment="需要改进",
+    )
+    assert created is True
+    assert record.source_verified is True
+    assert record.review_status == "pending"
+
+
+@pytest.mark.asyncio
+async def test_feedback_details_are_owner_scoped_and_comments_are_redacted() -> None:
+    """反馈明细查询固定带 owner 条件，并在响应中脱敏凭据。"""
+
+    from app.db.repositories.evaluation import user_feedback_repository as repo_module
+    from datetime import datetime
+
+    row = SimpleNamespace(
+        id="ufb_1", agent_type="interview", ref_key="s-1", rating=1,
+        satisfied_aspects=[], dissatisfied_aspects=["事实错误"],
+        comment="api_key=sk-abcdefghijklmnop", source_verified=True,
+        review_status="pending", review_note=None, candidate_dataset_id=None,
+        created_at=datetime(2026, 8, 23),
+    )
+    session = AsyncMock()
+    session.scalar.return_value = 1
+    session.scalars.return_value = [row]
+    items, total = await repo_module.list_feedback(session, user_id="owner-1")
+    assert total == 1
+    assert "sk-abcdefghijklmnop" not in (items[0]["comment"] or "")
+    statements = " ".join(str(call.args[0]) for call in [*session.scalar.await_args_list, *session.scalars.await_args_list])
+    assert "user_feedback.user_id" in statements
+
+
+@pytest.mark.fast
+def test_stats_endpoint_forwards_owner_and_agent_filters() -> None:
+    """统计 API 不得再返回跨用户、跨 Agent 的全局聚合。"""
+
+    session = AsyncMock()
+    session.scalars.return_value = []
+    client = _make_client(session)
+    response = client.get("/api/satisfaction/stats?agent_type=interview")
+    assert response.status_code == 200
+    statement = str(session.scalars.await_args.args[0])
+    assert "user_feedback.user_id" in statement
+    assert "user_feedback.agent_type" in statement
+
+
+@pytest.mark.asyncio
+async def test_negative_feedback_promotion_is_atomic_and_idempotent(monkeypatch) -> None:
+    """数据集创建与反馈关联共享事务；同一来源重试返回同一数据集。"""
+
+    from datetime import datetime
+    from ai.workflows.evaluation import satisfaction as satisfaction_module
+    from ai.workflows.evaluation.production_history import production_history_source_marker
+
+    feedback = SimpleNamespace(
+        id="ufb-1", agent_type="resume_optimize", ref_key="7", source_verified=True,
+        review_status="resolved", candidate_dataset_id=None,
+    )
+    session = AsyncMock()
+    session.scalar.return_value = feedback
+    source_hash = "a" * 64
+    monkeypatch.setattr(satisfaction_module, "_load_source", AsyncMock(return_value={
+        "source_hash": source_hash,
+        "input": {"resume_content": "safe", "job_description": "safe"},
+    }))
+    dataset = SimpleNamespace(
+        id="dataset-1", user_id="u-1", name="feedback-regression", version="v1",
+        status="draft", case_count=1,
+        source=production_history_source_marker("resume_optimizer", "7", source_hash),
+        content_hash="hash", created_at=datetime(2026, 8, 23), locked_at=None,
+    )
+    repository = SimpleNamespace(
+        get_dataset_by_name_version=AsyncMock(return_value=dataset),
+        create_dataset=AsyncMock(),
+    )
+    monkeypatch.setattr(satisfaction_module, "EvaluationRepository", lambda: repository)
+    result = await satisfaction_module.SatisfactionUseCases().promote(
+        session, user_id="u-1", feedback_id="ufb-1", capability="resume_optimizer",
+        confirmation=ProductionHistoryConfirmRequest(
+            name="feedback-regression", version="v1", source_hash=source_hash, reviewed=True,
+        ),
+    )
+    assert result["id"] == "dataset-1"
+    assert feedback.review_status == "promoted"
+    assert feedback.candidate_dataset_id == "dataset-1"
+    repository.create_dataset.assert_not_awaited()
+    session.commit.assert_awaited_once()
+    session.rollback.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_negative_feedback_promotion_rolls_back_on_conflict(monkeypatch) -> None:
+    """名称冲突等失败不得留下半关联反馈。"""
+
+    from ai.workflows.evaluation import satisfaction as satisfaction_module
+
+    feedback = SimpleNamespace(
+        id="ufb-1", agent_type="interview", ref_key="session-1", source_verified=True,
+        review_status="resolved", candidate_dataset_id=None,
+    )
+    session = AsyncMock()
+    session.scalar.return_value = feedback
+    monkeypatch.setattr(satisfaction_module, "_load_source", AsyncMock(return_value={"source_hash": "a" * 64, "input": {}}))
+    repository = SimpleNamespace(
+        get_dataset_by_name_version=AsyncMock(return_value=SimpleNamespace(source="manual")),
+        create_dataset=AsyncMock(),
+    )
+    monkeypatch.setattr(satisfaction_module, "EvaluationRepository", lambda: repository)
+    with pytest.raises(RuntimeError, match="名称和版本"):
+        await satisfaction_module.SatisfactionUseCases().promote(
+            session, user_id="u-1", feedback_id="ufb-1", capability="interview_planner",
+            confirmation=ProductionHistoryConfirmRequest(
+                name="conflict", version="v1", source_hash="a" * 64, reviewed=True,
+            ),
+        )
+    assert feedback.candidate_dataset_id is None
+    session.rollback.assert_awaited_once()
+    session.commit.assert_not_awaited()

@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { buildInteractiveExecutionPlan, parseAgentRunEventEnvelope } from './agentRunEvents.ts';
+import { applyAgentRunEvent, buildInteractiveExecutionPlan, parseAgentRunEventEnvelope } from './agentRunEvents.ts';
+import type { AgentRun } from './api/agentRunTypes.ts';
 
 test('parseAgentRunEventEnvelope accepts current schema version', () => {
     const event = parseAgentRunEventEnvelope({
@@ -139,4 +140,23 @@ test('buildInteractiveExecutionPlan marks terminal events', () => {
 
     assert.deepEqual(completed.map(step => step.status), ['completed', 'completed', 'completed', 'completed']);
     assert.equal(failed.find(step => step.id === 'generate_response')?.status, 'failed');
+});
+
+test('stage events immediately complete prior report stages for the live monitor', () => {
+    const run: AgentRun = {
+        run_id: 'report-1', status: 'running', stage: 'assembling_evidence', attempts: 1, max_attempts: 3,
+        can_cancel: true, can_retry: false, created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z',
+        agent_name: 'interview_reporter', agent_version: '1', task_type: 'interview_report' as const, title: '生成面试报告',
+        plan: [
+            { id: 'loading_session', title: '读取面试问答', status: 'completed' },
+            { id: 'assembling_evidence', title: '整理面试证据', status: 'running' },
+            { id: 'generating_assessment', title: '生成综合评估', status: 'pending' },
+        ],
+    };
+    const next = applyAgentRunEvent(run, {
+        event_id: 'evt-report-2', run_id: 'report-1', sequence: 3, type: 'run.stage.changed',
+        stage: 'generating_assessment', payload: {}, schema_version: 1, timestamp: '2026-01-01T00:00:02.000Z',
+    });
+
+    assert.deepEqual(next.plan.map(step => step.status), ['completed', 'completed', 'running']);
 });

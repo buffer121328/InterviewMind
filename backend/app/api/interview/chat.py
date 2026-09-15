@@ -6,7 +6,7 @@
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
 from ai.workflows.interview.chat.stream import (
@@ -30,7 +30,6 @@ from ai.workflows.interview.sessions.actions import (
     interview_session_use_cases,
 )
 from app.api.deps import get_current_user_id
-from app.domain.interview_report_modes import InterviewReportMode
 from app.schemas.interview.interview_report import (
     SaveReportQuestionsRequest,
     SaveReportQuestionsResponse,
@@ -199,7 +198,6 @@ async def get_overall_profile(
 @router.get("/report/session/{session_id}", response_model=SessionMarkdownReportResponse)
 async def get_session_report(
     session_id: str,
-    report_mode: InterviewReportMode = Query(default=InterviewReportMode.DEEP),
     user_id: str = Depends(get_current_user_id)):
     """获取单场面试的统一 Markdown 报告。
 
@@ -211,7 +209,6 @@ async def get_session_report(
         return await interview_report_use_cases.get_session_report(
             session_id=session_id,
             user_id=user_id,
-            report_mode=report_mode,
         )
     except InterviewReportNotFound as exc:
         raise HTTPException(status_code=404, detail=exc.message) from exc

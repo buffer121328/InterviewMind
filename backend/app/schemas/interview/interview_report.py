@@ -4,7 +4,6 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from app.domain.interview_report_modes import InterviewReportMode
 from app.schemas.llm_outputs import (
     ImprovementAction,
     QuestionEvidence,
@@ -53,17 +52,3 @@ class SaveReportQuestionsResponse(BaseModel):
     saved_count: int = Field(default=0, description="成功保存的题目数")
     skipped_count: int = Field(default=0, description="跳过的题目数")
     item_ids: list[int] = Field(default_factory=list, description="已保存的题目 ID 列表")
-
-
-class ReportArtifactMetadata(BaseModel):
-    """报告读取接口允许暴露的 PDF 产物元数据。"""
-
-    id: int = Field(description="产物记录 ID")
-    title: str = Field(description="报告标题")
-    format: str = Field(default="pdf", description="产物格式")
-    mime_type: str = Field(default="application/pdf", description="MIME 类型")
-    size_bytes: int = Field(default=0, description="产物文件大小（字节）")
-    created_at: str = Field(description="创建时间")
-    download_url: str = Field(description="下载链接")
-    artifact_mode: InterviewReportMode = Field(default=InterviewReportMode.DEEP, description="报告模式")
-    report_source_version: str = Field(default="legacy", description="报告来源版本指纹")

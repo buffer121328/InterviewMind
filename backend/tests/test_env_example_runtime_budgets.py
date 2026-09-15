@@ -5,7 +5,7 @@ from pathlib import Path
 from app.config import AppSettings
 
 _RUNTIME_BUDGET_KEYS = {
-    "LLM_REQUEST_TIMEOUT_SECONDS": "70",
+    "LLM_REQUEST_TIMEOUT_SECONDS": "90",
     "LLM_TASK_TIMEOUT_SECONDS": "150",
     "LLM_MIN_ATTEMPT_TIMEOUT_SECONDS": "2",
     "LLM_MAX_TOKENS": "8000",
@@ -21,7 +21,16 @@ _RUNTIME_BUDGET_KEYS = {
     "INTERVIEW_REPORT_QA_CHAR_BUDGET": "20000",
     "INTERVIEW_REPORT_CONTEXT_TOTAL_CHARS": "40000",
     "INTERVIEW_REPORT_RESUME_CHAR_BUDGET": "10000",
+    "INTERVIEW_REPORT_MIN_OUTPUT_TOKENS": "6000",
+    "INTERVIEW_REPORT_OUTPUT_TOKENS_PER_QUESTION": "400",
+    "INTERVIEW_REPORT_MAX_OUTPUT_TOKENS": "12000",
+    "INTERVIEW_REPORT_REVIEWER_MAX_OUTPUT_TOKENS": "3000",
     "INTERVIEW_REPORT_TASK_TIMEOUT_SECONDS": "600",
+    "INTERVIEW_REPORT_TASK_TIMEOUT_PER_QUESTION_SECONDS": "30",
+    "INTERVIEW_REPORT_TASK_TIMEOUT_CAP_SECONDS": "1200",
+    "INTERVIEW_REPORT_REQUEST_TIMEOUT_SECONDS": "120",
+    "INTERVIEW_REPORT_REQUEST_TIMEOUT_PER_QUESTION_SECONDS": "3",
+    "INTERVIEW_REPORT_REQUEST_TIMEOUT_CAP_SECONDS": "180",
     "RESUME_WORKSPACE_TASK_TIMEOUT_SECONDS": "240",
     "RESUME_GENERATION_TASK_TIMEOUT_SECONDS": "240",
     "JOB_ASSETS_TASK_TIMEOUT_SECONDS": "240",
@@ -57,13 +66,17 @@ def test_env_example_contains_current_runtime_budget_defaults(monkeypatch) -> No
     assert settings.voice_interview_task_timeout_seconds == 120
     assert settings.voice_interview_node_timeout_seconds == 70
     assert settings.interactive_min_remaining_attempt_seconds == 3
-    assert settings.llm_request_timeout_seconds == 70
+    assert settings.llm_request_timeout_seconds == 90
     assert settings.llm_task_timeout_seconds == 150
     assert settings.job_card_scoring_max_tokens == 3000
     assert settings.interview_plan_timeout_seconds == 90
     assert settings.interview_report_context_total_chars == 40_000
     assert settings.interview_report_resume_char_budget == 10_000
     assert settings.interview_report_task_timeout_seconds == 600
+    assert settings.interview_report_min_output_tokens == 6000
+    assert settings.interview_report_max_output_tokens == 12_000
+    assert settings.interview_report_request_timeout_seconds == 120
+    assert settings.interview_report_task_timeout_cap_seconds == 1200
     assert settings.ability_profile_task_timeout_seconds == 120
 
 

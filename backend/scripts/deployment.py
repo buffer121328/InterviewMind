@@ -14,7 +14,6 @@ from app.db.rag_schema import (
     RAG_VECTOR_DIMENSION_COLUMN_SQL,
     RAG_VECTOR_TYPE_SQL,
     RagVectorSchemaError,
-    configured_embedding_dimension,
     validate_rag_vector_type,
 )
 
@@ -129,7 +128,6 @@ def readiness() -> tuple[bool, dict[str, str]]:
             try:
                 validate_rag_vector_type(
                     vector_type,
-                    expected_dimension=configured_embedding_dimension(),
                     has_dimension_column=has_dimension_column,
                 )
                 details["schema"] = "ok"

@@ -180,7 +180,6 @@ export interface ApiModelChannel {
 export interface ApiConfig {
     smart: ApiModelChannel;
     fast: ApiModelChannel;
-    general?: ApiModelChannel | null;
     match_analyst?: ApiModelChannel | null;
     content_writer?: ApiModelChannel | null;
     hr_reviewer?: ApiModelChannel | null;

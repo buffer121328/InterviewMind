@@ -55,3 +55,9 @@ reference
 .codex/npm-cache/
 .codex
 openspec
+
+# Docs: only root AGENTS.md and README.md are tracked; all other markdown is local-only
+*.md
+!/AGENTS.md
+!/README.md
+pelican-bike.html

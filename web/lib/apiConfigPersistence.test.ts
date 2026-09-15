@@ -20,7 +20,6 @@ const DEFAULT_API_CONFIG: ApiConfig = {
     matchAnalystModelId: '',
     reflectorModelId: '',
     hrReviewerModelId: '',
-    generalModelId: '',
     contentWriterModelId: '',
     mimoModelId: '',
     ragEmbeddingModelId: '',
@@ -92,7 +91,8 @@ test('malformed persisted payloads are reset instead of retaining unknown secret
 });
 
 test('rehydration restores non-sensitive settings with empty in-memory keys', () => {
-    const hydrated = rehydrateApiConfig(apiConfigForPersistence(apiConfig), DEFAULT_API_CONFIG);
+    const persisted = { ...apiConfigForPersistence(apiConfig), generalModelId: 'legacy-general' };
+    const hydrated = rehydrateApiConfig(persisted, DEFAULT_API_CONFIG);
 
     assert.equal(hydrated.models[0].apiKey, '');
     assert.equal(hydrated.models[0].credentialStored, true);
@@ -100,6 +100,7 @@ test('rehydration restores non-sensitive settings with empty in-memory keys', ()
     assert.equal(hydrated.smartModelId, 'model-1');
     assert.equal(hydrated.technicalDepthModelId, 'model-1');
     assert.equal(hydrated.communicationModelId, 'model-1');
+    assert.equal('generalModelId' in hydrated, false);
 });
 
 test('embedding dimensions survive credential-safe persistence and rehydration', () => {

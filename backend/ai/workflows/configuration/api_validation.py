@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
 from urllib.parse import urlparse
 
 from app.config import get_settings
@@ -43,7 +42,9 @@ class ApiConfigUseCases:
                 if value is not None
             }
             if request.kind == "embedding":
-                effective_dimensions = request.dimensions or int(os.getenv("EMBEDDING_DIM", "1536"))
+                if request.dimensions is None:
+                    return {"success": False, "message": "Embedding 模型必须填写输出维度"}
+                effective_dimensions = request.dimensions
                 # ① 实际生成一条 Embedding，验证模型连通性
                 response = await llms.model_gateway.create_embeddings(
                     "OK",

@@ -4,38 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import json
-from enum import Enum
 from typing import Any
 
-
-class InterviewReportMode(str, Enum):
-    """用户可选择的面试报告生成模式。"""
-
-    STANDARD = "standard"
-    DEEP = "deep"
-
-
-REPORT_MODE_COMPATIBILITY_DEFAULT = InterviewReportMode.DEEP
-REPORT_MODE_UI_RECOMMENDATION = InterviewReportMode.STANDARD
 LEGACY_REPORT_SOURCE_VERSION = "legacy"
-
-
-def normalize_report_mode(
-    value: InterviewReportMode | str | None,
-    *,
-    default: InterviewReportMode = REPORT_MODE_COMPATIBILITY_DEFAULT,
-) -> InterviewReportMode:
-    """把缺省报告模式归一化为兼容默认值，不接受未知模式。"""
-
-    if value is None or value == "":
-        return default
-    if isinstance(value, InterviewReportMode):
-        return value
-    try:
-        return InterviewReportMode(str(value))
-    except ValueError as exc:
-        raise ValueError(f"unsupported interview report mode: {value}") from exc
-
 
 def normalize_report_source_version(value: str | None) -> str:
     """为旧任务补齐稳定的报告来源版本标识。"""
@@ -44,25 +15,23 @@ def normalize_report_source_version(value: str | None) -> str:
     return normalized or LEGACY_REPORT_SOURCE_VERSION
 
 
-def build_report_idempotency_key(session_id: str, report_mode: InterviewReportMode | str | None, source_version: str | None) -> str:
-    """构造模式和来源版本隔离的幂等键，不携带任何来源正文。"""
+def build_report_idempotency_key(session_id: str, source_version: str | None) -> str:
+    """构造唯一深度报告的幂等键，不携带任何来源正文。"""
 
-    mode = normalize_report_mode(report_mode).value
     source = normalize_report_source_version(source_version)
     digest = hashlib.sha256(source.encode("utf-8")).hexdigest()[:24]
-    return f"report:{session_id}:{mode}:{digest}"
+    return f"report:{session_id}:{digest}"
 
 
 def scope_report_idempotency_key(
     client_key: str | None,
     *,
     session_id: str,
-    report_mode: InterviewReportMode | str | None,
     source_version: str | None,
 ) -> str:
-    """在客户端幂等键后追加模式和来源身份，避免跨模式复用运行。"""
+    """在客户端幂等键后追加唯一深度报告来源身份。"""
 
-    scoped = build_report_idempotency_key(session_id, report_mode, source_version)
+    scoped = build_report_idempotency_key(session_id, source_version)
     return f"{client_key.strip()}:{scoped}" if client_key and client_key.strip() else scoped
 
 

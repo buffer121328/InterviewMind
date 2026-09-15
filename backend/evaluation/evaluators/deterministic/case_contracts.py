@@ -74,7 +74,6 @@ class DeterministicCaseContractEvaluator:
                 )
             )
 
-        actual_tools = [call.tool_name for call in record.tool_calls]
         completed_tools = [
             call.tool_name
             for call in record.tool_calls

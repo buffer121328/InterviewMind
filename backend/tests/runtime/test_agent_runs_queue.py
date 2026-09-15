@@ -50,7 +50,6 @@ async def test_automatic_interview_report_run_uses_session_id_for_grouping(monke
             return SimpleNamespace(
                 session_id="session-1",
                 metadata=SimpleNamespace(
-                    report_mode="standard",
                     resume_content="private resume",
                     job_description="private jd",
                     company_info="company",
@@ -91,10 +90,9 @@ async def test_automatic_interview_report_run_uses_session_id_for_grouping(monke
 
     assert created_kwargs["task_type"] == completion.TASK_TYPE_INTERVIEW_REPORT
     assert created_kwargs["session_id"] == "session-1"
-    assert created_kwargs["payload"]["report_mode"] == "standard"
     assert created_kwargs["payload"]["report_source_version"].startswith("rsv1-")
     assert "private" not in created_kwargs["payload"]["report_source_version"]
-    assert ":standard:" in created_kwargs["idempotency_key"]
+    assert ":standard:" not in created_kwargs["idempotency_key"]
     assert dispatch_calls == [50]
     assert direct_deliveries == []
 
@@ -272,16 +270,15 @@ async def test_interview_report_run_uses_owned_session_id(monkeypatch):
     monkeypatch.setattr(use_cases, "create_queued_run", create_queued_run)
 
     await use_cases.create_interview_report(
-        payload={"session_id": "session-1", "report_mode": "standard"},
+        payload={"session_id": "session-1"},
         user_id="user-1",
         idempotency_key="report-1",
     )
 
     assert created_kwargs["session_id"] == "session-1"
-    assert created_kwargs["payload"]["report_mode"] == "standard"
     assert created_kwargs["payload"]["report_source_version"].startswith("rsv1-")
     assert "private" not in created_kwargs["payload"]["report_source_version"]
-    assert ":standard:" in created_kwargs["idempotency_key"]
+    assert ":standard:" not in created_kwargs["idempotency_key"]
 
 
 @pytest.mark.asyncio

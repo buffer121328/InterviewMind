@@ -10,6 +10,25 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 LEGACY_NAME = "agent_interview".replace("agent", "ai")
 
 
+def _memory_request_config(*, dimensions: int = 1536) -> dict:
+    """A fully hydrated request-level mem0 configuration for runtime tests."""
+    return {
+        "mem0_llm": {
+            "api_key": "request-llm-key",
+            "base_url": "https://api.deepseek.com/v1",
+            "model": "request-chat-model",
+            "provider": "openai",
+        },
+        "mem0_embedder": {
+            "api_key": "request-embedding-key",
+            "base_url": "https://embedding.example.test/v1",
+            "model": "request-embedding-model",
+            "provider": "openai",
+            "dimensions": dimensions,
+        },
+    }
+
+
 class TestDbConfigBehavior:
     """Verify backend/app/db/config.py derives defaults from POSTGRES_* env vars."""
 
@@ -115,138 +134,57 @@ class TestAlembicEnvBehavior:
 
 
 class TestAgentMemoryConfigBehavior:
-    """Verify mem0 pgvector defaults align with agent_interview naming."""
+    """Verify mem0 keeps infrastructure settings but gets model data only from requests."""
 
     def test_mem0_pgvector_defaults_use_agent_interview(self):
-        """Default pgvector dbname/user should be agent_interview, not postgres."""
-        env = {
-            "MEM0_ENABLED": "true",
-            "MEM0_LLM_API_KEY": "llm-key",
-            "MEM0_EMBEDDER_API_KEY": "embedder-key",
-            "MEM0_PGVECTOR_DBNAME": "",
-            "MEM0_PGVECTOR_USER": "",
-            "MEM0_PGVECTOR_PASSWORD": "",
-            "POSTGRES_DB": "",
-            "POSTGRES_USER": "",
-            "POSTGRES_PASSWORD": "",
-        }
-        with patch.dict(os.environ, env, clear=False):
-            import ai.memory.config as mem_cfg
-            importlib.reload(mem_cfg)
-            config = mem_cfg.get_mem0_config()
+        import ai.memory.config as mem_cfg
+
+        config = mem_cfg.get_mem0_config(_memory_request_config())
 
         assert config is not None
         pg_cfg = config["vector_store"]["config"]
         assert pg_cfg["dbname"] == "agent_interview"
         assert pg_cfg["user"] == "agent_interview"
 
-    def test_mem0_pgvector_falls_back_to_postgres_env(self):
-        """pgvector config should fall back to POSTGRES_* env vars."""
+    def test_mem0_model_environment_fallback_is_disabled(self):
         env = {
             "MEM0_ENABLED": "true",
-            "MEM0_LLM_API_KEY": "llm-key",
-            "MEM0_EMBEDDER_API_KEY": "embedder-key",
-            "MEM0_PGVECTOR_DBNAME": "",
-            "MEM0_PGVECTOR_USER": "",
-            "MEM0_PGVECTOR_PASSWORD": "",
-            "MEM0_PGVECTOR_URL": "",
-            "DATABASE_URL": "",
-            "POSTGRES_DB": "custom_db",
-            "POSTGRES_USER": "custom_user",
-            "POSTGRES_PASSWORD": "custom_pass",
+            "MEM0_LLM_API_KEY": "environment-llm-key",
+            "MEM0_EMBEDDER_API_KEY": "environment-embedding-key",
+            "OPENAI_API_KEY": "environment-openai-key",
         }
         with patch.dict(os.environ, env, clear=False):
             import ai.memory.config as mem_cfg
             importlib.reload(mem_cfg)
-            config = mem_cfg.get_mem0_config()
+            assert mem_cfg.get_mem0_config() is None
+            config = mem_cfg.get_mem0_config(_memory_request_config(dimensions=1024))
 
-        pg_cfg = config["vector_store"]["config"]
-        assert pg_cfg["dbname"] == "custom_db"
-        assert pg_cfg["user"] == "custom_user"
-        assert pg_cfg["password"] == "custom_pass"
+        assert config is not None
+        assert config["llm"]["config"]["api_key"] == "request-llm-key"
+        assert config["embedder"]["config"]["api_key"] == "request-embedding-key"
+        assert config["embedder"]["config"]["embedding_dims"] == 1024
 
     def test_mem0_component_env_does_not_override_authoritative_database_url(self):
-        """Legacy component variables cannot silently drift from the main database identity."""
         env = {
             "MEM0_ENABLED": "true",
-            "MEM0_LLM_API_KEY": "llm-key",
-            "MEM0_EMBEDDER_API_KEY": "embedder-key",
             "MEM0_PGVECTOR_URL": "",
-            "MEM0_PGVECTOR_DBNAME": "stale_db",
-            "MEM0_PGVECTOR_USER": "stale_user",
-            "MEM0_PGVECTOR_PASSWORD": "stale_password",
             "DATABASE_URL": "postgresql://main_user:main_pass@main-db:5432/main_db",
         }
         with patch.dict(os.environ, env, clear=False):
             import ai.memory.config as mem_cfg
             importlib.reload(mem_cfg)
-            config = mem_cfg.get_mem0_config()
+            config = mem_cfg.get_mem0_config(_memory_request_config())
 
+        assert config is not None
         pg_cfg = config["vector_store"]["config"]
         assert pg_cfg["dbname"] == "main_db"
         assert pg_cfg["user"] == "main_user"
         assert pg_cfg["password"] == "main_pass"
 
-    def test_mem0_embedder_falls_back_to_rag_embedding_env(self):
-        """mem0 embedder should reuse RAG OpenAI-compatible env when dedicated values are empty."""
-        env = {
-            "MEM0_ENABLED": "true",
-            "MEM0_LLM_API_KEY": "llm-key",
-            "MEM0_EMBEDDER_API_KEY": "",
-            "MEM0_EMBEDDER_BASE_URL": "",
-            "OPENAI_API_KEY": "dashscope-key",
-            "OPENAI_BASE_URL": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-        }
-        with patch.dict(os.environ, env, clear=False):
-            import ai.memory.config as mem_cfg
-            importlib.reload(mem_cfg)
-            config = mem_cfg.get_mem0_config()
-
-        embedder_cfg = config["embedder"]["config"]
-        assert embedder_cfg["api_key"] == "dashscope-key"
-        assert embedder_cfg["openai_base_url"] == "https://dashscope.aliyuncs.com/compatible-mode/v1"
-
-    def test_mem0_embedder_explicit_base_url_overrides_rag_env(self):
-        """Dedicated mem0 embedder endpoint should take precedence over OPENAI_BASE_URL."""
-        env = {
-            "MEM0_ENABLED": "true",
-            "MEM0_LLM_API_KEY": "llm-key",
-            "MEM0_EMBEDDER_API_KEY": "embedder-key",
-            "MEM0_EMBEDDER_BASE_URL": "https://example.test/compatible-mode/v1",
-            "OPENAI_BASE_URL": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-        }
-        with patch.dict(os.environ, env, clear=False):
-            import ai.memory.config as mem_cfg
-            importlib.reload(mem_cfg)
-            config = mem_cfg.get_mem0_config()
-
-        assert config["embedder"]["config"]["openai_base_url"] == "https://example.test/compatible-mode/v1"
-
-    def test_mem0_missing_model_credentials_disables_initialization(self):
-        """Enabled mem0 should fail closed before startup when both model credentials are absent."""
-        env = {
-            "MEM0_ENABLED": "true",
-            "MEM0_LLM_PROVIDER": "openai",
-            "MEM0_EMBEDDER_PROVIDER": "openai",
-            "MEM0_LLM_API_KEY": "",
-            "DEEPSEEK_API_KEY": "",
-            "MEM0_EMBEDDER_API_KEY": "",
-            "OPENAI_API_KEY": "",
-        }
-        with patch.dict(os.environ, env, clear=False):
-            import ai.memory.config as mem_cfg
-            importlib.reload(mem_cfg)
-            config = mem_cfg.get_mem0_config()
-
-        assert config is None
-
     def test_mem0_frontend_channels_enable_memory_when_env_disabled(self):
         """Complete request api_config should enable mem0 without server-side model keys."""
         env = {
-            "MEM0_ENABLED": "false",
-            "MEM0_LLM_API_KEY": "",
-            "MEM0_EMBEDDER_API_KEY": "",
-            "OPENAI_API_KEY": "",
+            "MEM0_ENABLED": "true",
         }
         api_config = {
             "mem0_llm": {
@@ -310,12 +248,10 @@ def test_mem0_pgvector_uses_authoritative_database_url(monkeypatch):
     monkeypatch.setenv("MEM0_PGVECTOR_DBNAME", "stale-db")
     monkeypatch.setenv("MEM0_PGVECTOR_USER", "stale-user")
     monkeypatch.setenv("MEM0_PGVECTOR_PASSWORD", "stale-password")
-    monkeypatch.setenv("MEM0_LLM_API_KEY", "llm-key")
-    monkeypatch.setenv("MEM0_EMBEDDER_API_KEY", "embedder-key")
 
     import ai.memory.config as mem_cfg
 
-    config = mem_cfg.get_mem0_config()
+    config = mem_cfg.get_mem0_config(_memory_request_config())
 
     assert config is not None
     pg_cfg = config["vector_store"]["config"]
@@ -336,12 +272,10 @@ def test_mem0_pgvector_allows_complete_explicit_dsn(monkeypatch):
         "MEM0_PGVECTOR_URL",
         "postgresql://memory_user:memory%20pass@memory-db:6432/memory_db",
     )
-    monkeypatch.setenv("MEM0_LLM_API_KEY", "llm-key")
-    monkeypatch.setenv("MEM0_EMBEDDER_API_KEY", "embedder-key")
 
     import ai.memory.config as mem_cfg
 
-    config = mem_cfg.get_mem0_config()
+    config = mem_cfg.get_mem0_config(_memory_request_config())
 
     assert config is not None
     pg_cfg = config["vector_store"]["config"]

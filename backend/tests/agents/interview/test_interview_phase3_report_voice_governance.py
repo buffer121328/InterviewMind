@@ -288,7 +288,7 @@ async def test_checkpoint_write_is_owner_scoped_encrypted_and_event_safe(monkeyp
     checkpoint = {"items": [{"evidence": "private candidate answer"}]}
     await service_module.AgentRunService().save_checkpoint(
         "run-1",
-        "generating_reports",
+        "assembling_evidence",
         checkpoint,
         user_id="owner-1",
     )
@@ -296,7 +296,7 @@ async def test_checkpoint_write_is_owner_scoped_encrypted_and_event_safe(monkeyp
     assert observed["query_values"] == {"run-1", "owner-1"}
     assert observed["locked"] is True
     assert observed["encrypted_input"] == checkpoint
-    assert run.step_results["generating_reports"]["checkpoint_encrypted"] == "ciphertext-only"
+    assert run.step_results["assembling_evidence"]["checkpoint_encrypted"] == "ciphertext-only"
     assert "private candidate answer" not in repr(run.step_results)
     assert observed["event"] == ("run.checkpoint.saved", {"item_count": 1})
     assert observed["committed"] is True

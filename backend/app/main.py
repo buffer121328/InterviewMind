@@ -85,22 +85,8 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("Agent 任务主动恢复循环启动失败: %s", e)
 
-    # 初始化 mem0 长期记忆服务
-    try:
-        from ai.memory import get_agent_memory_service
-        from ai.memory.config import get_mem0_config
-
-        if get_mem0_config() is None:
-            logger.info("mem0 等待请求携带前端模型设置，首次记忆请求时按需初始化")
-        else:
-            memory_service = await get_agent_memory_service()
-            if memory_service.is_enabled:
-                logger.info("✓ mem0 长期记忆服务初始化成功")
-            else:
-                logger.info("mem0 服务端配置未就绪，仍可由前端模型设置按需初始化")
-    except Exception as e:
-        logger.warning("mem0 服务端预初始化失败: %s", type(e).__name__)
-        logger.info("项目将继续运行，并允许前端模型设置在请求时按需初始化 mem0")
+    # mem0 模型连接来自前端请求并由 Redis owner 凭据水合，不能在启动时预初始化。
+    logger.info("mem0 使用请求级模型配置与 Redis 凭据，首次记忆请求时按需初始化")
 
     yield   # 暂停点，应用开始运行
 

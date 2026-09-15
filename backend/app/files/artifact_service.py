@@ -28,8 +28,6 @@ from app.db.models import (
 )
 from app.domain.interview_report_modes import (
     LEGACY_REPORT_SOURCE_VERSION,
-    InterviewReportMode,
-    normalize_report_mode,
     normalize_report_source_version,
 )
 from app.domain.interview_reports import build_interview_report_markdown
@@ -81,13 +79,12 @@ class ArtifactService:
         return f"{stem}.{extension}"
 
     @staticmethod
-    def _identity_for_export(request: ArtifactExportRequest) -> tuple[str, str]:
-        """为产物写入收口模式和来源版本，旧导出请求保持原行为。"""
+    def _identity_for_export(request: ArtifactExportRequest) -> str:
+        """为报告导出收口来源版本。"""
 
         if request.source_type != "interview_report":
-            return "default", LEGACY_REPORT_SOURCE_VERSION
-        report_mode = normalize_report_mode(request.artifact_mode).value
-        return report_mode, normalize_report_source_version(request.report_source_version)
+            return LEGACY_REPORT_SOURCE_VERSION
+        return normalize_report_source_version(request.report_source_version)
 
     async def _source(self, request: ArtifactExportRequest, user_id: str) -> tuple[str, dict[str, Any], str | None]:
         """处理来源相关后端逻辑。"""
@@ -429,7 +426,7 @@ class ArtifactService:
 
     async def export(self, request: ArtifactExportRequest, user_id: str) -> ArtifactModel:
         """处理产物服务相关后端逻辑。"""
-        artifact_mode, report_source_version = self._identity_for_export(request)
+        report_source_version = self._identity_for_export(request)
         title, report, agent_run_id = await self._source(request, user_id)
         if request.source_type in {"generated_resume", "interview_report"}:
             markdown = str(
@@ -449,7 +446,7 @@ class ArtifactService:
         filename = self._safe_filename(title, request.format)
         storage_key = (
             f"{hashlib.sha256(user_id.encode()).hexdigest()[:16]}/{request.source_type}/"
-            f"{request.source_id}/{artifact_mode}/{report_source_version}/{digest[:16]}-{filename}"
+            f"{request.source_id}/{report_source_version}/{digest[:16]}-{filename}"
         )
         path = self._path(storage_key)
         temporary_path: Path | None = None
@@ -472,7 +469,6 @@ class ArtifactService:
                     ArtifactModel.source_type == request.source_type,
                     ArtifactModel.source_id == request.source_id,
                     ArtifactModel.format == request.format,
-                    ArtifactModel.artifact_mode == artifact_mode,
                     ArtifactModel.report_source_version == report_source_version,
                 )
                 .with_for_update()
@@ -486,117 +482,11 @@ class ArtifactService:
                 user_id=user_id,
                 source_type=request.source_type,
                 source_id=request.source_id,
-                artifact_mode=artifact_mode,
                 report_source_version=report_source_version,
                 agent_run_id=agent_run_id,
                 title=title,
                 format=request.format,
                 mime_type=_MIME[request.format],
-                storage_key=storage_key,
-                size_bytes=len(content),
-                checksum_sha256=digest,
-                created_at=now,
-                updated_at=now,
-            )
-            session.add(artifact)
-            await session.commit()
-            await session.refresh(artifact)
-            return artifact
-
-    async def get_report_pdf(
-        self,
-        *,
-        session_id: str,
-        user_id: str,
-        report_mode: InterviewReportMode | str,
-        report_source_version: str | None,
-    ) -> ArtifactModel | None:
-        """按 owner、模式和来源版本读取一个面试报告 PDF，不暴露存储路径。"""
-
-        mode = normalize_report_mode(report_mode).value
-        source_version = normalize_report_source_version(report_source_version)
-        async with async_session() as session:
-            return await session.scalar(
-                select(ArtifactModel)
-                .where(
-                    ArtifactModel.user_id == user_id,
-                    ArtifactModel.source_type == "interview_report",
-                    ArtifactModel.source_id == session_id,
-                    ArtifactModel.format == "pdf",
-                    ArtifactModel.artifact_mode == mode,
-                    ArtifactModel.report_source_version == source_version,
-                )
-                .order_by(ArtifactModel.updated_at.desc())
-                .limit(1)
-            )
-
-    async def persist_interview_report_pdf(
-        self,
-        *,
-        user_id: str,
-        session_id: str,
-        title: str,
-        markdown: str,
-        report_source_version: str,
-    ) -> ArtifactModel:
-        """持久化标准报告 PDF；不生成 HTML，也不读取或覆盖深度报告产物。"""
-
-        artifact_mode = InterviewReportMode.STANDARD.value
-        source_version = normalize_report_source_version(report_source_version)
-        content = self._resume_pdf_bytes(markdown)
-        self._validate_interview_report_pdf(content)
-        digest = hashlib.sha256(content).hexdigest()
-        filename = self._safe_filename(title, "pdf")
-        storage_key = (
-            f"{hashlib.sha256(user_id.encode()).hexdigest()[:16]}/interview_report/"
-            f"{session_id}/{artifact_mode}/{source_version}/{digest[:16]}-{filename}"
-        )
-        path = self._path(storage_key)
-        temporary_path: Path | None = None
-        try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as temporary:
-                temporary.write(content)
-                temporary_path = Path(temporary.name)
-            temporary_path.replace(path)
-        except OSError as exc:
-            if temporary_path is not None:
-                temporary_path.unlink(missing_ok=True)
-            raise ArtifactStorageUnavailable() from exc
-
-        now = self._now()
-        async with async_session() as session:
-            existing = await session.scalar(
-                select(ArtifactModel)
-                .where(
-                    ArtifactModel.user_id == user_id,
-                    ArtifactModel.source_type == "interview_report",
-                    ArtifactModel.source_id == session_id,
-                    ArtifactModel.format == "pdf",
-                    ArtifactModel.artifact_mode == artifact_mode,
-                    ArtifactModel.report_source_version == source_version,
-                )
-                .with_for_update()
-            )
-            if existing:
-                existing.title = title
-                existing.storage_key = storage_key
-                existing.size_bytes = len(content)
-                existing.checksum_sha256 = digest
-                existing.updated_at = now
-                await session.commit()
-                await session.refresh(existing)
-                return existing
-            artifact = ArtifactModel(
-                user_id=user_id,
-                source_type="interview_report",
-                source_id=session_id,
-                artifact_mode=artifact_mode,
-                report_source_version=source_version,
-                agent_run_id=None,
-                title=title,
-                format="pdf",
-                mime_type=_MIME["pdf"],
                 storage_key=storage_key,
                 size_bytes=len(content),
                 checksum_sha256=digest,

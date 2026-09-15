@@ -259,7 +259,7 @@ export function BossCenter({ initialJobId, onInitialJobConsumed, onUseInIntervie
     const requireApiConfig = () => {
         const apiConfig = getApiConfigForRequest();
         if (!apiConfig) {
-            toast.error("请先配置 Smart 与 Fast 模型通道");
+            toast.error("请先配置主模型与 Fast 模型");
             return null;
         }
         return apiConfig;

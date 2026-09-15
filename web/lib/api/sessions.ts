@@ -5,7 +5,6 @@
 
 import { apiRequest, API_BASE_URL, getUserId } from './config';
 import type { JobContextSnapshot } from '../jobContextHandoff';
-import type { InterviewReportMode } from '../interviewReportMode';
 
 // ============================================================================
 // 类型定义
@@ -27,7 +26,6 @@ export interface SessionMetadata {
     parent_session_id?: string;
     series_id?: string;
     company_profile?: Record<string, unknown> | null;
-    report_mode?: InterviewReportMode;
     interview_plan?: Array<Record<string, unknown>>;
 }
 
@@ -65,7 +63,6 @@ export interface SessionListItem {
     company_info?: string;
     max_questions: number;
     has_company_profile?: boolean;
-    report_mode?: InterviewReportMode;
 }
 
 // ============================================================================

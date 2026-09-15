@@ -4,7 +4,6 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, model_validator
 
-from app.domain.interview_report_modes import InterviewReportMode
 from app.domain.interview_rounds import resolve_max_questions, resolve_round_type
 from app.schemas.jobs.job_context import JobContextSnapshot
 from app.schemas.schemas import ApiConfig
@@ -20,7 +19,6 @@ class ChatRequest(BaseModel):
     company_info: str = Field(default="未知", description="公司背景信息")
     max_questions: int | None = Field(default=None, ge=1, le=20, description="最大问题数量；不传时按面试类型默认")
     round_type: str = Field(default="tech_initial", description="面试类型：tech_initial/tech_deep/hr_comprehensive")
-    report_mode: InterviewReportMode = Field(default=InterviewReportMode.DEEP, description="报告模式")
 
     # 模型校验后执行：统一收口轮次类型与最大题数的默认值/边界校验
     @model_validator(mode="after")
@@ -51,7 +49,6 @@ class InterviewStartRequest(BaseModel):
     job_context_snapshot: Optional[JobContextSnapshot] = Field(default=None, description="来源岗位与实际编辑上下文快照")
     max_questions: int | None = Field(default=None, ge=1, le=20, description="最大问题数量；不传时按面试类型默认")
     round_type: str = Field(default="tech_initial", description="面试类型：tech_initial/tech_deep/hr_comprehensive")
-    report_mode: InterviewReportMode = Field(default=InterviewReportMode.DEEP, description="报告模式")
 
     # 模型校验后执行：统一收口轮次类型与最大题数的默认值/边界校验
     @model_validator(mode="after")
@@ -81,5 +78,4 @@ class ProfileGenerateRequest(BaseModel):
 class InterviewReportRunRequest(BaseModel):
     """触发面试报告生成的后台任务请求。"""
     session_id: str = Field(..., description="面试会话 ID，报告据此生成")
-    report_mode: InterviewReportMode = Field(default=InterviewReportMode.DEEP, description="报告模式；旧调用缺省为 deep")
     api_config: Optional[ApiConfig] = Field(default=None, description="用户自定义 API 配置")

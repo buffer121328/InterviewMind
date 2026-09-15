@@ -29,9 +29,59 @@ from app.schemas.evaluation.evaluations import (
     InterviewEvaluationConfirmRequest,
     InterviewEvaluationDraftRequest,
     InterviewEvaluationRetryRequest,
+    ProductionHistoryConfirmRequest,
 )
 
 router = APIRouter(prefix="/api/evaluations", tags=["Agent 评测"])
+
+
+@router.get("/production-history/sources")
+async def list_production_history_sources(
+    capability: str = Query(..., min_length=1, max_length=80),
+    limit: int = Query(default=50, ge=1, le=100),
+    user_id: str = Depends(get_current_user_id),
+):
+    """列出当前用户可晋升的六类已持久化业务记录。"""
+
+    try:
+        return await evaluation_use_cases.list_production_history_sources(
+            user_id=user_id, capability=capability, limit=limit
+        )
+    except EvaluationUseCaseError as exc:
+        _raise(exc)
+
+
+@router.get("/production-history/sources/{capability}/{source_id}")
+async def get_production_history_source(
+    capability: str,
+    source_id: str,
+    user_id: str = Depends(get_current_user_id),
+):
+    """返回服务端重建并脱敏的权威 input 预览。"""
+
+    try:
+        return await evaluation_use_cases.get_production_history_source(
+            user_id=user_id, capability=capability, source_id=source_id
+        )
+    except EvaluationUseCaseError as exc:
+        _raise(exc)
+
+
+@router.post("/production-history/sources/{capability}/{source_id}/confirm", status_code=201)
+async def confirm_production_history_source(
+    capability: str,
+    source_id: str,
+    request: ProductionHistoryConfirmRequest,
+    user_id: str = Depends(get_current_user_id),
+):
+    """人工确认后创建一个 draft Candidate Dataset，不自动运行或锁定。"""
+
+    try:
+        return await evaluation_use_cases.confirm_production_history_source(
+            user_id=user_id, capability=capability, source_id=source_id, request=request
+        )
+    except EvaluationUseCaseError as exc:
+        _raise(exc)
 
 
 def _raise(exc: EvaluationUseCaseError) -> NoReturn:

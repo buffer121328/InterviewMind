@@ -45,8 +45,18 @@ class AnnotationRepositoryMixin:
                 adjudication: 传入的 adjudication 值。
             """
 
-            if await self.get_case_run(session, case_run_id=case_run_id, user_id=user_id) is None:
+            case_run = await self.get_case_run(
+                session, case_run_id=case_run_id, user_id=user_id
+            )
+            if case_run is None:
                 raise LookupError("case run not found")
+            if adjudication:
+                if not isinstance(request.value, bool):
+                    raise ValueError("专家裁决必须是明确的通过或不通过")
+                if request.value and (
+                    case_run.status != "succeeded" or not case_run.hard_gate_passed
+                ):
+                    raise ValueError("运行失败或硬门禁失败的案例不能通过专家裁决")
             latest = await session.scalar(
                 select(func.max(EvaluationAnnotationModel.revision)).where(
                     EvaluationAnnotationModel.case_run_id == case_run_id
@@ -106,14 +116,15 @@ class AnnotationRepositoryMixin:
                 )
             )
             if adjudication:
-                case_run = await self.get_case_run(
-                    session, case_run_id=case_run_id, user_id=user_id
+                case_run.review_status = "approved" if request.value else "rejected"
+                case_run.review_resolver_key = "adjudicator"
+                case_run.review_resolved_at = _now()
+                case_run.review_resolution_note = request.comment or "专家裁决"
+                await self._refresh_run_review_state(
+                    session,
+                    run_id=case_run.evaluation_run_id,
+                    user_id=user_id,
                 )
-                if case_run is not None:
-                    case_run.review_status = "approved" if case_run.status == "succeeded" and case_run.hard_gate_passed else "rejected"
-                    case_run.review_resolver_key = "adjudicator"
-                    case_run.review_resolved_at = _now()
-                    case_run.review_resolution_note = "专家裁决"
             await session.flush()
             return row
 

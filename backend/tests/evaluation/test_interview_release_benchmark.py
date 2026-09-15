@@ -40,7 +40,7 @@ def test_release_benchmark_preserves_runs_and_exposes_report_call_structure() ->
     assert report_calls["after"] == {
         "deep_logical_model_calls": 5,
         "standard_logical_model_calls": 1,
-        "standard_channel": "general",
+        "standard_channel": "smart",
     }
 
 

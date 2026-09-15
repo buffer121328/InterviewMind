@@ -155,7 +155,6 @@ export function rehydrateApiConfig(value: unknown, fallback: ApiConfig): ApiConf
         matchAnalystModelId: readId('matchAnalystModelId'),
         reflectorModelId: readId('reflectorModelId'),
         hrReviewerModelId: readId('hrReviewerModelId'),
-        generalModelId: readId('generalModelId'),
         contentWriterModelId: readId('contentWriterModelId'),
         mimoModelId: readId('mimoModelId'),
         ragEmbeddingModelId: readId('ragEmbeddingModelId'),

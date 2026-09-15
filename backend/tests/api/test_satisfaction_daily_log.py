@@ -98,8 +98,10 @@ async def test_use_case_appends_only_when_feedback_record_is_new(monkeypatch) ->
 
     record = _record("ufb_new", datetime(2026, 8, 17, 12, 0, tzinfo=UTC))
     submit = AsyncMock(return_value=(record, True))
+    validate = AsyncMock(return_value=True)
     append = AsyncMock()
     monkeypatch.setattr(satisfaction_module, "submit", submit)
+    monkeypatch.setattr(satisfaction_module, "validate_feedback_source", validate)
     monkeypatch.setattr(satisfaction_module, "append_satisfaction_daily_log", append)
 
     result = await satisfaction_module.SatisfactionUseCases().submit(

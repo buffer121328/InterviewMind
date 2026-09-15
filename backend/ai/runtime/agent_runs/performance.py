@@ -576,12 +576,92 @@ def _new_budget_stage(stage: str) -> dict[str, Any]:
         "primary_warning": None,
         "context_protection_sources": [],
         "model_names": [],
+        "final_model_name": None,
+        "attempts": [],
+        "_attempt_map": {},
+        "_current_attempt_key": None,
         "first_event_at": None,
         "last_event_at": None,
         "_first_event_dt": None,
         "_last_event_dt": None,
         "_current_attempt_dt": None,
     }
+
+
+def _budget_attempt_key(payload: dict[str, Any], *, fallback_key: str | None = None) -> str:
+    """Build a bounded candidate key without retaining prompt or provider errors."""
+
+    candidate = _budget_number(payload.get("candidate_index"))
+    fallback = _budget_number(payload.get("fallback_index")) or 0
+    model = str(payload.get("model_name") or "").strip()[:120]
+    attempt = _budget_number(payload.get("attempt")) or 1
+    if fallback_key and candidate is None and fallback == 0 and not model:
+        return fallback_key
+    return f"{candidate if candidate is not None else 'unknown'}:{fallback}:{model or 'unknown'}:{attempt}"
+
+
+def _new_budget_attempt(payload: dict[str, Any]) -> dict[str, Any]:
+    """Create the safe public fields for one model candidate attempt."""
+
+    candidate = _budget_number(payload.get("candidate_index"))
+    fallback = _budget_number(payload.get("fallback_index")) or 0
+    attempt = _budget_number(payload.get("attempt")) or 1
+    model_name = str(payload.get("model_name") or "").strip()[:120] or None
+    provider = str(payload.get("model_provider") or "").strip()[:80] or None
+    return {
+        "candidate_index": candidate,
+        "fallback_index": fallback,
+        "attempt": attempt,
+        "model_name": model_name,
+        "model_provider": provider,
+        "status": "unknown",
+        "failure_type": None,
+        "failure_types": [],
+        "repair_outcome": None,
+        "usage_status": None,
+        "duration_ms": None,
+        "model_duration_ms": None,
+        "input_tokens": None,
+        "output_tokens": None,
+        "total_tokens": None,
+        "started_at": None,
+        "finished_at": None,
+    }
+
+
+def _budget_find_open_repair_attempt(
+    stage_map: dict[str, dict[str, Any]],
+    payload: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Locate the newest open model call that a cross-stage repair concludes."""
+
+    candidate = _budget_number(payload.get("candidate_index"))
+    fallback = _budget_number(payload.get("fallback_index")) or 0
+    attempt_number = _budget_number(payload.get("attempt")) or 1
+    model_name = str(payload.get("model_name") or "").strip()[:120] or None
+    for stage in reversed(list(stage_map.values())):
+        for existing_attempt in reversed(stage["attempts"]):
+            if existing_attempt.get("status") != "running":
+                continue
+            if existing_attempt.get("candidate_index") != candidate:
+                continue
+            if existing_attempt.get("fallback_index") != fallback:
+                continue
+            if existing_attempt.get("attempt") != attempt_number:
+                continue
+            if model_name and existing_attempt.get("model_name") != model_name:
+                continue
+            return existing_attempt
+    return None
+
+
+def _budget_attempt_issue(attempt: dict[str, Any], issue: str | None) -> None:
+    """Attach only the bounded failure category to an attempt."""
+
+    if issue and issue not in {"fallback", "retry"}:
+        if issue not in attempt["failure_types"]:
+            attempt["failure_types"].append(issue)
+        attempt["failure_type"] = issue
 
 
 def _budget_stage_kind(stage_name: str, event_type: str) -> str:
@@ -708,6 +788,80 @@ def build_run_budget_monitor(
         stage["event_count"] += 1
         status = _budget_status(event_type, payload)
         stage["status"] = status
+        if event_type.startswith("llm.request."):
+            is_repair = ".repair." in event_type
+            attempt_map = stage["_attempt_map"]
+            attempt = (
+                _budget_find_open_repair_attempt(stage_map, payload)
+                if is_repair and not event_type.endswith(".started")
+                else None
+            )
+            key = _budget_attempt_key(
+                payload,
+                fallback_key=stage.get("_current_attempt_key") if is_repair else None,
+            )
+            if attempt is None and not payload.get("model_name"):
+                candidate = _budget_number(payload.get("candidate_index"))
+                fallback_index = _budget_number(payload.get("fallback_index")) or 0
+                attempt_number = _budget_number(payload.get("attempt")) or 1
+                matching_key = next(
+                    (
+                        existing_key
+                        for existing_key, existing_attempt in attempt_map.items()
+                        if existing_attempt.get("candidate_index") == candidate
+                        and existing_attempt.get("fallback_index") == fallback_index
+                        and existing_attempt.get("attempt") == attempt_number
+                    ),
+                    None,
+                )
+                if matching_key:
+                    key = matching_key
+            if attempt is None:
+                attempt = attempt_map.get(key)
+                if attempt is None:
+                    attempt = _new_budget_attempt(payload)
+                    attempt_map[key] = attempt
+                    stage["attempts"].append(attempt)
+            if not is_repair and event_type.endswith(".started"):
+                stage["_current_attempt_key"] = key
+            if payload.get("model_name") and not attempt.get("model_name"):
+                attempt["model_name"] = str(payload["model_name"]).strip()[:120]
+            if payload.get("model_provider") and not attempt.get("model_provider"):
+                attempt["model_provider"] = str(payload["model_provider"]).strip()[:80]
+            if created_at is not None:
+                if event_type.endswith(".started") and not is_repair:
+                    attempt["started_at"] = _isoformat(created_at)
+                elif attempt.get("started_at") is None:
+                    attempt["started_at"] = _isoformat(created_at)
+                if _budget_event_terminal(event_type, status) or event_type.endswith(".repair.completed") or event_type.endswith(".repair.failed"):
+                    attempt["finished_at"] = _isoformat(created_at)
+            if is_repair:
+                if event_type.endswith(".started"):
+                    attempt["repair_outcome"] = "started"
+                elif event_type.endswith(".completed"):
+                    attempt["repair_outcome"] = "completed"
+                    attempt["status"] = "succeeded"
+                elif event_type.endswith(".failed"):
+                    attempt["repair_outcome"] = "failed"
+                    attempt["status"] = "failed"
+                    _budget_attempt_issue(attempt, _classify_event_issue(payload, event_type))
+            else:
+                attempt["status"] = status
+                issue = _classify_event_issue(payload, event_type)
+                _budget_attempt_issue(attempt, issue)
+                usage_status = str(payload.get("usage_status") or "").strip()[:32]
+                if usage_status:
+                    attempt["usage_status"] = usage_status
+                for token_key in ("input_tokens", "output_tokens", "total_tokens"):
+                    value = _budget_number(payload.get(token_key))
+                    if value is not None:
+                        attempt[token_key] = value
+                model_duration = _budget_number(payload.get("model_duration_ms"))
+                duration = model_duration if model_duration is not None else _budget_number(payload.get("duration_ms"))
+                if duration is not None:
+                    attempt["duration_ms"] = duration
+                if model_duration is not None:
+                    attempt["model_duration_ms"] = model_duration
         stage["deadline_ms"] = _budget_number(payload.get("deadline_ms")) or stage["deadline_ms"]
         remaining = _budget_number(payload.get("deadline_remaining_ms"))
         if remaining is not None:
@@ -786,13 +940,25 @@ def build_run_budget_monitor(
         if model_name:
             _budget_append_unique(stage["model_names"], model_name)
 
+    run_status = str(getattr(run, "status", "unknown") or "unknown")
+    run_started_at = getattr(run, "started_at", None) or getattr(run, "created_at", None)
+    run_finished_at = getattr(run, "finished_at", None)
+    is_active = run_status in _ACTIVE_TASK_STATUSES
+    stage_end_time = current_time if is_active else run_finished_at or current_time
+
     for stage in stage_map.values():
+        if not is_active:
+            if stage["status"] == "running":
+                stage["status"] = "unknown"
+            for attempt in stage["attempts"]:
+                if attempt.get("status") == "running":
+                    attempt["status"] = "unknown"
         first = stage.get("_first_event_dt")
         last = stage.get("_last_event_dt")
         if stage["status"] in {"running", "unknown"}:
             stage["elapsed_ms"] = _budget_elapsed_ms(
                 stage.get("_current_attempt_dt") or first,
-                current_time,
+                stage_end_time,
             )
         else:
             stage["elapsed_ms"] = _budget_elapsed_ms(
@@ -807,6 +973,23 @@ def build_run_budget_monitor(
             (warning for warning in _WARNING_PRIORITY if warning in stage["warning_types"]),
             stage["warning_types"][0] if stage["warning_types"] else None,
         )
+        stage["attempts"] = [
+            {
+                **attempt,
+                "failure_types": list(attempt.get("failure_types") or []),
+            }
+            for attempt in stage["attempts"]
+        ]
+        stage["final_model_name"] = next(
+            (
+                attempt.get("model_name")
+                for attempt in reversed(stage["attempts"])
+                if attempt.get("status") == "succeeded" and attempt.get("model_name")
+            ),
+            None,
+        )
+        stage.pop("_attempt_map", None)
+        stage.pop("_current_attempt_key", None)
         stage.pop("_first_event_dt", None)
         stage.pop("_last_event_dt", None)
         stage.pop("_current_attempt_dt", None)
@@ -815,13 +998,9 @@ def build_run_budget_monitor(
         elif stage["total_tokens"] is None and stage["input_tokens"] is not None and stage["output_tokens"] is not None:
             stage["total_tokens"] = stage["input_tokens"] + stage["output_tokens"]
 
-    run_status = str(getattr(run, "status", "unknown") or "unknown")
-    run_started_at = getattr(run, "started_at", None) or getattr(run, "created_at", None)
-    run_finished_at = getattr(run, "finished_at", None)
     run_elapsed = _budget_elapsed_ms(run_started_at, run_finished_at or current_time)
     if run_elapsed is None:
         run_elapsed = _budget_elapsed_ms(first_event_at, run_finished_at or current_time)
-    is_active = run_status in _ACTIVE_TASK_STATUSES
     primary_issue = next((issue for issue in _ISSUE_PRIORITY if issue_counts[issue]), None)
     if run_status in {"succeeded", "completed"}:
         outcome = "recovered" if issue_counts else "succeeded"
